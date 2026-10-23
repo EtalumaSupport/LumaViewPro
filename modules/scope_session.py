@@ -2714,7 +2714,7 @@ class ScopeSession:
 
     @api(sets='saved_focus')
     @_guarded_write
-    def save_layer_focus(self, channel: str, z_um: float) -> None:
+    def save_channel_focus(self, channel: str, z_um: float) -> None:
         """Store ``z_um`` as ``channel``'s focus, the Z every new step of the layer is born at.
 
         The door for a caller that holds a number rather than a stage: the
@@ -2734,7 +2734,7 @@ class ScopeSession:
                 outside Z's travel. Nothing is written.
         """
         self.scope.layer_identity.refuse_unless_on_scope(
-            channel, 'save_layer_focus', then='take a focus'
+            channel, 'save_channel_focus', then='take a focus'
         )
         z = self._store_layer_focus(channel, z_um)
         logger.info(f'[Session  ] Focus saved: {channel} Z={z}')

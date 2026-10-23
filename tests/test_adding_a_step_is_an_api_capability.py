@@ -216,7 +216,7 @@ class TestAScriptAddsAStepThroughTheSession:
             session.settings[layer]['acquire'] = None
         for layer, focus in saved.items():
             session.settings[layer]['acquire'] = 'image'
-            session.save_layer_focus(layer, focus)
+            session.save_channel_focus(layer, focus)
         session.scope.motion.move_z(5000.0)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()

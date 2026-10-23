@@ -95,7 +95,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'bookmark': _session('save_bookmark'),
     '*.acquire': _session('set_channel_acquire'),
     '*.auto_gain': _session('set_channel_auto_gain'),
-    '*.focus': _session('save_layer_focus'),
+    '*.focus': _session('save_channel_focus'),
 }
 
 # A setting only the installation's settings file sets: it decides how the

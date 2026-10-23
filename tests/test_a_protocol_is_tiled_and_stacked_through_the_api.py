@@ -231,7 +231,7 @@ def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
         session.settings[layer]['autofocus'] = False
     for layer, focus in (('BF', bf_focus), ('Blue', blue_focus)):
         session.settings[layer]['acquire'] = 'image'
-        session.save_layer_focus(layer, focus)
+        session.save_channel_focus(layer, focus)
     session.settings['BF']['autofocus'] = True
     session.settings['zstack'] = {
         'range': range_um,
@@ -287,7 +287,7 @@ def _new_bf_and_blue_tiled(session, tiling):
         session.settings[layer]['acquire'] = None
     for layer, focus in (('BF', 5000.0), ('Blue', 4990.0)):
         session.set_channel_acquire(layer, 'image')
-        session.save_layer_focus(layer, focus)
+        session.save_channel_focus(layer, focus)
     return session.new_protocol(tiling=tiling)
 
 

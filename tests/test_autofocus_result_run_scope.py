@@ -28,7 +28,7 @@ The run now clears the result before producing one, and reports what it
 found in its outcome (``af_focus_z_um``). ``start_autofocus`` writes no focus
 itself; the Autofocus button saves the outcome's Z, on ``run_ended``, as the
 focus of the layer it started the run on, through
-``ScopeSession.save_layer_focus``.
+``ScopeSession.save_channel_focus``.
 """
 
 from __future__ import annotations
@@ -198,7 +198,7 @@ class _Session:
         self.engineering_mode = False
         self.shown_channel = ShownChannel('Green', lit=False)
 
-    def save_layer_focus(self, layer, z_um):
+    def save_channel_focus(self, layer, z_um):
         self.saved.append((layer, z_um))
 
 
@@ -287,7 +287,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
         def _refuse(layer, z_um):
             raise refused
 
-        gui.ctx.session.save_layer_focus = _refuse
+        gui.ctx.session.save_channel_focus = _refuse
         monkeypatch.setattr(run_events, 'schedule_ui', lambda fn, *a: fn(0))
         reported = []
         monkeypatch.setattr(

@@ -367,7 +367,7 @@ class VerticalControl(BoxLayout):
         # these widgets show illumination, gain and exposure, not focus.
         ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
         if outcome.af_focus_z_um is not None:
-            ctx.session.save_layer_focus(layer, outcome.af_focus_z_um)
+            ctx.session.save_channel_focus(layer, outcome.af_focus_z_um)
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.

@@ -169,8 +169,8 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
         (
             'Blue.focus',
             ScopeSession,
-            'save_layer_focus',
-            'ScopeSession.save_layer_focus',
+            'save_channel_focus',
+            'ScopeSession.save_channel_focus',
             'has_member',
         ),
     ],
