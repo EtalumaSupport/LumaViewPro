@@ -126,7 +126,7 @@ class TestDisableHomingIsNoStartupMotion:
         session.run_application_session(
             disable_homing=True,
             home_fn=lambda axis: attempts.append(('home', axis)),
-            turret_fn=lambda position: attempts.append(('turret', position)),
+            turret_fn=lambda slot: attempts.append(('turret', slot)),
         )
 
         assert attempts == [], f'homing disabled must issue no motion, got {attempts}'

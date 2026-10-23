@@ -5092,53 +5092,53 @@ class ScopeSession:
 
     @api(sets='turret_objective')
     @_guarded_write
-    def assign_turret_objective(self, position: int, objective_id: str) -> None:
-        """Bind ``objective_id`` to turret slot ``position``.
+    def assign_turret_objective(self, slot: int, objective_id: str) -> None:
+        """Bind ``objective_id`` to the turret's ``slot``.
 
         Binding the objective the slot already holds is a no-op.
 
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
-                turret, said before ``position`` or ``objective_id`` is
+                turret, said before ``slot`` or ``objective_id`` is
                 judged; or a run, a diagnostic or a recording holds the
                 scope (``exclusive_activity_running``). Nothing is written.
-            PositionOutOfRangeError: ``position`` is not a slot number 1-4.
+            PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
             ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is None.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key.
         """
         self._refuse_without_a_turret('assign_turret_objective')
-        refuse_unless_turret_slot(position)
+        refuse_unless_turret_slot(slot)
         self.objective_helper.get_objective_info(objective_id=objective_id)
-        if self.settings['turret_objectives'].get(position) == objective_id:
+        if self.settings['turret_objectives'].get(slot) == objective_id:
             return
         self._refuse_configuration_change_while_held('assign_turret_objective')
         with self.settings_lock:
             # The slots are keyed by integer, which a dotted path cannot
             # name, so the slot map is stored whole.
-            slots = {**self.settings['turret_objectives'], position: objective_id}
+            slots = {**self.settings['turret_objectives'], slot: objective_id}
             self._store_setting('turret_objectives', slots)
 
     @api(reads=True)
-    def turret_objective(self, position: int) -> 'str | None':
-        """The objective bound to turret slot ``position``, or None while it holds none.
+    def turret_objective(self, slot: int) -> 'str | None':
+        """The objective bound to the turret's ``slot``, or None while it holds none.
 
         What ``assign_turret_objective`` bound; the active objective is the
         slot's in the light path (``objective_id``).
 
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
-                turret, said before ``position`` is judged.
-            PositionOutOfRangeError: ``position`` is not a slot number 1-4.
+                turret, said before ``slot`` is judged.
+            PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
         """
         self._refuse_without_a_turret('turret_objective')
-        refuse_unless_turret_slot(position)
-        return self.settings['turret_objectives'][position]
+        refuse_unless_turret_slot(slot)
+        return self.settings['turret_objectives'][slot]
 
     @api
     @_guarded_write
-    def clear_turret_objective(self, position: int) -> None:
-        """Leave turret slot ``position`` unassigned.
+    def clear_turret_objective(self, slot: int) -> None:
+        """Leave the turret's ``slot`` unassigned.
 
         Logged for every host: with that slot in the light path the active
         objective is now unknown, and a support bundle can only explain a
@@ -5146,21 +5146,21 @@ class ScopeSession:
 
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
-                turret, said before ``position`` is judged; or a run, a
+                turret, said before ``slot`` is judged; or a run, a
                 diagnostic or a recording holds the scope and the slot has an
                 assignment (``exclusive_activity_running``). Nothing is
                 written.
-            PositionOutOfRangeError: ``position`` is not a slot number 1-4.
+            PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
         """
         self._refuse_without_a_turret('clear_turret_objective')
-        refuse_unless_turret_slot(position)
-        if self.settings['turret_objectives'].get(position) is not None:
+        refuse_unless_turret_slot(slot)
+        if self.settings['turret_objectives'].get(slot) is not None:
             self._refuse_configuration_change_while_held('clear_turret_objective')
         with self.settings_lock:
-            slots = {**self.settings['turret_objectives'], position: None}
+            slots = {**self.settings['turret_objectives'], slot: None}
             self._store_setting('turret_objectives', slots)
         logger.info(
-            f'[Session  ] Turret position {position} cleared; the active objective is now '
+            f'[Session  ] Turret slot {slot} cleared; the active objective is now '
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
         )
 
@@ -5662,7 +5662,7 @@ class ScopeSession:
             disable_homing: If True, issue no startup motion at all.
             home_fn: Callable taking an axis name that homes it and raises
                 as ``MotionAPI.home`` does. Defaults to the motion API.
-            turret_fn: Callable taking a turret position. Defaults to
+            turret_fn: Callable taking a turret slot. Defaults to
                 the motion API.
 
         Raises:
@@ -5690,7 +5690,7 @@ class ScopeSession:
         if home_fn is None:
             home_fn = self.scope.motion.home
         if turret_fn is None:
-            turret_fn = lambda position: self.scope.motion.move_turret(position)
+            turret_fn = lambda slot: self.scope.motion.move_turret(slot)
 
         @slow_task_budget(STARTUP_MOTION_SLOW_TASK_S)
         def startup_motion() -> None:

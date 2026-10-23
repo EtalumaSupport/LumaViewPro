@@ -199,9 +199,7 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
 
 def test_a_wire_slot_out_of_range_is_the_requests(turret_session):
     with TestClient(build_app(turret_session)) as client:
-        answer = client.put(
-            '/api/v1/turret_objective', json={'position': 5, 'objective_id': '10x Oly'}
-        )
+        answer = client.put('/api/v1/turret_objective', json={'slot': 5, 'objective_id': '10x Oly'})
     assert answer.status_code == 422
     assert answer.json()['reason'] == 'position_out_of_range'
 

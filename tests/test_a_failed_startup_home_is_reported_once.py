@@ -64,6 +64,6 @@ def test_a_busy_refusal_reaches_the_caller(session, centre_posts):
     refusal = HardwareCommandRefusedError('exclusive_activity_running', 'home', 'protocol')
 
     with pytest.raises(HardwareCommandRefusedError) as raised:
-        session.run_application_session(home_fn=_raises(refusal), turret_fn=lambda position: None)
+        session.run_application_session(home_fn=_raises(refusal), turret_fn=lambda slot: None)
 
     assert raised.value is refusal

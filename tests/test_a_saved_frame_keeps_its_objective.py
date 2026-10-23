@@ -98,11 +98,11 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
 
         real_turret_move = motion._move_turret_impl
 
-        def _turret_move(position, restore_z=True):
+        def _turret_move(slot, restore_z=True):
             # The run's own turret move, observed: the engine turns the
             # turret before each step's capture.
-            real_turret_move(position=position, restore_z=restore_z)
-            if position == SECOND_SLOT:
+            real_turret_move(slot=slot, restore_z=restore_z)
+            if slot == SECOND_SLOT:
                 second_turret_move_returned.set()
 
         monkeypatch.setattr(motion, '_move_turret_impl', _turret_move)

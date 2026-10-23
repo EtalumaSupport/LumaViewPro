@@ -153,14 +153,14 @@ def main():
         lit_at_turn = []
         illumination = session.scope.illumination
 
-        def _observed_move_turret(position, restore_z=True):
+        def _observed_move_turret(slot, restore_z=True):
             lit_at_turn.append(
                 sorted(
                     str(r.name) for r in illumination.get_led_states() if r.state is LedState.LIT
                 )
             )
-            real_move_turret(position=position, restore_z=restore_z)
-            turned_to.append((position, motion.get_turret_slot()))
+            real_move_turret(slot=slot, restore_z=restore_z)
+            turned_to.append((slot, motion.get_turret_slot()))
 
         motion.move_turret = _observed_move_turret
         run_parent = SCRATCH / 'p10_runs'

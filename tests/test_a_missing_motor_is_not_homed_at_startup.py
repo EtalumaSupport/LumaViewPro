@@ -65,7 +65,7 @@ def test_a_motor_that_came_up_is_homed(monkeypatch, tmp_path, centre_posts):
     session = _bring_up(monkeypatch, tmp_path, microscope='LS850T')
     homed = []
     try:
-        session.run_application_session(home_fn=homed.append, turret_fn=lambda position: None)
+        session.run_application_session(home_fn=homed.append, turret_fn=lambda slot: None)
     finally:
         session.shutdown()
         session.scope.disconnect()

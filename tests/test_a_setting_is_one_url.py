@@ -47,8 +47,8 @@ _WRITES = {
 }
 _REFUSED = {
     'turret_objective': (
-        {'position': 2, 'objective_id': '10x Oly'},
-        {'position': 2},
+        {'slot': 2, 'objective_id': '10x Oly'},
+        {'slot': 2},
         'axis_absent',
     ),
     'scope/camera/high_conversion_gain': (

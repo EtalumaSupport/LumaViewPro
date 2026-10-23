@@ -103,33 +103,33 @@ def refuse_acceleration_pct(val_pct: object) -> None:
         raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
 
 
-def is_turret_slot(position: object) -> bool:
-    """Whether ``position`` names a turret slot.
+def is_turret_slot(slot: object) -> bool:
+    """Whether ``slot`` is a turret slot.
 
     A bool is excluded explicitly: it is an int in Python, so ``True``
     would otherwise pass as slot 1.
     """
     return (
-        isinstance(position, int)
-        and not isinstance(position, bool)
-        and TURRET_SLOT_MIN <= position <= TURRET_SLOT_MAX
+        isinstance(slot, int)
+        and not isinstance(slot, bool)
+        and TURRET_SLOT_MIN <= slot <= TURRET_SLOT_MAX
     )
 
 
-def refuse_unless_turret_slot(position: object) -> None:
-    """Refuse ``position`` unless it names a turret slot.
+def refuse_unless_turret_slot(slot: object) -> None:
+    """Refuse ``slot`` unless it is a turret slot.
 
     The one refusal of a slot, for every member that takes one, so a bad
     slot reads the same whether it was sent to move the turret, to assign
     an objective, or as the preferred slot at bring-up.
 
     Raises:
-        PositionOutOfRangeError: ``position`` is not a whole number 1-4.
+        PositionOutOfRangeError: ``slot`` is not a whole number 1-4.
     """
-    if not is_turret_slot(position):
+    if not is_turret_slot(slot):
         raise PositionOutOfRangeError(
             'T',
-            position,
+            slot,
             TURRET_SLOT_MIN,
             TURRET_SLOT_MAX,
             bound='turret slots',

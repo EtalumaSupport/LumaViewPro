@@ -151,7 +151,7 @@ def test_turret_move_refuses_before_lowering_z(scope):
     _home_and_fail(scope)
     z_before = scope._motion_driver.target_pos('Z')
     with pytest.raises(AxisStateUnknownError) as exc:
-        scope.motion._move_turret_impl(position=3)
+        scope.motion._move_turret_impl(slot=3)
     assert exc.value.axis == 'T'
     assert scope._motion_driver.target_pos('Z') == z_before, (
         'Z must not be driven by a turret move that was refused'
@@ -221,7 +221,7 @@ def test_turret_fault_revokes_homed_state(scope):
         'clears only on physical disconnect'
     )
     with pytest.raises(AxisStateUnknownError):
-        scope.motion._move_turret_impl(position=2)
+        scope.motion._move_turret_impl(slot=2)
 
 
 def test_stage_fault_revokes_homed_state(scope):

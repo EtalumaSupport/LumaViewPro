@@ -28,9 +28,9 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
         real_turret_move = motion._move_turret_impl
         visited = []
 
-        def _turret_move(position, restore_z=True):
-            real_turret_move(position=position, restore_z=restore_z)
-            visited.append((position, restore_z))
+        def _turret_move(slot, restore_z=True):
+            real_turret_move(slot=slot, restore_z=restore_z)
+            visited.append((slot, restore_z))
 
         monkeypatch.setattr(motion, '_move_turret_impl', _turret_move)
         displayed = []

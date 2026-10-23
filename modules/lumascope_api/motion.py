@@ -1253,11 +1253,11 @@ class MotionAPI:
                 _api_log.info('T home DONE')
 
     @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
-    def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
-        """Move the turret to a specific position. Skips if already there.
+    def _move_turret_impl(self, slot: int, restore_z: bool = True) -> None:
+        """Move the turret to a slot. Skips if already there.
 
         Args:
-            position: Target turret position (1-4).
+            slot: Target turret slot (1-4).
             restore_z: When True (default), restore the pre-move Z
                 position after the turret move completes. Set to False
                 when the caller will immediately set Z to a different
@@ -1281,7 +1281,7 @@ class MotionAPI:
         # load-bearing: this one precedes the safety Z-retract and the
         # same-position short-circuit, so a nonsense slot cannot drop Z or
         # poison the position cache on its way to being refused.
-        refuse_unless_turret_slot(position)
+        refuse_unless_turret_slot(slot)
 
         # Refuse BEFORE the safety Z-retract below, not inside it. The
         # retract is real motion; gating only the inner turret move would
@@ -1297,7 +1297,7 @@ class MotionAPI:
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # A request for the slot the last successful turret command left the
         # turret in is answered without moving.
-        if self._last_turret_position == position:
+        if self._last_turret_position == slot:
             return
 
         # Unknown from the start, and written only once the whole command --
@@ -1308,13 +1308,13 @@ class MotionAPI:
         # force once its slot is recorded (see home()).
         with self._command():
             with self._safe_turret_move(restore_z=restore_z) as stop_generation:
-                logger.info(f'[SCOPE API ] Moving T to position {position}')
-                self._move_absolute_impl('T', position).result()
+                logger.info(f'[SCOPE API ] Moving T to slot {slot}')
+                self._move_absolute_impl('T', slot).result()
             # T's own wait judges only T; a stop after T arrived, before the
             # restore, ended the change all the same.
             if self._stopped_since(stop_generation):
                 raise MoveStoppedError('T', 'stopped')
-            self._last_turret_position = int(position)
+            self._last_turret_position = int(slot)
 
     @api(reads=True)
     def get_turret_slot(self) -> int | None:
@@ -3107,8 +3107,8 @@ class MotionAPI:
         return body, release_if_unrun, stop, held if held is not None else current
 
     @api
-    def move_turret(self, position: int, restore_z: bool = True) -> None:
-        """Move the turret to a position, and wait for it. See ``_move_turret_impl``.
+    def move_turret(self, slot: int, restore_z: bool = True) -> None:
+        """Move the turret to a slot, and wait for it. See ``_move_turret_impl``.
 
         Three moves -- the Z park, the turret move itself and the Z restore
         -- each judged as every move is, so the wait sets no time limit of
@@ -3124,7 +3124,7 @@ class MotionAPI:
         return self._dispatch_motion(
             self._move_turret_impl,
             'move_turret',
-            args=(position,),
+            args=(slot,),
             kwargs={'restore_z': restore_z},
             timeout_s=None,
             falsifies_recording=True,

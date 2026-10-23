@@ -272,7 +272,7 @@ scope.runtime_state.get_field_of_view()                # FieldOfView(width_um, h
 
 # Turret integration
 scope.runtime_state.get_turret_config()                # (in-process) {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy;
-                                                       # a wire client reads a slot as session.turret_objective(position)
+                                                       # a wire client reads a slot as session.turret_objective(slot)
 scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
@@ -1835,7 +1835,7 @@ scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 c
 
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
-scope.motion.move_turret(2)                      # turret position 1-4; any other slot raises
+scope.motion.move_turret(2)                      # turret slot 1-4; any other slot raises
                                                  # PositionOutOfRangeError rather than driving
 scope.motion.get_turret_slot()                   # slot in the light path, or None when not known
 # The turret has no encoder: the slot is the one the last move_turret or home

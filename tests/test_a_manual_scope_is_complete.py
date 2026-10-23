@@ -88,7 +88,7 @@ def test_a_manual_scope_starts_without_a_home_and_is_admitted(model, tier, centr
         homes = []
         session.run_application_session(
             home_fn=lambda axis: homes.append(axis),
-            turret_fn=lambda position: homes.append(('T', position)),
+            turret_fn=lambda slot: homes.append(('T', slot)),
         )
         assert homes == []
         assert [n.title for n in centre_posts if n.severity == Severity.ERROR] == []

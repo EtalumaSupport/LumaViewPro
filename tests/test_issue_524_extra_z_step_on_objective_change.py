@@ -7,7 +7,7 @@ Every protocol step that crosses an objective went:
   step_navigation.go_to_step:118
     -> ui_helpers.move_absolute('T', protocol=True)
     -> vertical_control.turret_select(protocol=True)
-    -> motion.move_turret(position=...)
+    -> motion.move_turret(slot=...)
     -> motion._safe_turret_move() (context manager)
         -> Z to 0
         -> T move
