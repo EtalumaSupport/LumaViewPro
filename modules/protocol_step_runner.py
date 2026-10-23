@@ -626,7 +626,7 @@ class ProtocolStepRunner:
         # are only of its objective if that objective is in the light path.
         if targets.turret_slot is not None:
             self._move_turret_through_io(targets.turret_slot)
-        self._move_to_stage(targets.x, targets.y, targets.z)
+        self._move_to_stage(targets.x_um, targets.y_um, targets.z_um)
 
     # ------------------------------------------------------------------
     # Grease redistribution

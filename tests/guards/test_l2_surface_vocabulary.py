@@ -72,6 +72,9 @@ RETIRED = {
     'layer_identity': 'channel_identity',
     'WellPlate': 'Labware',
     'is_current_turret_position_objective_set': 'is_current_slot_objective_set',
+    'saved_focus': 'saved_focus_z_um',
+    'focus_z': 'focus_z_um',
+    'jog_step': 'jog_step_um',
 }
 
 

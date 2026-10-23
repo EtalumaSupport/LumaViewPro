@@ -39,10 +39,10 @@ def test_the_step_is_the_active_objective_s(turret_session):
     motion.move_turret(1)
     objective = turret_session.scope.objectives['4x Oly']
 
-    assert motion.jog_step('Z', coarse=True) == objective.jog_z_coarse_um
-    assert motion.jog_step('Z', coarse=False) == objective.jog_z_fine_um
-    assert motion.jog_step('X', coarse=True) == objective.jog_xy_coarse_um
-    assert motion.jog_step('Y', coarse=False) == objective.jog_xy_fine_um
+    assert motion.jog_step_um('Z', coarse=True) == objective.jog_z_coarse_um
+    assert motion.jog_step_um('Z', coarse=False) == objective.jog_z_fine_um
+    assert motion.jog_step_um('X', coarse=True) == objective.jog_xy_coarse_um
+    assert motion.jog_step_um('Y', coarse=False) == objective.jog_xy_fine_um
 
 
 @pytest.mark.parametrize('slot', [None, 2], ids=['slot_unknown', 'slot_unassigned'])
@@ -53,14 +53,14 @@ def test_an_unknown_objective_is_refused_with_its_reason(turret_session, slot):
         motion.move_turret(slot)
 
     with pytest.raises(ObjectiveUnknownError) as excinfo:
-        motion.jog_step('Z', coarse=True)
+        motion.jog_step_um('Z', coarse=True)
 
     assert excinfo.value.reason == ('slot_unknown' if slot is None else 'slot_unassigned')
 
 
 def test_an_axis_without_a_jog_is_refused(turret_session):
     with pytest.raises(ArgumentRefusedError) as refused:
-        turret_session.scope.motion.jog_step('T', coarse=True)
+        turret_session.scope.motion.jog_step_um('T', coarse=True)
     assert (refused.value.reason, refused.value.offered) == ('axis_unknown', ('X', 'Y', 'Z'))
 
 
@@ -81,5 +81,5 @@ def test_the_buttons_ask_the_api_and_show_its_refusal(rel_path, class_name, meth
     }
     # The step and the move go to the API together, through the one GUI
     # boundary that shows the API's refusal as it is typed.
-    assert 'jog_step' in calls
+    assert 'jog_step_um' in calls
     assert 'run_reported' in calls

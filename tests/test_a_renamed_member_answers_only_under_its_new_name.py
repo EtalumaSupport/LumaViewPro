@@ -72,11 +72,25 @@ RENAMED = [
     (
         'PUT',
         'saved_focus',
-        {'layer': 'Blue', 'z_um': 5000.0},
-        'saved_focus',
+        {'channel': 'Blue', 'z_um': 5000.0},
+        'saved_focus_z_um',
         {'channel': 'Blue', 'z_um': 5000.0},
     ),
-    ('GET', 'saved_focus', {'layer': 'Blue'}, 'saved_focus', {'channel': 'Blue'}),
+    ('GET', 'saved_focus', {'channel': 'Blue'}, 'saved_focus_z_um', {'channel': 'Blue'}),
+    (
+        'GET',
+        'scope/motion/jog_step',
+        {'axis': 'Z', 'coarse': True},
+        'scope/motion/jog_step_um',
+        {'axis': 'Z', 'coarse': True},
+    ),
+    (
+        'GET',
+        'scope/protocols/focus_z',
+        {'then': 'save the focus'},
+        'scope/protocols/focus_z_um',
+        {'then': 'save the focus'},
+    ),
     ('POST', 'show_channel', {'layer': 'Blue'}, 'show_channel', {'channel': 'Blue'}),
     (
         'POST',

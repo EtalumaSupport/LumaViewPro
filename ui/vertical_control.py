@@ -137,7 +137,7 @@ class VerticalControl(BoxLayout):
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
         run_reported(
-            lambda: jog_z(direction * ctx.scope.motion.jog_step('Z', coarse)),
+            lambda: jog_z(direction * ctx.scope.motion.jog_step_um('Z', coarse)),
             redraw=None,
             label=label,
         )

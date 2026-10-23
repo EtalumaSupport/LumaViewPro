@@ -286,7 +286,7 @@ def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch)
         types.SimpleNamespace(
             scope=types.SimpleNamespace(
                 motion=types.SimpleNamespace(
-                    jog_step=lambda axis, coarse: (
+                    jog_step_um=lambda axis, coarse: (
                         steps.append(coarse) or (100.0 if coarse else 10.0)
                     )
                 )

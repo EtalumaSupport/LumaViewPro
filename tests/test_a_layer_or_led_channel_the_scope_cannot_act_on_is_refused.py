@@ -65,7 +65,7 @@ NAME_MEMBERS = {
     'color2ch': lambda s, v: s.scope.illumination.color2ch(v),
     'set_channel_acquire': lambda s, v: s.set_channel_acquire(v, 'image'),
     'set_channel_auto_gain': lambda s, v: s.set_channel_auto_gain(v, True),
-    'saved_focus': lambda s, v: s.saved_focus(v),
+    'saved_focus_z_um': lambda s, v: s.saved_focus_z_um(v),
     'save_channel_focus': lambda s, v: s.save_channel_focus(v, 0.0),
     'get_layer_configs': lambda s, v: s.get_layer_configs([v]),
     'show_channel': lambda s, v: s.show_channel(v),

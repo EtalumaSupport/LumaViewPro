@@ -49,7 +49,7 @@ def body(s):
     saved = s.save_bookmark(('X', 'Y', 'Z'))
     check(
         'a script can SAVE the bookmark through the Session',
-        s.get_settings_snapshot()['bookmark'] == saved,
+        s.bookmark == saved,
         str(saved),
     )
 
@@ -60,14 +60,14 @@ def body(s):
     back = s.get_current_plate_position()
     check(
         'a script can RETURN to the bookmark and the stage arrives',
-        abs(back.x_mm - saved['x']) < 0.05
-        and abs(back.y_mm - saved['y']) < 0.05
-        and abs(m.get_current_position('Z') - saved['z']) < 5.0,
+        abs(back.x_mm - saved.x_mm) < 0.05
+        and abs(back.y_mm - saved.y_mm) < 0.05
+        and abs(m.get_current_position('Z') - saved.z_um) < 5.0,
         f'asked {saved} got x={back.x_mm:.2f} y={back.y_mm:.2f} z={m.get_current_position("Z")}',
     )
 
     # 5. "Set ALL bookmarks" also stamps every layer's focus
-    z = s.save_all_bookmarks()
+    z = s.save_all_bookmarks().z_um
     on_scope = [record.key_name for record in s.scope.channel_identity.channels]
     after = s.get_settings_snapshot()
     check(

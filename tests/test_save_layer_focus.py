@@ -103,7 +103,7 @@ def test_save_focus_and_apply_to_steps_write_through_the_one_path():
 
 def test_no_other_member_writes_a_layers_focus():
     # save_all_bookmarks stores the bookmark and every layer's focus under
-    # one hold of the lock, from the live Z focus_z has already checked.
+    # one hold of the lock, from the live Z focus_z_um has already checked.
     allowed = {'ScopeSession._store_layer_focus', 'ScopeSession.save_all_bookmarks'}
     writers = set()
     for qualname, fn in walk_defs(parse_module('modules/scope_session.py').body):

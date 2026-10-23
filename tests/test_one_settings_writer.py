@@ -23,6 +23,7 @@ from modules.exceptions import (
     Refusal,
     SettingRefusedError,
 )
+from modules.coord_transformations import PlateLocation
 from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
@@ -401,14 +402,15 @@ def test_an_acceleration_with_no_motor_controller_is_refused_and_not_stored(sess
 def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
     session.scope.motion.home('ALL')
     saved = session.save_bookmark(('X', 'Y', 'Z'))
-    here = session.get_current_plate_position()
-    assert saved == {'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um}
-    assert session.settings['bookmark'] == {**session.settings['bookmark'], **saved}
+    assert saved == session.get_current_plate_position()
+    assert session.bookmark == saved
 
 
 def test_set_all_bookmarks_stamps_the_focus_of_the_scopes_own_layers(session):
     session.scope.motion.home('ALL')
-    z = session.save_all_bookmarks()
+    saved = session.save_all_bookmarks()
+    z = session.get_current_plate_position().z_um
+    assert saved == PlateLocation(x_mm=None, y_mm=None, z_um=z)
     on_scope = {record.key_name for record in session.scope.channel_identity.channels}
     assert session.settings['bookmark']['z'] == z
     for layer in on_scope:

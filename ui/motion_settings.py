@@ -290,7 +290,7 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
 
         def jog():
-            step_um = direction * ctx.scope.motion.jog_step(axis, coarse)
+            step_um = direction * ctx.scope.motion.jog_step_um(axis, coarse)
             if axis == 'X':
                 jog_xy(dx_um=step_um)
             else:

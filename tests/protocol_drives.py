@@ -244,9 +244,9 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
     scope.protocols.step_targets.side_effect = lambda protocol, step_index, stage_offset=None: (
         StepTargets(
             turret_slot=None,
-            x=plate_to_stage[0],
-            y=plate_to_stage[1],
-            z=protocol.step_row(step_index=step_index)['Z'],
+            x_um=plate_to_stage[0],
+            y_um=plate_to_stage[1],
+            z_um=protocol.step_row(step_index=step_index)['Z'],
         )
     )
 

@@ -58,20 +58,20 @@ if TYPE_CHECKING:
 _api_log = logging.getLogger('LVP.api')
 
 
-@api_fields('turret_slot', 'x', 'y', 'z')
+@api_fields('turret_slot', 'x_um', 'y_um', 'z_um')
 @dataclasses.dataclass(frozen=True)
 class StepTargets:
     """Where a protocol step puts the scope, in the frames the motors take.
 
-    ``turret_slot`` is None on a scope with no turret. ``x`` and ``y`` are
-    stage micrometres on the protocol's own plate; ``z`` is the step's. An
+    ``turret_slot`` is None on a scope with no turret. ``x_um`` and ``y_um``
+    are stage micrometres on the protocol's own plate; ``z_um`` is the step's. An
     axis the scope has no motor for is None (``stage_targets``).
     """
 
     turret_slot: int | None
-    x: float | None
-    y: float | None
-    z: float | None
+    x_um: float | None
+    y_um: float | None
+    z_um: float | None
 
 
 @api_fields('objective_id', 'step_indexes', 'reassigned_step_indexes', 'choices')
@@ -542,7 +542,7 @@ class ProtocolsAPI:
         return protocol.step_row(step_index=step_index)['Name']
 
     @api(reads=True)
-    def focus_z(self, *, then: str) -> float:
+    def focus_z_um(self, *, then: str) -> float:
         """The live Z, as a focus to save into a layer or a step.
 
         Args:
@@ -840,7 +840,7 @@ class ProtocolsAPI:
         x, y, z = self.stage_targets(
             protocol, step['X'], step['Y'], step['Z'], stage_offset=stage_offset
         )
-        return StepTargets(turret_slot=turret_slot, x=x, y=y, z=z)
+        return StepTargets(turret_slot=turret_slot, x_um=x, y_um=y, z_um=z)
 
     def _travel_limits(self) -> dict[str, AxisLimits]:
         """The travel limits of each axis this scope has a motor for, by axis.

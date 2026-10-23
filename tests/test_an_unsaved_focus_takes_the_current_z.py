@@ -127,6 +127,6 @@ def test_the_saved_focus_of_a_channel_never_saved_is_refused():
 
     session = SimpleNamespace(settings={'Blue': {'focus': None}, 'BF': {'focus': 5998.6}})
 
-    assert ScopeSession.saved_focus(session, 'BF') == 5998.6
+    assert ScopeSession.saved_focus_z_um(session, 'BF') == 5998.6
     with pytest.raises(FocusNotSavedError, match='No focus is saved for Blue'):
-        ScopeSession.saved_focus(session, 'Blue')
+        ScopeSession.saved_focus_z_um(session, 'Blue')

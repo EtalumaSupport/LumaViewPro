@@ -193,7 +193,7 @@ def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
     monkeypatch.setattr(ui_helpers, 'move_z', moved)
     monkeypatch.setattr(layer_control.gui_logger, 'button', MagicMock())
     # The saved focus is the Session's answer, read from the settings it holds.
-    ctx.session.saved_focus = lambda layer: ScopeSession.saved_focus(ctx, layer)
+    ctx.session.saved_focus_z_um = lambda layer: ScopeSession.saved_focus_z_um(ctx, layer)
 
     layer_control.LayerControl.goto_focus(SimpleNamespace(layer='Green'))
 
@@ -216,7 +216,7 @@ def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, m
         lambda exc, **kw: reported.append((type(exc).__name__, kw['category'])),
     )
     ctx.settings['Green']['focus'] = None
-    ctx.session.saved_focus = lambda layer: ScopeSession.saved_focus(ctx, layer)
+    ctx.session.saved_focus_z_um = lambda layer: ScopeSession.saved_focus_z_um(ctx, layer)
 
     layer_control.LayerControl.goto_focus(SimpleNamespace(layer='Green'))
 

@@ -263,7 +263,7 @@ void main (void) {
         factor, coarse = pending
         scope = _app_ctx.ctx.scope
         run_reported(
-            lambda: jog_z(factor * scope.motion.jog_step('Z', coarse=coarse)),
+            lambda: jog_z(factor * scope.motion.jog_step_um('Z', coarse=coarse)),
             redraw=None,
             label='SCROLL_TO_FOCUS',
         )

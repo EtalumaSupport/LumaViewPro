@@ -227,7 +227,7 @@ class TestAScriptAddsAStepThroughTheSession:
         steps = protocol.steps()
         assert sorted(steps['Color']) == sorted(saved)
         assert steps['Z'].tolist() == pytest.approx([5000.0] * len(saved))
-        assert {layer: session.saved_focus(layer) for layer in saved} == saved
+        assert {layer: session.saved_focus_z_um(layer) for layer in saved} == saved
 
     def test_a_script_adds_the_layers_it_names_where_it_names_without_changing_the_settings(
         self, session

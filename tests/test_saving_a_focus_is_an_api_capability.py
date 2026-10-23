@@ -86,8 +86,8 @@ class TestSaveFocus:
 
         saved = session.save_focus(protocol, 'BF', step_index=1)
 
-        assert saved == SavedFocus(z=5000.0, step_index=1)
-        assert session.saved_focus('BF') == 5000.0
+        assert saved == SavedFocus(z_um=5000.0, step_index=1)
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS, 5000.0, LAYER_FOCUS]
 
     def test_three_saves_on_three_steps_stay_three_values(self, session):
@@ -106,8 +106,8 @@ class TestSaveFocus:
 
         saved = session.save_focus(protocol, 'BF', step_index=2)
 
-        assert saved == SavedFocus(z=5000.0, step_index=None)
-        assert session.saved_focus('BF') == 5000.0
+        assert saved == SavedFocus(z_um=5000.0, step_index=None)
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     def test_no_step_saves_the_layer_focus_only(self, session):
@@ -116,8 +116,8 @@ class TestSaveFocus:
 
         saved = session.save_focus(protocol, 'BF')
 
-        assert saved == SavedFocus(z=5000.0, step_index=None)
-        assert session.saved_focus('BF') == 5000.0
+        assert saved == SavedFocus(z_um=5000.0, step_index=None)
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     def test_a_step_the_protocol_lacks_is_refused_and_nothing_is_written(self, session):
@@ -127,7 +127,7 @@ class TestSaveFocus:
         with pytest.raises(ProtocolError):
             session.save_focus(protocol, 'BF', step_index=3)
 
-        assert session.saved_focus('BF') == LAYER_FOCUS
+        assert session.saved_focus_z_um('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     def test_a_z_that_does_not_know_its_position_saves_nothing(self, session):
@@ -137,7 +137,7 @@ class TestSaveFocus:
         with pytest.raises(AxisStateUnknownError):
             session.save_focus(protocol, 'BF', step_index=0)
 
-        assert session.saved_focus('BF') == LAYER_FOCUS
+        assert session.saved_focus_z_um('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
 
@@ -149,7 +149,7 @@ class TestApplyFocusToLayerSteps:
         updated = session.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert updated == 2
-        assert session.saved_focus('BF') == 5000.0
+        assert session.saved_focus_z_um('BF') == 5000.0
         assert _zs(protocol) == [5000.0, 5000.0, LAYER_FOCUS]
 
     def test_a_z_that_does_not_know_its_position_applies_nothing(self, session):
@@ -159,7 +159,7 @@ class TestApplyFocusToLayerSteps:
         with pytest.raises(AxisStateUnknownError):
             session.apply_focus_to_channel_steps(protocol, 'BF')
 
-        assert session.saved_focus('BF') == LAYER_FOCUS
+        assert session.saved_focus_z_um('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
 
@@ -214,7 +214,7 @@ class TestAScopeWithNoZ:
             no_z.save_focus(protocol, 'BF')
 
         assert refused.value.reason == 'positions_unreachable'
-        assert no_z.saved_focus('BF') == LAYER_FOCUS
+        assert no_z.saved_focus_z_um('BF') == LAYER_FOCUS
 
     def test_apply_focus_is_refused_and_the_focus_is_kept(self, no_z):
         protocol = no_z.create_empty_protocol()
@@ -223,4 +223,4 @@ class TestAScopeWithNoZ:
             no_z.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert refused.value.reason == 'positions_unreachable'
-        assert no_z.saved_focus('BF') == LAYER_FOCUS
+        assert no_z.saved_focus_z_um('BF') == LAYER_FOCUS

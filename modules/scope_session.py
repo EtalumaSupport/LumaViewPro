@@ -272,17 +272,17 @@ class ObjectiveQuestion:
     choices: tuple[str, ...]
 
 
-@api_fields('z', 'step_index')
+@api_fields('z_um', 'step_index')
 @dataclasses.dataclass(frozen=True)
 class SavedFocus:
     """What ``ScopeSession.save_focus`` wrote.
 
     Attributes:
-        z: The Z saved as the layer's focus, in um.
+        z_um: The Z saved as the layer's focus.
         step_index: The step that took it as its Z, or None when no step did.
     """
 
-    z: float
+    z_um: float
     step_index: int | None
 
 
@@ -1997,7 +1997,7 @@ class ScopeSession:
             entry['autofocus'] = False
 
     @api(reads=True)
-    def saved_focus(self, channel: str) -> float:
+    def saved_focus_z_um(self, channel: str) -> float:
         """The Z saved as ``channel``'s focus.
 
         Raises:
@@ -2705,18 +2705,18 @@ class ScopeSession:
             channel, 'save_focus', then='take a focus'
         )
         step = None if step_index is None else protocol.step_row(step_index=step_index)
-        z = self.scope.protocols.focus_z(then='save the focus')
+        z = self.scope.protocols.focus_z_um(then='save the focus')
         self._store_layer_focus(channel, z)
         if step is None or step['Color'] != channel:
             logger.info(f'[Session  ] Focus saved: {channel} Z={z}, no step written')
-            return SavedFocus(z=z, step_index=None)
+            return SavedFocus(z_um=z, step_index=None)
         self.scope.protocols.set_step_z(protocol, step_index, z)
         logger.info(
             f'[Session  ] Focus saved: {channel} Z={z}, and as the Z of step {step_index + 1}'
         )
-        return SavedFocus(z=z, step_index=step_index)
+        return SavedFocus(z_um=z, step_index=step_index)
 
-    @api(sets='saved_focus')
+    @api(sets='saved_focus_z_um')
     @_guarded_write
     def save_channel_focus(self, channel: str, z_um: float) -> None:
         """Store ``z_um`` as ``channel``'s focus, the Z every new step of the layer is born at.
@@ -2748,7 +2748,7 @@ class ScopeSession:
 
         ``save_all_bookmarks`` alone writes a focus beside it: it stores the
         bookmark and every layer's focus under one hold of the lock, and its
-        Z is the live one, which ``focus_z`` has already checked.
+        Z is the live one, which ``focus_z_um`` has already checked.
         """
         z = self.scope.protocols.check_focus_z(z_um, then='save the focus')
         with self.settings_lock:
@@ -2757,7 +2757,7 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def save_bookmark(self, axes: 'Iterable[str]') -> dict:
+    def save_bookmark(self, axes: 'Iterable[str]') -> PlateLocation:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
 
         X and Y are stored in plate millimetres on the selected plate, Z in
@@ -2765,7 +2765,8 @@ class ScopeSession:
         writer of ``bookmark``.
 
         Returns:
-            The values stored, by lower-case axis name.
+            The values stored, as ``bookmark`` reads them; an axis not in
+            ``axes`` is None.
 
         Raises:
             AxisStateUnknownError: an axis's position is not known, so the
@@ -2780,11 +2781,15 @@ class ScopeSession:
             self.scope.motion.refuse_absent('save_bookmark', axis)
         self.scope.motion.refuse_unknown_positions(axes, recording=True, then='save the bookmark')
         position = self.get_current_plate_position()
-        reads = {'x': position.x_mm, 'y': position.y_mm, 'z': position.z_um}
-        saved = {axis.lower(): reads[axis.lower()] for axis in axes}
+        saved = PlateLocation(
+            x_mm=position.x_mm if 'X' in axes else None,
+            y_mm=position.y_mm if 'Y' in axes else None,
+            z_um=position.z_um if 'Z' in axes else None,
+        )
+        stored = {'X': saved.x_mm, 'Y': saved.y_mm, 'Z': saved.z_um}
         with self.settings_lock:
-            for key, value in saved.items():
-                self._store_setting(f'bookmark.{key}', value)
+            for axis in axes:
+                self._store_setting(f'bookmark.{axis.lower()}', stored[axis])
         logger.info(f'[Session  ] Bookmark saved: {saved}')
         return saved
 
@@ -2878,24 +2883,25 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def save_all_bookmarks(self) -> float:
+    def save_all_bookmarks(self) -> PlateLocation:
         """Save the live Z as the Z bookmark and as the focus of every layer this scope has.
 
-        What Set All Bookmarks does. Returns the Z.
+        What Set All Bookmarks does. Returns the Z bookmark stored, as
+        ``bookmark`` reads it; X and Y, which it does not save, are None.
 
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
         """
-        z = self.scope.protocols.focus_z(then='save the bookmarks')
+        z = self.scope.protocols.focus_z_um(then='save the bookmarks')
         layers = sorted(self._layers_on_scope())
         with self.settings_lock:
             self._store_setting('bookmark.z', z)
             for layer in layers:
                 self._store_setting(f'{layer}.focus', z)
         logger.info(f'[Session  ] Bookmarks saved: Z={z}, and as the focus of {layers}')
-        return z
+        return PlateLocation(x_mm=None, y_mm=None, z_um=z)
 
     @api
     @_guarded_write
@@ -2916,7 +2922,7 @@ class ScopeSession:
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'apply_focus_to_channel_steps', then='take a focus'
         )
-        z = self.scope.protocols.focus_z(then='apply the focus')
+        z = self.scope.protocols.focus_z_um(then='apply the focus')
         self._store_layer_focus(channel, z)
         updated = self.scope.protocols.apply_focus_to_channel_steps(protocol, channel, z)
         logger.info(f'[Session  ] Focus applied: {channel} Z={z} to {updated} step(s)')
@@ -3263,9 +3269,9 @@ class ScopeSession:
             if targets.turret_slot is not None:
                 # The step's own Z move follows, so the turret need not put Z back.
                 motion.move_turret(targets.turret_slot, restore_z=False)
-            moves = (motion.start_move_xy(targets.x, targets.y),)
-            if targets.z is not None:
-                moves += (motion.start_move_z(targets.z),)
+            moves = (motion.start_move_xy(targets.x_um, targets.y_um),)
+            if targets.z_um is not None:
+                moves += (motion.start_move_z(targets.z_um),)
         self._load_step_into_layer(step)
         self._last_step_gone_to = (protocol, step_index)
         if not moves_light:

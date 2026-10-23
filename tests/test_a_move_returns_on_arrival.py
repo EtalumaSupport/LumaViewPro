@@ -390,8 +390,8 @@ class TestAStartedGoToStep:
         session.start_go_to_step(protocol, 1).result(timeout=_TRAVEL_WAIT_S)
 
         step_two = session.scope.protocols.step_targets(protocol, 1)
-        assert motion.get_current_position('X') == pytest.approx(step_two.x, abs=1.0)
-        assert motion.get_current_position('Y') == pytest.approx(step_two.y, abs=1.0)
+        assert motion.get_current_position('X') == pytest.approx(step_two.x_um, abs=1.0)
+        assert motion.get_current_position('Y') == pytest.approx(step_two.y_um, abs=1.0)
 
     def test_its_one_operation_is_done_once_every_axis_has_arrived(self, session):
         motion = session.scope.motion
@@ -411,7 +411,7 @@ class TestAStartedGoToStep:
         assert seen == {
             'ended': None,
             'states': dict.fromkeys('XYZ', AxisState.IDLE),
-            'at': tuple(pytest.approx(v, abs=1.0) for v in (step.x, step.y, step.z)),
+            'at': tuple(pytest.approx(v, abs=1.0) for v in (step.x_um, step.y_um, step.z_um)),
         }
 
 

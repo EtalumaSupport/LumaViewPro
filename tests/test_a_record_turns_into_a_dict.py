@@ -72,6 +72,6 @@ def test_a_record_answers_plain_data_keeping_the_live_objects():
 
 
 def test_a_published_record_answers_its_fields():
-    targets = StepTargets(turret_slot=2, x=1000.0, y=None, z=5000.0)
+    targets = StepTargets(turret_slot=2, x_um=1000.0, y_um=None, z_um=5000.0)
 
-    assert targets.to_dict() == {'turret_slot': 2, 'x': 1000.0, 'y': None, 'z': 5000.0}
+    assert targets.to_dict() == {'turret_slot': 2, 'x_um': 1000.0, 'y_um': None, 'z_um': 5000.0}

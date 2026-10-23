@@ -660,7 +660,7 @@ class LayerControl(BoxLayout):
         gui_logger.button(f'GOTO_FOCUS_{self.layer}')
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         run_reported(
-            lambda: move_z(_app_ctx.ctx.session.saved_focus(self.layer)),
+            lambda: move_z(_app_ctx.ctx.session.saved_focus_z_um(self.layer)),
             None,
             f'GOTO_FOCUS_{self.layer}',
         )

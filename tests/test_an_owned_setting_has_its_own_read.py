@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 
 from modules import settings_paths
 from modules.api_surface import sets_of
-from modules.coord_transformations import PlateLocation
 from modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
@@ -88,9 +87,8 @@ def test_each_read_answers_what_its_setter_wrote(session):
         if read() != expected:
             wrong[name] = (read(), expected)
     saved = session.save_bookmark(('X', 'Y', 'Z'))
-    expected_bookmark = PlateLocation(x_mm=saved['x'], y_mm=saved['y'], z_um=saved['z'])
-    if session.bookmark != expected_bookmark:
-        wrong['bookmark'] = (session.bookmark, expected_bookmark)
+    if session.bookmark != saved:
+        wrong['bookmark'] = (session.bookmark, saved)
     assert wrong == {}, f'read, expected: {wrong}'
 
 

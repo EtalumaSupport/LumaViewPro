@@ -91,7 +91,7 @@ def test_none_is_taken_only_where_the_signature_says_so(session):
         lambda: session.scope.motion.start_home(None), 'MotionAPI.start_home', 'axis'
     )
     assert refused.declared == 'str'
-    _refused(lambda: session.saved_focus(None), 'ScopeSession.saved_focus', 'channel')
+    _refused(lambda: session.saved_focus_z_um(None), 'ScopeSession.saved_focus_z_um', 'channel')
 
 
 @pytest.mark.parametrize('member', ['start_zstack', 'start_autofocus'])

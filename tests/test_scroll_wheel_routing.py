@@ -261,7 +261,7 @@ class TestWheelDirectionIsConsistent:
                 scope=types.SimpleNamespace(
                     capabilities=types.SimpleNamespace(has_focus=True),
                     motion=types.SimpleNamespace(
-                        jog_step=jog_step or (lambda axis, coarse: 100.0 if coarse else 10.0)
+                        jog_step_um=jog_step or (lambda axis, coarse: 100.0 if coarse else 10.0)
                     ),
                 ),
             ),

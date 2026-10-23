@@ -48,7 +48,7 @@ CLASSIFIED = {
     'modules/config_helpers.py::get_current_plate_position': FEEDS_A_REFUSING_API,
     'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_stage_xy': DISPLAYS,
     'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_sensor_inputs': DISPLAYS,
-    'modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z': SAVES,
+    'modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z_um': SAVES,
     'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
     'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
     'modules/scope_session.py::ScopeSession.get_sequenced_capture_config': FEEDS_A_REFUSING_API,

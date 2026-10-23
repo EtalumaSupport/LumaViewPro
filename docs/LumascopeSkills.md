@@ -463,8 +463,8 @@ session.scope.camera.set_high_conversion_gain(True)  # the camera takes it, then
 session.scope.camera.set_line_noise_reduction(True)  # likewise for the line-noise filter
 session.set_scale_bar(True)                   # whether captures draw the scale bar: the setting the imaging API reads
 session.set_acceleration_limit(80)            # a whole number 1-100, else AccelerationLimitRefusedError (a ValueError); the motors take it, then it is stored; with no motor controller HardwareCommandRefusedError ('not_connected' / 'axis_absent'); nothing stored on a raise
-session.save_bookmark(('X', 'Y'))             # the live position as the bookmark: X/Y plate mm, Z um
-session.save_all_bookmarks()                  # the live Z as the Z bookmark and every layer's focus
+session.save_bookmark(('X', 'Y'))             # PlateLocation(x_mm, y_mm, None): the live position stored as the bookmark
+session.save_all_bookmarks()                  # PlateLocation(None, None, z_um): the live Z as the Z bookmark and every layer's focus
 session.settings_are_provisional()            # True while current.json is unread and undecided: nothing is saved
 session.retire_rejected_settings()            # resolve it: retire the unreadable file, the session saves again; the retired file's Path
 ```
@@ -1075,17 +1075,17 @@ session.apply_tiling(protocol, '3x3')
 session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='center')
 ```
 
-**Saving a focus.** `session.save_focus(protocol, channel, step_index=None)` does what the layer panel's Save Focus does: the live Z becomes `channel`'s saved focus (where `new_protocol` puts the layer's steps, `session.saved_focus(channel)`; `add_step` takes the live Z), and, when `step_index` names a step of `channel`, that step's Z. A step of another channel is left alone, and no other step is written: every step `new_protocol` builds for a layer is born at the same focus, so a step that matches the old focus says nothing about whether it should take the new one. It returns a `SavedFocus` (`modules.scope_session`): `z`, the Z saved, and `step_index`, the step that took it or None. `session.apply_focus_to_channel_steps(protocol, layer)` does what Apply to Steps does: the live Z becomes the layer's focus and the Z of every step of `channel`, and it returns how many steps took it. Both are refused before anything is written: a name that is no layer with `ArgumentRefusedError` (`channel_unknown`); a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.layer`); on a scope with no Z axis with `ProtocolRunRefusedError`, reason `positions_unreachable`; when Z does not know its position (never homed, homing, or lost after a failed home) with `AxisStateUnknownError`, each raised to you and posted to no listener; and a `step_index` that is not a step of `protocol` raises `StepNotFoundError`. `session.save_channel_focus(layer, z_um)` stores a Z you hold, not the stage's, as `channel`'s focus: the Autofocus button saves the Z its run chose this way (`outcome.af_focus_z_um`), and a script saves one it measured. It says only that the number is a Z this scope's focus can reach, not where it came from, and it is refused, with nothing written, for a name that is no layer (`ArgumentRefusedError`, `channel_unknown`), a `channel` this scope does not have (`HardwareCommandRefusedError`, `axis_absent`), a scope with no Z axis (`ProtocolRunRefusedError`, `positions_unreachable`), a Z that is NaN or infinite (`ArgumentRefusedError`, reason `not_a_number`), and a Z outside Z's travel (`PositionOutOfRangeError`). `save_focus` and `apply_focus_to_channel_steps` write the layer's focus through the same path. `update_settings` on a layer's `focus` is refused naming `save_channel_focus`. The live Z they read is `scope.protocols.focus_z(then=...)`, refused as above.
+**Saving a focus.** `session.save_focus(protocol, channel, step_index=None)` does what the layer panel's Save Focus does: the live Z becomes `channel`'s saved focus (where `new_protocol` puts the layer's steps, `session.saved_focus_z_um(channel)`; `add_step` takes the live Z), and, when `step_index` names a step of `channel`, that step's Z. A step of another channel is left alone, and no other step is written: every step `new_protocol` builds for a layer is born at the same focus, so a step that matches the old focus says nothing about whether it should take the new one. It returns a `SavedFocus` (`modules.scope_session`): `z_um`, the Z saved, and `step_index`, the step that took it or None. `session.apply_focus_to_channel_steps(protocol, layer)` does what Apply to Steps does: the live Z becomes the layer's focus and the Z of every step of `channel`, and it returns how many steps took it. Both are refused before anything is written: a name that is no layer with `ArgumentRefusedError` (`channel_unknown`); a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.layer`); on a scope with no Z axis with `ProtocolRunRefusedError`, reason `positions_unreachable`; when Z does not know its position (never homed, homing, or lost after a failed home) with `AxisStateUnknownError`, each raised to you and posted to no listener; and a `step_index` that is not a step of `protocol` raises `StepNotFoundError`. `session.save_channel_focus(layer, z_um)` stores a Z you hold, not the stage's, as `channel`'s focus: the Autofocus button saves the Z its run chose this way (`outcome.af_focus_z_um`), and a script saves one it measured. It says only that the number is a Z this scope's focus can reach, not where it came from, and it is refused, with nothing written, for a name that is no layer (`ArgumentRefusedError`, `channel_unknown`), a `channel` this scope does not have (`HardwareCommandRefusedError`, `axis_absent`), a scope with no Z axis (`ProtocolRunRefusedError`, `positions_unreachable`), a Z that is NaN or infinite (`ArgumentRefusedError`, reason `not_a_number`), and a Z outside Z's travel (`PositionOutOfRangeError`). `save_focus` and `apply_focus_to_channel_steps` write the layer's focus through the same path. `update_settings` on a layer's `focus` is refused naming `save_channel_focus`. The live Z they read is `scope.protocols.focus_z_um(then=...)`, refused as above.
 
 ```python
-saved = session.save_focus(protocol, 'BF', step_index=0)   # SavedFocus(z=5000.0, step_index=0)
+saved = session.save_focus(protocol, 'BF', step_index=0)   # SavedFocus(z_um=5000.0, step_index=0)
 count = session.apply_focus_to_channel_steps(protocol, 'BF')
 session.save_channel_focus('BF', outcome.af_focus_z_um)    # a Z you hold, checked against Z's travel
 
-z = scope.protocols.focus_z(then='save the focus')     # the live Z, refused as save_focus refuses it
+z = scope.protocols.focus_z_um(then='save the focus')     # the live Z, refused as save_focus refuses it
 ```
 
-**A step's motor targets.** `scope.protocols.step_targets(protocol, step_index)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot the step recorded, its `Turret Slot`; a step that recorded none, from an older file, means the only slot holding its objective; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. Every step move a run makes takes the same conversion, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_index` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state) or that cannot say which slot it means (`turret_slot_ambiguous`, `turret_slot_reassigned`, below; 409), and `CatalogueNameRefusedError` for a plate the catalogue does not have.
+**A step's motor targets.** `scope.protocols.step_targets(protocol, step_index)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot the step recorded, its `Turret Slot`; a step that recorded none, from an older file, means the only slot holding its objective; None on a scope without a turret), and `x_um`, `y_um` and `z_um` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. Every step move a run makes takes the same conversion, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_index` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state) or that cannot say which slot it means (`turret_slot_ambiguous`, `turret_slot_reassigned`, below; 409), and `CatalogueNameRefusedError` for a plate the catalogue does not have.
 
 **Which turret slot a step uses.** Every step records the slot it was made or updated at, its `Turret Slot` (-1 without a turret): `add_step` and `update_step` record the slot in the light path, and `new_protocol` records, for each step, the slot in the light path when it holds the step's objective and otherwise the only slot that does. A run and `go_to_step` turn each step to its own slot, so two steps naming one objective in two slots each use their own, and updating one changes no other. A protocol opened with `load_protocol` gets a slot for each step that recorded none (a file from before steps recorded their slot) when only one slot holds its objective. A step that cannot say which slot it means -- its objective is in two or more slots and it recorded none, or the slot it recorded now holds another objective -- does not stop the load; `scope.protocols.turret_slot_questions(protocol)` returns one `TurretSlotQuestion` per objective with such steps (`objective_id`, `step_indexes` the indexes of the steps, `reassigned_step_indexes` those whose slot now holds another objective, `choices` the slots holding it now), and `session.point_steps_at_turret_slot(protocol, objective_id, slot)` answers it, pointing exactly those steps at `slot` and returning their indexes; a slot that does not hold the objective is refused with `ArgumentRefusedError` (`slot_not_holding_objective`, `offered` the slots that do), nothing changed. Until it is answered, a run's start and going to such a step are refused with `ProtocolRunRefusedError`: `turret_slot_ambiguous` or `turret_slot_reassigned` (409), naming the steps and the slots. LumaViewPro asks each question when a protocol is opened. Saving the protocol writes the slots.
 
@@ -1097,7 +1097,7 @@ for q in scope.protocols.turret_slot_questions(protocol):   # [] on a scope with
 `step_targets` converts X and Y with `scope.runtime_state.plate_to_stage(px, py, labware_id=protocol.labware_id())`, on the protocol's plate whatever plate is selected; it takes a `stage_offset=` (a `StageOffset`) to convert with a snapshot instead of the live offset, as a run does. A run binds `scope.runtime_state.plate_transform(labware_id=protocol.labware_id(), stage_offset=offset)` when it starts and states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
 
 ```python
-targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=1, x=..., y=..., z=...)
+targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=1, x_um=..., y_um=..., z_um=...)
 stage = scope.runtime_state.plate_to_stage(60.0, 40.0, labware_id=protocol.labware_id())
 to_plate = scope.runtime_state.plate_transform(labware_id=protocol.labware_id(), stage_offset=offset)   # bound now
 ```
@@ -1344,7 +1344,7 @@ A number you pass is a finite number: NaN or an infinity is refused with `Argume
 
 A wait you pass is from 0 to 30 days: `wait_until_finished_moving`'s `timeout_s`, the run waiting forms' `timeout_s` (`run_single_scan` and the rest), `Operation.result` / `exception`'s `timeout`, `capture_and_wait` and `get_image`'s times, `enter_led_engineering_mode` and the `send_diagnostic_command` forms' `timeout_s`, `run_camera_bandwidth_test`'s cutoff, and the simulator's `delay_reply` and `reboot`. A negative wait, or one past 30 days, is refused with `ArgumentRefusedError` reason `out_of_range`, `limits` holding the range, before anything starts: a run waiting form has started no run, and a capture whose sum would wait longer than 30 days in all is refused the same way. The bound is the same on every host; past it, a wait the operating system cannot hold used to raise `OverflowError` out of the wait on one platform and not another.
 
-An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key, and a key the write does not take is `key_unknown`, its `offered` holding the keys it takes: `target_brightness`, `min_gain_db`, `max_gain_db`, `max_exposure_ms` and `min_exposure_ms`. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
+An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step_um` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step_um` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key, and a key the write does not take is `key_unknown`, its `offered` holding the keys it takes: `target_brightness`, `min_gain_db`, `max_gain_db`, `max_exposure_ms` and `min_exposure_ms`. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
 A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`labware_id`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
@@ -1549,7 +1549,7 @@ still states the major version.
 ### Configuration queries
 
 ```python
-session.saved_focus('Blue')              # the Z saved as a layer's focus; FocusNotSavedError when none was
+session.saved_focus_z_um('Blue')         # the Z saved as a layer's focus; FocusNotSavedError when none was
                                          # ever saved (a step built for that layer takes the current Z)
 session.channel_acquire('Blue')            # what a layer captures: 'image', 'video' or None (set_channel_acquire)
 session.channel_auto_gain('Blue')          # whether a layer's auto-gain is on (set_channel_auto_gain; turning it
@@ -1594,7 +1594,7 @@ protocol = session.new_protocol()
 protocol = session.new_protocol(tiling='2x2', use_zstacking=True)
 ```
 
-A layer whose focus was never saved (`saved_focus(channel)` raises
+A layer whose focus was never saved (`saved_focus_z_um(channel)` raises
 `FocusNotSavedError`) is imaged at the stage's Z, Z's position from
 `scope.motion.axis_positions()`; `new_protocol` refuses the build while Z does
 not know it (before a home). A scope with no Z motor takes the plate
@@ -1815,7 +1815,7 @@ scope.motion.interlocks()                        # frozenset of open interlocks,
 
 # Jog step under the active objective (z_coarse / z_fine for Z, xy_coarse / xy_fine for X, Y);
 # ObjectiveUnknownError when the objective is unknown -- no step is guessed
-step = scope.motion.jog_step('Z', coarse=True)
+step = scope.motion.jog_step_um('Z', coarse=True)
 scope.motion.move_z_by(-step)
 
 # Status
@@ -2671,7 +2671,7 @@ The Session is the root: its member `m` is `/api/v1/m`, and a sub-object is a pa
 
 - A read is `GET`: a property or published field, and a method marked as a read, one that changes nothing (`GET /api/v1/scope/motion/axis_positions`). Its encoded answer is the whole body.
 - A read method's arguments are its query string, one key a parameter (`GET /api/v1/scope/motion/get_axis_limits?axis=Z`). The text is converted to the parameter's type: `2` to a number, `true` / `false` to a bool (`1` / `0`, `yes` / `no` and `on` / `off` are taken too), a whole number like `2.0` where an integer goes. A list is its key repeated (`exclude_sources=a&exclude_sources=b`); a record is one key a field, `<parameter>.<field>` (`stage_offset.x_um=3&stage_offset.y_um=4`), and a record given in part is refused. A parameter left out takes the member's own default; a query string has no `null`, so a parameter whose default is `None` is given `None` by leaving it out, and an empty value (`labware_id=`) is the empty string.
-- A setting is one URL: its read's. `GET` reads it and `PUT` writes it, with the setter's arguments as a JSON object by parameter name, and the answer to a `PUT` is the read's answer after the write, the value the scope took (`PUT /api/v1/scope/camera/binning` with `{"size": 2}` answers `2`; `PUT /api/v1/scope/camera/frame_size` with `{"width": 960, "height": 600}` answers the `FrameSize` delivered). A setting kept per layer or per slot takes its key in the `PUT` body and in the `GET`'s query (`PUT /api/v1/channel_acquire` with `{"channel": "BF", "mode": "image"}`, then `GET /api/v1/channel_acquire?channel=BF`). The setter itself has no route: `POST /api/v1/scope/camera/set_binning` is `404`. Each setting with a URL: `model` (`select_model`), `objective_id` (`select_objective`), `turret_objective` (`assign_turret_objective`), `labware_id` (`select_labware`), `scale_bar_enabled` (`set_scale_bar`), `acceleration_limit_pct` (`set_acceleration_limit`), `channel_acquire` (`set_channel_acquire`), `channel_auto_gain` (`set_channel_auto_gain`), `saved_focus` (`save_channel_focus`), and on the camera `image_mode`, `binning`, `frame_size`, `high_conversion_gain`, `line_noise_reduction`, `gain_db`, `exposure_ms`, `black_level` and `auto_exposure`.
+- A setting is one URL: its read's. `GET` reads it and `PUT` writes it, with the setter's arguments as a JSON object by parameter name, and the answer to a `PUT` is the read's answer after the write, the value the scope took (`PUT /api/v1/scope/camera/binning` with `{"size": 2}` answers `2`; `PUT /api/v1/scope/camera/frame_size` with `{"width": 960, "height": 600}` answers the `FrameSize` delivered). A setting kept per layer or per slot takes its key in the `PUT` body and in the `GET`'s query (`PUT /api/v1/channel_acquire` with `{"channel": "BF", "mode": "image"}`, then `GET /api/v1/channel_acquire?channel=BF`). The setter itself has no route: `POST /api/v1/scope/camera/set_binning` is `404`. Each setting with a URL: `model` (`select_model`), `objective_id` (`select_objective`), `turret_objective` (`assign_turret_objective`), `labware_id` (`select_labware`), `scale_bar_enabled` (`set_scale_bar`), `acceleration_limit_pct` (`set_acceleration_limit`), `channel_acquire` (`set_channel_acquire`), `channel_auto_gain` (`set_channel_auto_gain`), `saved_focus_z_um` (`save_channel_focus`), and on the camera `image_mode`, `binning`, `frame_size`, `high_conversion_gain`, `line_noise_reduction`, `gain_db`, `exposure_ms`, `black_level` and `auto_exposure`.
 - Any other method is `POST`. Its arguments are a JSON object by parameter name; a method with none takes an empty body or `{}`. A parameter with no default must be present, one left out takes the member's own default, and `null` is `None`.
 - The answer to a finished call is `200` with its encoded return value as the whole body, `null` for `None`.
 - Arguments are checked before the member runs: a key the member does not take, a value that is not of the parameter's type (in a body, a string where a number goes), a number that is not finite, a missing required one, or a query string on a route that takes none (a property, a `PUT` or a `POST`) is refused `422` (`invalid_request`, its `errors` naming each argument and why). A read asked with `POST`, a setting with `POST`, or a call with `GET`, is `405`.
@@ -3154,7 +3154,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `save_focus`
 - `save_channel_focus`
 - `save_protocol`
-- `saved_focus`
+- `saved_focus_z_um`
 - `scale_bar_enabled`
 - `scope`
 - `select_labware`
@@ -3232,7 +3232,7 @@ Reached through `session.scope.motion`.
 - `interlocks`
 - `is_current_slot_objective_set`
 - `is_moving`
-- `jog_step`
+- `jog_step_um`
 - `move_to_plate`
 - `move_to_well`
 - `move_turret`
@@ -3370,7 +3370,7 @@ Reached through `session.scope.diagnostics`.
 
 Reached through `session.scope.protocols`.
 
-- `focus_z`
+- `focus_z_um`
 - `step_targets`
 - `tiling_config`
 - `turret_slot_questions`
@@ -4331,7 +4331,7 @@ Reached through a run's `Operation.files` result.
 Reached through returned by `session.save_focus`.
 
 - `step_index`
-- `z`
+- `z_um`
 
 ### SavedStill
 
@@ -4499,9 +4499,9 @@ Reached through the event `RunEvents.step_started` delivers.
 Reached through returned by `scope.protocols.step_targets`.
 
 - `turret_slot`
-- `x`
-- `y`
-- `z`
+- `x_um`
+- `y_um`
+- `z_um`
 
 ### Stimulation
 

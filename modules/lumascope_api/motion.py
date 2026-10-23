@@ -1337,7 +1337,7 @@ class MotionAPI:
         return self._last_turret_position
 
     @api(reads=True)
-    def jog_step(self, axis: str, coarse: bool) -> float:
+    def jog_step_um(self, axis: str, coarse: bool) -> float:
         """The jog step for ``axis`` under the active objective.
 
         A jog's size scales with the objective, so the active objective's
