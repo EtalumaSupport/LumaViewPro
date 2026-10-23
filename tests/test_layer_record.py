@@ -261,7 +261,7 @@ class TestTheColourRead:
             with pytest.raises(ArgumentRefusedError) as raised:
                 read('FarRed')
             refused.append(raised.value.reason)
-        assert refused == ['layer_unknown'] * 3
+        assert refused == ['channel_unknown'] * 3
 
 
 class TestPrecedence:

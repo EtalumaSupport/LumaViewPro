@@ -101,7 +101,7 @@ def test_a_run_given_no_layer_is_told_none_is_selected(session, member):
     runner = session.create_protocol_runner()
     with pytest.raises(ArgumentRefusedError) as refused:
         getattr(runner, member)(channel=None)
-    assert refused.value.reason == 'no_layer_selected'
+    assert refused.value.reason == 'no_channel_selected'
     assert refused.value.argument == 'channel'
 
 

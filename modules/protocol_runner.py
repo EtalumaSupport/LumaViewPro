@@ -286,8 +286,8 @@ class ProtocolRunner:
             the run's outcome.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, or
-                ``'no_layer_selected'`` for None; asked before anything
+            ArgumentRefusedError: ``'channel_unknown'``, or
+                ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
             ProtocolRunRefusedError: The runner refused the request
                 (already running, files still writing, hardware not
@@ -451,8 +451,8 @@ class ProtocolRunner:
             the run's outcome.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, or
-                ``'no_layer_selected'`` for None; asked before anything
+            ArgumentRefusedError: ``'channel_unknown'``, or
+                ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
             ObjectiveUnknownError: The objective in the light path is
                 unknown, so no slice could say what it was taken with.

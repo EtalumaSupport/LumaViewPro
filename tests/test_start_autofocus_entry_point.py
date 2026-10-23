@@ -170,7 +170,7 @@ class TestTheLayerIsTheCallersToName:
         runner = _runner()
         with pytest.raises(ArgumentRefusedError) as excinfo:
             runner.start_autofocus(channel='Purple')
-        assert (excinfo.value.reason, excinfo.value.value) == ('layer_unknown', 'Purple')
+        assert (excinfo.value.reason, excinfo.value.value) == ('channel_unknown', 'Purple')
         assert 'BF' in excinfo.value.offered, 'the refusal should say which layers there are'
 
     def test_an_unknown_layer_refuses_before_the_engine_is_touched(self):

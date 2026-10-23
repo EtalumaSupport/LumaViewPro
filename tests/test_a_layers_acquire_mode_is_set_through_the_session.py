@@ -52,7 +52,7 @@ class TestTheSessionSetsTheMode:
     def test_an_unknown_layer_is_refused(self, session):
         with pytest.raises(ArgumentRefusedError) as refused:
             session.set_channel_acquire('Infrared', 'image')
-        assert refused.value.reason == 'layer_unknown'
+        assert refused.value.reason == 'channel_unknown'
 
         assert 'Infrared' not in session.settings
 

@@ -57,7 +57,7 @@ def body(s):
         runner.start_autofocus(channel='Purple')
         check('unknown layer refused', False, 'NO RAISE')
     except ArgumentRefusedError as e:
-        check('unknown layer refused', e.reason == 'layer_unknown', f'reason={e.reason}')
+        check('unknown layer refused', e.reason == 'channel_unknown', f'reason={e.reason}')
 
     # second run works (no lock left behind)
     p2 = runner.start_autofocus(channel='BF')

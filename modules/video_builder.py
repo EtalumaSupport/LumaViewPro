@@ -396,7 +396,7 @@ class VideoBuilder(ProtocolPostProcessor):
             ValueError: If false_color=True and color is None, or if
                 source_dir contains no .tiff / .tif files.
             ArgumentRefusedError: ``color`` is neither a layer of this
-                release nor a composite (``'layer_unknown'``).
+                release nor a composite (``'channel_unknown'``).
         """
         source_dir = pathlib.Path(source_dir)
         output_file = pathlib.Path(output_file)

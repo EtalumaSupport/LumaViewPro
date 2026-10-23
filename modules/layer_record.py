@@ -232,7 +232,7 @@ class LayerIdentity:
         told it is missing hardware.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``.
+            ArgumentRefusedError: ``'channel_unknown'``.
             HardwareCommandRefusedError: ``'axis_absent'``, naming the
                 layer (``MissingPart.layer``).
             ConfigurationDefectError: ``'layers_unresolved'``, this unit's
@@ -269,18 +269,18 @@ def refuse_unknown_layer(layer: object, argument: str = 'channel') -> None:
     not ``'BF'``.
 
     Raises:
-        ArgumentRefusedError: ``'no_layer_selected'`` for None,
-            ``'layer_unknown'`` for anything else not in the catalogue;
+        ArgumentRefusedError: ``'no_channel_selected'`` for None,
+            ``'channel_unknown'`` for anything else not in the catalogue;
             each offers the catalogue.
     """
     catalogue = release_catalogue()
     if layer is None:
         raise ArgumentRefusedError(
-            'no_layer_selected', argument=argument, value=layer, offered=catalogue
+            'no_channel_selected', argument=argument, value=layer, offered=catalogue
         )
     if not isinstance(layer, str) or layer not in catalogue:
         raise ArgumentRefusedError(
-            'layer_unknown', argument=argument, value=layer, offered=catalogue
+            'channel_unknown', argument=argument, value=layer, offered=catalogue
         )
 
 

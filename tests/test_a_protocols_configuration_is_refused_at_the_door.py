@@ -81,7 +81,7 @@ def test_a_key_left_out_is_refused_naming_its_path(session, config, path, argume
         (('binning_size',), True, 'wrong_kind'),
         (('tiling_overlap_percent',), float('nan'), 'not_a_number'),
         (('layer_configs', 'BF', 'acquire'), 'imagee', 'acquire_mode_unknown'),
-        (('layer_configs',), {'Purple': {'acquire': None}}, 'layer_unknown'),
+        (('layer_configs',), {'Purple': {'acquire': None}}, 'channel_unknown'),
     ],
 )
 def test_a_value_of_the_wrong_kind_is_refused_before_anything_is_built(

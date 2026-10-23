@@ -182,7 +182,7 @@ class TestTheStackIsConfiguredFromSettings:
         runner = _runner()
         with pytest.raises(ArgumentRefusedError) as excinfo:
             runner.start_zstack(channel='Purple')
-        assert (excinfo.value.reason, excinfo.value.value) == ('layer_unknown', 'Purple')
+        assert (excinfo.value.reason, excinfo.value.value) == ('channel_unknown', 'Purple')
 
     def test_an_unknown_layer_refuses_before_the_engine_is_touched(self):
         runner = _runner()

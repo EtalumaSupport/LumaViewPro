@@ -98,7 +98,7 @@ def test_each_read_answers_what_its_setter_wrote(session):
 def test_a_layer_read_refuses_a_name_that_is_no_layer(session, read):
     with pytest.raises(ArgumentRefusedError) as raised:
         getattr(session, read)('Purple')
-    assert raised.value.reason == 'layer_unknown'
+    assert raised.value.reason == 'channel_unknown'
 
 
 def test_the_objective_is_none_while_the_turret_slot_is_unknown(tmp_path):

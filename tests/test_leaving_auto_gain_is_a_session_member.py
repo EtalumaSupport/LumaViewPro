@@ -194,7 +194,7 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
             False,
             ('BF',),
             ArgumentRefusedError,
-            'layer_unknown',
+            'channel_unknown',
         ),  # not a layer of this release
         ('Blue', True, ('BF', 'Green'), HardwareCommandRefusedError, 'axis_absent'),  # no Blue here
         ('BF', 'off', ('BF',), ArgumentTypeRefusedError, 'wrong_argument_type'),  # not a bool
@@ -327,4 +327,4 @@ def test_over_rest_a_hidden_layers_turning_off_reads_a_lock_with_no_state(client
 def test_over_rest_the_lock_of_no_layer_is_refused(client):
     _session, client = client
     answer = client.get('/api/v1/channel_auto_gain_lock', params={'channel': 'Nope'})
-    assert answer.json().get('reason') == 'layer_unknown'
+    assert answer.json().get('reason') == 'channel_unknown'

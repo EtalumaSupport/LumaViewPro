@@ -418,7 +418,7 @@ class TestTheStepIntoItsLayer:
         with pytest.raises(ArgumentRefusedError) as refused:
             session.go_to_step(protocol, 0)
 
-        assert (refused.value.reason, refused.value.value) == ('layer_unknown', 'Purple')
+        assert (refused.value.reason, refused.value.value) == ('channel_unknown', 'Purple')
         assert moves == []
         assert session.settings['BF'] == before
         assert 'Purple' not in session.settings

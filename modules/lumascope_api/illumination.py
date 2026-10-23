@@ -505,7 +505,7 @@ class IlluminationAPI:
         among them, though ``True == 1``.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` for a name,
+            ArgumentRefusedError: ``'channel_unknown'`` for a name,
                 ``'led_channel_unknown'`` for a number not on the board's
                 table.
         """
@@ -1038,7 +1038,7 @@ class IlluminationAPI:
         it raises; this adds only the dispatch described on ``_dispatch_led``.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
+            ArgumentRefusedError: ``'channel_unknown'`` or
                 ``'led_channel_unknown'``, ``channel`` names no channel (see
                 ``_refuse_not_a_channel``); nothing was sent.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
@@ -1061,7 +1061,7 @@ class IlluminationAPI:
         See ``_led_off_impl`` for the argument contract.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
+            ArgumentRefusedError: ``'channel_unknown'`` or
                 ``'led_channel_unknown'``, ``channel`` names no channel (see
                 ``_refuse_not_a_channel``); nothing was sent.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
@@ -1181,7 +1181,7 @@ class IlluminationAPI:
             came up, or after ``disconnect()``).
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` names no
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` names no
                 layer.
             HardwareCommandRefusedError: ``'axis_absent'``, the unit's
                 identity gives the layer no LED.
@@ -1645,7 +1645,7 @@ class IlluminationAPI:
         into a named refusal at `_on_channel`, off-paths no-op.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, *color* is not a layer.
+            ArgumentRefusedError: ``'channel_unknown'``, *color* is not a layer.
         """
         refuse_unknown_layer(color, argument='color')
         record = self._scope.layer_identity.find(color)

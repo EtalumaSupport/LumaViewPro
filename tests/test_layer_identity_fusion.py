@@ -43,7 +43,7 @@ class TestFusion:
         }[member]
         with pytest.raises(ArgumentRefusedError) as refused:
             call()
-        assert (refused.value.reason, refused.value.value) == ('layer_unknown', 'Skylight')
+        assert (refused.value.reason, refused.value.value) == ('channel_unknown', 'Skylight')
 
     def test_identity_narrowed_layer_on_raises_by_name(self, scope):
         scope.refresh_layer_identity(override_model='LS850-0')

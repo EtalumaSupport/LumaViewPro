@@ -3502,11 +3502,11 @@ class ArgumentRefusedError(Refusal, ValueError):
               member takes.
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
               percent.
-            - ``'layer_unknown'`` -- the name is not one of this release's
-              layers (``offered``, the catalogue). Names are exact:
-              ``'bf'`` is not ``'BF'``. A layer this model lacks is a
+            - ``'channel_unknown'`` -- the name is not one of this release's
+              channels (``offered``, the catalogue). Names are exact:
+              ``'bf'`` is not ``'BF'``. A channel this model lacks is a
               name, and is refused as absent hardware, not here.
-            - ``'no_layer_selected'`` -- the member needs a layer and was
+            - ``'no_channel_selected'`` -- the member needs a channel and was
               given None (``offered``, the catalogue).
             - ``'led_channel_unknown'`` -- a number that is not one of the
               attached LED board's channels (``offered``). A ``bool`` is
@@ -3626,13 +3626,13 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Fan Duty Not Changed',
             '{argument} is a percentage from 0 to 100; {value!r} is outside it.',
         ),
-        'layer_unknown': (
-            'Not a Layer',
+        'channel_unknown': (
+            'Not a Channel',
             '{argument} must be one of {offered}; {value!r} is not one.',
         ),
-        'no_layer_selected': (
-            'No Layer Selected',
-            'No layer is selected; {argument} must be one of {offered}.',
+        'no_channel_selected': (
+            'No Channel Selected',
+            'No channel is selected; {argument} must be one of {offered}.',
         ),
         'led_channel_unknown': (
             'Not an LED Channel',

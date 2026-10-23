@@ -171,7 +171,7 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
     Raises:
         ArgumentRefusedError: ``'missing_key'``, ``'wrong_kind'``,
             ``'not_a_number'``, ``'zstack_reference_unknown'``,
-            ``'acquire_mode_unknown'``, ``'layer_unknown'``; each names the
+            ``'acquire_mode_unknown'``, ``'channel_unknown'``; each names the
             key's path inside ``argument``.
     """
     refuse_unless_kind(config, 'dict', argument)

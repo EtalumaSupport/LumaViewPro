@@ -1968,8 +1968,8 @@ class ScopeSession:
         """The stored settings of each layer, or of ``specific_layers``.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, a name in ``specific_layers`` is
+            ArgumentRefusedError: ``'channel_unknown'`` or
+                ``'no_channel_selected'``, a name in ``specific_layers`` is
                 not a layer.
         """
         import modules.config_helpers as config_helpers
@@ -2001,7 +2001,7 @@ class ScopeSession:
         """The Z saved as ``channel``'s focus.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             FocusNotSavedError: no focus was ever saved for ``channel``; a step
                 built for it takes the current Z instead.
         """
@@ -2284,7 +2284,7 @@ class ScopeSession:
         nothing is always admitted.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             SettingRefusedError: ``'out_of_range'``, ``mode`` is not
                 ``'image'``, ``'video'`` or None.
             ConfigError: this scope's layers could not be resolved.
@@ -2305,7 +2305,7 @@ class ScopeSession:
         """What ``channel`` captures: ``'image'``, ``'video'``, or None (nothing).
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
         refuse_unknown_layer(channel)
         return self.settings[channel]['acquire']
@@ -2344,7 +2344,7 @@ class ScopeSession:
             turning on.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``enabled`` is
                 True and this scope does not have ``channel``; or the lock's
@@ -2389,7 +2389,7 @@ class ScopeSession:
         """Whether ``channel``'s auto-gain is on, as ``set_channel_auto_gain`` set it.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
         refuse_unknown_layer(channel)
         return self.settings[channel]['auto_gain']
@@ -2408,7 +2408,7 @@ class ScopeSession:
         session started.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
         refuse_unknown_layer(channel)
         with self.settings_lock:
@@ -2433,7 +2433,7 @@ class ScopeSession:
             now in effect.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'channel_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``layer``.
             ConfigError: this scope's layers could not be resolved. Nothing is applied.
@@ -2596,7 +2596,7 @@ class ScopeSession:
                 notified once; nothing is added.
             ConfigError: with ``use_zstacking``, the stored z-stack will not
                 parse (as ``get_zstack_params``).
-            ArgumentRefusedError: ``'layer_unknown'``, a name in ``channels``
+            ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
                 is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no layer named in ``channels``; ``'not_connected'``, with no
@@ -2656,7 +2656,7 @@ class ScopeSession:
         Returns the step's name after the update.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``channel``. Nothing is changed on either.
         """
@@ -2694,7 +2694,7 @@ class ScopeSession:
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             ProtocolError: ``step_index`` is not a step of ``protocol``.
                 Nothing is written.
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
@@ -2724,7 +2724,7 @@ class ScopeSession:
         ``save_focus``, which saves the live Z, writes through the same path.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
@@ -2904,7 +2904,7 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
@@ -3151,11 +3151,11 @@ class ScopeSession:
                 Nothing changes.
             ProtocolRunRefusedError: this scope cannot put the step's
                 objective in the light path. Nothing changes.
-            ArgumentRefusedError: ``'layer_unknown'``, the step's colour is
+            ArgumentRefusedError: ``'channel_unknown'``, the step's colour is
                 not a layer. Nothing changes.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no layer of the step's colour. Nothing changes.
-            ArgumentRefusedError: ``'layer_unknown'``, the step's
+            ArgumentRefusedError: ``'channel_unknown'``, the step's
                 stimulation names a layer this release has not. Nothing
                 changes.
             ProtocolRunRefusedError: ``'values_out_of_range'``, a value
@@ -3207,7 +3207,7 @@ class ScopeSession:
             unknown = sorted(set(stim_configs) - set(common_utils.get_layers()))
             if unknown:
                 raise ArgumentRefusedError(
-                    'layer_unknown',
+                    'channel_unknown',
                     argument="the step's stimulation layer",
                     value=unknown[0],
                     offered=tuple(common_utils.get_layers()),
@@ -3408,7 +3408,7 @@ class ScopeSession:
             The shown channel now.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'illumination_out_of_range'``, its stored current
                 is outside the attached board's range.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has

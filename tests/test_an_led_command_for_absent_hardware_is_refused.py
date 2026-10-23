@@ -144,7 +144,7 @@ def test_a_name_that_is_no_layer_and_a_number_off_the_board_are_the_requests(mak
     with pytest.raises(ArgumentRefusedError) as five:
         illumination.led_on(5, 10.0)
 
-    assert purple.value.reason == 'layer_unknown'
+    assert purple.value.reason == 'channel_unknown'
     assert (five.value.reason, five.value.offered) == ('led_channel_unknown', (0, 1, 2, 3))
 
 

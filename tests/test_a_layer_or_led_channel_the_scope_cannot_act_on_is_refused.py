@@ -6,14 +6,14 @@ ConfigError naming the model's LEDs, another naming the catalogue, a
 KeyError, a ValueError calling it a channel, a silent off, a read of
 "dark". ``led_on(True)`` lit Green, since ``True == 1``, and a still named
 for Lumi on a scope with no Lumi was written to disk. Each member now asks
-one check first -- ``ArgumentRefusedError`` ``layer_unknown`` offering
+one check first -- ``ArgumentRefusedError`` ``channel_unknown`` offering
 the catalogue, ``led_channel_unknown`` offering the board's numbers -- and
 a layer the model lacks is absent hardware, ``axis_absent`` naming the
 layer. A value that is no name and no whole number -- None, a ``bool``, a
 float -- is the ``@api`` door's
 (``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``),
 except for the two runs, whose GUI hands None when no drawer is open:
-``no_layer_selected``.
+``no_channel_selected``.
 """
 
 import numpy as np
@@ -85,7 +85,7 @@ ABSENT_MEMBERS = (
 @pytest.mark.parametrize('name', ['Purple', 'bf', ''])
 @pytest.mark.parametrize('member', NAME_MEMBERS)
 def test_a_name_that_is_no_layer_is_refused_offering_the_catalogue(session, member, name):
-    refusal = _refused(lambda: NAME_MEMBERS[member](session, name), 'layer_unknown')
+    refusal = _refused(lambda: NAME_MEMBERS[member](session, name), 'channel_unknown')
 
     assert (refusal.value, refusal.offered) == (name, CATALOGUE)
     assert _lit(session) == []
@@ -162,8 +162,8 @@ def test_a_name_is_refused_whatever_the_scope_is_doing(tmp_path):
 
     failed = failing_cases(
         [
-            *((member, 'Purple', 'layer_unknown') for member in ('led_on', 'led_off', *RUNNERS)),
-            *((member, None, 'no_layer_selected') for member in RUNNERS),
+            *((member, 'Purple', 'channel_unknown') for member in ('led_on', 'led_off', *RUNNERS)),
+            *((member, None, 'no_channel_selected') for member in RUNNERS),
         ],
         check,
     )
