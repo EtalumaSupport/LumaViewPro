@@ -70,7 +70,7 @@ class ClockMapping:
     'frame_significant_bits',
     'frames_summed',
     'gain_db',
-    'held_layer',
+    'held_channel',
     'illumination_ma',
     'judgments',
     'saturated_fraction',
@@ -119,7 +119,7 @@ class FrameRecord:
             waited out its budget for a lit one; for a summed capture, when
             any frame was. None when the capture did not judge it (no LED
             on, or ``accept_dark``).
-        held_layer: The layer whose stored settings the camera held for the
+        held_channel: The channel whose stored settings the camera held for the
             grab (``CameraAPI.get_held_layer``); None when it held no
             layer's, after a raw camera write or with the settings a run's
             step wrote. The frame's own exposure and gain are the fields
@@ -142,7 +142,7 @@ class FrameRecord:
     judgments: tuple[Judgment, ...]
     saturated_fraction: float | None
     dark: bool | None
-    held_layer: str | None
+    held_channel: str | None
 
     def __post_init__(self):
         # Frozen all the way down: the record travels to another thread and

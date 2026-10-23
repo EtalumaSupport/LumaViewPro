@@ -74,7 +74,7 @@ def test_a_raw_led_names_the_still_and_the_camera_takes_its_layer(session):
 
     assert '_Blue_' in name
     assert _settings_of(record) == _stored('Blue')
-    assert record.held_layer == 'Blue'
+    assert record.held_channel == 'Blue'
 
 
 def test_a_still_after_a_run_is_one_layers(session, tmp_path):
@@ -137,7 +137,7 @@ def test_a_raw_camera_write_stands_and_the_record_says_no_layer(session):
 
     assert '_BF_' in name
     assert _settings_of(record) == (30.0, _BF['gain_db'])
-    assert record.held_layer is None
+    assert record.held_channel is None
 
 
 def test_the_saved_file_states_the_layer_the_camera_held(session):
@@ -153,11 +153,11 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
 
     held_saved = read_postproc_input_metadata(held)
     raw_saved = read_postproc_input_metadata(raw)
-    assert (held_saved.get('camera_held_a_layer'), held_saved.get('camera_held_layer')) == (
+    assert (held_saved.get('camera_held_a_channel'), held_saved.get('camera_held_channel')) == (
         True,
         'Blue',
     ), held_saved
-    assert (raw_saved.get('camera_held_a_layer'), 'camera_held_layer' in raw_saved) == (
+    assert (raw_saved.get('camera_held_a_channel'), 'camera_held_channel' in raw_saved) == (
         False,
         False,
     ), raw_saved

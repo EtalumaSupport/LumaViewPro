@@ -760,8 +760,8 @@ When the light changes while the frame is taken, the still is taken again on
 the new light's layer, within the first capture's budget. After a raw camera
 write (`scope.camera.set_gain_db`, `set_exposure_ms` and the other raw
 doors) the written values stand, and the frame's record says so:
-`frame_record.held_layer` (the layer whose stored settings the camera held,
-else None) is None, the file's `camera_held_a_layer` False. It
+`frame_record.held_channel` (the channel whose stored settings the camera held,
+else None) is None, the file's `camera_held_a_channel` False. It
 returns at once with an `Operation` of a `SavedStill` per file written, the
 unmarked file first; an overlay adds a second file from the same frame. Each
 `SavedStill` is its `file` and the instrument's record of it, built at the
@@ -865,7 +865,7 @@ its OME ``Plane``, and every other acquisition fact of the frame in the image's
 JSON text: ``FramesSummed``, ``Gain`` and ``GainUnit``, ``Illumination`` and
 ``IlluminationUnit``, ``BlackLevel``, ``Binning``, ``Objective``, the timestamps
 and ``FrameID``, ``FrameValidity``, ``SaturatedFraction``, ``Dark``,
-``CameraHeldALayer`` and ``CameraHeldLayer``. Bio-Formats (Fiji, QuPath,
+``CameraHeldAChannel`` and ``CameraHeldChannel``. Bio-Formats (Fiji, QuPath,
 OMERO) shows the annotation; a plain or ImageJ TIFF carries the same keys in
 its ``Plane`` block. A key the frame did not know is absent, never a stand-in.
 A Sum z-projection and a composite state no ``FramesSummed``: a sum of slices,
@@ -3978,7 +3978,7 @@ Reached through each `SavedStill`'s `frame`, from `session.manual_capture.captur
 - `frame_significant_bits`
 - `frames_summed`
 - `gain_db`
-- `held_layer`
+- `held_channel`
 - `illumination_ma`
 - `judgments`
 - `saturated_fraction`

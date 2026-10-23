@@ -63,8 +63,8 @@ def _every_plane_field() -> dict:
         ],
         'saturated_fraction': 0.0,
         'dark': False,
-        'camera_held_a_layer': True,
-        'camera_held_layer': 'Green',
+        'camera_held_a_channel': True,
+        'camera_held_channel': 'Green',
     }
 
 

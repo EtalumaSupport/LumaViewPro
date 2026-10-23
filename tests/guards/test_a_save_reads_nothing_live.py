@@ -53,7 +53,7 @@ def _record(illumination_ma=None):
         judgments=(),
         saturated_fraction=None,
         dark=None,
-        held_layer=None,
+        held_channel=None,
     )
 
 

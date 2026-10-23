@@ -66,7 +66,7 @@ def _record(**fields):
         'judgments': (),
         'saturated_fraction': 0.0,
         'dark': None,
-        'held_layer': None,
+        'held_channel': None,
     }
     return FrameRecord(**{**defaults, **fields})
 

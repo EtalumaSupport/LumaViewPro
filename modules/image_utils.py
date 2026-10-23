@@ -973,10 +973,10 @@ def _plane_facts(plane: dict) -> dict:
         facts['saturated_fraction'] = plane['SaturatedFraction']
     if 'Dark' in plane:
         facts['dark'] = plane['Dark']
-    if 'CameraHeldALayer' in plane:
-        facts['camera_held_a_layer'] = plane['CameraHeldALayer']
-    if 'CameraHeldLayer' in plane:
-        facts['camera_held_layer'] = plane['CameraHeldLayer']
+    if 'CameraHeldAChannel' in plane:
+        facts['camera_held_a_channel'] = plane['CameraHeldAChannel']
+    if 'CameraHeldChannel' in plane:
+        facts['camera_held_channel'] = plane['CameraHeldChannel']
     return facts
 
 
@@ -1343,8 +1343,8 @@ def build_postproc_output_metadata(
             'frame_validity',
             'saturated_fraction',
             'dark',
-            'camera_held_a_layer',
-            'camera_held_layer',
+            'camera_held_a_channel',
+            'camera_held_channel',
         ):
             metadata.pop(per_capture_field, None)
 
@@ -2540,10 +2540,10 @@ def generate_tiff_data(
     # Whether the camera held a layer's stored settings for the frame, and
     # which: a frame taken after a script's raw gain or exposure write says
     # it held none.
-    if 'camera_held_a_layer' in metadata:
-        plane['CameraHeldALayer'] = metadata['camera_held_a_layer']
-    if 'camera_held_layer' in metadata:
-        plane['CameraHeldLayer'] = metadata['camera_held_layer']
+    if 'camera_held_a_channel' in metadata:
+        plane['CameraHeldAChannel'] = metadata['camera_held_a_channel']
+    if 'camera_held_channel' in metadata:
+        plane['CameraHeldChannel'] = metadata['camera_held_channel']
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes

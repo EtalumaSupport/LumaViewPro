@@ -1246,7 +1246,7 @@ class ImagingAPI:
             judgments=judgments,
             saturated_fraction=saturated_fraction,
             dark=dark,
-            held_layer=self._camera.get_held_layer(),
+            held_channel=self._camera.get_held_layer(),
         )
 
     def _clock_mapping_for_record(self) -> ClockMapping | None:

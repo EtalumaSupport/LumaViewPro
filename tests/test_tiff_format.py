@@ -1380,7 +1380,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
         camera_model='daA3840-45um',
         saturated_fraction=0.25,
         dark=False,
-        held_layer='BF',
+        held_channel='BF',
     )
     where = {'plate_x_mm': 10.0, 'plate_y_mm': 20.0, 'stage_z_um': 5000.0}
     common = {
@@ -1411,7 +1411,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
     read = image_utils.read_postproc_input_metadata(path)
     lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS))
     assert lost == [], f'recorded but not in the file: {lost}'
-    assert (read['binning_size'], read['camera_held_a_layer'], read['camera_held_layer']) == (
+    assert (read['binning_size'], read['camera_held_a_channel'], read['camera_held_channel']) == (
         2,
         True,
         'BF',

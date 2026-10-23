@@ -60,7 +60,7 @@ def judge(session, label, path, expect=None):
         return None
     plane = meta.get('Plane', {})
     channel = (meta.get('Channel', {}).get('Name') or [None])[0]
-    held = plane.get('CameraHeldLayer')
+    held = plane.get('CameraHeldChannel')
     got = (plane.get('ExposureTime'), plane.get('Gain'))
     stored = session.get_settings_snapshot()[channel]
     figure(f'{label}: file', {'name': path.name, 'channel': channel, 'held': held, 'file': got})
