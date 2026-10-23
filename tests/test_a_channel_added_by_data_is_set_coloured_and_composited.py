@@ -121,7 +121,7 @@ def test_a_composite_takes_every_channel_in_its_colour(installation, model):
     with open_composite_session(settings, source_path=installation) as (session, runner):
         channels = _fluorescence(session)
         for key in layer_record.release_catalogue():
-            session.set_layer_acquire(key, 'image' if key in channels else None)
+            session.set_channel_acquire(key, 'image' if key in channels else None)
 
         runs = installation / 'runs'
         runs.mkdir()

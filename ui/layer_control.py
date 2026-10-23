@@ -586,7 +586,7 @@ class LayerControl(BoxLayout):
 
         # The Session stops the layer stimulating when it acquires; the
         # stimulation switch is drawn off to match.
-        _app_ctx.ctx.session.set_layer_acquire(self.layer, None if mode == 'none' else mode)
+        _app_ctx.ctx.session.set_channel_acquire(self.layer, None if mode == 'none' else mode)
         if mode != 'none':
             self.ids['stim_disable_btn'].active = True
             self.show_stim_controls = False
@@ -600,7 +600,7 @@ class LayerControl(BoxLayout):
         enabled = self.ids['stim_enable_btn'].active
         gui_logger.toggle(f'STIM_{self.layer}', enabled)
         if enabled:
-            ctx.session.set_layer_acquire(self.layer, None)
+            ctx.session.set_channel_acquire(self.layer, None)
             self.ids['acquire_none'].active = True
             self.ids['acquire_none'].state = 'down'
         ctx.update_settings(f'{self.layer}.stim_config.enabled', enabled)

@@ -83,7 +83,7 @@ def _events_until(lines, name: str) -> list[dict]:
 def _start_a_scan(session, **events):
     """A run started in-process, as the GUI or a script starts one."""
     home_sim_scope(session.scope)
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
     return session.create_protocol_runner().start_single_scan(

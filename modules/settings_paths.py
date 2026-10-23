@@ -93,7 +93,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'scale_bar.enabled': _session('set_scale_bar'),
     'motion.acceleration_max_pct': _session('set_acceleration_limit'),
     'bookmark': _session('save_bookmark'),
-    '*.acquire': _session('set_layer_acquire'),
+    '*.acquire': _session('set_channel_acquire'),
     '*.auto_gain': _session('set_layer_auto_gain'),
     '*.focus': _session('save_layer_focus'),
 }

@@ -155,8 +155,8 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
         (
             'Blue.acquire',
             ScopeSession,
-            'set_layer_acquire',
-            'ScopeSession.set_layer_acquire',
+            'set_channel_acquire',
+            'ScopeSession.set_channel_acquire',
             'has_member',
         ),
         (

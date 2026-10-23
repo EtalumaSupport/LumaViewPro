@@ -247,10 +247,10 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(one_position_session,
     sweep runs in the reference slice's light all the same: Blue saved 10 um
     below BF sorts first here, and BF is the channel that autofocuses."""
     session = one_position_session
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     session.save_layer_focus('BF', 5000.0)
     session.update_settings('BF.autofocus', True)
-    session.set_layer_acquire('Blue', 'image')
+    session.set_channel_acquire('Blue', 'image')
     session.save_layer_focus('Blue', 4990.0)
     session.update_settings('zstack.step_size', 10.0)
     session.update_settings('zstack.range', 20.0)

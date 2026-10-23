@@ -89,22 +89,22 @@ def test_new_and_add_build_no_step_for_a_layer_this_scope_lacks(ls850):
 
 def test_a_layer_this_scope_lacks_is_refused_acquire_and_allowed_nothing(ls850):
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        ls850.set_layer_acquire('Lumi', 'image')
+        ls850.set_channel_acquire('Lumi', 'image')
     assert refused.value.missing == MissingPart.layer('Lumi')
     assert ls850.settings['Lumi']['acquire'] is None
 
-    ls850.set_layer_acquire('Lumi', None)
+    ls850.set_channel_acquire('Lumi', None)
 
 
 def test_a_layer_settings_row_for_a_layer_this_scope_lacks_is_dropped_and_logged(
     ls850, lumi, tmp_path, warned
 ):
     # Saved on a Lumi scope: BF steps, and Lumi acquiring in the block.
-    lumi.set_layer_acquire('Lumi', 'image')
+    lumi.set_channel_acquire('Lumi', 'image')
     protocol = lumi.create_empty_protocol()
-    lumi.set_layer_acquire('Lumi', None)
+    lumi.set_channel_acquire('Lumi', None)
     lumi.add_step(protocol)
-    lumi.set_layer_acquire('Lumi', 'image')
+    lumi.set_channel_acquire('Lumi', 'image')
     path = lumi.save_protocol(protocol, tmp_path / 'saved_on_lumi.tsv')
     assert 'Lumi\timage' in path.read_text()
 
@@ -117,7 +117,7 @@ def test_a_layer_settings_row_for_a_layer_this_scope_lacks_is_dropped_and_logged
 
 
 def test_a_file_with_a_step_on_a_layer_this_scope_lacks_is_refused_at_load(ls850, lumi, tmp_path):
-    lumi.set_layer_acquire('Lumi', 'image')
+    lumi.set_channel_acquire('Lumi', 'image')
     protocol = lumi.create_empty_protocol()
     lumi.add_step(protocol)
     path = lumi.save_protocol(protocol, tmp_path / 'lumi_steps.tsv')
@@ -132,7 +132,7 @@ def test_a_file_with_a_step_on_a_layer_this_scope_lacks_is_refused_at_load(ls850
 
 
 def test_a_scope_runs_the_lumi_steps_its_own_layers_include(lumi, tmp_path):
-    lumi.set_layer_acquire('Lumi', 'image')
+    lumi.set_channel_acquire('Lumi', 'image')
     protocol = lumi.create_empty_protocol()
     lumi.add_step(protocol)
     path = lumi.save_protocol(protocol, tmp_path / 'lumi_steps.tsv')
@@ -166,7 +166,7 @@ def test_a_scope_whose_layers_could_not_be_resolved_says_so(ls850, monkeypatch):
     assert 'has no BF' not in str(refused.value)
 
     with pytest.raises(ConfigError) as refused_acquire:
-        ls850.set_layer_acquire('BF', 'image')
+        ls850.set_channel_acquire('BF', 'image')
     assert 'could not be resolved' in str(refused_acquire.value)
 
 
@@ -174,7 +174,7 @@ def test_update_on_a_layer_not_set_to_acquire_is_refused_and_the_step_kept(ls850
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)
     before = protocol.steps()
-    ls850.set_layer_acquire('BF', None)
+    ls850.set_channel_acquire('BF', None)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         ls850.update_step(protocol, 0, channel='BF')
@@ -189,7 +189,7 @@ def test_a_stim_edit_is_judged_on_the_steps_own_channel(ls850):
     # BF acquires, so the stim edit is not refused.
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)
-    ls850.set_layer_acquire('Blue', None)
+    ls850.set_channel_acquire('Blue', None)
     ls850.settings['Blue']['stim_config']['enabled'] = True
 
     ls850.update_step(protocol, 0, channel='Blue')

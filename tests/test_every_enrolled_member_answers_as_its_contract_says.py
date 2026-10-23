@@ -251,7 +251,7 @@ def _make_scope(tmp_path: pathlib.Path, model: str = 'LS850', protocol: bool = T
     else:
         home_sim_scope(session.scope)
     # A protocol has steps only for a layer that acquires.
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     client = TestClient(build_app(session))
     client.__enter__()
     scope = Scope(session, live, client)
@@ -312,8 +312,8 @@ def run_folders(tmp_path_factory):
     try:
         home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
-        session.set_layer_acquire('BF', 'image')
-        session.set_layer_acquire('Blue', 'image')
+        session.set_channel_acquire('BF', 'image')
+        session.set_channel_acquire('Blue', 'image')
 
         def scan(tiling: str) -> object:
             config = session.get_sequenced_capture_config(tiling=tiling, use_zstacking=False)

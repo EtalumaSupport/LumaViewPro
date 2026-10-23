@@ -286,7 +286,7 @@ def _new_bf_and_blue_tiled(session, tiling):
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
     for layer, focus in (('BF', 5000.0), ('Blue', 4990.0)):
-        session.set_layer_acquire(layer, 'image')
+        session.set_channel_acquire(layer, 'image')
         session.save_layer_focus(layer, focus)
     return session.new_protocol(tiling=tiling)
 

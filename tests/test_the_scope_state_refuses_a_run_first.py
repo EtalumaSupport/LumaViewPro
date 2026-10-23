@@ -40,7 +40,7 @@ def make_session(tmp_path):
 
 def _one_step_protocol(session):
     protocol = session.create_empty_protocol()
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     session.add_step(protocol)
     return protocol
 

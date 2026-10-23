@@ -85,7 +85,7 @@ def test_a_held_scope_locks_the_controls_and_names_the_refusal_a_start_raises(
     sim_session, tmp_path
 ):
     protocol = sim_session.create_empty_protocol()
-    sim_session.set_layer_acquire('BF', 'image')
+    sim_session.set_channel_acquire('BF', 'image')
     sim_session.add_step(protocol)
 
     with sim_session.diagnostic_claim():

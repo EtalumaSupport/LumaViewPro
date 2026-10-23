@@ -59,6 +59,8 @@ RETIRED = {
     'get_live_camera_settings': 'camera.read_gain_db and its siblings',
     'set_auto_exposure_time': 'camera.set_auto_exposure',
     'apply_layer_camera_settings': 'camera.apply',
+    'set_layer_acquire': 'set_channel_acquire',
+    'layer_acquire': 'channel_acquire',
 }
 
 

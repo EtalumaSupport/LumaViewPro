@@ -49,7 +49,7 @@ def session(live):
     s = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
     # A protocol is made on a homed scope, with steps for a layer that acquires.
     home_sim_scope(s.scope)
-    s.set_layer_acquire('BF', 'image')
+    s.set_channel_acquire('BF', 'image')
     yield s
     s.shutdown()
 

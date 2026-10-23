@@ -86,7 +86,7 @@ def _capture_still(session, layers):
     if not layers:
         return
     for layer in layers:
-        session.set_layer_acquire(layer, 'image')
+        session.set_channel_acquire(layer, 'image')
     print(f'STILL: {", ".join(layers)} captured as still images for these runs', flush=True)
 
 

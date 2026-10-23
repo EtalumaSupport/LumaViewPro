@@ -145,7 +145,7 @@ def test_a_fresh_install_adds_a_multi_channel_step_green_before_blue(tmp_path):
             empty_config=session.get_sequenced_capture_config()
         )
         for key in ('Blue', 'BF', 'Green'):
-            session.set_layer_acquire(key, 'image')
+            session.set_channel_acquire(key, 'image')
 
         session.add_step(protocol)
 

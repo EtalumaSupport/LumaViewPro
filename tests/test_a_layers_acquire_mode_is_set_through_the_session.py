@@ -5,7 +5,7 @@ Whether a layer captures an image, a video or nothing decides which steps
 New and Add Step build and what a composite merges. The GUI's acquire
 toggle and its layer-hiding wrote the store directly, and no Session member
 wrote it, so a script or REST could not choose what a protocol acquires
-without writing the settings dict itself. ``ScopeSession.set_layer_acquire``
+without writing the settings dict itself. ``ScopeSession.set_channel_acquire``
 is the one writer: it refuses a layer or a mode it does not know, and a
 layer set to acquire stops stimulating, as the GUI's toggle did.
 """
@@ -28,7 +28,7 @@ def _stim(session, layer):
 class TestTheSessionSetsTheMode:
     @pytest.mark.parametrize('mode', ['image', 'video', None])
     def test_the_mode_is_stored(self, session, mode):
-        session.set_layer_acquire('BF', mode)
+        session.set_channel_acquire('BF', mode)
 
         assert session.settings['BF']['acquire'] == mode
 
@@ -37,7 +37,7 @@ class TestTheSessionSetsTheMode:
         with session.settings_lock:
             session.settings['Green']['stim_config']['enabled'] = True
 
-        session.set_layer_acquire('Green', mode)
+        session.set_channel_acquire('Green', mode)
 
         assert _stim(session, 'Green') is False
 
@@ -45,13 +45,13 @@ class TestTheSessionSetsTheMode:
         with session.settings_lock:
             session.settings['Green']['stim_config']['enabled'] = True
 
-        session.set_layer_acquire('Green', None)
+        session.set_channel_acquire('Green', None)
 
         assert _stim(session, 'Green') is True
 
     def test_an_unknown_layer_is_refused(self, session):
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.set_layer_acquire('Infrared', 'image')
+            session.set_channel_acquire('Infrared', 'image')
         assert refused.value.reason == 'layer_unknown'
 
         assert 'Infrared' not in session.settings
@@ -62,7 +62,7 @@ class TestTheSessionSetsTheMode:
         before = session.settings['BF']['acquire']
 
         with pytest.raises(SettingRefusedError) as refused:
-            session.set_layer_acquire('BF', mode)
+            session.set_channel_acquire('BF', mode)
 
         assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.acquire')
         assert session.settings['BF']['acquire'] == before
@@ -99,6 +99,6 @@ def test_no_gui_code_writes_a_layers_acquire_mode_itself():
         for hit in _acquire_writes(path)
     }
     assert found == _UI_WRITERS_ALLOWED, (
-        'a layer acquire mode is set through ScopeSession.set_layer_acquire; '
+        'a layer acquire mode is set through ScopeSession.set_channel_acquire; '
         f'these write it themselves: {sorted(found - _UI_WRITERS_ALLOWED)}'
     )

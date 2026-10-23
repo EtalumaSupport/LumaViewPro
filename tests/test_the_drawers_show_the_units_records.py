@@ -105,7 +105,7 @@ def _panel(monkeypatch):
         'ctx',
         SimpleNamespace(
             session=SimpleNamespace(
-                set_layer_acquire=lambda layer, v: acquire.append((layer, v)),
+                set_channel_acquire=lambda layer, v: acquire.append((layer, v)),
                 channel_colors=layer_record.release_colors,
             )
         ),

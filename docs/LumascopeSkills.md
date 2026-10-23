@@ -510,7 +510,7 @@ Its `reason` says why:
 
 | `reason` | Refused when |
 |---|---|
-| `has_member` | the setting is changed by its own member, the one a client calls, named in `member` by its path from the session (`scope.camera.set_frame_size` for the camera's; over REST a setting with a read of its own is written by `PUT` on that read's URL, `/api/v1/scope/camera/frame_size`, "Routes" below): `microscope` (`select_model`), `live_folder` (`set_live_folder`), `protocol.filepath` (`set_protocol_filepath`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`scope.camera.set_image_mode`), `binning` (`scope.camera.set_binning`), `frame` (`scope.camera.set_frame_size`), `camera.high_conversion_gain` (`scope.camera.set_high_conversion_gain`), `camera.line_noise_reduction` (`scope.camera.set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), `bookmark` (`save_bookmark`, `save_all_bookmarks`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_layer_focus`) |
+| `has_member` | the setting is changed by its own member, the one a client calls, named in `member` by its path from the session (`scope.camera.set_frame_size` for the camera's; over REST a setting with a read of its own is written by `PUT` on that read's URL, `/api/v1/scope/camera/frame_size`, "Routes" below): `microscope` (`select_model`), `live_folder` (`set_live_folder`), `protocol.filepath` (`set_protocol_filepath`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`scope.camera.set_image_mode`), `binning` (`scope.camera.set_binning`), `frame` (`scope.camera.set_frame_size`), `camera.high_conversion_gain` (`scope.camera.set_high_conversion_gain`), `camera.line_noise_reduction` (`scope.camera.set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), `bookmark` (`save_bookmark`, `save_all_bookmarks`), a layer's `acquire` (`set_channel_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_layer_focus`) |
 | `installation_only` | the setting is read only from the installation's settings file, so no caller can reconfigure the scope it drives: the `rest_api` block, `mode`, `lvp_lock_port`, `profile_trace_output_dir`, and the debugging switches `debug_mode`, `cprofile_enabled`, `profile_trace_enabled`, `tracemalloc_enabled`, `memory_profile_enabled`, `memory_profile_interval_s` and `fx2_debug_wire_enabled` |
 | `derived` | the setting is derived from the release when the template is read, never a person's: `step_channel_order`, from the catalogue's layer order. A stored copy that differs is replaced at load and told, and one in a settings dict handed to `ScopeSession.create` is refused |
 | `not_a_setting` | no setting has the path |
@@ -1016,11 +1016,11 @@ grids.available             # ('1x1', '2x2', '3x3', ...)
 grids.default               # '1x1'
 ```
 
-**Choosing what each layer captures.** `session.set_layer_acquire(channel, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), an unknown mode `SettingRefusedError` (`out_of_range`), and `'image'` or `'video'` for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing (`scope.layer_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
+**Choosing what each layer captures.** `session.set_channel_acquire(channel, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), an unknown mode `SettingRefusedError` (`out_of_range`), and `'image'` or `'video'` for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing (`scope.layer_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
 
 ```python
-session.set_layer_acquire('BF', 'image')
-session.set_layer_acquire('Green', None)
+session.set_channel_acquire('BF', 'image')
+session.set_channel_acquire('Green', None)
 ```
 
 **Turning a layer's auto-gain on and off.** `session.set_layer_auto_gain(channel, enabled)` does what the GUI's Auto Gain/Exp box does. For the shown layer the camera follows before it returns: turning it on (`True`) starts the camera adjusting, and turning it off (`False`) stops it and keeps what it reached: the gain becomes the layer's stored gain and the exposure its stored exposure, rounded to 0.1 dB and 0.01 ms. The stored exposure is never below the channel's usable floor (0.1 ms for brightfield, phase contrast and darkfield, 1 ms for fluorescence and luminescence), even when the camera went lower on a bright sample. A value the camera did not report is left as it was. For a layer the camera does not hold, only the preference is stored: the camera's adjusting belongs to the layer it holds. Turning it off returns the lock result: its `state` says whether the camera converged, hit the exposure ceiling (`MAXED`), hit the floor (`AT_MINIMUM`), or reported nothing usable (`FAILED`); a `state` of None means auto-gain was not running. `session.layer_auto_gain_lock(layer)` answers that same lock afterwards, until the layer's auto-gain is next turned off: over REST, where `PUT /api/v1/layer_auto_gain` answers the setting's read, `GET /api/v1/layer_auto_gain_lock?channel=BF` is how a client learns it. It records that turning off, not the layer now, so turning auto-gain back on or storing a gain leaves it as it was; it is None until the layer's auto-gain is first turned off in the session. Turning it on returns None. Either waits for the camera. While a run, a diagnostic or a home holds the scope, turning it on is stored only, and turning the shown layer's off raises `HardwareCommandRefusedError` and stores nothing. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), and turning it on for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing; turning it off is always accepted.
@@ -1550,7 +1550,7 @@ still states the major version.
 ```python
 session.saved_focus('Blue')              # the Z saved as a layer's focus; FocusNotSavedError when none was
                                          # ever saved (a step built for that layer takes the current Z)
-session.layer_acquire('Blue')            # what a layer captures: 'image', 'video' or None (set_layer_acquire)
+session.channel_acquire('Blue')            # what a layer captures: 'image', 'video' or None (set_channel_acquire)
 session.layer_auto_gain('Blue')          # whether a layer's auto-gain is on (set_layer_auto_gain; turning it
                                          # off also stores the layer's gain and exposure, read by get_setting)
 session.layer_auto_gain_lock('Blue')     # what the camera reached when that layer's auto-gain was last turned
@@ -2670,7 +2670,7 @@ The Session is the root: its member `m` is `/api/v1/m`, and a sub-object is a pa
 
 - A read is `GET`: a property or published field, and a method marked as a read, one that changes nothing (`GET /api/v1/scope/motion/axis_positions`). Its encoded answer is the whole body.
 - A read method's arguments are its query string, one key a parameter (`GET /api/v1/scope/motion/get_axis_limits?axis=Z`). The text is converted to the parameter's type: `2` to a number, `true` / `false` to a bool (`1` / `0`, `yes` / `no` and `on` / `off` are taken too), a whole number like `2.0` where an integer goes. A list is its key repeated (`exclude_sources=a&exclude_sources=b`); a record is one key a field, `<parameter>.<field>` (`stage_offset.x_um=3&stage_offset.y_um=4`), and a record given in part is refused. A parameter left out takes the member's own default; a query string has no `null`, so a parameter whose default is `None` is given `None` by leaving it out, and an empty value (`labware_id=`) is the empty string.
-- A setting is one URL: its read's. `GET` reads it and `PUT` writes it, with the setter's arguments as a JSON object by parameter name, and the answer to a `PUT` is the read's answer after the write, the value the scope took (`PUT /api/v1/scope/camera/binning` with `{"size": 2}` answers `2`; `PUT /api/v1/scope/camera/frame_size` with `{"width": 960, "height": 600}` answers the `FrameSize` delivered). A setting kept per layer or per slot takes its key in the `PUT` body and in the `GET`'s query (`PUT /api/v1/layer_acquire` with `{"channel": "BF", "mode": "image"}`, then `GET /api/v1/layer_acquire?channel=BF`). The setter itself has no route: `POST /api/v1/scope/camera/set_binning` is `404`. Each setting with a URL: `model` (`select_model`), `objective_id` (`select_objective`), `turret_objective` (`assign_turret_objective`), `labware` (`select_labware`), `scale_bar_enabled` (`set_scale_bar`), `acceleration_limit_pct` (`set_acceleration_limit`), `layer_acquire` (`set_layer_acquire`), `layer_auto_gain` (`set_layer_auto_gain`), `saved_focus` (`save_layer_focus`), and on the camera `image_mode`, `binning`, `frame_size`, `high_conversion_gain`, `line_noise_reduction`, `gain_db`, `exposure_ms`, `black_level` and `auto_exposure`.
+- A setting is one URL: its read's. `GET` reads it and `PUT` writes it, with the setter's arguments as a JSON object by parameter name, and the answer to a `PUT` is the read's answer after the write, the value the scope took (`PUT /api/v1/scope/camera/binning` with `{"size": 2}` answers `2`; `PUT /api/v1/scope/camera/frame_size` with `{"width": 960, "height": 600}` answers the `FrameSize` delivered). A setting kept per layer or per slot takes its key in the `PUT` body and in the `GET`'s query (`PUT /api/v1/channel_acquire` with `{"channel": "BF", "mode": "image"}`, then `GET /api/v1/channel_acquire?channel=BF`). The setter itself has no route: `POST /api/v1/scope/camera/set_binning` is `404`. Each setting with a URL: `model` (`select_model`), `objective_id` (`select_objective`), `turret_objective` (`assign_turret_objective`), `labware` (`select_labware`), `scale_bar_enabled` (`set_scale_bar`), `acceleration_limit_pct` (`set_acceleration_limit`), `channel_acquire` (`set_channel_acquire`), `layer_auto_gain` (`set_layer_auto_gain`), `saved_focus` (`save_layer_focus`), and on the camera `image_mode`, `binning`, `frame_size`, `high_conversion_gain`, `line_noise_reduction`, `gain_db`, `exposure_ms`, `black_level` and `auto_exposure`.
 - Any other method is `POST`. Its arguments are a JSON object by parameter name; a method with none takes an empty body or `{}`. A parameter with no default must be present, one left out takes the member's own default, and `null` is `None`.
 - The answer to a finished call is `200` with its encoded return value as the whole body, `null` for `None`.
 - Arguments are checked before the member runs: a key the member does not take, a value that is not of the parameter's type (in a body, a string where a number goes), a number that is not finite, a missing required one, or a query string on a route that takes none (a property, a `PUT` or a `POST`) is refused `422` (`invalid_request`, its `errors` naming each argument and why). A read asked with `POST`, a setting with `POST`, or a call with `GET`, is `405`.
@@ -2779,7 +2779,7 @@ curl -s -X POST $API/scope/illumination/led_on -H 'Content-Type: application/jso
 curl -s -X POST $API/scope/illumination/leds_off
 
 # One scan of a one-step protocol
-curl -s -X PUT $API/layer_acquire -H 'Content-Type: application/json' -d '{"channel": "BF", "mode": "image"}'   # "image"
+curl -s -X PUT $API/channel_acquire -H 'Content-Type: application/json' -d '{"channel": "BF", "mode": "image"}'   # "image"
 curl -s -X POST $API/create_empty_protocol            # {"handle":"1","type":"Protocol"}
 curl -s -X POST $API/add_step -H 'Content-Type: application/json' -d '{"protocol": "1"}'
 curl -s -X POST $API/create_protocol_runner           # {"handle":"2","type":"ProtocolRunner"}
@@ -2903,7 +2903,7 @@ A scan of chosen wells is a protocol with a step added at each, from the
 session's own layer settings:
 
 ```python
-session.set_layer_acquire('BF', 'image')             # the layers a step is added for
+session.set_channel_acquire('BF', 'image')             # the layers a step is added for
 protocol = session.create_empty_protocol()
 for well in ('A1', 'A2', 'A3'):
     session.scope.motion.move_to_well(well)          # the well's centre on the selected plate
@@ -3111,7 +3111,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `held_by_other`
 - `labware`
 - `last_run`
-- `layer_acquire`
+- `channel_acquire`
 - `layer_auto_gain`
 - `layer_auto_gain_lock`
 - `light_shown_channel`
@@ -3160,7 +3160,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `select_model`
 - `select_objective`
 - `set_acceleration_limit`
-- `set_layer_acquire`
+- `set_channel_acquire`
 - `set_layer_auto_gain`
 - `set_live_folder` (in-process)
 - `set_protocol_filepath` (in-process)

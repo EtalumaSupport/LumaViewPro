@@ -30,7 +30,7 @@ def session(tmp_path):
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     home_sim_scope(s.scope)
     # A protocol has steps only for a layer that acquires.
-    s.set_layer_acquire('BF', 'image')
+    s.set_channel_acquire('BF', 'image')
     yield s
     s.shutdown()
 

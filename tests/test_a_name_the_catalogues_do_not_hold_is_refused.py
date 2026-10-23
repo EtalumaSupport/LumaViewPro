@@ -155,7 +155,7 @@ def test_a_slot_that_is_not_one_is_refused_as_the_turrets_range(turret_session, 
 
 
 def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_changes):
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     # The config carries Z only while Z holds its reference, and no test in
     # this file moves an axis; under the push suite Z has been seen without
     # one here, so a loss says what Z holds and who changed it.

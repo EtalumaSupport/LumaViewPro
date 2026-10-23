@@ -101,7 +101,7 @@ def session(tmp_path):
     s = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
     home_sim_scope(s.scope)
     # A protocol has steps, so a step's members reach their own checks.
-    s.set_layer_acquire('BF', 'image')
+    s.set_channel_acquire('BF', 'image')
     yield s
     s.shutdown()
 

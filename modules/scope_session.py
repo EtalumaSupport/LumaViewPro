@@ -2270,9 +2270,9 @@ class ScopeSession:
         protocol.to_file(file_path=path, layer_settings=layer_settings)
         return path
 
-    @api(sets='layer_acquire')
+    @api(sets='channel_acquire')
     @_guarded_write
-    def set_layer_acquire(self, channel: str, mode: 'str | None') -> None:
+    def set_channel_acquire(self, channel: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
 
         The layers set to acquire are the ones ``new_protocol`` and
@@ -2295,13 +2295,13 @@ class ScopeSession:
         settings_paths.refuse_outside_range(f'{channel}.acquire', mode)
         if mode is not None:
             self.scope.layer_identity.refuse_unless_on_scope(
-                channel, 'set_layer_acquire', then='be set to acquire'
+                channel, 'set_channel_acquire', then='be set to acquire'
             )
         with self.settings_lock:
             self._write_layer_acquire(channel, mode)
 
     @api(reads=True)
-    def layer_acquire(self, channel: str) -> 'str | None':
+    def channel_acquire(self, channel: str) -> 'str | None':
         """What ``channel`` captures: ``'image'``, ``'video'``, or None (nothing).
 
         Raises:

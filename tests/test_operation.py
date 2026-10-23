@@ -376,7 +376,7 @@ def test_a_holder_cannot_settle_a_run_a_recording_or_a_move_it_was_handed(tmp_pa
 
     try:
         home_sim_scope(session.scope)
-        session.set_layer_acquire('BF', 'image')
+        session.set_channel_acquire('BF', 'image')
         protocol = session.create_empty_protocol()
         session.add_step(protocol)
         run = session.create_protocol_runner().start_single_scan(

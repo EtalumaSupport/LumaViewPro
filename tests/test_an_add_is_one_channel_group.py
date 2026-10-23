@@ -378,7 +378,7 @@ class TestAGeneratedProtocolKeepsAPositionTogether:
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None
         for layer in ('BF', 'Green'):
-            session.set_layer_acquire(layer, 'image')
+            session.set_channel_acquire(layer, 'image')
         protocol = session.new_protocol(tiling='2x2')
         steps = protocol.steps()
 

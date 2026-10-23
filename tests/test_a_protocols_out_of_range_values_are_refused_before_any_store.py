@@ -26,7 +26,7 @@ def session(tmp_path_factory):
         complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
     )
     s.run_application_session()
-    s.set_layer_acquire('BF', 'image')
+    s.set_channel_acquire('BF', 'image')
     yield s
     s.shutdown()
 

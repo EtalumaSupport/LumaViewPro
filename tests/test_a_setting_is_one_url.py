@@ -34,7 +34,7 @@ _WRITES = {
     'labware': ({'labware_name': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'acceleration_limit_pct': ({'val_pct': 40}, None, 40),
-    'layer_acquire': ({'channel': 'Blue', 'mode': 'video'}, {'channel': 'Blue'}, 'video'),
+    'channel_acquire': ({'channel': 'Blue', 'mode': 'video'}, {'channel': 'Blue'}, 'video'),
     'layer_auto_gain': ({'channel': 'Green', 'enabled': True}, {'channel': 'Green'}, True),
     'saved_focus': ({'channel': 'Blue', 'z_um': 5000.0}, {'channel': 'Blue'}, 5000.0),
     'scope/camera/image_mode': ({'mode': '12bit_scientific'}, None, '12bit_scientific'),

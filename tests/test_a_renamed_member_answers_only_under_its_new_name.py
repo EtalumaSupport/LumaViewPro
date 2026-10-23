@@ -21,12 +21,20 @@ from tests.settings_fixtures import complete_settings
 RENAMED = [
     (
         'PUT',
-        'layer_acquire',
+        'channel_acquire',
         {'layer': 'BF', 'mode': 'image'},
-        'layer_acquire',
+        'channel_acquire',
         {'channel': 'BF', 'mode': 'image'},
     ),
-    ('GET', 'layer_acquire', {'layer': 'BF'}, 'layer_acquire', {'channel': 'BF'}),
+    ('GET', 'channel_acquire', {'layer': 'BF'}, 'channel_acquire', {'channel': 'BF'}),
+    (
+        'PUT',
+        'layer_acquire',
+        {'channel': 'BF', 'mode': 'image'},
+        'channel_acquire',
+        {'channel': 'BF', 'mode': 'image'},
+    ),
+    ('GET', 'layer_acquire', {'channel': 'BF'}, 'channel_acquire', {'channel': 'BF'}),
     (
         'PUT',
         'layer_auto_gain',

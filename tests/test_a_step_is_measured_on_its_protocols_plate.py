@@ -35,7 +35,7 @@ def session(tmp_path):
         simulate=True,
     )
     home_sim_scope(built.scope)
-    built.set_layer_acquire('BF', 'image')
+    built.set_channel_acquire('BF', 'image')
     yield built
     try:
         built.shutdown()

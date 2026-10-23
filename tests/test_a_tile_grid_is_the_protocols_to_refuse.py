@@ -77,7 +77,7 @@ def test_a_new_protocol_in_a_grid_the_installation_does_not_offer_is_refused(ses
     # The build from a config refused nothing: it raised KeyError from the
     # grid lookup, which reached the GUI's New as "Operation failed" when
     # the spinner was blank, and a script or REST caller as a bare KeyError.
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     with (
         patch('modules.protocol.notifications.report_outcome') as report,
         pytest.raises(ProtocolRunRefusedError) as refusal,

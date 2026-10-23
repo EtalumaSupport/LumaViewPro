@@ -60,12 +60,12 @@ def _protocol_bf_bf_blue(session):
     _go_to_z(session, LAYER_FOCUS)
     for x_um in (10000, 20000):
         session.scope.motion.move_xy(x_um=x_um)
-        session.set_layer_acquire('Blue', None)
+        session.set_channel_acquire('Blue', None)
         session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
-    session.set_layer_acquire('Blue', 'image')
-    session.set_layer_acquire('BF', None)
+    session.set_channel_acquire('Blue', 'image')
+    session.set_channel_acquire('BF', None)
     session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
-    session.set_layer_acquire('BF', 'image')
+    session.set_channel_acquire('BF', 'image')
     assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', 'Blue']
     assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
     return protocol

@@ -146,7 +146,7 @@ class ImageSettings(BoxLayout):
         for layer, drawer in self._drawers.items():
             record = records.get(layer)
             if record is None:
-                _app_ctx.ctx.session.set_layer_acquire(layer, None)
+                _app_ctx.ctx.session.set_channel_acquire(layer, None)
                 drawer.collapse = True
                 continue
             color = colors[layer]

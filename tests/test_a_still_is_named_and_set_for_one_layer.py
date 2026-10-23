@@ -81,8 +81,8 @@ def test_a_still_after_a_run_is_one_layers(session, tmp_path):
     """BF shown before a one-step Blue scan: the still after it is named for
     the layer shown and taken at that layer's settings, whichever it is."""
     for layer in session.get_layer_configs():
-        session.set_layer_acquire(layer, None)
-    session.set_layer_acquire('Blue', 'image')
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('Blue', 'image')
     protocol = session.new_protocol()
     while protocol.num_steps() > 1:
         session.delete_step(protocol, protocol.num_steps() - 1)

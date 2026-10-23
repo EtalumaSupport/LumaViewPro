@@ -1383,7 +1383,7 @@ class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.
 
     Raised by ``ScopeSession.update_settings`` and ``set_live_folder``, by
-    the members that own a ranged setting (``set_layer_acquire``,
+    the members that own a ranged setting (``set_channel_acquire``,
     ``set_image_mode``, through ``settings_paths.refuse_outside_range``) and
     for a settings dict handed to a session, at ``create``'s door
     (``settings_init.prepare_loaded``, through

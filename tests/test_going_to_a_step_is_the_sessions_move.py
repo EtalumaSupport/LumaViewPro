@@ -383,7 +383,7 @@ class TestTheStepIntoItsLayer:
         assert layer['acquire'] == 'video'
         assert layer['video_config'] == step['Video Config']
         assert layer['video_config'] is not step['Video Config'], 'the protocol owns its dicts'
-        # A layer set to acquire stops stimulating: set_layer_acquire's rule.
+        # A layer set to acquire stops stimulating: set_channel_acquire's rule.
         assert layer['stim_config']['enabled'] is False
 
     def test_a_scope_with_no_motor_still_loads_the_step_into_its_layer(self, no_motor_session):

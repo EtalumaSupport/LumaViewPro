@@ -107,7 +107,7 @@ def body(session, runner):
     x0 = scope.motion.get_target_position('X')
     try:
         for layer in layers:
-            session.set_layer_acquire(layer, 'image' if layer in pair else None)
+            session.set_channel_acquire(layer, 'image' if layer in pair else None)
         here = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
         session.add_step(here, before_step_index=0)
         scope.motion.move_xy(x_um=x0 + TRAVEL_UM)
@@ -182,7 +182,7 @@ def body(session, runner):
     finally:
         scope.illumination.leds_off()
         for layer, mode in acquire_before.items():
-            session.set_layer_acquire(layer, mode)
+            session.set_channel_acquire(layer, mode)
         session.update_settings('BF.exposure_ms', exposure_before)
         scope.motion.move_xy(x_um=x0)
 

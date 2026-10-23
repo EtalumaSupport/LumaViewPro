@@ -3,7 +3,7 @@
 """Protocol execution example.
 
 Demonstrates:
-- Choosing the layers a run captures (ScopeSession.set_layer_acquire)
+- Choosing the layers a run captures (ScopeSession.set_channel_acquire)
 - Building a Protocol from the session's own configuration, without a file
 - Running one scan through the session's protocol runner and reading how
   it ended
@@ -61,7 +61,7 @@ def run_one_scan(session, live):
 
     # The layers set to acquire are the ones a protocol builds steps for.
     for layer in LAYERS:
-        session.set_layer_acquire(layer, 'image')
+        session.set_channel_acquire(layer, 'image')
 
     # A protocol with a step per acquiring layer at one well, from the
     # session's settings: the plate, the objective and each layer's
