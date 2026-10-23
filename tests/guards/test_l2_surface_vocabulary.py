@@ -65,6 +65,7 @@ RETIRED = {
     'layer_auto_gain': 'channel_auto_gain',
     'layer_auto_gain_lock': 'channel_auto_gain_lock',
     'save_layer_focus': 'save_channel_focus',
+    'apply_focus_to_layer_steps': 'apply_focus_to_channel_steps',
 }
 
 

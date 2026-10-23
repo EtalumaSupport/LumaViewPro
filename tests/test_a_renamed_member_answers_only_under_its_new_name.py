@@ -16,6 +16,9 @@ from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
+# Stands for a new empty protocol's handle, made for each request that names it.
+PROTOCOL = '<protocol>'
+
 # (method, old route, old arguments, new route, new arguments): a GET's
 # arguments are its query, any other method's its JSON body.
 RENAMED = [
@@ -81,6 +84,27 @@ RENAMED = [
         'scope/camera/apply',
         {'gain_db': 1.0, 'exposure_ms': 10.0, 'channel': 'BF'},
     ),
+    (
+        'POST',
+        'add_step',
+        {'protocol': PROTOCOL, 'layers': ['BF']},
+        'add_step',
+        {'protocol': PROTOCOL, 'channels': ['BF']},
+    ),
+    (
+        'POST',
+        'save_focus',
+        {'protocol': PROTOCOL, 'layer': 'BF'},
+        'save_focus',
+        {'protocol': PROTOCOL, 'channel': 'BF'},
+    ),
+    (
+        'POST',
+        'apply_focus_to_layer_steps',
+        {'protocol': PROTOCOL, 'channel': 'BF'},
+        'apply_focus_to_channel_steps',
+        {'protocol': PROTOCOL, 'channel': 'BF'},
+    ),
 ]
 
 
@@ -98,6 +122,9 @@ def client(tmp_path):
 
 
 def _send(client, method: str, route: str, arguments: dict):
+    if PROTOCOL in arguments.values():
+        handle = client.post('/api/v1/create_empty_protocol').json()['handle']
+        arguments = {k: handle if v == PROTOCOL else v for k, v in arguments.items()}
     if method == 'GET':
         return client.get(f'/api/v1/{route}', params=arguments)
     return client.request(method, f'/api/v1/{route}', json=arguments)

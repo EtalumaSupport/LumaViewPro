@@ -2686,7 +2686,7 @@ class ScopeSession:
         another channel is left alone. No other step is written: every step
         of a layer is born at the same focus, so a step matching the old
         focus says nothing about whether its user wants the new one.
-        ``apply_focus_to_layer_steps`` writes them all.
+        ``apply_focus_to_channel_steps`` writes them all.
 
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
@@ -2895,7 +2895,7 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def apply_focus_to_layer_steps(self, protocol: 'Protocol', channel: str) -> int:
+    def apply_focus_to_channel_steps(self, protocol: 'Protocol', channel: str) -> int:
         """Save the live Z as ``channel``'s focus and as the Z of its every step.
 
         Returns how many steps took it.
@@ -2910,11 +2910,11 @@ class ScopeSession:
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
         self.scope.layer_identity.refuse_unless_on_scope(
-            channel, 'apply_focus_to_layer_steps', then='take a focus'
+            channel, 'apply_focus_to_channel_steps', then='take a focus'
         )
         z = self.scope.protocols.focus_z(then='apply the focus')
         self._store_layer_focus(channel, z)
-        updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, channel, z)
+        updated = self.scope.protocols.apply_focus_to_channel_steps(protocol, channel, z)
         logger.info(f'[Session  ] Focus applied: {channel} Z={z} to {updated} step(s)')
         return updated
 

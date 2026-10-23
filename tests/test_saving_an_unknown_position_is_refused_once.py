@@ -100,7 +100,7 @@ def unknown(monkeypatch, centre_posts):
     )
     for name in (
         'save_focus',
-        'apply_focus_to_layer_steps',
+        'apply_focus_to_channel_steps',
         'save_bookmark',
         'save_all_bookmarks',
         '_layers_on_scope',

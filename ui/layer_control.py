@@ -649,7 +649,7 @@ class LayerControl(BoxLayout):
         # As Save Focus: the protocol the panel holds at the click.
         protocol = ctx.motion_settings.ids['protocol_settings_id']._protocol
         run_reported(
-            lambda: ctx.session.apply_focus_to_layer_steps(protocol, self.layer),
+            lambda: ctx.session.apply_focus_to_channel_steps(protocol, self.layer),
             lambda: self._refresh_step_views(ctx, protocol),
             f'APPLY_FOCUS_TO_STEPS_{self.layer}',
         )

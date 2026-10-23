@@ -613,7 +613,7 @@ class ProtocolsAPI:
         self._refuse_no_focus_axis(then="set a step's Z")
         protocol.modify_step_z_height(step_index=step_index, z=z)
 
-    def apply_focus_to_layer_steps(self, protocol: Protocol, layer: str, z: float) -> int:
+    def apply_focus_to_channel_steps(self, protocol: Protocol, layer: str, z: float) -> int:
         """Write ``z`` as the Z of every step of ``layer``; returns how many.
 
         Raises:

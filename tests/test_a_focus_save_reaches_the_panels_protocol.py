@@ -47,7 +47,7 @@ def _compile(method_name: str, globals_: dict):
 def _panel_with(protocol, selected_step):
     """A real AppContext whose Protocol panel holds ``protocol``; the session records the call."""
     panel = SimpleNamespace(_protocol=protocol, curr_step=selected_step, update_step_ui=MagicMock())
-    session = SimpleNamespace(save_focus=MagicMock(), apply_focus_to_layer_steps=MagicMock())
+    session = SimpleNamespace(save_focus=MagicMock(), apply_focus_to_channel_steps=MagicMock())
     ctx = AppContext(
         session=session,
         motion_settings=SimpleNamespace(ids={'protocol_settings_id': panel}),
@@ -91,7 +91,7 @@ def test_apply_focus_hands_the_session_the_panels_protocol():
 
     _compile('apply_focus_to_channel_steps', globals_)(me)
 
-    session.apply_focus_to_layer_steps.assert_called_once_with(protocol, 'Blue')
+    session.apply_focus_to_channel_steps.assert_called_once_with(protocol, 'Blue')
 
 
 def test_both_focus_actions_redraw_the_stage_and_step_editor_inside_the_boundary():

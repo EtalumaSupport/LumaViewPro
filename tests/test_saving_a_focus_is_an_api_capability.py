@@ -146,7 +146,7 @@ class TestApplyFocusToLayerSteps:
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        updated = session.apply_focus_to_layer_steps(protocol, 'BF')
+        updated = session.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert updated == 2
         assert session.saved_focus('BF') == 5000.0
@@ -157,7 +157,7 @@ class TestApplyFocusToLayerSteps:
         session.scope.motion._axis_state['Z'] = AxisState.UNKNOWN
 
         with pytest.raises(AxisStateUnknownError):
-            session.apply_focus_to_layer_steps(protocol, 'BF')
+            session.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert session.saved_focus('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
@@ -191,7 +191,7 @@ class TestALayerThisScopeLacks:
         protocol = _protocol_bf_bf_blue(session)
 
         with pytest.raises(refused) as raised:
-            session.apply_focus_to_layer_steps(protocol, layer)
+            session.apply_focus_to_channel_steps(protocol, layer)
         assert raised.value.reason == reason
 
         assert _zs(protocol) == [LAYER_FOCUS] * 3
@@ -220,7 +220,7 @@ class TestAScopeWithNoZ:
         protocol = no_z.create_empty_protocol()
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
-            no_z.apply_focus_to_layer_steps(protocol, 'BF')
+            no_z.apply_focus_to_channel_steps(protocol, 'BF')
 
         assert refused.value.reason == 'positions_unreachable'
         assert no_z.saved_focus('BF') == LAYER_FOCUS

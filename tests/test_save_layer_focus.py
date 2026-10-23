@@ -5,7 +5,7 @@ The Autofocus button wrote the Z its run chose straight into the GUI's
 settings dict, past the Session, with no check that the number was one this
 scope's Z could reach, though every new step of the layer is born at it.
 ``ScopeSession.save_channel_focus`` is the door for a caller holding a number;
-``save_focus`` and ``apply_focus_to_layer_steps`` write through the same
+``save_focus`` and ``apply_focus_to_channel_steps`` write through the same
 path, and ``update_settings`` on a focus names it.
 """
 
@@ -96,7 +96,7 @@ def test_a_scope_with_no_z_refuses_a_focus(tmp_path):
 
 
 def test_save_focus_and_apply_to_steps_write_through_the_one_path():
-    for member in ('save_focus', 'apply_focus_to_layer_steps', 'save_channel_focus'):
+    for member in ('save_focus', 'apply_focus_to_channel_steps', 'save_channel_focus'):
         node = find_def('modules/scope_session.py', member, class_name='ScopeSession')
         assert '_store_layer_focus' in direct_call_names(node), member
 
