@@ -273,7 +273,7 @@ scope.runtime_state.get_field_of_view()                # FieldOfView(width_um, h
 # Turret integration
 scope.runtime_state.get_turret_config()                # (in-process) {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy;
                                                        # a wire client reads a slot as session.turret_objective(slot)
-scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
+scope.motion.is_current_slot_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
 scope.runtime_state.get_labware()                      # the plate the settings select, from the catalogue
@@ -3230,7 +3230,7 @@ Reached through `session.scope.motion`.
 - `has_homed`
 - `home`
 - `interlocks`
-- `is_current_turret_position_objective_set`
+- `is_current_slot_objective_set`
 - `is_moving`
 - `jog_step`
 - `move_to_plate`

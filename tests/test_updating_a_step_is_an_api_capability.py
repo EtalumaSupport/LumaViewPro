@@ -102,7 +102,7 @@ class TestTheApiRefuses:
         before = _step(protocol)
         with scope.motion._axis_state_lock:
             scope.motion._axis_state['X'] = AxisState.UNKNOWN
-        monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
+        monkeypatch.setattr(scope.motion, 'is_current_slot_objective_set', lambda: False)
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -127,7 +127,7 @@ class TestTheApiRefuses:
         monkeypatch.setattr(
             scope, 'capabilities', dataclasses.replace(scope.capabilities, has_turret=True)
         )
-        monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
+        monkeypatch.setattr(scope.motion, 'is_current_slot_objective_set', lambda: False)
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:

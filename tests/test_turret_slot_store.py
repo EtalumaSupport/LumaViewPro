@@ -77,7 +77,7 @@ class TestTheCommandedSlot:
         motion = session.scope.motion
         motion.move_turret(2)
         assert motion.get_turret_slot() == 2
-        assert motion.is_current_turret_position_objective_set() is True
+        assert motion.is_current_slot_objective_set() is True
 
     def test_a_stalled_turret_move_leaves_no_slot(self, session, monkeypatch):
         motion = session.scope.motion
@@ -92,7 +92,7 @@ class TestTheCommandedSlot:
 
         assert motion.get_turret_slot() is None
         # An unknown slot has no objective to name; asking must not crash.
-        assert motion.is_current_turret_position_objective_set() is False
+        assert motion.is_current_slot_objective_set() is False
 
     def test_losing_the_turret_position_loses_the_slot(self, session):
         motion = session.scope.motion

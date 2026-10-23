@@ -136,7 +136,7 @@ MOTION_ONLY_METHODS = MemberNames(
         'home',
         '_init_axes',
         'is_any_axis_moving',
-        'is_current_turret_position_objective_set',
+        'is_current_slot_objective_set',
         'is_moving',
         'move_xy',
         'move_xy_by',

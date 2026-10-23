@@ -882,7 +882,7 @@ class ProtocolsAPI:
                 ),
             )
         if self._scope.capabilities.has_turret and (
-            not self._scope.motion.is_current_turret_position_objective_set()
+            not self._scope.motion.is_current_slot_objective_set()
         ):
             self._refuse(
                 reason='turret_objective_unset',

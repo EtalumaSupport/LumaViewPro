@@ -71,6 +71,7 @@ RETIRED = {
     'LayerRecord': 'ChannelRecord',
     'layer_identity': 'channel_identity',
     'WellPlate': 'Labware',
+    'is_current_turret_position_objective_set': 'is_current_slot_objective_set',
 }
 
 

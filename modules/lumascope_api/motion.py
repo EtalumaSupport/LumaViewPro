@@ -978,8 +978,8 @@ class MotionAPI:
             raise MotorStopFailedError() from e
 
     @api(reads=True)
-    def is_current_turret_position_objective_set(self) -> bool:
-        """Check whether the objective slot at the current turret position is set.
+    def is_current_slot_objective_set(self) -> bool:
+        """Whether the turret slot in the light path has an objective assigned.
 
         Returns:
             bool: True if the turret's current slot is known and has a
