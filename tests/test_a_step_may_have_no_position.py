@@ -296,7 +296,7 @@ def test_update_step_keeps_a_loaded_steps_x_and_y_without_a_stage(make_session, 
     protocol = session.load_protocol(path)
     before = (protocol.step_row(step_index=0)['X'], protocol.step_row(step_index=0)['Y'])
 
-    session.update_step(protocol, 0, layer='BF')
+    session.update_step(protocol, 0, channel='BF')
 
     assert (protocol.step_row(step_index=0)['X'], protocol.step_row(step_index=0)['Y']) == before
     assert None not in before

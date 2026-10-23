@@ -111,7 +111,7 @@ FAMILIES = [
     (
         'camera',
         'apply',
-        {'gain_db': 1.0, 'exposure_ms': 10.0, 'layer': 'BF'},
+        {'gain_db': 1.0, 'exposure_ms': 10.0, 'channel': 'BF'},
         'camera',
     ),
     # The LED-tier sibling of the camera cluster: an ownership-scoped off

@@ -176,7 +176,7 @@ class TestTheHeadlessCallerGetsIt:
         runner = ProtocolRunner(session)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
-            runner.start_zstack(layer='BF')
+            runner.start_zstack(channel='BF')
 
         assert refusal.value.reason == 'zstack_not_configured'
         assert not runner._executor.prepare.called, (

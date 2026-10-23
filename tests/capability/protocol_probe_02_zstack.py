@@ -128,7 +128,7 @@ try:
 
     engine.prepare = spy
     try:
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
     except _StopError:
         pass
     finally:
@@ -162,7 +162,7 @@ try:
 
     # ---------------- Part B: actually run it ----------------
     banner('B. start_zstack for real, assert slices on disk')
-    outcome = runner.start_zstack(layer='BF', sequence_name='probe_zstack')
+    outcome = runner.start_zstack(channel='BF', sequence_name='probe_zstack')
     settled = outcome.result(timeout=300)
     print('status :', settled.status, settled.reason)
     run_dir = outcome.progress().run_dir

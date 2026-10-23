@@ -242,7 +242,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
         session.scope._motion_driver.set_timing_mode('instant')
         session.scope.motion.move_xy(x_um=20000.0)
 
-        session.update_step(protocol, 0, layer='BF')
+        session.update_step(protocol, 0, channel='BF')
 
         step = _step(protocol)
         position = session.get_current_plate_position()
@@ -252,7 +252,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
     def test_the_session_passes_the_rename_through(self, session):
         protocol = _session_protocol(session)
 
-        session.update_step(protocol, 0, layer='BF', label='mine')
+        session.update_step(protocol, 0, channel='BF', label='mine')
 
         assert _step(protocol)['Label'] == 'mine'
 
@@ -268,7 +268,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            session.update_step(protocol, 0, layer='BF')
+            session.update_step(protocol, 0, channel='BF')
 
         assert (excinfo.value.reason, excinfo.value.title) == (
             'step_position_unknown',

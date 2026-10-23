@@ -129,12 +129,12 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
 
     clicked.runner.start_zstack.assert_called_once()
     kwargs = clicked.runner.start_zstack.call_args.kwargs
-    assert kwargs['layer'] == 'Green'
+    assert kwargs['channel'] == 'Green'
     assert kwargs['enable_image_saving'] is False
     # Nothing else about the run is the button's to say; who started it is
     # the GUI's stamp on the thread that starts it.
     assert set(kwargs) == {
-        'layer',
+        'channel',
         'events',
         'enable_image_saving',
     }
@@ -247,7 +247,7 @@ class TestTheMemberCarriesWhatTheGuiStates:
         runner = _runner()
         runner.session.engineering_mode = True
         runner.start_zstack(
-            layer='BF',
+            channel='BF',
             enable_image_saving=False,
         )
 
@@ -260,7 +260,7 @@ class TestTheMemberCarriesWhatTheGuiStates:
 
         runner = _runner()
         runner.session.engineering_mode = False
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
 
         prepared = _prepared(runner)
         assert prepared['engineering_mode'] is False

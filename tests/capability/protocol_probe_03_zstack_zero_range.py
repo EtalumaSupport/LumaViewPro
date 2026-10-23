@@ -18,7 +18,7 @@ try:
     runner = ProtocolRunner(session)
     banner('start_zstack with range=0 step_size=0')
     try:
-        outcome = runner.start_zstack(layer='BF')
+        outcome = runner.start_zstack(channel='BF')
         settled = outcome.result(timeout=120)
         print('NO RAISE. status:', settled.status, settled.reason, '|', settled.message)
     except Exception as e:

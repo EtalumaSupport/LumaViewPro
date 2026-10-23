@@ -101,7 +101,7 @@ def test_a_single_autofocus_that_loses_z_is_told_by_the_stall_and_the_ending(
     frames = _stall_the_sweeps_z(monkeypatch, session)
     reported = _record_reports(monkeypatch)
 
-    outcome = runner.start_autofocus(layer='BF').result(timeout=RESULT_TIMEOUT_S)
+    outcome = runner.start_autofocus(channel='BF').result(timeout=RESULT_TIMEOUT_S)
 
     assert len(frames) >= 3, 'the sweep never reached the frame that arms the stall'
     _assert_told_by_the_stall_and_the_ending(reported, outcome)

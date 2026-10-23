@@ -957,7 +957,7 @@ class ProtocolSettings(FloatLayout):
         # rides along untouched -- no name branching needed here.
         label = common_utils.resolve_step_rename(name_field)
         name = _app_ctx.ctx.session.update_step(
-            self._protocol, self.curr_step, layer=active_layer, label=label
+            self._protocol, self.curr_step, channel=active_layer, label=label
         )
         logger.info(
             "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",

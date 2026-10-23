@@ -125,7 +125,7 @@ class TestModifyStep:
         panel.modify_step()
 
         kwargs = ctx.session.update_step.call_args.kwargs
-        assert kwargs['layer'] == 'Green'
+        assert kwargs['channel'] == 'Green'
         assert kwargs['label'] == 'my_step'
 
     def test_a_refused_modify_is_shown_once(self, ctx, centre_posts):

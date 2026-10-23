@@ -30,7 +30,7 @@ def _autofocus_from(session, runner, z, heard):
     motion = session.scope.motion
     motion.move_z(z)
     heard.clear()
-    outcome = runner.start_autofocus(layer=LAYER).result(timeout=TIMEOUT_S)
+    outcome = runner.start_autofocus(channel=LAYER).result(timeout=TIMEOUT_S)
     while motion.is_moving():
         pass
     refused = [n for n in heard if getattr(n, 'reason', None) == 'out_of_travel']

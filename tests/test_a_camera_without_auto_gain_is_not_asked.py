@@ -104,7 +104,7 @@ class TestTheLayerApply:
             exposure_ms=10.0,
             auto_gain=False,
             auto_gain_settings=AG_SETTINGS,
-            layer='BF',
+            channel='BF',
         )
 
         assert applied is not None
@@ -116,7 +116,7 @@ class TestTheLayerApply:
             exposure_ms=10.0,
             auto_gain=True,
             auto_gain_settings=AG_SETTINGS,
-            layer='BF',
+            channel='BF',
         )
 
         assert applied is not None
@@ -243,7 +243,7 @@ def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_camera
             exposure_ms=10.0,
             auto_gain=True,
             auto_gain_settings=AG_SETTINGS,
-            layer='BF',
+            channel='BF',
         )
     finally:
         api_log.removeHandler(collector)

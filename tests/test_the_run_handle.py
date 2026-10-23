@@ -42,12 +42,12 @@ def test_a_woken_waiter_finds_the_scope_free_and_starts_the_next_run(tmp_path, m
 
         monkeypatch.setattr(engine, '_release_activity_claim', slow_release)
 
-        first = runner.start_autofocus(layer='BF')
+        first = runner.start_autofocus(channel='BF')
         assert first.result(timeout=WAIT_S) is not None
         assert session.activity_claim.owner is None, (
             f'the wait returned while {session.activity_claim.owner!r} still held the scope'
         )
-        second = runner.start_autofocus(layer='BF')
+        second = runner.start_autofocus(channel='BF')
         assert second.result(timeout=WAIT_S) is not None
 
 

@@ -238,7 +238,7 @@ class TestAScriptAddsAStepThroughTheSession:
         protocol = session.create_empty_protocol()
         at = PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
 
-        names = session.add_step(protocol, layers=('Blue', 'BF'), at=at)
+        names = session.add_step(protocol, channels=('Blue', 'BF'), at=at)
 
         steps = protocol.steps()
         assert len(names) == 2

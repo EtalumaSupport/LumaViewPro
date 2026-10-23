@@ -289,7 +289,7 @@ def client(tmp_path):
 
 
 def _lock_read(client, layer):
-    answer = client.get('/api/v1/layer_auto_gain_lock', params={'layer': layer})
+    answer = client.get('/api/v1/layer_auto_gain_lock', params={'channel': layer})
     assert answer.status_code == 200, answer.json()
     return answer.json()
 
@@ -302,14 +302,14 @@ def test_over_rest_the_lock_a_turning_off_took_is_its_own_read(client):
     session, client = client
     assert _lock_read(client, 'BF') is None
 
-    client.put('/api/v1/layer_auto_gain', json={'layer': 'BF', 'enabled': True})
-    put = client.put('/api/v1/layer_auto_gain', json={'layer': 'BF', 'enabled': False})
+    client.put('/api/v1/layer_auto_gain', json={'channel': 'BF', 'enabled': True})
+    put = client.put('/api/v1/layer_auto_gain', json={'channel': 'BF', 'enabled': False})
     lock = _lock_read(client, 'BF')
 
     assert put.json() is False
     assert lock['state'] in {'CONVERGED', 'MAXED', 'AT_MINIMUM'}
     assert round(lock['gain_db'], 1) == session.get_setting('BF.gain_db') != 1.0
-    client.put('/api/v1/layer_auto_gain', json={'layer': 'BF', 'enabled': True})
+    client.put('/api/v1/layer_auto_gain', json={'channel': 'BF', 'enabled': True})
     assert _lock_read(client, 'BF') == lock
 
 
@@ -319,12 +319,12 @@ def test_over_rest_a_hidden_layers_turning_off_reads_a_lock_with_no_state(client
     _session, client = client
     assert _lock_read(client, 'Blue') is None
 
-    client.put('/api/v1/layer_auto_gain', json={'layer': 'Blue', 'enabled': False})
+    client.put('/api/v1/layer_auto_gain', json={'channel': 'Blue', 'enabled': False})
 
     assert _lock_read(client, 'Blue')['state'] is None
 
 
 def test_over_rest_the_lock_of_no_layer_is_refused(client):
     _session, client = client
-    answer = client.get('/api/v1/layer_auto_gain_lock', params={'layer': 'Nope'})
+    answer = client.get('/api/v1/layer_auto_gain_lock', params={'channel': 'Nope'})
     assert answer.json().get('reason') == 'layer_unknown'

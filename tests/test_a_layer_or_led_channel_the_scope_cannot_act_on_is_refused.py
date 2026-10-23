@@ -69,7 +69,7 @@ NAME_MEMBERS = {
     'save_layer_focus': lambda s, v: s.save_layer_focus(v, 0.0),
     'get_layer_configs': lambda s, v: s.get_layer_configs([v]),
     'show_channel': lambda s, v: s.show_channel(v),
-    'update_step': lambda s, v: s.update_step(s.create_empty_protocol(), 0, layer=v),
+    'update_step': lambda s, v: s.update_step(s.create_empty_protocol(), 0, channel=v),
 }
 
 # A layer this model lacks, on the members that act on a layer, is absent hardware.
@@ -143,8 +143,8 @@ def test_a_current_off_the_boards_range_is_refused_with_its_limits(session):
 
 
 RUNNERS = {
-    'start_autofocus': lambda r, v: r.start_autofocus(layer=v),
-    'start_zstack': lambda r, v: r.start_zstack(layer=v),
+    'start_autofocus': lambda r, v: r.start_autofocus(channel=v),
+    'start_zstack': lambda r, v: r.start_zstack(channel=v),
 }
 
 

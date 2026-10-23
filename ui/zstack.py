@@ -182,7 +182,7 @@ class ZStack(FloatLayout):
 
         def _start():
             started = runner.start_zstack(
-                layer=layer,
+                channel=layer,
                 events=events,
                 enable_image_saving=enable_image_saving,
             )

@@ -223,8 +223,8 @@ class LayerIdentity:
         return None
 
     @api(in_process=True)
-    def refuse_unless_on_scope(self, layer: str, member: str, *, then: str) -> None:
-        """Refuse ``layer`` unless it is a layer of this release and this unit has it.
+    def refuse_unless_on_scope(self, channel: str, member: str, *, then: str) -> None:
+        """Refuse ``channel`` unless it is a layer of this release and this unit has it.
 
         The one question for a command that takes a layer: its settings,
         its focus, a still or a recording named for it. The name first
@@ -236,18 +236,18 @@ class LayerIdentity:
             HardwareCommandRefusedError: ``'axis_absent'``, naming the
                 layer (``MissingPart.layer``).
             ConfigurationDefectError: ``'layers_unresolved'``, this unit's
-                layers could not be resolved, so ``layer`` cannot ``then``.
+                layers could not be resolved, so ``channel`` cannot ``then``.
         """
-        refuse_unknown_layer(layer)
-        if self.find(layer) is not None:
+        refuse_unknown_layer(channel)
+        if self.find(channel) is not None:
             return
         if self.layers:
-            part = MissingPart.layer(layer)
+            part = MissingPart.layer(channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         raise ConfigurationDefectError(
             'layers_unresolved',
             f"this scope's layers could not be resolved (model {self.model}), "
-            f'so {layer} cannot {then}',
+            f'so {channel} cannot {then}',
         )
 
 
@@ -260,7 +260,7 @@ UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=N
 _CATALOGUE_CACHE: tuple[CatalogueLayer, ...] | None = None
 
 
-def refuse_unknown_layer(layer: object, argument: str = 'layer') -> None:
+def refuse_unknown_layer(layer: object, argument: str = 'channel') -> None:
     """Refuse a value that is not one of this release's layers.
 
     The one check of a layer name, asked by every member that takes one

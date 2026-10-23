@@ -158,11 +158,11 @@ def env(monkeypatch):
             )
         ]
 
-    def update_step(protocol, step_index, *, layer, label=None):
+    def update_step(protocol, step_index, *, channel, label=None):
         protocol.modify_step(
             turret_slot=-1,
             step_index=step_index,
-            layer=layer,
+            layer=channel,
             layer_config=LAYER_CONFIG,
             plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
             objective_id='10x Oly',

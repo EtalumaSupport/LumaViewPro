@@ -1997,20 +1997,20 @@ class ScopeSession:
             entry['autofocus'] = False
 
     @api(reads=True)
-    def saved_focus(self, layer: str) -> float:
-        """The Z saved as ``layer``'s focus.
+    def saved_focus(self, channel: str) -> float:
+        """The Z saved as ``channel``'s focus.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
-            FocusNotSavedError: no focus was ever saved for ``layer``; a step
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
+            FocusNotSavedError: no focus was ever saved for ``channel``; a step
                 built for it takes the current Z instead.
         """
         from modules.exceptions import FocusNotSavedError
 
-        refuse_unknown_layer(layer)
-        focus = self.settings[layer]['focus']
+        refuse_unknown_layer(channel)
+        focus = self.settings[channel]['focus']
         if focus is None:
-            raise FocusNotSavedError(layer)
+            raise FocusNotSavedError(channel)
         return focus
 
     @api(in_process=True, reads=True)
@@ -2272,7 +2272,7 @@ class ScopeSession:
 
     @api(sets='layer_acquire')
     @_guarded_write
-    def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
+    def set_layer_acquire(self, channel: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
 
         The layers set to acquire are the ones ``new_protocol`` and
@@ -2284,31 +2284,31 @@ class ScopeSession:
         nothing is always admitted.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
             SettingRefusedError: ``'out_of_range'``, ``mode`` is not
                 ``'image'``, ``'video'`` or None.
             ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``mode`` is not
-                None and this scope does not have ``layer``.
+                None and this scope does not have ``channel``.
         """
-        refuse_unknown_layer(layer)
-        settings_paths.refuse_outside_range(f'{layer}.acquire', mode)
+        refuse_unknown_layer(channel)
+        settings_paths.refuse_outside_range(f'{channel}.acquire', mode)
         if mode is not None:
             self.scope.layer_identity.refuse_unless_on_scope(
-                layer, 'set_layer_acquire', then='be set to acquire'
+                channel, 'set_layer_acquire', then='be set to acquire'
             )
         with self.settings_lock:
-            self._write_layer_acquire(layer, mode)
+            self._write_layer_acquire(channel, mode)
 
     @api(reads=True)
-    def layer_acquire(self, layer: str) -> 'str | None':
-        """What ``layer`` captures: ``'image'``, ``'video'``, or None (nothing).
+    def layer_acquire(self, channel: str) -> 'str | None':
+        """What ``channel`` captures: ``'image'``, ``'video'``, or None (nothing).
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
         """
-        refuse_unknown_layer(layer)
-        return self.settings[layer]['acquire']
+        refuse_unknown_layer(channel)
+        return self.settings[channel]['acquire']
 
     def _write_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Under ``settings_lock``: ``layer`` acquires ``mode``, and stops stimulating if it does."""
@@ -2318,7 +2318,7 @@ class ScopeSession:
 
     @api(sets='layer_auto_gain')
     @_guarded_write
-    def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
+    def set_layer_auto_gain(self, channel: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
         For the shown layer the camera follows when this returns: turning it
@@ -2344,21 +2344,21 @@ class ScopeSession:
             turning on.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
             ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``enabled`` is
-                True and this scope does not have ``layer``; or the lock's
+                True and this scope does not have ``channel``; or the lock's
                 ``'exclusive_activity_running'``, when a run, a diagnostic
                 or a home holds the scope.
         """
         from modules.lumascope_api.camera import AutoGainLock
 
-        refuse_unknown_layer(layer)
+        refuse_unknown_layer(channel)
         lock = None
-        holds = self.scope.camera.get_held_layer() == layer
+        holds = self.scope.camera.get_held_layer() == channel
         if enabled:
             self.scope.layer_identity.refuse_unless_on_scope(
-                layer, 'set_layer_auto_gain', then='run auto-gain'
+                channel, 'set_layer_auto_gain', then='run auto-gain'
             )
         elif holds:
             lock = self.scope.camera.lock_auto_gain()
@@ -2367,36 +2367,36 @@ class ScopeSession:
         with self.settings_lock:
             if lock is not None and lock.state is not None:
                 if common_utils.is_valid_gain_db(lock.gain_db):
-                    self._store_setting(f'{layer}.gain_db', round(lock.gain_db, 1))
+                    self._store_setting(f'{channel}.gain_db', round(lock.gain_db, 1))
                 if common_utils.is_valid_exposure_ms(lock.exposure_ms):
-                    self._store_setting(f'{layer}.exposure_ms', round(lock.stored_exposure_ms, 2))
-            self._store_setting(f'{layer}.auto_gain', enabled)
+                    self._store_setting(f'{channel}.exposure_ms', round(lock.stored_exposure_ms, 2))
+            self._store_setting(f'{channel}.auto_gain', enabled)
             if lock is not None:
-                self._auto_gain_locks[layer] = lock
+                self._auto_gain_locks[channel] = lock
         if (
-            layer == self._shown_channel.layer
+            channel == self._shown_channel.layer
             and (enabled or holds)
             and not self._an_activity_holds_the_scope()
             and self.scope.camera_connected
         ):
             # Armed for the shown layer; or, after the lock, the camera
             # recorded as holding the layer at the values just stored.
-            self.apply_layer_camera(layer)
+            self.apply_layer_camera(channel)
         return lock
 
     @api(reads=True)
-    def layer_auto_gain(self, layer: str) -> bool:
-        """Whether ``layer``'s auto-gain is on, as ``set_layer_auto_gain`` set it.
+    def layer_auto_gain(self, channel: str) -> bool:
+        """Whether ``channel``'s auto-gain is on, as ``set_layer_auto_gain`` set it.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
         """
-        refuse_unknown_layer(layer)
-        return self.settings[layer]['auto_gain']
+        refuse_unknown_layer(channel)
+        return self.settings[channel]['auto_gain']
 
     @api(reads=True)
-    def layer_auto_gain_lock(self, layer: str) -> 'AutoGainLock | None':
-        """What the camera reached the last time ``layer``'s auto-gain was turned off.
+    def layer_auto_gain_lock(self, channel: str) -> 'AutoGainLock | None':
+        """What the camera reached the last time ``channel``'s auto-gain was turned off.
 
         The lock ``set_layer_auto_gain(layer, False)`` returned, the last
         time it was called: its ``state`` says whether the camera converged,
@@ -2408,11 +2408,11 @@ class ScopeSession:
         session started.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
         """
-        refuse_unknown_layer(layer)
+        refuse_unknown_layer(channel)
         with self.settings_lock:
-            return self._auto_gain_locks.get(layer)
+            return self._auto_gain_locks.get(channel)
 
     def apply_layer_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
@@ -2556,7 +2556,7 @@ class ScopeSession:
         self,
         protocol: 'Protocol',
         *,
-        layers: 'Iterable[str] | None' = None,
+        channels: 'Iterable[str] | None' = None,
         at: PlateLocation | None = None,
         before_step_index: int | None = None,
         after_step_index: int | None = None,
@@ -2571,7 +2571,7 @@ class ScopeSession:
         and refuses when nothing would be added; this composes its inputs
         from the session the same way the GUI's handler does.
 
-        ``layers`` names the layers to add a step for, in that order,
+        ``channels`` names the channels to add a step for, in that order,
         instead: each takes its stored settings, and one whose ``acquire``
         is None is added as an image step, so a caller adds without
         changing the settings. ``at`` is where on the protocol's plate the
@@ -2596,31 +2596,31 @@ class ScopeSession:
                 notified once; nothing is added.
             ConfigError: with ``use_zstacking``, the stored z-stack will not
                 parse (as ``get_zstack_params``).
-            ArgumentRefusedError: ``'layer_unknown'``, a name in ``layers``
-                is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, a name in ``channels``
+                is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no layer named in ``layers``; ``'not_connected'``, with no
+                no layer named in ``channels``; ``'not_connected'``, with no
                 ``at``, the model's motor controller is not connected, so
                 there is no live position. Nothing is added.
             ProtocolError: an impossible ``before_step_index`` / ``after_step_index``, or
                 both given (raised by the protocol).
         """
-        if layers is None:
+        if channels is None:
             layer_configs = self.get_layer_configs()
             channel_order = self.settings['step_channel_order']
         else:
-            layers = tuple(layers)
-            for layer in layers:
+            channels = tuple(channels)
+            for channel in channels:
                 self.scope.layer_identity.refuse_unless_on_scope(
-                    layer, 'add_step', then='take a step'
+                    channel, 'add_step', then='take a step'
                 )
-            layer_configs = self.get_layer_configs(list(layers))
+            layer_configs = self.get_layer_configs(list(channels))
             # A layer named is acquired whatever its stored acquire, as a
             # still unless it is stored as a video.
             for layer_config in layer_configs.values():
                 if layer_config['acquire'] is None:
                     layer_config['acquire'] = 'image'
-            channel_order = list(layers)
+            channel_order = list(channels)
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.add_step(
@@ -2641,13 +2641,13 @@ class ScopeSession:
         protocol: 'Protocol',
         step_index: int,
         *,
-        layer: str,
+        channel: str,
         label: str | None = None,
     ) -> str:
         """Rewrite a step of ``protocol`` from this session's settings and live position.
 
         The entry point a caller with no GUI uses to do what Update Step
-        does: step ``step_index`` takes ``layer``'s settings, the live stage
+        does: step ``step_index`` takes ``channel``'s settings, the live stage
         position on the protocol's plate and the current objective. The
         protocols API performs the update and refuses it when the position
         or the objective is unknown; this composes its inputs from the
@@ -2656,17 +2656,17 @@ class ScopeSession:
         Returns the step's name after the update.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``. Nothing is changed on either.
+                no ``channel``. Nothing is changed on either.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(layer, 'update_step', then='take a step')
+        self.scope.layer_identity.refuse_unless_on_scope(channel, 'update_step', then='take a step')
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.update_step(
             protocol,
             step_index,
-            layer=layer,
+            layer=channel,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware()),
@@ -2677,12 +2677,12 @@ class ScopeSession:
     @api
     @_guarded_write
     def save_focus(
-        self, protocol: 'Protocol', layer: str, *, step_index: int | None = None
+        self, protocol: 'Protocol', channel: str, *, step_index: int | None = None
     ) -> SavedFocus:
-        """Save the live Z as ``layer``'s focus, and as step ``step_index``'s Z.
+        """Save the live Z as ``channel``'s focus, and as step ``step_index``'s Z.
 
         The layer's focus is what every new step of the layer is born at.
-        The step takes the Z only when it is a step of ``layer``; a step of
+        The step takes the Z only when it is a step of ``channel``; a step of
         another channel is left alone. No other step is written: every step
         of a layer is born at the same focus, so a step matching the old
         focus says nothing about whether its user wants the new one.
@@ -2694,28 +2694,28 @@ class ScopeSession:
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             ProtocolError: ``step_index`` is not a step of ``protocol``.
                 Nothing is written.
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``.
+                no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(layer, 'save_focus', then='take a focus')
+        self.scope.layer_identity.refuse_unless_on_scope(channel, 'save_focus', then='take a focus')
         step = None if step_index is None else protocol.step_row(step_index=step_index)
         z = self.scope.protocols.focus_z(then='save the focus')
-        self._store_layer_focus(layer, z)
-        if step is None or step['Color'] != layer:
-            logger.info(f'[Session  ] Focus saved: {layer} Z={z}, no step written')
+        self._store_layer_focus(channel, z)
+        if step is None or step['Color'] != channel:
+            logger.info(f'[Session  ] Focus saved: {channel} Z={z}, no step written')
             return SavedFocus(z=z, step_index=None)
         self.scope.protocols.set_step_z(protocol, step_index, z)
         logger.info(
-            f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_index + 1}'
+            f'[Session  ] Focus saved: {channel} Z={z}, and as the Z of step {step_index + 1}'
         )
         return SavedFocus(z=z, step_index=step_index)
 
     @api(sets='saved_focus')
     @_guarded_write
-    def save_layer_focus(self, layer: str, z_um: float) -> None:
-        """Store ``z_um`` as ``layer``'s focus, the Z every new step of the layer is born at.
+    def save_layer_focus(self, channel: str, z_um: float) -> None:
+        """Store ``z_um`` as ``channel``'s focus, the Z every new step of the layer is born at.
 
         The door for a caller that holds a number rather than a stage: the
         Autofocus button saving the Z its run chose, a script saving one it
@@ -2724,9 +2724,9 @@ class ScopeSession:
         ``save_focus``, which saves the live Z, writes through the same path.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``.
+                no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
@@ -2734,10 +2734,10 @@ class ScopeSession:
                 outside Z's travel. Nothing is written.
         """
         self.scope.layer_identity.refuse_unless_on_scope(
-            layer, 'save_layer_focus', then='take a focus'
+            channel, 'save_layer_focus', then='take a focus'
         )
-        z = self._store_layer_focus(layer, z_um)
-        logger.info(f'[Session  ] Focus saved: {layer} Z={z}')
+        z = self._store_layer_focus(channel, z_um)
+        logger.info(f'[Session  ] Focus saved: {channel} Z={z}')
 
     def _store_layer_focus(self, layer: str, z_um: float) -> float:
         """The one write of a layer's focus, refused unless Z can reach it; returns the Z stored.
@@ -2895,8 +2895,8 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def apply_focus_to_layer_steps(self, protocol: 'Protocol', layer: str) -> int:
-        """Save the live Z as ``layer``'s focus and as the Z of its every step.
+    def apply_focus_to_layer_steps(self, protocol: 'Protocol', channel: str) -> int:
+        """Save the live Z as ``channel``'s focus and as the Z of its every step.
 
         Returns how many steps took it.
 
@@ -2904,18 +2904,18 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``.
+                no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
         self.scope.layer_identity.refuse_unless_on_scope(
-            layer, 'apply_focus_to_layer_steps', then='take a focus'
+            channel, 'apply_focus_to_layer_steps', then='take a focus'
         )
         z = self.scope.protocols.focus_z(then='apply the focus')
-        self._store_layer_focus(layer, z)
-        updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, layer, z)
-        logger.info(f'[Session  ] Focus applied: {layer} Z={z} to {updated} step(s)')
+        self._store_layer_focus(channel, z)
+        updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, channel, z)
+        logger.info(f'[Session  ] Focus applied: {channel} Z={z} to {updated} step(s)')
         return updated
 
     @api
@@ -3395,8 +3395,8 @@ class ScopeSession:
         return self._shown_channel
 
     @api
-    def show_channel(self, layer: str) -> ShownChannel:
-        """Show ``layer``: every other LED dark, ``layer`` lit at its stored
+    def show_channel(self, channel: str) -> ShownChannel:
+        """Show ``channel``: every other LED dark, ``channel`` lit at its stored
         current if the shown channel was lit, then its camera settings.
 
         The one way the shown channel changes outside a run; a run's steps
@@ -3408,27 +3408,27 @@ class ScopeSession:
             The shown channel now.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
-                layer; ``'illumination_out_of_range'``, its stored current
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a
+                channel; ``'illumination_out_of_range'``, its stored current
                 is outside the attached board's range.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``; ``'not_connected'``, naming the LED
+                no ``channel``; ``'not_connected'``, naming the LED
                 controller the light needs or the camera; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
                 home holds the scope, or a manual recording runs and
-                ``layer`` is not the shown one (a recording keeps one
+                ``channel`` is not the shown one (a recording keeps one
                 layer; nothing is changed).
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LEDs are already shown.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(layer, 'show_channel', then='be shown')
-        with self._a_layer_change(layer, 'show_channel'):
+        self.scope.layer_identity.refuse_unless_on_scope(channel, 'show_channel', then='be shown')
+        with self._a_layer_change(channel, 'show_channel'):
             lit = self._shown_channel.lit
-            self._show_leds(layer, lit)
-            self._set_shown_channel(ShownChannel(layer, lit))
-            self.apply_layer_camera(layer)
+            self._show_leds(channel, lit)
+            self._set_shown_channel(ShownChannel(channel, lit))
+            self.apply_layer_camera(channel)
         return self._shown_channel
 
     @contextlib.contextmanager

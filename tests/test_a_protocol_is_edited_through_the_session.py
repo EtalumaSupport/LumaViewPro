@@ -21,7 +21,7 @@ from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 
 def _two_steps(session):
     protocol = session.create_empty_protocol()
     session.add_step(
-        protocol, layers=('BF', 'Blue'), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
+        protocol, channels=('BF', 'Blue'), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
     )
     return protocol
 

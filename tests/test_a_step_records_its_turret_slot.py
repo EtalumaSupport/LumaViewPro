@@ -122,7 +122,7 @@ class TestEachStepKeepsItsOwnSlot:
         protocol = _a_step_at_each_slot(session, slots=(2, 2))
         session.scope.motion.move_turret(1)
 
-        session.update_step(protocol, 0, layer='BF')
+        session.update_step(protocol, 0, channel='BF')
 
         assert _slots(protocol) == [1, 2]
         assert _targets(session, protocol) == [1, 2]

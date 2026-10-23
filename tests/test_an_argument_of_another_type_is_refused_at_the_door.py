@@ -91,17 +91,18 @@ def test_none_is_taken_only_where_the_signature_says_so(session):
         lambda: session.scope.motion.start_home(None), 'MotionAPI.start_home', 'axis'
     )
     assert refused.declared == 'str'
-    _refused(lambda: session.saved_focus(None), 'ScopeSession.saved_focus', 'layer')
+    _refused(lambda: session.saved_focus(None), 'ScopeSession.saved_focus', 'channel')
 
 
 @pytest.mark.parametrize('member', ['start_zstack', 'start_autofocus'])
 def test_a_run_given_no_layer_is_told_none_is_selected(session, member):
-    """The GUI hands the open drawer's layer, None when no drawer is open:
-    these two take None and answer it by name."""
+    """The GUI hands the open drawer's channel, None when no drawer is open:
+    these two take None and answer it by name, naming the argument."""
     runner = session.create_protocol_runner()
     with pytest.raises(ArgumentRefusedError) as refused:
-        getattr(runner, member)(layer=None)
+        getattr(runner, member)(channel=None)
     assert refused.value.reason == 'no_layer_selected'
+    assert refused.value.argument == 'channel'
 
 
 def test_a_union_takes_each_of_its_types_and_nothing_else(session):

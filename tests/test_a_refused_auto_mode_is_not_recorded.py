@@ -88,7 +88,7 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_camera, monkeypatch):
             exposure_ms=40.0,
             auto_gain=True,
             auto_gain_settings=AG_SETTINGS,
-            layer='BF',
+            channel='BF',
         )
 
     assert excinfo.value.setting == 'auto_gain'

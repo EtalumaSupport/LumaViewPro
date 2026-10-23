@@ -1314,7 +1314,7 @@ class ProtocolImageWriter:
                         exposure_ms=step['Exposure'],
                         auto_gain=False,
                         auto_gain_settings=None,
-                        layer=step['Color'],
+                        channel=step['Color'],
                     )
                 except CameraSettingRejected as rejected:
                     not_applied.append(rejected)

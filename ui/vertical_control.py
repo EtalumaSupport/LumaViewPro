@@ -304,7 +304,7 @@ class VerticalControl(BoxLayout):
 
         def _start():
             self._autofocus_run = member.start_autofocus(
-                layer=layer,
+                channel=layer,
                 save_characterization_data=engineering_mode,
                 events=events,
             )

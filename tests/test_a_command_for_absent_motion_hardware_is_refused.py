@@ -354,7 +354,7 @@ def test_a_z_stack_on_a_z_only_scope_returns_z_to_its_start(make_session, tmp_pa
     scope.motion.move_z(3000.0)
     runner = session.create_protocol_runner()
 
-    assert _wait(runner.start_zstack(layer='BF', parent_dir=str(tmp_path))) == (
+    assert _wait(runner.start_zstack(channel='BF', parent_dir=str(tmp_path))) == (
         'completed',
         'completed',
     )

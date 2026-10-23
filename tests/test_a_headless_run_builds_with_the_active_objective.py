@@ -23,8 +23,8 @@ class _BuiltError(Exception):
     'start',
     [
         lambda runner: runner.start_composite(),
-        lambda runner: runner.start_autofocus(layer='BF'),
-        lambda runner: runner.start_zstack(layer='BF'),
+        lambda runner: runner.start_autofocus(channel='BF'),
+        lambda runner: runner.start_zstack(channel='BF'),
     ],
     ids=['composite', 'autofocus', 'zstack'],
 )

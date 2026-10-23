@@ -74,7 +74,7 @@ def test_update_stores_the_stage_on_the_protocols_plate(session):
     session.add_step(protocol)
     _move_stage(session, STAGE_UM)
 
-    session.update_step(protocol, 0, layer='BF')
+    session.update_step(protocol, 0, channel='BF')
 
     assert _xy(protocol.step_row(0)) == ON_PROTOCOL_PLATE
 

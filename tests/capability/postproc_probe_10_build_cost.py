@@ -126,7 +126,7 @@ def _zstack(args):
     }
     with headless_session(live, acquiring=('BF',), zstack=zstack) as (session, runner):
         _over_a_well(session)
-        pending = runner.start_zstack(layer='BF', sequence_name='probe_build_cost_zstack')
+        pending = runner.start_zstack(channel='BF', sequence_name='probe_build_cost_zstack')
         pending.result(timeout=600)
         check("the Z-stack's files were written", pending.files.result(timeout=120) is not None)
         records = sorted(live.rglob('protocol_record.tsv'))

@@ -177,7 +177,7 @@ def test_update_on_a_layer_not_set_to_acquire_is_refused_and_the_step_kept(ls850
     ls850.set_layer_acquire('BF', None)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        ls850.update_step(protocol, 0, layer='BF')
+        ls850.update_step(protocol, 0, channel='BF')
 
     assert refused.value.reason == 'no_acquiring_layer'
     assert 'BF' in str(refused.value)
@@ -192,6 +192,6 @@ def test_a_stim_edit_is_judged_on_the_steps_own_channel(ls850):
     ls850.set_layer_acquire('Blue', None)
     ls850.settings['Blue']['stim_config']['enabled'] = True
 
-    ls850.update_step(protocol, 0, layer='Blue')
+    ls850.update_step(protocol, 0, channel='Blue')
 
     assert protocol.step_row(step_index=0)['Color'] == 'BF'

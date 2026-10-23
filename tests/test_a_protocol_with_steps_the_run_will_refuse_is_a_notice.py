@@ -67,7 +67,7 @@ def test_an_add_from_an_invalid_live_setting_adds_and_is_noticed_once(session, r
     assert reported == [('ProtocolStepsInvalidNotice', 'Protocol', True)]
 
     reported.clear()
-    session.update_step(protocol, 0, layer='BF')
+    session.update_step(protocol, 0, channel='BF')
 
     assert reported == [('ProtocolStepsInvalidNotice', 'Protocol', True)]
 
@@ -80,7 +80,7 @@ def test_a_valid_edit_and_a_valid_load_report_nothing(session, reported, tmp_pat
     protocol.to_file(path)
     reported.clear()
 
-    session.update_step(protocol, 0, layer='BF')
+    session.update_step(protocol, 0, channel='BF')
     session.load_protocol(path)
 
     assert reported == []

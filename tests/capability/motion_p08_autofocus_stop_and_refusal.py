@@ -20,7 +20,7 @@ def body(s):
     runner = ProtocolRunner(s)
 
     # A first autofocus, run to its end: its handle is the stale one below.
-    earlier = runner.start_autofocus(layer='BF')
+    earlier = runner.start_autofocus(channel='BF')
     check('the earlier run finished', earlier.result(timeout=300) is not None)
 
     # --- a run in flight names who started it: the host stamped on the
@@ -30,7 +30,7 @@ def body(s):
     def on_ended(outcome, run_dir, protocol):
         seen['ended'] = True
 
-    pending = runner.start_autofocus(layer='BF', events=RunEvents(run_ended=on_ended))
+    pending = runner.start_autofocus(channel='BF', events=RunEvents(run_ended=on_ended))
     holder = s.activity_claim.holder
     src = holder.run_started_by if holder is not None else None
     check(

@@ -3583,7 +3583,7 @@ class CameraAPI:
         auto_gain: bool = False,
         auto_gain_settings: dict | None = None,
         resume_after_capture: bool = True,
-        layer: str = '(unspecified)',
+        channel: str = '(unspecified)',
     ) -> dict | None:
         """Apply per-layer camera settings in one batched call, and wait.
 
@@ -3593,9 +3593,9 @@ class CameraAPI:
         the camera lane.
 
         Args:
-            layer: The layer these settings belong to, for the log line.
+            channel: The channel these settings belong to, for the log line.
                 Optional here and required on the impl: this member is the
-                external-caller surface, where an omitted layer should not
+                external-caller surface, where an omitted channel should not
                 be a TypeError, and the default keeps such a call
                 self-describing in api.log rather than anonymous.
 
@@ -3618,7 +3618,7 @@ class CameraAPI:
             'apply',
             args=(gain_db, exposure_ms),
             kwargs={
-                'layer': layer,
+                'layer': channel,
                 'auto_gain': auto_gain,
                 'auto_gain_settings': auto_gain_settings,
                 'resume_after_capture': resume_after_capture,

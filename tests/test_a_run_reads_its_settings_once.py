@@ -81,8 +81,8 @@ def _runner_over_a_store_edited_after_the_first_read():
 
 _MEMBERS = {
     'composite': lambda runner: runner.start_composite(),
-    'autofocus': lambda runner: runner.start_autofocus(layer='BF'),
-    'zstack': lambda runner: runner.start_zstack(layer='BF'),
+    'autofocus': lambda runner: runner.start_autofocus(channel='BF'),
+    'zstack': lambda runner: runner.start_zstack(channel='BF'),
     'single_scan': lambda runner: runner.start_single_scan(protocol=_make_single_step_protocol()),
     'protocol': lambda runner: runner.start_protocol(protocol=_make_single_step_protocol()),
 }

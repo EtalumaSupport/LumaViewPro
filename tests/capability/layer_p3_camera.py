@@ -38,7 +38,7 @@ try:
     step(
         'camera.apply(Blue)',
         lambda: im_camera.apply(
-            layer='Blue', gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
+            channel='Blue', gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
         ),
     )
     print(

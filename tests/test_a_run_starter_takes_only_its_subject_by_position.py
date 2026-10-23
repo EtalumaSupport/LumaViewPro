@@ -15,9 +15,9 @@ from modules.protocol_runner import ProtocolRunner
 _SUBJECT = {
     'single_scan': 'protocol',
     'protocol': 'protocol',
-    'autofocus': 'layer',
+    'autofocus': 'channel',
     'autofocus_all_steps': 'protocol',
-    'zstack': 'layer',
+    'zstack': 'channel',
     'composite': None,
 }
 

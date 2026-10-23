@@ -120,7 +120,7 @@ class TestTheLayerApply:
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         with pytest.raises(CameraSettingRejected) as excinfo:
-            camera.apply(gain_db=5.0, exposure_ms=40.0, layer='BF')
+            camera.apply(gain_db=5.0, exposure_ms=40.0, channel='BF')
 
         assert excinfo.value.setting == 'gain_db'
         assert camera.exposure_ms == pytest.approx(40.0)

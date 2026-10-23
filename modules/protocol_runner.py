@@ -228,7 +228,7 @@ class ProtocolRunner:
     @api(stop='Operation.stop')
     def start_autofocus(
         self,
-        layer: str | None,
+        channel: str | None,
         *,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
@@ -236,7 +236,7 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
     ) -> Operation:
-        """Autofocus once on *layer*, at the current stage position.
+        """Autofocus once on *channel*, at the current stage position.
 
         The headless twin of the standalone autofocus button: a
         one-position, one-layer run with autofocus on, saving no images and
@@ -257,7 +257,7 @@ class ProtocolRunner:
         runs, which it must do anyway for the measurements to be comparable.
 
         Args:
-            layer: Which layer to focus on ('BF', 'Green', ...).
+            channel: Which channel to focus on ('BF', 'Green', ...).
             save_characterization_data: Whether to write the per-position
                 focus scores this sweep measured. Off by default: a caller
                 that does not ask for data gets no folder. When on, the
@@ -295,13 +295,13 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(layer)
+        refuse_unknown_layer(channel)
         settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
             self.session.objective_helper,
             self.session.wellplate_loader,
-            layer=layer,
+            layer=channel,
             position=self.session.plate_position_on(settings['protocol']['labware']),
             position_name='Autofocus',
             autofocus=True,
@@ -395,7 +395,7 @@ class ProtocolRunner:
     @api(stop='Operation.stop')
     def start_zstack(
         self,
-        layer: str | None,
+        channel: str | None,
         *,
         sequence_name: str = 'zstack',
         parent_dir: FilePath | None = None,
@@ -403,7 +403,7 @@ class ProtocolRunner:
         return_to_start: bool = True,
         enable_image_saving: bool = True,
     ) -> Operation:
-        """Capture a z-stack on *layer*, around the current stage position.
+        """Capture a z-stack on *channel*, around the current stage position.
 
         The one implementation of a z-stack run, for a script and for the
         Acquire button on the z-stack panel alike: a one-position,
@@ -428,7 +428,7 @@ class ProtocolRunner:
         enabled ones, this is the line that changes.
 
         Args:
-            layer: Which layer to capture ('BF', 'Green', ...).
+            channel: Which channel to capture ('BF', 'Green', ...).
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
@@ -462,7 +462,7 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        refuse_unknown_layer(layer)
+        refuse_unknown_layer(channel)
         settings = self.session.capture_settings_snapshot()
         position = self.session.plate_position_on(settings['protocol']['labware'])
         # The build stacks around this position and judges the slices'
@@ -472,7 +472,7 @@ class ProtocolRunner:
             settings,
             self.session.objective_helper,
             self.session.wellplate_loader,
-            layer=layer,
+            layer=channel,
             position=position,
             position_name='ZStack',
             # Off, and not a caller's choice: an autofocus at every slice
@@ -592,7 +592,7 @@ class ProtocolRunner:
     @api(in_process=True)
     def run_autofocus(
         self,
-        layer: str | None,
+        channel: str | None,
         *,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
@@ -622,7 +622,7 @@ class ProtocolRunner:
         return self._waited(
             'run_autofocus',
             lambda: self.start_autofocus(
-                layer=layer,
+                channel=channel,
                 save_characterization_data=save_characterization_data,
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
@@ -670,7 +670,7 @@ class ProtocolRunner:
     @api(in_process=True)
     def run_zstack(
         self,
-        layer: str | None,
+        channel: str | None,
         *,
         sequence_name: str = 'zstack',
         parent_dir: FilePath | None = None,
@@ -700,7 +700,7 @@ class ProtocolRunner:
         return self._waited(
             'run_zstack',
             lambda: self.start_zstack(
-                layer=layer,
+                channel=channel,
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
                 events=events,

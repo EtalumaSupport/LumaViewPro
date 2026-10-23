@@ -132,14 +132,14 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
 
     pressed.member.start_autofocus.assert_called_once()
     kwargs = pressed.member.start_autofocus.call_args.kwargs
-    assert kwargs['layer'] == 'Green'
+    assert kwargs['channel'] == 'Green'
     assert kwargs['save_characterization_data'] is True, (
         'in engineering mode the sweep saves its characterization data'
     )
     # Nothing else about the run is the button's to say; who started it is
     # the GUI's stamp on the thread that starts it.
     assert set(kwargs) == {
-        'layer',
+        'channel',
         'save_characterization_data',
         'events',
     }

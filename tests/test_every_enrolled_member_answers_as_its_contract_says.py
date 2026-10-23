@@ -328,7 +328,7 @@ def run_folders(tmp_path_factory):
         session.update_settings('zstack.step_size', 10.0)
         session.update_settings('zstack.range', 20.0)
         _over_a_well(session)
-        zstack = _saved(live, lambda: runner.start_zstack(layer='BF', sequence_name='zstack'))
+        zstack = _saved(live, lambda: runner.start_zstack(channel='BF', sequence_name='zstack'))
         # Minutes and hours, as the protocol settings hold them: three scans a second apart.
         session.update_settings('protocol.period', 1 / 60)
         session.update_settings('protocol.duration', 3 / 3600)

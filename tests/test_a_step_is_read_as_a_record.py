@@ -23,7 +23,7 @@ from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 
 def _bf_and_blue(session):
     protocol = session.create_empty_protocol()
     session.add_step(
-        protocol, layers=('BF', 'Blue'), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
+        protocol, channels=('BF', 'Blue'), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
     )
     return protocol
 
@@ -78,7 +78,9 @@ def test_the_step_table_is_every_step_in_order(session):
 
 def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
     protocol = session.create_empty_protocol()
-    session.add_step(protocol, layers=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0))
+    session.add_step(
+        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
+    )
 
     step = protocol.step(step_index=0)
 
@@ -88,7 +90,9 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
 def test_the_table_crosses_the_wire_as_records_keyed_by_field(session):
     with TestClient(build_app(session)) as client:
         handle = client.post('/api/v1/create_empty_protocol').json()['handle']
-        added = client.post('/api/v1/add_step', json={'protocol': handle, 'layers': ['BF', 'Blue']})
+        added = client.post(
+            '/api/v1/add_step', json={'protocol': handle, 'channels': ['BF', 'Blue']}
+        )
         answer = client.get(f'/api/v1/handles/Protocol/{handle}/step_records')
 
     assert added.status_code == 200, added.text

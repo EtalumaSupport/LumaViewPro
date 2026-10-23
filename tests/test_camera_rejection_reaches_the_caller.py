@@ -315,7 +315,7 @@ class TestTheCallersThatGoOn:
         sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected) as rejected:
-            camera.apply(4.0, 30.0, layer='BF')
+            camera.apply(4.0, 30.0, channel='BF')
 
         assert (rejected.value.setting, rejected.value.reason) == ('gain_db', 'camera_rejected')
         assert camera.exposure_ms == 30.0, 'the exposure was left at a previous layer'
@@ -326,7 +326,7 @@ class TestTheCallersThatGoOn:
         sim_scope.simulation.refuse_camera_write('exposure', 'false')
 
         with pytest.raises(CameraSettingRejected) as rejected:
-            camera.apply(4.0, 30.0, layer='BF')
+            camera.apply(4.0, 30.0, channel='BF')
 
         assert (rejected.value.setting, rejected.value.reason, rejected.value.title) == (
             'gain_db,exposure_ms',

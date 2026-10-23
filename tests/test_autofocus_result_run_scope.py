@@ -177,7 +177,7 @@ def test_start_autofocus_reports_the_focus_and_writes_none(tmp_path):
         camera.set_test_pattern(enabled=True, pattern='focus_target')
         camera.set_focal_z(mid + 30.0)
 
-        outcome = runner.start_autofocus(layer='BF').result(timeout=60)
+        outcome = runner.start_autofocus(channel='BF').result(timeout=60)
 
         assert outcome is not None and outcome.af_focus_z_um is not None, (
             f'precondition: the sweep chose a focus; got {outcome}'

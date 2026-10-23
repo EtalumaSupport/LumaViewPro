@@ -28,7 +28,7 @@ def body(s):
     runner = ProtocolRunner(s)
     z_before = m.get_current_position('Z')
 
-    pending = runner.start_autofocus(layer='BF')
+    pending = runner.start_autofocus(channel='BF')
     outcome = pending.result(timeout=300)
     z_after = m.get_current_position('Z')
     print('outcome:', outcome.status, '|', outcome.reason, '|', outcome.message, flush=True)
@@ -54,13 +54,13 @@ def body(s):
 
     # a bad layer is refused
     try:
-        runner.start_autofocus(layer='Purple')
+        runner.start_autofocus(channel='Purple')
         check('unknown layer refused', False, 'NO RAISE')
     except ArgumentRefusedError as e:
         check('unknown layer refused', e.reason == 'layer_unknown', f'reason={e.reason}')
 
     # second run works (no lock left behind)
-    p2 = runner.start_autofocus(layer='BF')
+    p2 = runner.start_autofocus(channel='BF')
     o2 = p2.result(timeout=300)
     check(
         'a second start_autofocus is accepted',

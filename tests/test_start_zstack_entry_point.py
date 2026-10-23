@@ -64,47 +64,47 @@ def _built_config(runner):
 class TestTheRunIsAZStackOfItsOwn:
     def test_it_prepares_as_a_zstack(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['run_mode'] is SequencedCaptureRunMode.SINGLE_ZSTACK
 
     def test_it_runs_exactly_one_scan(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['max_scans'] == 1
 
     def test_the_slices_are_saved(self):
         # The images are the product; a stack that saved nothing would
         # have run the stage for no result.
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['enable_image_saving'] is True
 
     def test_it_writes_its_run_artifacts(self):
         # Unlike an autofocus: this run produced data a user will come
         # back to, so it leaves the record of what it did.
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['disable_saving_artifacts'] is False
 
     def test_it_asks_for_no_autofocus_characterization_data(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['save_autofocus_data'] is False
 
     def test_the_slices_land_under_the_manual_zstack_folder(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         parent = _prepared(runner)['parent_dir']
         assert parent.parts[-2:] == ('Manual', 'Z-Stacks')
 
     def test_a_stated_parent_dir_wins(self, tmp_path):
         runner = _runner()
-        runner.start_zstack(layer='BF', parent_dir=tmp_path)
+        runner.start_zstack(channel='BF', parent_dir=tmp_path)
         assert _prepared(runner)['parent_dir'] == tmp_path
 
     def test_it_hands_the_illumination_back_as_it_found_it(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['run_mode'].led_end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
 
 
@@ -112,19 +112,19 @@ class TestTheStageGoesBackWhereTheStackWasCentred:
     def test_by_default_the_run_returns_to_the_starting_position(self):
         """A stack ends at whichever end of the range it finished on."""
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _prepared(runner)['return_to_position'] == _POSITION
 
     def test_a_caller_can_decline_the_return(self):
         runner = _runner()
-        runner.start_zstack(layer='BF', return_to_start=False)
+        runner.start_zstack(channel='BF', return_to_start=False)
         assert _prepared(runner)['return_to_position'] is None
 
     def test_the_return_position_is_the_one_the_stack_was_built_around(self):
         # Read once and used for both, so the stack cannot be centred on
         # one position and returned to another.
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         built = _built_config(runner)['positions'][0]
         returned = _prepared(runner)['return_to_position']
         assert (built['x'], built['y']) == (returned.x_mm, returned.y_mm)
@@ -134,13 +134,13 @@ class TestTheStackIsNotFlattenedByAnAutofocus:
     def test_autofocus_is_off_for_the_step(self):
         """Refocusing at each slice re-centres the range being swept."""
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _built_config(runner)['layer_configs']['BF']['autofocus'] is False
 
     def test_autofocus_stays_off_even_when_the_layer_has_it_stored_on(self):
         runner = _runner()
         runner.session.settings['BF']['autofocus'] = True
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _built_config(runner)['layer_configs']['BF']['autofocus'] is False
 
     def test_the_method_offers_no_way_to_turn_it_on(self):
@@ -155,12 +155,12 @@ class TestTheStackIsNotFlattenedByAnAutofocus:
 class TestTheStackIsConfiguredFromSettings:
     def test_zstacking_is_on(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         assert _built_config(runner)['use_zstacking'] is True
 
     def test_the_stack_parameters_come_from_settings(self):
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         params = _built_config(runner)['zstack_params']
         assert params['range'] == 20.0
         assert params['step_size'] == 5.0
@@ -174,20 +174,20 @@ class TestTheStackIsConfiguredFromSettings:
         import modules.config_helpers as config_helpers
 
         runner = _runner()
-        runner.start_zstack(layer='BF')
+        runner.start_zstack(channel='BF')
         expected = config_helpers.get_stim_configs(runner.session.settings)
         assert _built_config(runner)['stim_config'] == expected
 
     def test_an_unknown_layer_is_refused_by_name(self):
         runner = _runner()
         with pytest.raises(ArgumentRefusedError) as excinfo:
-            runner.start_zstack(layer='Purple')
+            runner.start_zstack(channel='Purple')
         assert (excinfo.value.reason, excinfo.value.value) == ('layer_unknown', 'Purple')
 
     def test_an_unknown_layer_refuses_before_the_engine_is_touched(self):
         runner = _runner()
         with pytest.raises(ArgumentRefusedError):
-            runner.start_zstack(layer='Purple')
+            runner.start_zstack(channel='Purple')
         runner._executor.prepare.assert_not_called()
         runner._executor.start.assert_not_called()
 
