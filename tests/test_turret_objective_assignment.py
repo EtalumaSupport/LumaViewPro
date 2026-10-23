@@ -153,6 +153,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
             turret_session.confirm_objective('20x Oly')
 
         assert excinfo.value.reason == 'slot_required'
+        assert excinfo.value.argument == 'slot'
         assert turret_session.settings['turret_objectives'][1] == '10x Oly'
 
 

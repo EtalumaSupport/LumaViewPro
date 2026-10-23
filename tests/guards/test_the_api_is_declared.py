@@ -25,6 +25,11 @@ guard holds four things over every class defined under ``modules/``:
    in-process) that takes a file-system path is annotated exactly
    ``FilePath`` or ``FilePath | None``, so a wire client can tell a path
    from a string and pass it through ``ScopeSession.live_folder_path``.
+6. **One vocabulary.** No marked member's parameter and no published field
+   is named in a word the API retired for another (``layer`` for
+   ``channel``, ``position`` for a turret ``slot``, ``plate_key`` for
+   ``labware_id``, ``idx`` for ``step_index``, ...), so a member written
+   later cannot bring one back.
 
 Annotations are read as strings and resolved by class name over the loaded
 classes, never through ``typing.get_type_hints``, which raises on the
@@ -44,7 +49,7 @@ import warnings
 
 import pytest
 
-from tests.ast_seams import REPO_ROOT, Words
+from tests.ast_seams import REPO_ROOT, RetiredNames, Words
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 INDEX_HEADING = '## API reference'
@@ -352,4 +357,57 @@ def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str
         'A path parameter on the wire must be annotated FilePath or FilePath | None '
         '(modules.api_surface), so a wire client knows which arguments are paths:\n  '
         + '\n  '.join(undeclared)
+    )
+
+
+# Words the API retired for one name each (W5a): a channel is a channel, a
+# step or a scan is counted by its index, a plate is named by its labware_id,
+# the turret's place is a slot, a period is period_s.
+RETIRED_WORDS = RetiredNames(
+    {
+        'layer',
+        'layers',
+        'idx',
+        'step_idx',
+        'scan',
+        'scan_number',
+        'interval',
+        'plate_key',
+        'labware_name',
+        'position',
+        'turret_position',
+    }
+)
+# A published name the rename that retires its word has not reached yet,
+# with the part that renames it. Each entry must still be a hit, so the
+# rename that lands deletes it here.
+NOT_YET_RENAMED = {
+    'AxisPosition.position field': 'W5a part E, position_um (Q-E1)',
+}
+# A parameter whose absence would mean the walk lost its way.
+KNOWN_PARAMETER = 'ScopeSession.add_step parameter protocol'
+
+
+def test_the_api_speaks_one_vocabulary(universe: dict[str, type], marked: dict[str, str]) -> None:
+    seen, hits = set(), set()
+    for name in sorted(marked):
+        cname, member = name.split('.', 1)
+        for edge, _ in _edges(universe[cname], member):
+            if edge == 'field':
+                word, where = member, f'{name} field'
+            elif edge.startswith('parameter '):
+                word, where = edge.removeprefix('parameter '), f'{name} {edge}'
+            else:
+                continue
+            seen.add(where)
+            if word in RETIRED_WORDS:
+                hits.add(where)
+    assert KNOWN_PARAMETER in seen, f'the walk did not reach {KNOWN_PARAMETER}'
+    stale = sorted(set(NOT_YET_RENAMED) - hits)
+    assert not stale, f'renamed now, so delete them from NOT_YET_RENAMED: {stale}'
+    offenders = sorted(hits - set(NOT_YET_RENAMED))
+    assert not offenders, (
+        'A published parameter or field is named in a retired word; use its one name '
+        '(channel, step_index, scan_index, labware_id, slot, turret_slot, period_s):\n  '
+        + '\n  '.join(offenders)
     )

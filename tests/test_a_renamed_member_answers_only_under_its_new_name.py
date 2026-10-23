@@ -20,7 +20,8 @@ from tests.settings_fixtures import complete_settings
 PROTOCOL = '<protocol>'
 
 # (method, old route, old arguments, new route, new arguments): a GET's
-# arguments are its query, any other method's its JSON body.
+# arguments are its query, any other method's its JSON body. PROTOCOL in a
+# route or an argument is the new protocol's id.
 RENAMED = [
     (
         'PUT',
@@ -113,13 +114,74 @@ RENAMED = [
         {'protocol': PROTOCOL},
     ),
     ('GET', 'scope/layer_identity', {}, 'scope/channel_identity', {}),
+    (
+        'PUT',
+        'labware',
+        {'labware_id': '384 well microplate'},
+        'labware_id',
+        {'labware_id': '384 well microplate'},
+    ),
+    (
+        'PUT',
+        'labware_id',
+        {'labware_name': '384 well microplate'},
+        'labware_id',
+        {'labware_id': '384 well microplate'},
+    ),
+    ('GET', 'labware', {}, 'labware_id', {}),
+    (
+        'POST',
+        'set_protocol_labware',
+        {'protocol': PROTOCOL, 'plate_key': '6 well microplate'},
+        'set_protocol_labware',
+        {'protocol': PROTOCOL, 'labware_id': '6 well microplate'},
+    ),
+    (
+        'GET',
+        f'handles/Protocol/{PROTOCOL}/labware',
+        {},
+        f'handles/Protocol/{PROTOCOL}/labware_id',
+        {},
+    ),
+    (
+        'PUT',
+        'turret_objective',
+        {'position': 2, 'objective_id': '10x Oly'},
+        'turret_objective',
+        {'slot': 2, 'objective_id': '10x Oly'},
+    ),
+    ('GET', 'turret_objective', {'position': 2}, 'turret_objective', {'slot': 2}),
+    ('POST', 'clear_turret_objective', {'position': 4}, 'clear_turret_objective', {'slot': 4}),
+    ('POST', 'scope/motion/move_turret', {'position': 1}, 'scope/motion/move_turret', {'slot': 1}),
+    (
+        'POST',
+        'confirm_objective',
+        {'objective_id': '10x Oly', 'turret_position': 1},
+        'confirm_objective',
+        {'objective_id': '10x Oly', 'slot': 1},
+    ),
+    (
+        'GET',
+        'scope/motion/is_current_turret_position_objective_set',
+        {},
+        'scope/motion/is_current_slot_objective_set',
+        {},
+    ),
 ]
 
 
 @pytest.fixture
 def client(tmp_path):
+    # A turret model, with an objective in the slot the startup home leaves
+    # in the light path, so the turret's members answer as well.
     session = ScopeSession.create(
-        complete_settings(live_folder=str(tmp_path), microscope='LS850'), simulate=True
+        complete_settings(
+            live_folder=str(tmp_path),
+            microscope='LS850T',
+            objective_confirmed=True,
+            turret_objectives={'1': '10x Oly', '2': '10x Oly', '3': None, '4': None},
+        ),
+        simulate=True,
     )
     try:
         home_sim_scope(session.scope)
@@ -130,8 +192,9 @@ def client(tmp_path):
 
 
 def _send(client, method: str, route: str, arguments: dict):
-    if PROTOCOL in arguments.values():
+    if PROTOCOL in route or PROTOCOL in arguments.values():
         handle = client.post('/api/v1/create_empty_protocol').json()['handle']
+        route = route.replace(PROTOCOL, handle)
         arguments = {k: handle if v == PROTOCOL else v for k, v in arguments.items()}
     if method == 'GET':
         return client.get(f'/api/v1/{route}', params=arguments)
