@@ -305,7 +305,7 @@ def _outside(position, limits=_DEFAULT_AXIS_LIMITS, labware_id='96 well micropla
     from modules import labware_loader
     from modules.protocol import axes_outside_travel
 
-    lw = labware_loader.WellPlateLoader().get_plate(plate_key=labware_id)
+    lw = labware_loader.WellPlateLoader().get_plate(labware_id=labware_id)
     return axes_outside_travel(position, limits, labware=lw, stage_offset=_STAGE_OFFSET)
 
 

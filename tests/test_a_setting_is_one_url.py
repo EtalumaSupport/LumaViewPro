@@ -31,7 +31,7 @@ from tests.settings_fixtures import complete_settings
 _WRITES = {
     'model': ({'model': 'LS560'}, None, 'LS560'),
     'objective_id': ({'objective_id': '10x Oly'}, None, '10x Oly'),
-    'labware': ({'labware_name': '384 well microplate'}, None, '384 well microplate'),
+    'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'acceleration_limit_pct': ({'val_pct': 40}, None, 40),
     'channel_acquire': ({'channel': 'Blue', 'mode': 'video'}, {'channel': 'Blue'}, 'video'),

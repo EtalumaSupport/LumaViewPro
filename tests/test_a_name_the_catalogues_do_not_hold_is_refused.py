@@ -101,7 +101,7 @@ def test_a_plate_the_catalogue_lacks_is_refused_offering_its_plates(session, mem
     assert refused.value.reason == 'labware_unknown'
     assert refused.value.cause == RefusalCause.REQUEST
     assert isinstance(refused.value, ConfigError)
-    assert refused.value.argument == 'plate_key'
+    assert refused.value.argument == 'labware_id'
     assert refused.value.value == name
     assert refused.value.offered == tuple(session.wellplate_loader.get_plate_list())
     assert _selection(session) == before
@@ -165,17 +165,17 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
     config = session.get_sequenced_capture_config()
     config['labware_id'] = 'Center Dish'
     protocol = session.scope.protocols.create_protocol(input_config=config)
-    assert protocol.labware() == 'Center Plate'
+    assert protocol.labware_id() == 'Center Plate'
 
 
 @pytest.mark.parametrize(
     ('route', 'body', 'reason', 'argument'),
     [
         (
-            'labware',
-            {'labware_name': 'Acme 1536 Ultra Plate'},
+            'labware_id',
+            {'labware_id': 'Acme 1536 Ultra Plate'},
             'labware_unknown',
-            'plate_key',
+            'labware_id',
         ),
         (
             'objective_id',
@@ -208,7 +208,7 @@ def test_a_wire_slot_out_of_range_is_the_requests(turret_session):
 
 def test_a_reason_without_words_is_refused_at_the_raise():
     with pytest.raises(TypeError):
-        CatalogueNameRefusedError('no_such_reason', argument='plate_key', value='x', offered=())
+        CatalogueNameRefusedError('no_such_reason', argument='labware_id', value='x', offered=())
 
 
 def test_none_is_refused_when_the_active_objective_is_already_unknown(tmp_path):

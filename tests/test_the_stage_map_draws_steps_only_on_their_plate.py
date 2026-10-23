@@ -26,7 +26,7 @@ CACHED = object()
 
 def _protocol(plate):
     steps = pd.DataFrame({'X': [10.0, 20.0], 'Y': [5.0, 5.0], 'Z': [0.0, 0.0]})
-    return types.SimpleNamespace(steps=lambda: steps, labware=lambda: plate)
+    return types.SimpleNamespace(steps=lambda: steps, labware_id=lambda: plate)
 
 
 @pytest.fixture

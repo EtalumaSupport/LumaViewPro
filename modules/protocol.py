@@ -1303,7 +1303,7 @@ class Protocol:
         return max(1, int((duration or datetime.timedelta(0)) / period))
 
     @api(reads=True)
-    def labware(self) -> str:
+    def labware_id(self) -> str:
         """The catalogue key of the plate the protocol's steps are placed on.
 
         Raises:
@@ -1840,7 +1840,7 @@ class Protocol:
         # runtime in get_plate(). Without this, validation hard-fails on
         # names that would have run fine.
         loader = wellplate_loader
-        labware_key = self.labware()
+        labware_key = self.labware_id()
         if labware_key:
             try:
                 if not loader.is_known_plate(labware_key):
@@ -3027,7 +3027,7 @@ class Protocol:
             position_source = 'from_manual'
         else:
             well_positions = wellplate_loader.get_plate(
-                plate_key=labware_id
+                labware_id=labware_id
             ).get_positions_with_labels()
 
             tmp = []

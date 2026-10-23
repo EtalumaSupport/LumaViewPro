@@ -46,7 +46,7 @@ def session(tmp_path):
 def _protocol_on_one_plate_scope_on_another(session):
     protocol = session.create_empty_protocol()
     session.select_labware(SCOPE_PLATE)
-    assert protocol.labware() == PROTOCOL_PLATE
+    assert protocol.labware_id() == PROTOCOL_PLATE
     assert session.settings['protocol']['labware'] == SCOPE_PLATE
     return protocol
 

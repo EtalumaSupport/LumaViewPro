@@ -713,7 +713,7 @@ class ProtocolSettings(FloatLayout):
         else:
             self.curr_step = 0
 
-        labware = self._protocol.labware()
+        labware = self._protocol.labware_id()
 
         # The spinner shows the plate the Session put the scope on. A changed
         # text dispatches its select_labware, which re-selects that plate (a

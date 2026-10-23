@@ -298,7 +298,7 @@ class ProtocolsAPI:
                 frame_dimensions=input_config['frame_dimensions'],
                 binning_size=input_config['binning_size'],
                 axis_limits=self._travel_limits(),
-                labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
+                labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
                 stage_offset=self._scope.runtime_state.get_stage_offset(),
                 overlap_percent=input_config.get('tiling_overlap_percent', 0.0),
                 capabilities=self._scope.capabilities,
@@ -652,8 +652,8 @@ class ProtocolsAPI:
             self._report_invalid_steps(protocol, solicited=True)
         return after['Name']
 
-    def set_labware(self, protocol: Protocol, plate_key: str) -> str:
-        """Put ``protocol`` on the plate ``plate_key``; returns the key it took.
+    def set_labware(self, protocol: Protocol, labware_id: str) -> str:
+        """Put ``protocol`` on the plate ``labware_id``; returns the key it took.
 
         Every position a step holds is stated against the protocol's plate.
         On a scope with no XY stage there is no plate to move over, so the
@@ -661,13 +661,13 @@ class ProtocolsAPI:
         asked for is logged as replaced.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has. The protocol keeps its
                 plate.
         """
         from modules.labware_loader import CENTER_PLATE
 
-        key = self._scope.wellplate_loader.resolve_plate_key(plate_key)
+        key = self._scope.wellplate_loader.resolve_plate_key(labware_id)
         if not self._scope.capabilities.has_xy_stage and key != CENTER_PLATE:
             _api_log.info(
                 f'[API] protocol plate {key!r} replaced by {CENTER_PLATE!r}: '
@@ -709,7 +709,7 @@ class ProtocolsAPI:
             frame_dimensions=frame_dimensions,
             binning_size=binning_size,
             axis_limits=self._travel_limits(),
-            labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
+            labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
             stage_offset=self._scope.runtime_state.get_stage_offset(),
             overlap_percent=overlap_percent,
             capabilities=self._scope.capabilities,
@@ -786,7 +786,7 @@ class ProtocolsAPI:
         x = y = None
         if 'X' in axes and 'Y' in axes and px is not None and py is not None:
             stage = self._scope.runtime_state.plate_to_stage(
-                px, py, labware_id=protocol.labware(), stage_offset=stage_offset
+                px, py, labware_id=protocol.labware_id(), stage_offset=stage_offset
             )
             x, y = stage.x_um, stage.y_um
         return x, y, (z if 'Z' in axes else None)
@@ -1220,7 +1220,7 @@ class ProtocolsAPI:
             steps: The protocol's steps table (``Protocol.steps()``), its
                 positions already validated as numbers.
             labware_key: The plate the protocol's X/Y are measured on
-                (``Protocol.labware()``), already validated as known.
+                (``Protocol.labware_id()``), already validated as known.
 
         Raises:
             ProtocolRunRefusedError: ``positions_outside_travel``. It has
@@ -1234,7 +1234,7 @@ class ProtocolsAPI:
         plate = {}
         if {'X', 'Y'} & set(axis_limits):
             plate = {
-                'labware': self._scope.wellplate_loader.get_plate(plate_key=labware_key),
+                'labware': self._scope.wellplate_loader.get_plate(labware_id=labware_key),
                 'stage_offset': self._scope.runtime_state.get_stage_offset(),
             }
         outside = []

@@ -218,7 +218,7 @@ def scr_run_kwargs(**overrides):
     protocol.copy_for_execution.return_value = protocol
     # The run hands its writer the plate the protocol names, so the plate
     # is a catalogue name, as a real protocol's is after validate_for_run.
-    protocol.labware.return_value = '96 well microplate'
+    protocol.labware_id.return_value = '96 well microplate'
     kwargs = {
         'protocol': protocol,
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,

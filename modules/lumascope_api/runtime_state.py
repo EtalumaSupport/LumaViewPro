@@ -88,7 +88,7 @@ class RuntimeState:
             ConfigError: No session has bound this scope.
         """
         return self._scope.wellplate_loader.get_plate(
-            plate_key=self._scope.read_setting('protocol.labware')
+            labware_id=self._scope.read_setting('protocol.labware')
         )
 
     def set_turreted(self, turreted: bool) -> None:
@@ -303,7 +303,7 @@ class RuntimeState:
         labware = (
             self.get_labware()
             if labware_id is None
-            else self._scope.wellplate_loader.get_plate(plate_key=labware_id)
+            else self._scope.wellplate_loader.get_plate(labware_id=labware_id)
         )
         return labware, self.get_stage_offset() if stage_offset is None else stage_offset
 

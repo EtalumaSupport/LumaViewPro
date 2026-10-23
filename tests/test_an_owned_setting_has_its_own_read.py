@@ -56,9 +56,9 @@ def test_each_read_answers_what_its_setter_wrote(session):
             lambda: session.objective_id,
             '10x Oly',
         ),
-        'labware': (
+        'labware_id': (
             lambda: session.select_labware('384 well microplate'),
-            lambda: session.labware,
+            lambda: session.labware_id,
             '384 well microplate',
         ),
         'scale_bar_enabled': (

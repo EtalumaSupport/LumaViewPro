@@ -153,11 +153,11 @@ def test_the_refusal_says_which_member_takes_what(session):
     refused = _refused(
         lambda: session.select_labware(['96 well microplate']),
         'ScopeSession.select_labware',
-        'labware_name',
+        'labware_id',
     )
     assert isinstance(refused, TypeError)
     assert str(refused) == (
-        "ScopeSession.select_labware takes labware_name as str; ['96 well microplate'] is a list."
+        "ScopeSession.select_labware takes labware_id as str; ['96 well microplate'] is a list."
     )
 
 

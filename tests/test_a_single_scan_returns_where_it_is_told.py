@@ -37,7 +37,7 @@ def _scan_returning_to(tmp_path, location):
         assert outcome.status == 'completed', outcome
         motion = session.scope.motion
         stage = session.scope.runtime_state.plate_to_stage(
-            RETURN_TO.x_mm, RETURN_TO.y_mm, labware_id=protocol.labware()
+            RETURN_TO.x_mm, RETURN_TO.y_mm, labware_id=protocol.labware_id()
         )
         return motion.get_target_positions(), stage, protocol.step_row(1)['Z']
 

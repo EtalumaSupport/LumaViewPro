@@ -31,7 +31,7 @@ try:
     cfg['labware_id'] = 'Center Plate'
     protocol = session.scope.protocols.create_protocol(input_config=cfg)
     print('created steps   :', protocol.num_steps())
-    print('labware         :', protocol.labware())
+    print('labware         :', protocol.labware_id())
 
     banner('2. save to TSV')
     path = live / 'probe_roundtrip.tsv'

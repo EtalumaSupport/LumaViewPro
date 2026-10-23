@@ -106,8 +106,8 @@ class TestTheResolver:
     def test_the_membership_test_and_the_lookup_agree_with_the_resolver(self):
         for old_name, key in RENAMED.items():
             assert CATALOGUE.is_known_plate(old_name)
-            resolved = CATALOGUE.get_plate(plate_key=old_name)
-            canonical = CATALOGUE.get_plate(plate_key=key)
+            resolved = CATALOGUE.get_plate(labware_id=old_name)
+            canonical = CATALOGUE.get_plate(labware_id=key)
             assert resolved == canonical
         assert not CATALOGUE.is_known_plate(UNKNOWN_PLATE)
 
@@ -121,7 +121,7 @@ class TestTheReader:
                 file_path=_protocol_file(tmp_path, old_name),
                 tiling_configs_file_loc=TILING_CONFIGS,
             )
-            assert proto.labware() == key
+            assert proto.labware_id() == key
 
         failed = failing_cases(sorted(RENAMED.items()), check)
         assert not failed, failed
@@ -144,7 +144,7 @@ class TestTheReader:
             file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
             tiling_configs_file_loc=TILING_CONFIGS,
         )
-        assert proto.labware() == UNKNOWN_PLATE
+        assert proto.labware_id() == UNKNOWN_PLATE
 
     def test_a_reloaded_legacy_file_is_saved_under_the_key(self, tmp_path):
         proto = Protocol.from_file(
@@ -178,4 +178,4 @@ class TestTheApiLoad:
         proto = session.scope.protocols.load_protocol(
             file_path=_protocol_file(tmp_path, 'Center Dish')
         )
-        assert proto.labware() == 'Center Plate'
+        assert proto.labware_id() == 'Center Plate'

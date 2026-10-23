@@ -1340,7 +1340,7 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
 
     Attributes:
         reason: ``'labware_unknown'`` or ``'objective_not_in_catalogue'``.
-        argument: The owner's parameter: ``plate_key`` or ``objective_id``.
+        argument: The owner's parameter: ``labware_id`` or ``objective_id``.
         value: What was given, as given.
         offered: The catalogue's keys.
 

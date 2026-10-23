@@ -2145,8 +2145,8 @@ class ScopeSession:
                 as ``select_labware``; the scope stays on the plate it had.
         """
         protocol = self.scope.protocols.load_protocol(file_path=file_path)
-        self.scope.protocols.set_labware(protocol, protocol.labware())
-        self.select_labware(protocol.labware())
+        self.scope.protocols.set_labware(protocol, protocol.labware_id())
+        self.select_labware(protocol.labware_id())
         return protocol
 
     def _layers_on_scope(self) -> set[str]:
@@ -2627,7 +2627,7 @@ class ScopeSession:
             protocol,
             layer_configs=layer_configs,
             stim_configs=self.get_stim_configs(),
-            plate_position=at if at is not None else self.plate_position_on(protocol.labware()),
+            plate_position=at if at is not None else self.plate_position_on(protocol.labware_id()),
             objective_id=objective_id,
             channel_order=channel_order,
             before_step_index=before_step_index,
@@ -2671,7 +2671,7 @@ class ScopeSession:
             layer=channel,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self.plate_position_on(protocol.labware()),
+            plate_position=self.plate_position_on(protocol.labware_id()),
             objective_id=objective_id,
             label=label,
         )
@@ -2944,17 +2944,17 @@ class ScopeSession:
         return self.scope.protocols.rename_step(protocol, step_index, name)
 
     @api
-    def set_protocol_labware(self, protocol: 'Protocol', plate_key: str) -> str:
-        """Put ``protocol`` on the plate ``plate_key``; returns the key it took.
+    def set_protocol_labware(self, protocol: 'Protocol', labware_id: str) -> str:
+        """Put ``protocol`` on the plate ``labware_id``; returns the key it took.
 
         The protocol's plate only: the scope's is ``select_labware``'s. On a
         scope with no XY stage the protocol takes Center Plate.
 
         Raises:
-            ConfigError: ``plate_key`` is not a plate the catalogue has. The
+            ConfigError: ``labware_id`` is not a plate the catalogue has. The
                 protocol keeps its plate.
         """
-        return self.scope.protocols.set_labware(protocol, plate_key)
+        return self.scope.protocols.set_labware(protocol, labware_id)
 
     @api
     def set_protocol_schedule(
@@ -5034,7 +5034,7 @@ class ScopeSession:
 
     @api
     @property
-    def labware(self) -> str:
+    def labware_id(self) -> str:
         """The current plate's catalogue key, the one ``select_labware`` selected.
 
         Its record is ``scope.runtime_state.get_labware()``.
@@ -5044,10 +5044,10 @@ class ScopeSession:
         """
         return self.settings['protocol']['labware']
 
-    @api(sets='labware')
+    @api(sets='labware_id')
     @_guarded_write
-    def select_labware(self, labware_name: str) -> bool:
-        """Make ``labware_name`` the current plate. Returns whether it changed.
+    def select_labware(self, labware_id: str) -> bool:
+        """Make ``labware_id`` the current plate. Returns whether it changed.
 
         The one writer of the active labware for every host: the plate the
         settings name, which the scope reads.
@@ -5066,28 +5066,28 @@ class ScopeSession:
             CatalogueNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has no
-                XY stage and ``labware_name`` is not Center Plate
+                XY stage and ``labware_id`` is not Center Plate
                 (``missing`` is ``MissingPart.XY_STAGE``). A run, a diagnostic
-                or a recording holds the scope and ``labware_name`` is not the
+                or a recording holds the scope and ``labware_id`` is not the
                 plate in place (``exclusive_activity_running``): each states
                 its positions against the plate it started with. Nothing is
                 written.
         """
         from modules.labware_loader import CENTER_PLATE
 
-        labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
-        if not self.scope.capabilities.has_xy_stage and labware_name != CENTER_PLATE:
+        labware_id = self.wellplate_loader.resolve_plate_key(labware_id)
+        if not self.scope.capabilities.has_xy_stage and labware_id != CENTER_PLATE:
             raise HardwareCommandRefusedError(
                 'axis_absent', 'select_labware', missing=MissingPart.XY_STAGE
             )
-        if labware_name == self.settings['protocol']['labware']:
+        if labware_id == self.settings['protocol']['labware']:
             # A holder is refused only a different plate: the GUI re-selects
             # the current one whenever its panels redraw, under any hold.
             return False
         self._refuse_configuration_change_while_held('select_labware')
         with self.settings_lock:
-            self._store_setting('protocol.labware', labware_name)
-        logger.info(f'[Session  ] Labware set to {labware_name!r}')
+            self._store_setting('protocol.labware', labware_id)
+        logger.info(f'[Session  ] Labware set to {labware_id!r}')
         return True
 
     @api(sets='turret_objective')

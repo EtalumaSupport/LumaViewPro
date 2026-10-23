@@ -1009,7 +1009,7 @@ def get_selected_labware_from_settings(
             reader still refuses one in settings no bring-up has read.
     """
     labware_id = wellplate_loader.resolve_plate_key(settings['protocol']['labware'])
-    return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
+    return labware_id, wellplate_loader.get_plate(labware_id=labware_id)
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:

@@ -300,7 +300,7 @@ class TestLoad:
         is the app's write, and records no pick: a person's pick is recorded
         by the spinner itself, from the pick."""
         opened = _protocol()
-        opened.labware.return_value = '6 well microplate'
+        opened.labware_id.return_value = '6 well microplate'
         ctx.session.open_protocol.return_value = opened
         monkeypatch.setattr(ps, 'reset_acquire_ui', lambda: None)
         monkeypatch.setattr(ps, 'reset_stim_ui', lambda: None)

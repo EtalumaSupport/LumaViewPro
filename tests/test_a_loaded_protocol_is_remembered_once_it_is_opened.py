@@ -31,7 +31,7 @@ def test_an_opened_protocol_is_on_its_plate_and_remembered(session, tmp_path):
 
     protocol = session.open_protocol(path)
 
-    assert protocol.labware() == FILE_PLATE
+    assert protocol.labware_id() == FILE_PLATE
     assert session.settings['protocol']['labware'] == FILE_PLATE
     assert _remembered(session) == str(path)
 

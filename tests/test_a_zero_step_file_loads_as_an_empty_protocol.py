@@ -45,7 +45,7 @@ def test_the_shipped_default_loads_as_an_empty_protocol_carrying_the_files_own_f
     assert isinstance(protocol, Protocol)
     assert protocol.num_steps() == 0
     assert (protocol.period_s(), protocol.duration_s()) == (20 * 60, 2 * 24 * 3600)
-    assert protocol.labware() == '96 well microplate'
+    assert protocol.labware_id() == '96 well microplate'
     assert protocol.capture_root() == ''
     assert protocol.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000) == []
 

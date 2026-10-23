@@ -67,7 +67,7 @@ class TestBringUp:
         try:
             assert session.settings['protocol']['labware'] == CENTER_PLATE
             assert session.scope.runtime_state.get_labware() == (
-                session.wellplate_loader.get_plate(plate_key=CENTER_PLATE)
+                session.wellplate_loader.get_plate(labware_id=CENTER_PLATE)
             )
             assert any(
                 f'stored plate {STORED_PLATE!r} replaced by {CENTER_PLATE!r}' in line
@@ -80,7 +80,7 @@ class TestBringUp:
         assert stage_scope.settings['protocol']['labware'] == STORED_PLATE
 
     def test_a_stageless_scopes_protocols_are_born_on_center_plate(self, stageless_scope):
-        assert stageless_scope.create_empty_protocol().labware() == CENTER_PLATE
+        assert stageless_scope.create_empty_protocol().labware_id() == CENTER_PLATE
 
 
 class TestSetProtocolLabware:
@@ -90,14 +90,14 @@ class TestSetProtocolLabware:
         taken = stage_scope.set_protocol_labware(protocol, '6 well microplate')
 
         assert taken == '6 well microplate'
-        assert protocol.labware() == '6 well microplate'
+        assert protocol.labware_id() == '6 well microplate'
         assert stage_scope.settings['protocol']['labware'] == STORED_PLATE
 
     def test_a_retired_spelling_is_stored_under_the_catalogues_key(self, stage_scope):
         protocol = stage_scope.create_empty_protocol()
 
         assert stage_scope.set_protocol_labware(protocol, 'Center Dish') == CENTER_PLATE
-        assert protocol.labware() == CENTER_PLATE
+        assert protocol.labware_id() == CENTER_PLATE
 
     def test_a_plate_the_catalogue_lacks_is_refused_and_the_protocol_keeps_its_plate(
         self, stage_scope
@@ -107,7 +107,7 @@ class TestSetProtocolLabware:
         with pytest.raises(CatalogueNameRefusedError, match='labware catalogue'):
             stage_scope.set_protocol_labware(protocol, 'a plate nobody makes')
 
-        assert protocol.labware() == STORED_PLATE
+        assert protocol.labware_id() == STORED_PLATE
 
     def test_a_stageless_scopes_protocol_takes_center_plate_and_says_so(
         self, stageless_scope, caplog
@@ -118,7 +118,7 @@ class TestSetProtocolLabware:
             taken = stageless_scope.set_protocol_labware(protocol, STORED_PLATE)
 
         assert taken == CENTER_PLATE
-        assert protocol.labware() == CENTER_PLATE
+        assert protocol.labware_id() == CENTER_PLATE
         assert any(
             f'protocol plate {STORED_PLATE!r} replaced by {CENTER_PLATE!r}' in r.getMessage()
             for r in caplog.records
@@ -134,5 +134,5 @@ def test_a_file_on_a_plate_loads_on_center_plate_on_a_stageless_scope(
 
     loaded = stageless_scope.load_protocol(path)
 
-    assert loaded.labware() == CENTER_PLATE
+    assert loaded.labware_id() == CENTER_PLATE
     assert stageless_scope.settings['protocol']['labware'] == CENTER_PLATE

@@ -70,7 +70,7 @@ NOT_WRITERS = MemberNames(
         'from_config',
         'from_file',
         'has_saved_layer_settings',
-        'labware',
+        'labware_id',
         'layer_acquires',
         'layer_settings',
         'new_channel_group_id',

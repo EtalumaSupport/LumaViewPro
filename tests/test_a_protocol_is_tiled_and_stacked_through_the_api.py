@@ -117,20 +117,20 @@ class TestTiling:
     def test_the_tiles_are_judged_on_the_protocols_plate(self, session, monkeypatch):
         protocol = _bf_steps_at(session, (40000,))
         session.set_protocol_labware(protocol, '6 well microplate')
-        assert session.settings['protocol']['labware'] != protocol.labware()
+        assert session.settings['protocol']['labware'] != protocol.labware_id()
         loader = session.scope.wellplate_loader
         asked = []
         real = loader.get_plate
 
-        def spy(plate_key):
-            asked.append(plate_key)
-            return real(plate_key=plate_key)
+        def spy(labware_id):
+            asked.append(labware_id)
+            return real(labware_id=labware_id)
 
         monkeypatch.setattr(loader, 'get_plate', spy)
 
         session.apply_tiling(protocol, '2x2')
 
-        assert asked == [protocol.labware()]
+        assert asked == [protocol.labware_id()]
 
     def test_a_z_only_scope_is_refused_for_no_x_y_motor(self, z_only_session):
         protocol = _bf_steps_at_center(z_only_session)

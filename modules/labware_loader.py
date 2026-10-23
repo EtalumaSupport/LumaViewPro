@@ -31,17 +31,17 @@ _LABWARE_ALIASES = {
 }
 
 
-def canonical_plate_name(plate_key: object) -> object:
-    """The catalogue spelling of ``plate_key``; a name the table does not
+def canonical_plate_name(labware_id: object) -> object:
+    """The catalogue spelling of ``labware_id``; a name the table does not
     know is returned as given.
 
     This translates and does not judge: it needs no catalogue, so settings
     preparation can call it before any helper exists. Whether the plate
     exists is ``WellPlateLoader.resolve_plate_key``'s question.
     """
-    if not isinstance(plate_key, str):
-        return plate_key
-    return _LABWARE_ALIASES.get(plate_key, plate_key)
+    if not isinstance(labware_id, str):
+        return labware_id
+    return _LABWARE_ALIASES.get(labware_id, labware_id)
 
 
 def _number(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib.Path) -> float:
@@ -112,26 +112,26 @@ class WellPlateLoader:
     def get_plate_list(self) -> list[str]:
         return list(self._plates)
 
-    def resolve_plate_key(self, plate_key: str) -> str:
-        """The catalogue key for ``plate_key``, whatever spelling it arrived in.
+    def resolve_plate_key(self, labware_id: str) -> str:
+        """The catalogue key for ``labware_id``, whatever spelling it arrived in.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 names a plate this catalogue does not have; ``offered``
                 carries the plates it has.
         """
-        resolved_key = canonical_plate_name(plate_key)
+        resolved_key = canonical_plate_name(labware_id)
         if resolved_key not in self._plates:
             raise CatalogueNameRefusedError(
                 'labware_unknown',
-                argument='plate_key',
-                value=plate_key,
+                argument='labware_id',
+                value=labware_id,
                 offered=tuple(self.get_plate_list()),
             )
         return resolved_key
 
-    def is_known_plate(self, plate_key: 'SettingValue') -> bool:
-        """Whether ``plate_key`` resolves to a plate, directly or under a retired spelling.
+    def is_known_plate(self, labware_id: 'SettingValue') -> bool:
+        """Whether ``labware_id`` resolves to a plate, directly or under a retired spelling.
 
         Use this for validation so callers accept exactly what get_plate() accepts.
         get_plate_list() returns only canonical keys and would reject legacy/alias
@@ -139,19 +139,19 @@ class WellPlateLoader:
         whatever a stored setting can hold, since bring-up asks it of the
         stored plate: a value that is not a name is no plate.
         """
-        if not isinstance(plate_key, str):
+        if not isinstance(labware_id, str):
             return False
         try:
-            self.resolve_plate_key(plate_key)
+            self.resolve_plate_key(labware_id)
         except ConfigError:
             return False
         return True
 
-    def get_plate(self, plate_key: str) -> labware.WellPlate:
-        """The plate ``plate_key`` names, under any spelling ``resolve_plate_key`` takes.
+    def get_plate(self, labware_id: str) -> labware.WellPlate:
+        """The plate ``labware_id`` names, under any spelling ``resolve_plate_key`` takes.
 
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, as
                 ``resolve_plate_key``.
         """
-        return self._plates[self.resolve_plate_key(plate_key)]
+        return self._plates[self.resolve_plate_key(labware_id)]

@@ -135,7 +135,7 @@ class Stage(Widget):
         # with none has no place on the map.
         df = protocol.steps()[['X', 'Y']].dropna()
         self._protocol_step_locations_df = df.drop_duplicates()
-        self._protocol_step_labware = protocol.labware()
+        self._protocol_step_labware = protocol.labware_id()
         self._protocol_step_redraw = True
         # Invalidate step locations FBO cache
         self._step_locations_fbo = None

@@ -96,5 +96,5 @@ def test_a_remembered_file_that_loads_is_opened_and_kept(session, tmp_path):
 
     protocol = session.open_remembered_protocol()
 
-    assert protocol is not None and protocol.labware() == '6 well microplate'
+    assert protocol is not None and protocol.labware_id() == '6 well microplate'
     assert _remembered(session) == str(path)

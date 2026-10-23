@@ -1353,7 +1353,9 @@ class SequencedCaptureRunner:
         # that its steps are outside travel. The offset is the scope's, the
         # one the gate judges X/Y with, snapshotted so the run converts with
         # the offset it was admitted at.
-        self._scope.protocols.refuse_positions_outside_travel(protocol.steps(), protocol.labware())
+        self._scope.protocols.refuse_positions_outside_travel(
+            protocol.steps(), protocol.labware_id()
+        )
         stage_offset = self._scope.runtime_state.get_stage_offset()
         ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 
@@ -1737,9 +1739,11 @@ class SequencedCaptureRunner:
                 engineering_mode=self._engineering_mode,
                 channel_colors=self._channel_colors,
                 run_claim=self._held_claim.lend(),
-                labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
+                labware=self._scope.wellplate_loader.get_plate(
+                    labware_id=self._protocol.labware_id()
+                ),
                 to_plate=self._scope.runtime_state.plate_transform(
-                    labware_id=self._protocol.labware(), stage_offset=self._stage_offset
+                    labware_id=self._protocol.labware_id(), stage_offset=self._stage_offset
                 ),
                 captures_asked=(
                     plan.n_scans * self._protocol.num_steps()

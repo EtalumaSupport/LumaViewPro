@@ -541,7 +541,7 @@ class TestRoundTripBasic:
             tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        assert proto.labware() == '384 well microplate'
+        assert proto.labware_id() == '384 well microplate'
 
         errors = proto.validate_for_run(
             objective_helper=ObjectiveLoader(),
@@ -1058,7 +1058,7 @@ class TestRoundTripMetadata:
     def test_labware_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.labware() == '96 well microplate'
+        assert reloaded.labware_id() == '96 well microplate'
 
     def test_capture_root_preserved(self, tmp_path):
         steps = [_make_step()]
@@ -1632,7 +1632,7 @@ class TestProtocolModification:
 
     def test_labware_accessor(self):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
-        assert proto.labware() == '96 well microplate'
+        assert proto.labware_id() == '96 well microplate'
 
     def test_capture_root_accessor(self):
         proto = _build_protocol([_make_step()])

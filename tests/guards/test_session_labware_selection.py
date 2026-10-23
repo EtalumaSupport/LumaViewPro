@@ -63,7 +63,7 @@ def _runtime_plate(session):
 
 
 def _expected_plate(plate_name):
-    return labware_loader.WellPlateLoader(source_path='.').get_plate(plate_key=plate_name).name
+    return labware_loader.WellPlateLoader(source_path='.').get_plate(labware_id=plate_name).name
 
 
 class TestSelectingAPlate:
@@ -154,7 +154,7 @@ class TestRefusals:
 
         with pytest.raises(ArgumentTypeRefusedError) as refused:
             session.select_labware(['96 well microplate'])
-        assert refused.value.argument == 'labware_name'
+        assert refused.value.argument == 'labware_id'
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE
 
