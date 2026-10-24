@@ -38,9 +38,13 @@ a parameter, ``Any`` or ``object``, a thread, a ``timedelta`` (a duration
 is a float of seconds, its name ending ``_s``, so a client reads its unit
 from its name). A member that hands one out is marked in-process.
 
-Inbound, a parameter's value comes back the same way: an enum's form its
-member, an object a record, a handle's id its live object, a job's id its
-operation, a live-folder name an absolute path. ``wire_members`` describes each member a host routes to,
+Inbound, a parameter's value comes back the same way: an object a
+record, a handle's id its live object, a job's id its operation, a
+live-folder name an absolute path. An enum a client sends is a
+``StrEnum``, and its string is handed through as sent: the member's door,
+or the record built from it, judges it as it judges a Python caller's
+(``closed_sets``), so a value outside the set has one refusal wherever it
+came from. ``wire_members`` describes each member a host routes to,
 and ``decode`` turns what a client sent into what the member takes. A
 parameter type with no inbound form -- a future that is no operation, a
 path inside an array, a union a value could be read as either side of --
@@ -758,6 +762,10 @@ def inbound(
             found.append(Inbound(form, name, cls, fields=fields))
         elif form == HANDLE and handed_out is not None and cls not in handed_out:
             unobtainable.append(name)
+        elif form == ENUM and not issubclass(cls, enum.StrEnum):
+            # Sent by name, it would be judged by no door; a closed set a
+            # client sends is a StrEnum.
+            raise NoWireFormError(f'{text}: {name} is an enum a client sends, so a StrEnum')
         elif form in (SCALAR, PATH, ENUM, HANDLE, JOB):
             found.append(Inbound(form, name, cls))
         else:
@@ -776,7 +784,7 @@ def inbound(
 def _items(
     node: ast.AST, text: str, classes: dict[str, type], aliases: dict[str, str]
 ) -> tuple[Inbound, ...]:
-    """An array's or object's value alternatives: scalars, records, or nothing said."""
+    """An array's or object's value alternatives: scalars, closed sets, records, or nothing said."""
     if not isinstance(node, ast.Subscript):
         return ()
     parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
@@ -787,9 +795,9 @@ def _items(
         # type would misdescribe.
         raise NoWireFormError(f'{text}: a tuple of fixed shape is not sent')
     items = inbound(ast.unparse(parts[-1]), classes, aliases)
-    if any(i.form not in (SCALAR, RECORD) for i in items):
+    if any(i.form not in (SCALAR, ENUM, RECORD) for i in items):
         raise NoWireFormError(
-            f'{text}: an array or object of anything but scalars or records is not sent'
+            f'{text}: an array or object of anything but scalars, closed sets or records is not sent'
         )
     return items
 
@@ -995,7 +1003,8 @@ def decode(
 
     The value's JSON type is the host's to have checked against the
     alternatives (``inbound`` admits only unions a value picks one side
-    of); this turns it into the Python value.
+    of); this turns it into the Python value. A closed set's string is
+    handed through, for the door or the record to judge.
 
     ``resolve_path`` turns a live-folder name into an absolute path, refusing
     a name outside the live folder; ``handle`` turns a handle's id into its
@@ -1025,7 +1034,7 @@ def decode(
     if a.form == PATH:
         return resolve_path(value)
     if a.form == ENUM:
-        return a.cls(value) if issubclass(a.cls, enum.StrEnum) else a.cls[value]
+        return value
     if a.form == HANDLE:
         return handle(value, a.cls)
     if a.form == JOB:

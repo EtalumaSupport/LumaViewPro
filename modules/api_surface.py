@@ -53,6 +53,16 @@ or the one line ``Nothing.`` for a member that raises nothing a caller
 handles. Every marked member has the section
 (``tests/guards/test_every_member_states_its_contract.py``).
 
+A record's field typed with a closed set (a ``StrEnum``, or one or None)
+is judged as the record is built, by whoever builds it -- the API, a
+Python caller handing a record back, the wire decoding one: a member's
+plain string is stored as the member, and any other value is
+``ArgumentRefusedError`` ``'not_offered'``, naming ``Record.field``
+(``modules.closed_sets``). The field is found from the record's module
+when the record is marked, so its set is imported or defined above it;
+``tests/guards/test_a_records_closed_set_is_judged.py`` holds every such
+field judged.
+
 An event declares its record where it is delivered: a listener member as
 ``@api(event=Record)``, a ``RunEvents`` field through
 ``event_metadata(Record)``.
@@ -67,10 +77,14 @@ No project imports: every module that declares API imports this one.
 """
 
 import dataclasses
+import enum
 import functools
 import inspect
 import os
 import re
+import sys
+import types
+import typing
 from collections.abc import Callable
 
 # The attribute the mark is recorded under, on the function itself: a
@@ -87,6 +101,9 @@ EVENT_ATTRIBUTE = '_lvp_api_event'
 # The attribute a class that is not a dataclass or NamedTuple declares
 # itself a record under.
 RECORD_ATTRIBUTE = '_lvp_api_record'
+# The attribute a record's closed-set fields are recorded under, by name:
+# the set, and whether None is one of the field's values.
+CLOSED_FIELDS_ATTRIBUTE = '_lvp_api_closed_fields'
 # The attributes the four marks are recorded under, each its own: a new
 # value of MARK_ATTRIBUTE would be read as unmarked by every host that
 # routes on it, and the member's route would go.
@@ -218,6 +235,9 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
     (``wire_encoding.plain``), for a caller that needs a dict: MATLAB's
     ``struct()`` takes a dict and not a dataclass. So it is above the
     ``@dataclass`` it marks, which must have run first.
+
+    A dataclass's closed-set fields are judged as it is built (the module
+    docstring), before its own ``__post_init__`` reads them.
     """
 
     def publish(cls: C) -> C:
@@ -226,9 +246,79 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
             setattr(cls, RECORD_ATTRIBUTE, True)
         if is_record(cls):
             cls.to_dict = _to_dict
+        if dataclasses.is_dataclass(cls):
+            _judge_closed_fields(cls)
         return cls
 
     return publish
+
+
+def _closed_set_of(annotation: object, names: dict[str, object]) -> tuple[type, bool] | None:
+    """The closed set an annotation names, and whether it admits None; None when it names none.
+
+    Read as written: a set, or a set or None. A string annotation's names
+    are looked up in ``names``, the record's module.
+    """
+    if isinstance(annotation, str):
+        parts = [part.strip() for part in annotation.split('|')]
+        arms = [names.get(part, part) for part in parts if part != 'None']
+        optional = len(arms) < len(parts)
+    elif typing.get_origin(annotation) in (types.UnionType, typing.Union):
+        arms = [arm for arm in typing.get_args(annotation) if arm is not type(None)]
+        optional = len(arms) < len(typing.get_args(annotation))
+    else:
+        arms, optional = [annotation], False
+    if len(arms) == 1 and isinstance(arms[0], type) and issubclass(arms[0], enum.StrEnum):
+        return arms[0], optional
+    return None
+
+
+def _judge_closed_fields(cls: type) -> None:
+    """Judge each of a dataclass's closed-set fields as it is built, before its ``__post_init__``."""
+    names = vars(sys.modules[cls.__module__])
+    closed = {}
+    for field in dataclasses.fields(cls):
+        found = _closed_set_of(field.type, names)
+        if found is not None:
+            closed[field.name] = found
+    setattr(cls, CLOSED_FIELDS_ATTRIBUTE, closed)
+    if not closed:
+        return
+
+    def judge(self: object) -> None:
+        # Imported here: closed_sets raises a refusal, and the refusals'
+        # module imports this one.
+        from modules.closed_sets import refuse_unless_offered
+
+        for name, (closed_set, optional) in closed.items():
+            value = getattr(self, name)
+            if value is None and optional:
+                continue
+            member = refuse_unless_offered(closed_set, value, f'{cls.__name__}.{name}')
+            if member is not value:
+                # A frozen record refuses setattr; the build is not done yet.
+                object.__setattr__(self, name, member)
+
+    # The generated __init__ calls __post_init__ when the class has one, so
+    # the judge goes first inside it; otherwise it follows __init__.
+    post_init = getattr(cls, '__post_init__', None)
+    if post_init is not None:
+
+        @functools.wraps(post_init)
+        def judged_post_init(self, *args, **kwargs):
+            judge(self)
+            return post_init(self, *args, **kwargs)
+
+        cls.__post_init__ = judged_post_init
+    else:
+        init = cls.__init__
+
+        @functools.wraps(init)
+        def judged_init(self, *args, **kwargs):
+            init(self, *args, **kwargs)
+            judge(self)
+
+        cls.__init__ = judged_init
 
 
 def _to_dict(self: object) -> dict:
@@ -315,6 +405,11 @@ def field_event(cls: type, name: str) -> type | None:
         if field.name == name:
             return field.metadata.get(EVENT_ATTRIBUTE)
     return None
+
+
+def closed_fields_of(cls: type) -> dict[str, tuple[type, bool]]:
+    """Each closed-set field a dataclass record judges as it is built: its set, and whether it admits None."""
+    return vars(cls).get(CLOSED_FIELDS_ATTRIBUTE, {})
 
 
 def is_record(cls: type) -> bool:

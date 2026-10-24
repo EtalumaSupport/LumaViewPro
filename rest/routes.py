@@ -426,7 +426,11 @@ def _one(a: wire_encoding.Inbound, records: dict[type, type[pydantic.BaseModel]]
             str, pydantic.Field(description='The id of the job an operation is.')
         ]
     if a.form == wire_encoding.ENUM:
-        return typing.Literal[tuple(wire_form(m) for m in a.cls)]
+        # A string, so the member's door judges it and a value outside the
+        # set is refused in its words; described as the set's values.
+        return typing.Annotated[
+            str, pydantic.Field(json_schema_extra={'enum': [wire_form(m) for m in a.cls]})
+        ]
     if a.form == wire_encoding.ARRAY:
         return list[_type(a.items, records)] if a.items else list
     if a.form == wire_encoding.OBJECT:

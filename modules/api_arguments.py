@@ -10,9 +10,15 @@ passes; a number is taken by what it means, so an ``int`` passes where a
 holds, and either reaches the body converted. A ``bool`` is never a
 number. Anything else is ``ArgumentTypeRefusedError``, before the body runs.
 
-The door judges the type and nothing more: NaN is a float, so finiteness
-stays ``finite_number``'s; a name's membership and a dictionary's
-contents stay the member's own.
+A closed set, a ``StrEnum``, is judged by membership as well
+(``closed_sets``): a member or its plain string passes and reaches the body
+as the member, a container of one reaches it holding members, and any
+other string is ``ArgumentRefusedError`` ``'not_offered'``, offering the
+set's values. A value that is no string at all is the wrong type.
+
+Beyond that the door judges the type and nothing more: NaN is a float, so
+finiteness stays ``finite_number``'s; a name's membership in an open set,
+a subset a member takes, and a dictionary's contents stay the member's own.
 
 Imported by the wrapper at a member's first call, not at import: resolving
 an annotation needs every class under ``modules/`` loaded.
@@ -20,7 +26,9 @@ an annotation needs every class under ``modules/`` loaded.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
+import enum
 import inspect
 import os
 import types
@@ -29,12 +37,26 @@ from collections.abc import Callable, Iterable, Mapping
 
 import numpy as np
 
-from modules import wire_encoding
+from modules import closed_sets, wire_encoding
 from modules.exceptions import ArgumentTypeRefusedError
 
 # What a check answers for a value its type does not admit. A value of its
 # own, since None is one an argument can be.
 _REFUSED = object()
+
+
+@dataclasses.dataclass(frozen=True)
+class _NotOffered:
+    """What a closed set's check answers for a string outside the set: refused by membership, not type.
+
+    ``at`` is the item's index in a container, as ``'[1]'``; '' for the
+    argument itself.
+    """
+
+    cls: type[enum.StrEnum]
+    value: object
+    at: str = ''
+
 
 type _Check = Callable[[object], object]
 type _Door = Callable[[tuple, dict], tuple[tuple, dict]]
@@ -109,15 +131,48 @@ def _instance_of(cls: type) -> _Check:
     return check
 
 
+def _member_of(cls: type[enum.StrEnum]) -> _Check:
+    def check(value: object) -> object:
+        if not isinstance(value, str):
+            return _REFUSED
+        member = closed_sets.member_of(cls, value)
+        return _NotOffered(cls, value) if member is None else member
+
+    return check
+
+
+def _members_of(kind: type, cls: type[enum.StrEnum], made: type) -> _Check:
+    # A string is iterable, but is one value, never a container of letters.
+    def check(value: object) -> object:
+        if isinstance(value, str) or not isinstance(value, kind):
+            return _REFUSED
+        members = []
+        for index, item in enumerate(value):
+            if not isinstance(item, str):
+                return _REFUSED
+            member = closed_sets.member_of(cls, item)
+            if member is None:
+                return _NotOffered(cls, item, f'[{index}]')
+            members.append(member)
+        return made(members)
+
+    return check
+
+
 def _any_of(arms: list[_Check]) -> _Check:
     # The first arm that admits the value converts it, so the arms keep the
-    # annotation's order: in ``int | float`` an int stays an int.
+    # annotation's order: in ``int | float`` an int stays an int. A string
+    # outside a closed set is refused for its membership, unless another arm
+    # takes it: in ``Axis | None`` 'Q' is not offered, where 3 is no type.
     def check(value: object) -> object:
+        refused = _REFUSED
         for arm in arms:
             admitted = arm(value)
-            if admitted is not _REFUSED:
+            if isinstance(admitted, _NotOffered):
+                refused = admitted
+            elif admitted is not _REFUSED:
                 return admitted
-        return _REFUSED
+        return refused
 
     return check
 
@@ -129,7 +184,15 @@ _SCALARS: dict[object, _Check] = {
     str: _str,
     type(None): _none,
 }
-# A container is admitted by its kind; what it holds is its member's.
+# A container is admitted by its kind; what it holds is its member's, but
+# for a closed set's members, each judged and handed over in the kind the
+# annotation names (an iterable as a tuple).
+_ITEM_KINDS: dict[object, tuple[type, type]] = {
+    tuple: (tuple, tuple),
+    list: (list, list),
+    frozenset: (frozenset, frozenset),
+    Iterable: (Iterable, tuple),
+}
 _KINDS: dict[object, type] = {
     dict: Mapping,
     Mapping: Mapping,
@@ -157,12 +220,22 @@ def _check(hint: object) -> _Check:
         return _any_of([_check(arm) for arm in typing.get_args(hint)])
     if hint is Callable or origin is Callable:
         return _callable
+    if origin is None and _is_closed_set(hint):
+        return _member_of(hint)
+    items = typing.get_args(hint)
+    if origin in _ITEM_KINDS and items and _is_closed_set(items[0]):
+        kind, made = _ITEM_KINDS[origin]
+        return _members_of(kind, items[0], made)
     kind = _KINDS.get(origin if origin is not None else hint)
     if kind is not None:
         return _instance_of(kind)
     if origin is None and isinstance(hint, type):
         return _instance_of(hint)
     raise TypeError(f'the @api door has no check for the annotation {hint!r}')
+
+
+def _is_closed_set(hint: object) -> bool:
+    return isinstance(hint, type) and issubclass(hint, enum.StrEnum)
 
 
 def _declared(hint: object) -> str:
@@ -207,6 +280,10 @@ def door_for(function: Callable, *, bound: bool) -> _Door:
     def admitted(entry: tuple[str, _Check, str], value: object) -> object:
         name, check, declared = entry
         converted = check(value)
+        if isinstance(converted, _NotOffered):
+            closed_sets.refuse_unless_offered(
+                converted.cls, converted.value, f'{name}{converted.at}'
+            )
         if converted is _REFUSED:
             raise ArgumentTypeRefusedError(
                 member=member, argument=name, declared=declared, value=value

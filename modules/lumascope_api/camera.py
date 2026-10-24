@@ -26,6 +26,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.settings_paths as settings_paths
+from modules.closed_sets import refuse_unless_offered
 from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
 from drivers.camera import Frame
@@ -445,15 +446,10 @@ def _refuse_unless_settable_auto_mode(mode: CameraAutoMode, argument: str) -> No
     door has already refused a value that is not a ``CameraAutoMode``.
 
     Raises:
-        ArgumentRefusedError: ``'auto_mode_unknown'``, naming ``argument``.
+        ArgumentRefusedError: ``'not_offered'``, naming ``argument`` and
+            offering the settable modes.
     """
-    if mode not in _SETTABLE_AUTO_MODES:
-        raise ArgumentRefusedError(
-            'auto_mode_unknown',
-            argument=argument,
-            value=mode,
-            offered=tuple(str(m) for m in _SETTABLE_AUTO_MODES),
-        )
+    refuse_unless_offered(CameraAutoMode, mode, argument, within=_SETTABLE_AUTO_MODES)
 
 
 def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
@@ -1796,7 +1792,7 @@ class CameraAPI:
                 ``'Continuous'`` on the wire).
 
         Raises:
-            ArgumentRefusedError: ``'auto_mode_unknown'``, for any other
+            ArgumentRefusedError: ``'not_offered'``, for any other
                 ``mode``: a one-shot is ``auto_gain_once``'s. Nothing is sent.
             CameraSettingRejected: The camera refused the change; nothing is
                 shown here.

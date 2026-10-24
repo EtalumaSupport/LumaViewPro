@@ -116,7 +116,7 @@ def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
     with pytest.raises(ArgumentRefusedError) as refused:
         camera.set_auto_exposure(CameraAutoMode.ONCE)
 
-    assert refused.value.reason == 'auto_mode_unknown'
+    assert (refused.value.reason, refused.value.offered) == ('not_offered', ('Off', 'Continuous'))
     assert camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
 
 
