@@ -453,7 +453,7 @@ session.update_settings('video.max_fps', 30)  # a nested setting, by its dotted 
 session.set_live_folder('/data/run7')          # where captures and runs are saved; relative means the installation's
 session.set_protocol_filepath('/data/plate.tsv')  # the protocol the next start opens; '' forgets it
 session.live_folder_path('ProtocolData/run1')  # a wire caller's name -> its absolute path inside the live folder; LiveFolderPathRefusedError when it leaves
-session.live_folder_listing('ProtocolData')    # one level of the live folder: LiveFolderEntry(name, kind, size, modified) each, by its full name
+session.live_folder_listing('ProtocolData')    # one level of the live folder: LiveFolderEntry(name, kind, size_bytes, modified) each, by its full name
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
 session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ArgumentRefusedError (not_a_setting) when absent;
                                                # a setting with its own read is read there: ArgumentRefusedError (has_member,
@@ -561,9 +561,9 @@ which arguments to pass through `live_folder_path` from the signature.
 
 `session.live_folder_listing(name='.')` answers what the folder `name`
 holds, one level, sorted by name, as a tuple of `LiveFolderEntry(name,
-kind, size, modified)`: `name` the entry's full name under the live
+kind, size_bytes, modified)`: `name` the entry's full name under the live
 folder, `/`-separated on every host, which any path parameter and a
-further listing take as it is; `kind` `'file'` or `'folder'`; `size` in
+further listing take as it is; `kind` `'file'` or `'folder'`; `size_bytes` in
 bytes; `modified` a timezone-aware local `datetime`. `'.'` lists the live
 folder itself. An entry gone by the time it is read (a file a run renames
 into place, a link to nothing) is not listed; a link that leads outside
@@ -4174,7 +4174,7 @@ Reached through each item returned by `session.live_folder_listing`.
 - `kind`
 - `modified`
 - `name`
-- `size`
+- `size_bytes`
 
 ### LiveWork
 
@@ -4669,7 +4669,7 @@ Taken by `session.post_processing.build`.
 Reached through `StepRecord.video_config`.
 
 - `duration_s`
-- `fps`
+- `frame_rate_fps`
 
 ### VideoProgress
 

@@ -462,7 +462,7 @@ class ShownChannel:
     lit: bool
 
 
-@api_fields('name', 'kind', 'size', 'modified')
+@api_fields('name', 'kind', 'size_bytes', 'modified')
 @dataclasses.dataclass(frozen=True)
 class LiveFolderEntry:
     """One file or folder in a live-folder listing.
@@ -472,13 +472,13 @@ class LiveFolderEntry:
             host: what a path parameter, a download and a further listing
             take.
         kind: ``'file'`` or ``'folder'``.
-        size: Its size in bytes, as the file system reports it.
+        size_bytes: Its size in bytes, as the file system reports it.
         modified: When it was last modified, in local time with its offset.
     """
 
     name: str
     kind: str
-    size: int
+    size_bytes: int
     modified: datetime.datetime
 
 
@@ -3902,7 +3902,7 @@ class ScopeSession:
                 LiveFolderEntry(
                     name=child.relative_to(root).as_posix(),
                     kind='folder' if stat.S_ISDIR(found.st_mode) else 'file',
-                    size=found.st_size,
+                    size_bytes=found.st_size,
                     modified=datetime.datetime.fromtimestamp(found.st_mtime).astimezone(),
                 )
             )

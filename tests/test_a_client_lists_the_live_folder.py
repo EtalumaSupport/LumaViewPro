@@ -47,7 +47,7 @@ def test_the_top_level_names_exactly_what_is_on_disk(session, live):
         ('plate.tsv', 'file'),
     ]
     plate = listing[1]
-    assert plate.size == len('steps')
+    assert plate.size_bytes == len('steps')
     assert (
         plate.modified
         == datetime.datetime.fromtimestamp(os.stat(live / 'plate.tsv').st_mtime).astimezone()
@@ -61,7 +61,11 @@ def test_a_deeper_level_is_named_from_the_top_and_its_names_list_further(session
     assert (run.name, run.kind) == ('ProtocolData/run1', 'folder')
 
     (image,) = session.live_folder_listing(run.name)
-    assert (image.name, image.kind, image.size) == ('ProtocolData/run1/BF_001.tiff', 'file', 7)
+    assert (image.name, image.kind, image.size_bytes) == (
+        'ProtocolData/run1/BF_001.tiff',
+        'file',
+        7,
+    )
     assert session.live_folder_path(image.name).read_bytes() == b'x' * 7
 
 

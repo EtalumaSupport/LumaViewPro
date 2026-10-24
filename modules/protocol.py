@@ -659,7 +659,7 @@ def _read_step_cell(df: pd.DataFrame, column: str, position: int) -> object:
         ) from None
 
 
-@api_fields('duration_s', 'fps')
+@api_fields('duration_s', 'frame_rate_fps')
 @dataclasses.dataclass(frozen=True)
 class VideoConfig:
     """What a video step records: its length in seconds and its frame rate.
@@ -669,7 +669,7 @@ class VideoConfig:
     """
 
     duration_s: float | None
-    fps: float | None
+    frame_rate_fps: float | None
 
 
 @api_fields('enabled', 'illumination_ma', 'frequency_hz', 'pulse_width_ms', 'pulse_count')
@@ -822,7 +822,7 @@ def _step_record(row: pd.Series) -> StepRecord:
     fields['video_config'] = (
         None
         if video is None
-        else VideoConfig(duration_s=video.get('duration'), fps=video.get('fps'))
+        else VideoConfig(duration_s=video.get('duration'), frame_rate_fps=video.get('fps'))
     )
     fields['stim_config'] = None if stims is None else _stimulation_records(stims, row['Name'])
     return StepRecord(**fields)
