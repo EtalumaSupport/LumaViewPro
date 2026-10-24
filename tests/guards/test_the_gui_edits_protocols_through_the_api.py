@@ -63,6 +63,7 @@ NOT_WRITERS = MemberNames(
     {
         'capture_prefix',
         'capture_root',
+        'channel_settings',
         'copy_for_execution',
         'create_empty',
         'duration_s',
@@ -72,7 +73,6 @@ NOT_WRITERS = MemberNames(
         'has_saved_layer_settings',
         'labware_id',
         'layer_acquires',
-        'layer_settings',
         'new_channel_group_id',
         'num_scans',
         'num_steps',

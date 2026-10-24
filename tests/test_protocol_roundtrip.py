@@ -2294,18 +2294,18 @@ class TestV6LayerSettings:
         filepath = tmp_path / 'v5_shape.tsv'
         proto.to_file(filepath)
         reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        inferred = reloaded.layer_settings()
+        inferred = reloaded.channel_settings()
 
         assert set(inferred.keys()) == {'BF', 'Blue', 'Green', 'Red'}
         for layer in ('BF', 'Blue', 'Green', 'Red'):
-            assert inferred[layer]['Acquire'] == 'image'
-        assert float(inferred['Blue']['Illumination']) == 150.0
-        assert float(inferred['Green']['Gain']) == 20.0
-        assert float(inferred['Red']['Exposure']) == 100.0
+            assert inferred[layer].acquire == 'image'
+        assert inferred['Blue'].illumination_ma == 150.0
+        assert inferred['Green'].gain_db == 20.0
+        assert inferred['Red'].exposure_ms == 100.0
 
     def test_explicit_block_round_trips(self, tmp_path):
         """Save with layer_settings kwarg, reload, expect identical values
-        back from layer_settings(), each typed by the protocol's one reader."""
+        back from channel_settings(), each typed by the protocol's one reader."""
         proto = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF', acquire='image', illumination=2.0),
@@ -2345,12 +2345,12 @@ class TestV6LayerSettings:
         assert 'Stim_Enabled' in text
 
         reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        ls_out = reloaded.layer_settings()
+        ls_out = reloaded.channel_settings()
         assert set(ls_out.keys()) == {'BF', 'Blue'}
-        assert ls_out['BF']['Acquire'] == 'image'
-        assert ls_out['Blue']['Illumination'] == 150.0
-        assert ls_out['Blue']['False_Color'] is True
-        assert ls_out['Blue']['Stim_Enabled'] is False
+        assert ls_out['BF'].acquire == 'image'
+        assert ls_out['Blue'].illumination_ma == 150.0
+        assert ls_out['Blue'].false_color is True
+        assert ls_out['Blue'].stim_enabled is False
 
     def test_disabled_layers_omitted(self, tmp_path):
         """Layers with Acquire not in (image, video) should NOT be written
@@ -2373,7 +2373,7 @@ class TestV6LayerSettings:
         filepath = tmp_path / 'v6_partial.tsv'
         proto.to_file(filepath, layer_settings=ls_in)
         reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        ls_out = reloaded.layer_settings()
+        ls_out = reloaded.channel_settings()
         assert 'BF' in ls_out
         assert 'Blue' not in ls_out
         assert 'PC' not in ls_out
@@ -2408,9 +2408,9 @@ class TestV6LayerSettings:
         text = filepath2.read_text()
         assert 'Layer Settings' in text
         reloaded2 = Protocol.from_file(filepath2, tiling_configs_file_loc=TILING_CONFIGS)
-        ls = reloaded2.layer_settings()
-        assert ls.get('BF', {}).get('Acquire') == 'image'
-        assert float(ls['BF']['Illumination']) == 7.5
+        ls = reloaded2.channel_settings()
+        assert ls['BF'].acquire == 'image'
+        assert ls['BF'].illumination_ma == 7.5
 
     def test_no_layer_settings_no_block_written(self, tmp_path):
         """Saving without layer_settings AND with no stored block should

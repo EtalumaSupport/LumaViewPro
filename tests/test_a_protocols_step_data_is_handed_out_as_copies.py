@@ -16,6 +16,7 @@ a plain dict, for the caller that means to edit its own.
 """
 
 import copy
+import dataclasses
 import pickle
 
 import pandas as pd
@@ -88,7 +89,7 @@ class TestReadersHandOutCopies:
 
         pd.testing.assert_frame_equal(_snapshot(protocol), before)
 
-    def test_a_write_into_the_layer_settings_leaves_the_protocol(self, tmp_path, protocol):
+    def test_a_write_into_a_channels_settings_is_refused(self, tmp_path, protocol):
         path = tmp_path / 'with_block.tsv'
         protocol.to_file(
             path,
@@ -108,9 +109,10 @@ class TestReadersHandOutCopies:
         )
         loaded = Protocol.from_file(path, tiling_configs_file_loc=TILING_CONFIGS)
 
-        loaded.layer_settings()['BF']['Illumination'] = 999.0
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            loaded.channel_settings()['BF'].illumination_ma = 999.0
 
-        assert loaded.layer_settings()['BF']['Illumination'] == 5.0
+        assert loaded.channel_settings()['BF'].illumination_ma == 5.0
 
 
 class TestEveryStoredCellIsReadOnly:

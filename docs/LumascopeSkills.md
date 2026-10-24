@@ -234,7 +234,7 @@ A protocol has its own plate, and every position a step holds is stated against 
 session.set_protocol_labware(protocol, '6 well microplate')   # '6 well microplate'
 ```
 
-A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads the file and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol takes "Center Plate", through `set_protocol_labware`'s rule. The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol, and the settings' stored schedule is not changed. To take a protocol's per-layer settings into the layer controls as well, call `session.apply_channel_settings(protocol)` after the load, as LumaViewPro's own Load does: every layer stops acquiring and stimulating, then each layer the protocol names takes its acquire mode and every value its row holds; a blank value leaves that control as it was, and a layer this release does not know, or this scope does not have, is logged and dropped. A script that loads a protocol only to run it does not need it. `protocol.layer_settings()` returns the rows typed: `Acquire` `'image'` or `'video'`; `Illumination`, `Gain` and `Exposure` floats; `Sum` an int; `Auto_Gain`, `False_Color` and `Stim_Enabled` bools; a blank cell None. A file whose Layer Settings block has a cell of the wrong type, or no `Layer` column, is refused at load with `ProtocolFormatError`, naming the file; a file with no block has its layer settings inferred from its steps: each layer with steps acquires (`'video'` when any of its steps records video), and a cell its first step cannot supply is None. A step value the run cannot use is reported by the step check -- a notice at load, a refusal when a run starts -- in a file with a block or without.
+A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads the file and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol takes "Center Plate", through `set_protocol_labware`'s rule. The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol, and the settings' stored schedule is not changed. To take a protocol's per-layer settings into the layer controls as well, call `session.apply_channel_settings(protocol)` after the load, as LumaViewPro's own Load does: every layer stops acquiring and stimulating, then each layer the protocol names takes its acquire mode and every value its row holds; a blank value leaves that control as it was, and a layer this release does not know, or this scope does not have, is logged and dropped. A script that loads a protocol only to run it does not need it. `protocol.channel_settings()` returns each channel's row as a `ChannelSettings` record (`modules.protocol`), keyed by channel, its fields in the API's words: `acquire` `'image'` or `'video'`; `illumination_ma`, `gain_db` and `exposure_ms` floats; `frames_summed` an int; `auto_gain`, `false_color` and `stim_enabled` bools; None for a blank cell. The file's block keeps its columns (`Layer`, `Illumination`, `Gain`, `Sum`, ...). A file whose Layer Settings block has a cell of the wrong type, or no `Layer` column, is refused at load with `ProtocolFormatError`, naming the file; a file with no block has its layer settings inferred from its steps: each layer with steps acquires (`'video'` when any of its steps records video), and a cell its first step cannot supply is None. A step value the run cannot use is reported by the step check -- a notice at load, a refusal when a run starts -- in a file with a block or without.
 
 ```python
 question = session.objective_question()            # None, or ObjectiveQuestion(turret_slot, proposed, choices)
@@ -1041,7 +1041,7 @@ session.set_protocol_schedule(protocol, period_s=600, duration_s=24 * 3600)
 session.set_protocol_schedule(protocol, period_s=0.5, duration_s=3600)  # ProtocolScheduleRefusedError
 ```
 
-**Reading a protocol's steps.** `protocol.step(i)` returns step `i` as a `StepRecord` (`modules.protocol`), a field per column of the steps table in the API's words (`Color` is `channel`, `X` and `Y` are `x_mm` and `y_mm`, `Z` is `z_um`, `Illumination` is `illumination_ma`, `Gain` is `gain_db`, `Exposure` is `exposure_ms`, `Sum` is `frames_summed`, `'Z-Stack Group ID'` is `z_stack_group_id`; `z_slice`, the group ids and `turret_slot` are None where the step has none, the file's -1), its video config a `VideoConfig` (`duration_s`, `fps`) and its stimulation, by layer, `Stimulation` records (`enabled`, `illumination_ma`, `frequency_hz`, `pulse_width_ms`, `pulse_count`), None where the step's config does not say; `protocol.step_records()` returns every step's record in order, the table in one read, and over REST as one array. In-process, `protocol.steps()` returns a copy of the steps table and `protocol.step_row(i)` a copy of one row; each row `protocol.layer_settings()` returns is a copy too. The dicts in a row's `Video Config` and `Stim_Config` cells are read-only (each a `dict` that refuses writes): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through the Session's edits (`session.set_protocol_schedule`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
+**Reading a protocol's steps.** `protocol.step(i)` returns step `i` as a `StepRecord` (`modules.protocol`), a field per column of the steps table in the API's words (`Color` is `channel`, `X` and `Y` are `x_mm` and `y_mm`, `Z` is `z_um`, `Illumination` is `illumination_ma`, `Gain` is `gain_db`, `Exposure` is `exposure_ms`, `Sum` is `frames_summed`, `'Z-Stack Group ID'` is `z_stack_group_id`; `z_slice`, the group ids and `turret_slot` are None where the step has none, the file's -1), its video config a `VideoConfig` (`duration_s`, `frame_rate_fps`) and its stimulation, by channel, `Stimulation` records (`enabled`, `illumination_ma`, `frequency_hz`, `pulse_width_ms`, `pulse_count`), None where the step's config does not say; `protocol.step_records()` returns every step's record in order, the table in one read, and over REST as one array. In-process, `protocol.steps()` returns a copy of the steps table and `protocol.step_row(i)` a copy of one row; each record `protocol.channel_settings()` returns is frozen, as a step record is. The dicts in a row's `Video Config` and `Stim_Config` cells are read-only (each a `dict` that refuses writes): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through the Session's edits (`session.set_protocol_schedule`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
 
 **A protocol's capture root.** `session.set_protocol_capture_root(protocol, text)` stores the root as given, and `protocol.capture_root()` returns it so. `protocol.capture_prefix()` is that root as the prefix of a saved file's name (only letters, digits, `-` and `_` kept): the one prefix a run's images and post-processing's outputs both carry, so `exp/2026:10` names files `exp202610_...`.
 
@@ -3562,10 +3562,10 @@ Reached through returned by `session.load_protocol` and `session.new_protocol`.
 - `PROTOCOL_FILE_HEADER`
 - `capture_prefix`
 - `capture_root`
+- `channel_settings`
 - `duration_s`
 - `estimate_write_mb`
 - `labware_id`
-- `layer_settings`
 - `num_scans`
 - `num_steps`
 - `period_s`
@@ -3845,6 +3845,19 @@ Reached through returned by `session.post_processing.cell_count_size_scale`.
 - `area`
 - `perimeter`
 - `pixels_per_um`
+
+### ChannelSettings
+
+Reached through each value of `Protocol.channel_settings`.
+
+- `acquire`
+- `auto_gain`
+- `exposure_ms`
+- `false_color`
+- `frames_summed`
+- `gain_db`
+- `illumination_ma`
+- `stim_enabled`
 
 ### Change
 

@@ -20,7 +20,7 @@ import pytest
 
 from modules.exceptions import ProtocolNotSavedError
 from modules.layer_record import release_catalogue
-from modules.protocol import ProtocolFormatError
+from modules.protocol import ChannelSettings, ProtocolFormatError
 from tests.scope_fakes import home_sim_scope
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW, _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
@@ -181,24 +181,23 @@ class TestTheBlockIsTypedAtLoad:
     def test_a_saved_block_comes_back_typed(self, session, tmp_path):
         tsv = _file_with_block(tmp_path, 'Red\timage\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n')
 
-        row = session.load_protocol(tsv).layer_settings()['Red']
+        row = session.load_protocol(tsv).channel_settings()['Red']
 
-        assert row == {
-            'Layer': 'Red',
-            'Acquire': 'image',
-            'Illumination': 350.0,
-            'Gain': 20.0,
-            'Auto_Gain': True,
-            'Exposure': 200.0,
-            'False_Color': True,
-            'Sum': 1,
-            'Stim_Enabled': False,
-        }
+        assert row == ChannelSettings(
+            acquire='image',
+            illumination_ma=350.0,
+            gain_db=20.0,
+            auto_gain=True,
+            exposure_ms=200.0,
+            false_color=True,
+            frames_summed=1,
+            stim_enabled=False,
+        )
 
     def test_a_blank_cell_is_none(self, session, tmp_path):
         tsv = _file_with_block(tmp_path, 'BF\timage\t5.0\t0.0\tFalse\t2.0\tFalse\t1\t\n')
 
-        assert session.load_protocol(tsv).layer_settings()['BF']['Stim_Enabled'] is None
+        assert session.load_protocol(tsv).channel_settings()['BF'].stim_enabled is None
 
     @pytest.mark.parametrize(
         'row',
@@ -239,19 +238,18 @@ class TestTheBlockIsTypedAtLoad:
             session.load_protocol(tsv)
 
     def test_a_file_with_no_block_is_inferred_typed(self, session, tmp_path):
-        row = session.load_protocol(_protocol_file(tmp_path, PLATE)).layer_settings()['BF']
+        row = session.load_protocol(_protocol_file(tmp_path, PLATE)).channel_settings()['BF']
 
-        assert row == {
-            'Layer': 'BF',
-            'Acquire': 'image',
-            'Illumination': 100.0,
-            'Gain': 0.0,
-            'Auto_Gain': False,
-            'Exposure': 40.0,
-            'False_Color': False,
-            'Sum': 1,
-            'Stim_Enabled': None,
-        }
+        assert row == ChannelSettings(
+            acquire='image',
+            illumination_ma=100.0,
+            gain_db=0.0,
+            auto_gain=False,
+            exposure_ms=40.0,
+            false_color=False,
+            frames_summed=1,
+            stim_enabled=None,
+        )
 
 
 def _v5_file_whose_step_has(tmp_path, column, value):

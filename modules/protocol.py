@@ -868,26 +868,68 @@ def _step_record(row: pd.Series) -> StepRecord:
     return StepRecord(**fields)
 
 
-# Each Layer Settings column after 'Layer', with the type its cell is read
-# as. Every cell but Acquire may be blank, read as None: the layer's control
-# keeps what it holds.
+@api_fields(
+    'acquire',
+    'illumination_ma',
+    'gain_db',
+    'auto_gain',
+    'exposure_ms',
+    'false_color',
+    'frames_summed',
+    'stim_enabled',
+)
+@dataclasses.dataclass(frozen=True)
+class ChannelSettings:
+    """One channel's row of a protocol's Layer Settings, each cell typed.
+
+    Every field but ``acquire`` is None where the cell is blank, or where a
+    row inferred from the channel's first step cannot supply it: applied,
+    the channel's control keeps what it holds.
+
+    Attributes:
+        acquire: ``'image'`` or ``'video'``.
+        illumination_ma: The LED current, in mA.
+        gain_db: The camera gain, in dB.
+        auto_gain: The camera's auto-gain is on.
+        exposure_ms: The camera exposure, in ms.
+        false_color: The channel's image is false-coloured.
+        frames_summed: How many frames a capture sums.
+        stim_enabled: The channel's stimulation is on; never inferred from
+            the steps.
+    """
+
+    acquire: str
+    illumination_ma: float | None
+    gain_db: float | None
+    auto_gain: bool | None
+    exposure_ms: float | None
+    false_color: bool | None
+    frames_summed: int | None
+    stim_enabled: bool | None
+
+
+# Each Layer Settings column after 'Layer', with the channel settings' field
+# for it and the type its cell is read as: the one place a column maps to a
+# field. Every cell but Acquire may be blank, read as None: the channel's
+# control keeps what it holds.
 _LAYER_SETTINGS_CELLS = (
-    ('Acquire', _acquire_cell),
-    ('Illumination', _float_cell),
-    ('Gain', _float_cell),
-    ('Auto_Gain', _bool_cell),
-    ('Exposure', _float_cell),
-    ('False_Color', _bool_cell),
-    ('Sum', _int_cell),
-    ('Stim_Enabled', _bool_cell),
+    ('Acquire', 'acquire', _acquire_cell),
+    ('Illumination', 'illumination_ma', _float_cell),
+    ('Gain', 'gain_db', _float_cell),
+    ('Auto_Gain', 'auto_gain', _bool_cell),
+    ('Exposure', 'exposure_ms', _float_cell),
+    ('False_Color', 'false_color', _bool_cell),
+    ('Sum', 'frames_summed', _int_cell),
+    ('Stim_Enabled', 'stim_enabled', _bool_cell),
 )
 
 
-def _typed_layer_settings_row(row: dict) -> dict:
-    """One Layer Settings row with each cell read as its column's type.
+def _channel_settings(row: dict) -> ChannelSettings:
+    """One Layer Settings row as its record, each cell read as its column's type.
 
     The one reader for a saved block and an inferred one, so every caller
-    of ``layer_settings()`` gets the same types and none casts a cell itself.
+    of ``channel_settings()`` gets the same types and none casts a cell
+    itself.
 
     Raises:
         ProtocolFormatError: A cell is not of its column's type; the words
@@ -897,21 +939,21 @@ def _typed_layer_settings_row(row: dict) -> dict:
     if not isinstance(layer, str) or layer.strip() == '':
         raise ProtocolFormatError(f'a Layer Settings row names no layer: {row!r}')
     layer = layer.strip()
-    typed = {'Layer': layer}
-    for column, read in _LAYER_SETTINGS_CELLS:
+    typed = {}
+    for column, field, read in _LAYER_SETTINGS_CELLS:
         cell = row.get(column)
         if isinstance(cell, str):
             cell = cell.strip()
         if column != 'Acquire' and cell in (None, ''):
-            typed[column] = None
+            typed[field] = None
             continue
         try:
-            typed[column] = read(cell)
+            typed[field] = read(cell)
         except ValueError as e:
             raise ProtocolFormatError(
                 f'the Layer Settings {column} of {layer}, {cell!r}, {e}'
             ) from None
-    return typed
+    return ChannelSettings(**typed)
 
 
 # Each step column a layer range holds, and the layer setting it is stored as.
@@ -961,22 +1003,25 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
     return refused
 
 
-def layer_settings_values_refused(
-    rows: Mapping[str, Mapping],
+def channel_settings_values_refused(
+    rows: Mapping[str, ChannelSettings],
 ) -> list[tuple[str, SettingRefusedError]]:
     """Each Layer Settings value the layer ranges refuse, with the layer and column holding it.
 
-    ``rows`` are ``Protocol.layer_settings()``' rows, or those of them a
-    caller will apply. A blank cell holds no value and is not judged.
+    ``rows`` are ``Protocol.channel_settings()``' records, or those of them
+    a caller will apply. A blank cell holds no value and is not judged.
     """
     # Deferred: settings_paths imports this module.
     from modules.settings_paths import refused_layer_values
 
     columns = {key: column for column, key in _STEP_LAYER_VALUES}
+    fields = {column: field for column, field, _ in _LAYER_SETTINGS_CELLS}
     refused = []
     for name, row in rows.items():
         values = {
-            key: row[column] for column, key in _STEP_LAYER_VALUES if row.get(column) is not None
+            key: getattr(row, fields[column])
+            for column, key in _STEP_LAYER_VALUES
+            if getattr(row, fields[column]) is not None
         }
         refused.extend(
             (f'{name} {columns[r.path.partition(".")[2]]}', r)
@@ -989,7 +1034,7 @@ def refuse_values_out_of_range(refused: list[tuple[str, SettingRefusedError]], w
     """Refuse a call that would store ``refused``, naming each value; nothing has changed.
 
     ``refused`` is what ``step_layer_values_refused`` or
-    ``layer_settings_values_refused`` found; ``what`` names what holds the
+    ``channel_settings_values_refused`` found; ``what`` names what holds the
     values, as a person reads it.
 
     Raises:
@@ -1174,7 +1219,7 @@ class Protocol:
         # + gain + exposure + false_color + sum + stim-enabled) so a
         # protocol round-trips through the UI without losing per-layer
         # configuration. v5 files without the block fall back to
-        # inference from the steps Color column (see layer_settings).
+        # inference from the steps Color column (see channel_settings).
         6: [
             'Name',
             'X',
@@ -1410,21 +1455,19 @@ class Protocol:
         return self.sanitize_step_name(self.capture_root() or '')
 
     @api(reads=True)
-    def layer_settings(self) -> dict:
-        """Return per-layer settings keyed by layer name, each cell typed.
+    def channel_settings(self) -> dict[str, ChannelSettings]:
+        """Each channel's Layer Settings row as its record, keyed by channel.
 
         A protocol loaded from a file with a 'Layer Settings' block returns
         that block. One without (a v5 file, or a protocol built in memory)
-        has it inferred from its steps: each Color yields one entry seeded
-        from its first step, its Acquire 'video' when any of its steps
-        records video, else 'image'. Stim_Enabled is not inferred: a v5
-        step carries its stimulation per step.
+        has it inferred from its steps: each channel with steps yields one
+        record seeded from its first step, ``acquire`` 'video' when any of
+        its steps records video, else 'image'. ``stim_enabled`` is not
+        inferred: a v5 step carries its stimulation per step.
 
-        Every cell is read as its column's type: Acquire 'image' or 'video';
-        Illumination, Gain and Exposure floats; Sum an int; Auto_Gain,
-        False_Color and Stim_Enabled bools; any blank cell but Acquire None.
-        An inferred cell its step cannot supply is None (see
-        _layer_settings_inferred_from_steps).
+        Every cell is read as its column's type (``ChannelSettings``); a
+        blank cell but Acquire is None, and so is an inferred one its step
+        cannot supply (see _channel_settings_inferred_from_steps).
 
         Raises:
             ProtocolFormatError: A block cell is not of its column's type. A
@@ -1432,46 +1475,46 @@ class Protocol:
         """
         rows = self._config.get('layer_settings')
         if rows is None:
-            return self._layer_settings_inferred_from_steps()
-        return {name: _typed_layer_settings_row(row) for name, row in rows.items()}
+            return self._channel_settings_inferred_from_steps()
+        return {name: _channel_settings(row) for name, row in rows.items()}
 
     def has_saved_layer_settings(self) -> bool:
         """Whether the protocol carries its own Layer Settings block.
 
         False for a v5 file or a protocol built in memory, whose
-        ``layer_settings()`` are inferred from its steps.
+        ``channel_settings()`` are inferred from its steps.
         """
         return self._config.get('layer_settings') is not None
 
-    def _layer_settings_inferred_from_steps(self) -> dict:
-        """Each Color's row, typed, from its steps.
+    def _channel_settings_inferred_from_steps(self) -> dict[str, ChannelSettings]:
+        """Each channel's record, typed, from its steps.
 
-        A layer with steps acquires: 'video' when any of its steps records
-        video, else 'image'. Every other cell is read from the layer's first
-        step by its column's reader. A runnable protocol's step cells were
-        typed when it was built, so each reader takes its cell; a cell a
-        reader cannot take, in a protocol kept as read, has no value to
-        infer, so it is None and the layer control keeps what it holds.
+        A channel with steps acquires: 'video' when any of its steps records
+        video, else 'image'. Every other field is read from the channel's
+        first step by its column's reader. A runnable protocol's step cells
+        were typed when it was built, so each reader takes its cell; a cell
+        a reader cannot take, in a protocol kept as read, has no value to
+        infer, so it is None and the channel's control keeps what it holds.
         """
         steps = self._config.get('steps')
         if steps is None or len(steps) == 0 or 'Color' not in steps.columns:
             return {}
-        readers = dict(_LAYER_SETTINGS_CELLS)
         out = {}
         for color, group in steps.groupby('Color'):
             if not color:
                 continue
             first = group.iloc[0]
             video = 'Acquire' in group.columns and (group['Acquire'] == 'video').any()
-            row = {'Layer': str(color), 'Acquire': 'video' if video else 'image'}
-            for column in ('Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'False_Color', 'Sum'):
+            fields = {'acquire': 'video' if video else 'image', 'stim_enabled': None}
+            for column, field, read in _LAYER_SETTINGS_CELLS:
+                if field in fields:
+                    continue
                 cell = first.get(column)
                 try:
-                    row[column] = readers[column](cell.strip() if isinstance(cell, str) else cell)
+                    fields[field] = read(cell.strip() if isinstance(cell, str) else cell)
                 except ValueError:
-                    row[column] = None
-            row['Stim_Enabled'] = None
-            out[str(color)] = row
+                    fields[field] = None
+            out[str(color)] = ChannelSettings(**fields)
         return out
 
     def copy_for_execution(self) -> 'Protocol':
@@ -3861,12 +3904,12 @@ class Protocol:
         protocol_df = protocol._config['steps']
 
         # A Layer Settings cell the reader cannot type refuses the file here,
-        # naming it, as a step cell does; a loaded protocol's layer_settings()
+        # naming it, as a step cell does; a loaded protocol's channel_settings()
         # then cannot raise. A run's protocol read back for post-processing
         # is not judged: nothing there reads its layer settings.
         if runnable:
             try:
-                protocol.layer_settings()
+                protocol.channel_settings()
             except ProtocolFormatError as e:
                 raise ProtocolFormatError(str(e), file=file_path) from None
 

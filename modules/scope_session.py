@@ -144,15 +144,16 @@ _COUNTED_WORK_NAMES = {
     live_work.PLUGIN_RUN: 'An engineering plugin run',
 }
 
-# A protocol's Layer Settings column beside the layer-settings key it is
-# saved from and restored into; Acquire and Stim_Enabled are handled apart.
+# A protocol's Layer Settings column it is saved as, the ChannelSettings
+# field it is read back as, and the layer-settings key it is saved from and
+# restored into; Acquire and Stim_Enabled are handled apart.
 _LAYER_SETTINGS_KEYS = (
-    ('Illumination', 'illumination_ma'),
-    ('Gain', 'gain_db'),
-    ('Auto_Gain', 'auto_gain'),
-    ('Exposure', 'exposure_ms'),
-    ('False_Color', 'false_color'),
-    ('Sum', 'sum'),
+    ('Illumination', 'illumination_ma', 'illumination_ma'),
+    ('Gain', 'gain_db', 'gain_db'),
+    ('Auto_Gain', 'auto_gain', 'auto_gain'),
+    ('Exposure', 'exposure_ms', 'exposure_ms'),
+    ('False_Color', 'false_color', 'false_color'),
+    ('Sum', 'frames_summed', 'sum'),
 )
 
 # ProtocolRunner is referenced only in a return annotation; it is
@@ -2204,7 +2205,7 @@ class ScopeSession:
                 A loaded protocol was refused at load.
         """
         self.scope.protocols.refuse_layer_settings_out_of_range(protocol)
-        rows = protocol.layer_settings()
+        rows = protocol.channel_settings()
         layers = common_utils.get_layers()
         present = self._layers_on_scope()
         with self.settings_lock:
@@ -2226,13 +2227,13 @@ class ScopeSession:
                         'that layer is dropped on load.'
                     )
                     continue
-                self._store_setting(f'{name}.acquire', row['Acquire'])
-                for column, key in _LAYER_SETTINGS_KEYS:
-                    if row[column] is not None:
-                        self._store_setting(f'{name}.{key}', row[column])
+                self._store_setting(f'{name}.acquire', row.acquire)
+                for _, field, key in _LAYER_SETTINGS_KEYS:
+                    if getattr(row, field) is not None:
+                        self._store_setting(f'{name}.{key}', getattr(row, field))
                 stim = self.settings[name].get('stim_config')
-                if row['Stim_Enabled'] is not None and isinstance(stim, dict):
-                    self._store_setting(f'{name}.stim_config.enabled', row['Stim_Enabled'])
+                if row.stim_enabled is not None and isinstance(stim, dict):
+                    self._store_setting(f'{name}.stim_config.enabled', row.stim_enabled)
 
     @api
     @_guarded_write
@@ -2268,7 +2269,7 @@ class ScopeSession:
                 layer_settings[name] = {
                     'Layer': name,
                     'Acquire': layer['acquire'],
-                    **{column: layer[key] for column, key in _LAYER_SETTINGS_KEYS},
+                    **{column: layer[key] for column, _, key in _LAYER_SETTINGS_KEYS},
                     'Stim_Enabled': (
                         stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else ''
                     ),

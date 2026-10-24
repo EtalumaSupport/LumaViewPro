@@ -59,8 +59,9 @@ from tests.ast_seams import MemberNames
 # the session's sequenced capture config, a dict, left the wire with the
 # protocol builder's dict door; 17 since a protocol's step is a record;
 # 16 since the cell-count method is a record; 15 since the bookmark saves
-# answer the PlateLocation the bookmark read does.
-UNTYPED_PIN = 15
+# answer the PlateLocation the bookmark read does; 14 since a protocol's
+# channel settings are records.
+UNTYPED_PIN = 14
 
 _SERVER_MODELS = MemberNames(
     ('rest/routes.py', 'rest/app.py'), {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'}

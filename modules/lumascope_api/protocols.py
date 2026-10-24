@@ -978,12 +978,12 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: ``'values_out_of_range'``, naming each
                 value by layer, column and bound.
         """
-        from modules.protocol import layer_settings_values_refused, refuse_values_out_of_range
+        from modules.protocol import channel_settings_values_refused, refuse_values_out_of_range
 
         present = {record.key_name for record in self._scope.channel_identity.channels}
-        rows = {name: row for name, row in protocol.layer_settings().items() if name in present}
+        rows = {name: row for name, row in protocol.channel_settings().items() if name in present}
         refuse_values_out_of_range(
-            layer_settings_values_refused(rows), "The protocol's Layer Settings"
+            channel_settings_values_refused(rows), "The protocol's Layer Settings"
         )
 
     def refuse_absent_layers(self, protocol: Protocol) -> None:

@@ -180,6 +180,13 @@ RENAMED = [
         {},
     ),
     (
+        'GET',
+        f'handles/Protocol/{PROTOCOL}/layer_settings',
+        {},
+        f'handles/Protocol/{PROTOCOL}/channel_settings',
+        {},
+    ),
+    (
         'PUT',
         'turret_objective',
         {'position': 2, 'objective_id': '10x Oly'},
