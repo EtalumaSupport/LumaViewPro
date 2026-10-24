@@ -1,15 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A numpy value is made Python's by the owner that takes it into the settings, a protocol or a method file.
+"""A numpy value is made Python's, and a closed set's member its string, by the owner that takes it into the settings, a protocol or a method file.
 
 Two JSON encoders compensated for numpy values reaching a file (#818). The
 owners now convert where a value enters what they store: the settings writer
 and the dict a session is handed, a protocol's config cells, and the
 cell-count method's save. Nothing else changes and nothing is refused: a
 ``timedelta``, an array a caller owns, a mapping's int keys and NaN stay as
-they are.
+they are. A ``StrEnum`` member is stored as its plain string, so the
+settings' exact-type kind check reads it as the string it is.
 """
 
 import datetime
+import enum
 import json
 import math
 
@@ -49,6 +51,20 @@ def test_numpy_scalars_at_any_depth_become_python_and_nothing_else_changes():
     assert value['when'] is when
     assert value['buffer'] is buffer
     assert python_values(np.float32(1.5)) == 1.5 and type(python_values(np.float32(1.5))) is float
+
+
+class _Word(enum.StrEnum):
+    VIDEO = 'video'
+    CENTER = 'center'
+
+
+def test_a_str_enum_member_at_any_depth_becomes_its_plain_string():
+    value = {'a': _Word.VIDEO, 'b': [_Word.CENTER]}
+
+    python_values(value)
+
+    assert (type(value['a']), value['a']) == (str, 'video')
+    assert (type(value['b'][0]), value['b'][0]) == (str, 'center')
 
 
 @pytest.fixture

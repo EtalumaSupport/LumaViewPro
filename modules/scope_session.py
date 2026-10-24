@@ -4017,8 +4017,10 @@ class ScopeSession:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.
 
         The Session's own members write their settings through this,
-        past ``update_settings``' refusal of the settings they own. Every
-        write wakes the saver, which saves a window later, outside the lock.
+        past ``update_settings``' refusal of the settings they own. The
+        value is stored as plain data (``python_values``): a closed set's
+        member as its string, a numpy scalar as its number. Every write
+        wakes the saver, which saves a window later, outside the lock.
 
         While a control session is held, a write that is not its holder's is
         refused here too, preferences aside: every member that writes is a
@@ -4041,7 +4043,7 @@ class ScopeSession:
         holder = self.settings
         for block in blocks:
             holder = holder[block]
-        holder[leaf] = value
+        holder[leaf] = python_values(value)
         self.settings_lock.stored(path)
         if self._settings_saver is not None:
             self._settings_saver.wake()
