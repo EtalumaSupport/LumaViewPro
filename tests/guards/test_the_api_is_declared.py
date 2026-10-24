@@ -30,6 +30,13 @@ guard holds four things over every class defined under ``modules/``:
    ``channel``, ``position`` for a turret ``slot``, ``plate_key`` for
    ``labware_id``, ``idx`` for ``step_index``, ...), so a member written
    later cannot bring one back.
+7. **Every quantity names its unit.** A marked member's ``float``
+   parameter and a published ``float`` field end in a unit suffix
+   (``UNIT_SUFFIXES``), or are in ``UNITLESS`` with the reason they carry
+   none; a float inside a ``Callable`` or a ``dict`` has no name of its own
+   and is not judged. No marked annotation names ``timedelta``: a duration
+   is a float of seconds. A return's unit is in its member's name or its
+   record, so a return is not judged by name.
 
 Annotations are read as strings and resolved by class name over the loaded
 classes, never through ``typing.get_type_hints``, which raises on the
@@ -408,4 +415,119 @@ def test_the_api_speaks_one_vocabulary(universe: dict[str, type], marked: dict[s
         'A published parameter or field is named in a retired word; use its one name '
         '(channel, step_index, scan_index, labware_id, slot, turret_slot, period_s):\n  '
         + '\n  '.join(offenders)
+    )
+
+
+# The unit suffixes a published float may end in (W5a): the unit is always
+# last, so a reader of the name (Micro-Manager, PyDevice) finds it there.
+UNIT_SUFFIXES = Words(
+    {
+        '_um',
+        '_mm',
+        '_um2',
+        '_px2',
+        '_s',
+        '_ms',
+        '_us',
+        '_ns',
+        '_ma',
+        '_db',
+        '_nm',
+        '_hz',
+        '_pct',
+        '_fps',
+        '_bytes',
+        '_mb',
+        '_degc',
+        '_rpm',
+        '_epoch_s',
+    }
+)
+# A published float that carries no unit, with the reason. Each entry is
+# read one by one, none admitted by pattern, and each must still be a hit,
+# so a rename that gives it a unit deletes it here.
+UNITLESS: dict[str, str] = {
+    'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
+    'CameraAPI.set_black_level parameter level': 'a raw sensor level',
+    'FrameRecord.black_level field': 'a raw sensor level',
+    'CameraAPI.update_auto_gain_target_brightness parameter target_brightness': (
+        'a fraction of full scale'
+    ),
+    'FrameRecord.saturated_fraction field': "a fraction of the frame's pixels",
+    'SimulationAPI.hold_axis parameter at_fraction': "a fraction of the move's travel",
+    'CameraLink.link_speed field': (
+        'in the unit the camera declares (link_speed_unit), carried and never converted'
+    ),
+    'CellCounts.total_object_intensity field': (
+        'pixel area times mean intensity in percent of full scale: an integrated '
+        'intensity with no physical unit'
+    ),
+    'ImageStatistics.mean field': "the image's counts",
+    'ImageStatistics.standard_deviation field': "the image's counts",
+    'Objective.magnification field': 'a ratio',
+    'Objective.numerical_aperture field': 'a ratio',
+    'FilterBounds.min field': 'in the unit of the CellCountFilters field it bounds',
+    'FilterBounds.max field': 'in the unit of the CellCountFilters field it bounds',
+    'SizeSliderStops.positions field': 'slider positions',
+    'SizeSliderStops.size_at parameter positions': 'slider positions',
+    'SizeSliderStops.reach field': "a size in the measure's scale, um or px by the image's scale",
+    'SizeSliderStops.sizes field': "sizes in the measure's scale, um or px by the image's scale",
+    'SizeSliderStops.positions_of parameter sizes': (
+        "sizes in the measure's scale, um or px by the image's scale"
+    ),
+}
+# A float whose absence from the walk would mean it lost its way.
+KNOWN_QUANTITY = 'AppliedExposure.applied_ms field'
+_UNNAMED = Words({'Callable', 'dict', 'Mapping'})
+
+
+def _names_a_float(text: str) -> bool:
+    """Whether an annotation holds a float with a name of its own: not inside a Callable or a dict."""
+
+    def visit(node: ast.AST) -> bool:
+        if isinstance(node, ast.Subscript):
+            base = (
+                node.value.attr
+                if isinstance(node.value, ast.Attribute)
+                else getattr(node.value, 'id', '')
+            )
+            if base in _UNNAMED:
+                return False
+        if isinstance(node, ast.Name):
+            return node.id == 'float'
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return _names_a_float(node.value)
+        return any(visit(child) for child in ast.iter_child_nodes(node))
+
+    return visit(ast.parse(text, mode='eval'))
+
+
+def test_every_quantity_names_its_unit(universe: dict[str, type], marked: dict[str, str]) -> None:
+    seen, hits, durations = set(), set(), []
+    for name in sorted(marked):
+        cname, member = name.split('.', 1)
+        for edge, text in _edges(universe[cname], member):
+            if text is None:
+                continue
+            if 'timedelta' in _named(text)[1]:
+                durations.append(f'{name} {edge}')
+            if edge == 'field':
+                word, where = member, f'{name} field'
+            elif edge.startswith('parameter '):
+                word, where = edge.removeprefix('parameter '), f'{name} {edge}'
+            else:
+                continue
+            if not _names_a_float(text):
+                continue
+            seen.add(where)
+            if not any(word.endswith(suffix) for suffix in UNIT_SUFFIXES):
+                hits.add(where)
+    assert KNOWN_QUANTITY in seen, f'the walk did not reach {KNOWN_QUANTITY}'
+    assert not durations, f'a duration is a float of seconds, never a timedelta: {durations}'
+    stale = sorted(set(UNITLESS) - hits)
+    assert not stale, f'these carry a unit or are gone now, so delete them from UNITLESS: {stale}'
+    offenders = sorted(hits - set(UNITLESS))
+    assert not offenders, (
+        "A published float's name says no unit; end it in one of UNIT_SUFFIXES, or, when it "
+        'has none, enter it in UNITLESS with the reason:\n  ' + '\n  '.join(offenders)
     )
