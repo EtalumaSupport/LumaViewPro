@@ -238,8 +238,8 @@ class Change:
     'change',
     'frame_seq',
     'frames_after',
-    'ms_after_write',
-    'ms_after_in_force',
+    'after_write_ms',
+    'after_in_force_ms',
     'frame_start_ticks',
     'qualifies_after_ticks',
     'counts',
@@ -254,9 +254,9 @@ class Judgment:
         frame_seq: The frame's arrival ordinal.
         frames_after: Frames delivered after the change was recorded, up to
             and including this one.
-        ms_after_write: Milliseconds from the change's recording to the
+        after_write_ms: Milliseconds from the change's recording to the
             frame's arrival.
-        ms_after_in_force: Milliseconds from the change's in-force time to
+        after_in_force_ms: Milliseconds from the change's in-force time to
             the frame's arrival; None when it has none.
         frame_start_ticks: Under the clock rule, when the frame started
             exposing on the camera's clock (its ``Timestamp`` chunk); None
@@ -276,8 +276,8 @@ class Judgment:
     change: Change
     frame_seq: int
     frames_after: int
-    ms_after_write: float
-    ms_after_in_force: float | None
+    after_write_ms: float
+    after_in_force_ms: float | None
     frame_start_ticks: int | None
     qualifies_after_ticks: int | None
     counts: bool
@@ -291,12 +291,12 @@ class Judgment:
             'rule': self.change.rule.rule.value,
             'counts': self.counts,
             'frames_after': self.frames_after,
-            'ms_after_write': round(self.ms_after_write, 3),
+            'after_write_ms': round(self.after_write_ms, 3),
             'skip': self.change.skip,
             'counted_by': [f'{credit.seq}:{credit.by.value}' for credit in self.change.credits],
         }
-        if self.ms_after_in_force is not None:
-            out['ms_after_in_force'] = round(self.ms_after_in_force, 3)
+        if self.after_in_force_ms is not None:
+            out['after_in_force_ms'] = round(self.after_in_force_ms, 3)
         if self.frame_start_ticks is not None:
             out['frame_start_ticks'] = self.frame_start_ticks
         if self.qualifies_after_ticks is not None:
@@ -919,8 +919,8 @@ class FrameValidity:
             change=change,
             frame_seq=frame.seq,
             frames_after=frame.seq - change.at_seq,
-            ms_after_write=(frame.arrived_ns - change.written_ns) / 1e6,
-            ms_after_in_force=(frame.arrived_ns - in_force) / 1e6 if in_force is not None else None,
+            after_write_ms=(frame.arrived_ns - change.written_ns) / 1e6,
+            after_in_force_ms=(frame.arrived_ns - in_force) / 1e6 if in_force is not None else None,
             frame_start_ticks=int(start) if start is not None else None,
             qualifies_after_ticks=qualifies_after,
             counts=counts,

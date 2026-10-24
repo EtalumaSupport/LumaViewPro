@@ -134,10 +134,10 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
     judgments = record.judgments
     for judgment in judgments:
         f = judgment.fields()
-        in_force = f' in_force+{f["ms_after_in_force"]}ms' if 'ms_after_in_force' in f else ''
+        in_force = f' in_force+{f["after_in_force_ms"]}ms' if 'after_in_force_ms' in f else ''
         parts.append(
             f'{f["source"]} {"counts" if f["counts"] else "DOES NOT COUNT"} '
-            f'+{f["frames_after"]}fr +{f["ms_after_write"]}ms{in_force} '
+            f'+{f["frames_after"]}fr +{f["after_write_ms"]}ms{in_force} '
             f'skip={f["skip"]} by={",".join(f["counted_by"]) or "none"}'
         )
     return ' | '.join(parts)

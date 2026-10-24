@@ -62,7 +62,7 @@ def test_the_clock_is_mapped_before_the_frame_the_capture_returns(sim_scope):
 
     record = sim_scope.imaging.last_capture_info['frame_record']
     gain = _judgment(record, 'gain')
-    arrived_ns = gain.change.written_ns + gain.ms_after_write * 1e6
+    arrived_ns = gain.change.written_ns + gain.after_write_ms * 1e6
     assert record.clock_mapping.host_ns < arrived_ns
 
 

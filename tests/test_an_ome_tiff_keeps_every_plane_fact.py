@@ -56,7 +56,7 @@ def _every_plane_field() -> dict:
                 'source': 'led',
                 'counts': True,
                 'frames_after': 2,
-                'ms_after_write': 40.0,
+                'after_write_ms': 40.0,
                 'skip': 1,
                 'counted_by': ['3:camera'],
             }

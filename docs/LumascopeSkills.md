@@ -712,7 +712,7 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # source's last change; the answers ride its record
 # (last_capture_info['frame_record'].judgments), its saved file
 # ('frame_validity' in the metadata) and one line in api.log. A Judgment
-# carries counts, frames_after, ms_after_write, ms_after_in_force (motion:
+# carries counts, frames_after, after_write_ms, after_in_force_ms (motion:
 # from the axis settling), under the clock rule frame_start_ticks and
 # qualifies_after_ticks, and the change's rule and credits, each frame
 # counted toward its wait with who counted it (drain, grab or preview).
@@ -4100,13 +4100,13 @@ Reached through returned by `scope.simulation.injected`.
 
 Reached through each value of `scope.imaging.judge_frame(frame)`.
 
+- `after_in_force_ms`
+- `after_write_ms`
 - `change`
 - `counts`
 - `frame_seq`
 - `frame_start_ticks`
 - `frames_after`
-- `ms_after_in_force`
-- `ms_after_write`
 - `qualifies_after_ticks`
 
 ### Labware

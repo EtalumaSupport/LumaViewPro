@@ -200,7 +200,7 @@ def test_a_move_counts_the_third_frame_to_arrive_after_its_stop():
     after_stop = [arrive() for _ in range(3)]
     stamped = fv.changes()['z_move']
 
-    assert moving.counts is False and moving.ms_after_in_force is None
+    assert moving.counts is False and moving.after_in_force_ms is None
     assert [
         fv.judge(_frame(seq, arrived_ns=stop_ns + seq), stamped, None).counts for seq in after_stop
     ] == [False, False, True]
@@ -284,7 +284,7 @@ def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
 
     assert record_change.in_force_ns is not None
     assert record_change.in_force_ns >= record_change.written_ns
-    assert z.counts and z.ms_after_in_force >= 0
+    assert z.counts and z.after_in_force_ms >= 0
 
 
 def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
