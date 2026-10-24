@@ -3491,9 +3491,6 @@ class ArgumentRefusedError(Refusal, ValueError):
               the member takes (``offered``). Names are exact: ``'x'`` is
               not ``'X'``. An axis this model lacks is a name, and is
               refused as absent hardware, not here.
-            - ``'turret_moves_by_slot'`` -- the turret was given to a
-              generic mover; it moves only by slot, through
-              ``move_turret``.
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
             - ``'well_unknown'`` -- a well label the selected plate
@@ -3604,11 +3601,6 @@ class ArgumentRefusedError(Refusal, ValueError):
         'axis_unknown': (
             'Not an Axis',
             '{argument} must be one of {offered}; {value!r} is not one.',
-        ),
-        'turret_moves_by_slot': (
-            'Turret Moves by Slot',
-            'The turret moves only through move_turret(slot), which parks Z first '
-            'and records the slot in the light path; {argument} {value!r} is not taken here.',
         ),
         'plate_frame_axis': (
             'Not a Plate Axis',
