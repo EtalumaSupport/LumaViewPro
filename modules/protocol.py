@@ -690,17 +690,17 @@ class Stimulation:
 
 @api_fields(
     'name',
-    'x',
-    'y',
-    'z',
+    'x_mm',
+    'y_mm',
+    'z_um',
     'auto_focus',
-    'color',
+    'channel',
     'false_color',
-    'illumination',
-    'gain',
+    'illumination_ma',
+    'gain_db',
     'auto_gain',
-    'exposure',
-    'sum',
+    'exposure_ms',
+    'frames_summed',
     'objective',
     'well',
     'tile',
@@ -718,74 +718,111 @@ class Stimulation:
 )
 @dataclasses.dataclass(frozen=True)
 class StepRecord:
-    """One step of a protocol, a field per column of its steps table.
+    """One step of a protocol, a field per column of its steps table (``_STEP_FIELDS``).
 
     Attributes:
         name: The step's name, rendered from its other fields.
-        x: X in mm on the protocol's plate; None where the step has no
+        x_mm: X in mm on the protocol's plate; None where the step has no
             position on X.
-        y: Y in mm on the protocol's plate; None as for X.
-        z: Z in um; None as for X.
+        y_mm: Y in mm on the protocol's plate; None as for X.
+        z_um: Z in um; None as for X.
         auto_focus: The step is autofocused before its capture.
-        color: The layer the step captures.
-        false_color: The layer's image is false-coloured.
-        illumination: The LED current, in mA.
-        gain: The camera gain, in dB.
+        channel: The channel the step captures.
+        false_color: The channel's image is false-coloured.
+        illumination_ma: The LED current, in mA.
+        gain_db: The camera gain, in dB.
         auto_gain: The camera's auto-gain is on for the step.
-        exposure: The camera exposure, in ms.
-        sum: How many frames the capture sums.
+        exposure_ms: The camera exposure, in ms.
+        frames_summed: How many frames the capture sums.
         objective: The objective's catalogue key.
         well: The plate's label for the well; '' for a step made at a
             position of the caller's.
         tile: The step's tile in its grid; '' for no tile.
-        z_slice: The step's slice in its z-stack; -1 for none.
+        z_slice: The step's slice in its z-stack; None for none.
         custom_step: The step was made at a position of the caller's, not
             at a well of the plate.
-        tile_group_id: The tile grid the step is one tile of; -1 for none.
-        z_stack_group_id: The z-stack the step is one slice of; -1 for none.
+        tile_group_id: The tile grid the step is one tile of; None for none.
+        z_stack_group_id: The z-stack the step is one slice of; None for
+            none.
         acquire: ``'image'`` or ``'video'``.
         video_config: What the step records as video; None where the step
             carries no video config.
-        stim_config: Each channel's stimulation, by layer; None where the
+        stim_config: Each channel's stimulation, by channel; None where the
             step carries no stimulation config.
         auto_named: The name is rendered from the step's fields.
         label: The caller's label for the step; '' for none.
         channel_group_id: The steps captured together as one composite
-            share it; -1 for a step recorded before groups were.
-        turret_slot: The turret slot the step uses; -1 for none.
+            share it; None for a step recorded before groups were.
+        turret_slot: The turret slot the step uses; None for none.
     """
 
     name: str
-    x: float | None
-    y: float | None
-    z: float | None
+    x_mm: float | None
+    y_mm: float | None
+    z_um: float | None
     auto_focus: bool
-    color: str
+    channel: str
     false_color: bool
-    illumination: float
-    gain: float
+    illumination_ma: float
+    gain_db: float
     auto_gain: bool
-    exposure: float
-    sum: int
+    exposure_ms: float
+    frames_summed: int
     objective: str
     well: str
     tile: str
-    z_slice: int
+    z_slice: int | None
     custom_step: bool
-    tile_group_id: int
-    z_stack_group_id: int
+    tile_group_id: int | None
+    z_stack_group_id: int | None
     acquire: str
     video_config: VideoConfig | None
     stim_config: dict[str, Stimulation] | None
     auto_named: bool
     label: str
-    channel_group_id: int
-    turret_slot: int
+    channel_group_id: int | None
+    turret_slot: int | None
 
 
-def _record_field(column: str) -> str:
-    """The step record's field for a steps-table column: 'Z-Stack Group ID' is ``z_stack_group_id``."""
-    return column.lower().replace('-', '_').replace(' ', '_')
+# Each steps-table column with the step record's field for it: the one place
+# a column maps to a field. A column with no row fails the record's build.
+_STEP_FIELDS = {
+    'Name': 'name',
+    'X': 'x_mm',
+    'Y': 'y_mm',
+    'Z': 'z_um',
+    'Auto_Focus': 'auto_focus',
+    'Color': 'channel',
+    'False_Color': 'false_color',
+    'Illumination': 'illumination_ma',
+    'Gain': 'gain_db',
+    'Auto_Gain': 'auto_gain',
+    'Exposure': 'exposure_ms',
+    'Sum': 'frames_summed',
+    'Objective': 'objective',
+    'Well': 'well',
+    'Tile': 'tile',
+    'Z-Slice': 'z_slice',
+    'Custom Step': 'custom_step',
+    'Tile Group ID': 'tile_group_id',
+    'Z-Stack Group ID': 'z_stack_group_id',
+    'Acquire': 'acquire',
+    'Video Config': 'video_config',
+    'Stim_Config': 'stim_config',
+    'Auto_Named': 'auto_named',
+    'Label': 'label',
+    'Channel Group ID': 'channel_group_id',
+    'Turret Slot': 'turret_slot',
+}
+
+# The columns whose -1 says the step has none, answered as None.
+_NONE_AT_MINUS_ONE = (
+    'Z-Slice',
+    'Tile Group ID',
+    'Z-Stack Group ID',
+    'Channel Group ID',
+    'Turret Slot',
+)
 
 
 def _stimulation_records(cell: dict, step_name: str) -> dict[str, Stimulation]:
@@ -817,7 +854,10 @@ def _step_record(row: pd.Series) -> StepRecord:
     Raises:
         ProtocolFormatError: a stimulation entry is not a config.
     """
-    fields = {_record_field(column): row[column] for column in _STEP_CELLS}
+    fields = {_STEP_FIELDS[column]: row[column] for column in _STEP_CELLS}
+    for column in _NONE_AT_MINUS_ONE:
+        if row[column] == -1:
+            fields[_STEP_FIELDS[column]] = None
     video, stims = row['Video Config'], row['Stim_Config']
     fields['video_config'] = (
         None

@@ -15,7 +15,7 @@ import dataclasses
 from fastapi.testclient import TestClient
 
 from modules.coord_transformations import PlateLocation
-from modules.protocol import _STEP_CELLS, Stimulation, StepRecord, VideoConfig
+from modules.protocol import _STEP_CELLS, _STEP_FIELDS, Stimulation, StepRecord, VideoConfig
 from rest.app import build_app
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 
@@ -30,8 +30,8 @@ def _bf_and_blue(session):
 
 def test_the_record_has_a_field_for_every_column_of_the_steps_table():
     fields = [field.name for field in dataclasses.fields(StepRecord)]
-    columns = [column.lower().replace('-', '_').replace(' ', '_') for column in _STEP_CELLS]
-    assert fields == columns
+    assert list(_STEP_FIELDS) == list(_STEP_CELLS)
+    assert list(_STEP_FIELDS.values()) == fields
 
 
 def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
@@ -41,7 +41,7 @@ def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
     step = protocol.step(step_index=1)
 
     assert isinstance(step, StepRecord)
-    assert (step.name, step.color, step.x, step.y, step.z) == (
+    assert (step.name, step.channel, step.x_mm, step.y_mm, step.z_um) == (
         row['Name'],
         'Blue',
         20.0,
@@ -73,7 +73,7 @@ def test_the_step_table_is_every_step_in_order(session):
     table = protocol.step_records()
 
     assert table == (protocol.step(step_index=0), protocol.step(step_index=1))
-    assert [step.color for step in table] == ['BF', 'Blue']
+    assert [step.channel for step in table] == ['BF', 'Blue']
 
 
 def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
@@ -84,7 +84,7 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
 
     step = protocol.step(step_index=0)
 
-    assert (step.x, step.y, step.z) == (None, None, 6000.0)
+    assert (step.x_mm, step.y_mm, step.z_um) == (None, None, 6000.0)
 
 
 def test_the_table_crosses_the_wire_as_records_keyed_by_field(session):
@@ -98,5 +98,22 @@ def test_the_table_crosses_the_wire_as_records_keyed_by_field(session):
     assert added.status_code == 200, added.text
     assert answer.status_code == 200, answer.text
     table = answer.json()
-    assert [step['color'] for step in table] == ['BF', 'Blue']
+    assert [step['channel'] for step in table] == ['BF', 'Blue']
     assert set(table[0]) == {field.name for field in dataclasses.fields(StepRecord)}
+
+
+def test_a_step_with_no_slice_group_or_slot_reads_none_where_the_table_holds_minus_one(session):
+    protocol = session.create_empty_protocol()
+    session.add_step(protocol, channels=('BF',))
+    row = protocol.step_row(step_index=0)
+    columns = ('Z-Slice', 'Tile Group ID', 'Z-Stack Group ID', 'Turret Slot')
+    assert [row[column] for column in columns] == [-1, -1, -1, -1]
+
+    step = protocol.step(step_index=0)
+
+    assert (step.z_slice, step.tile_group_id, step.z_stack_group_id, step.turret_slot) == (
+        None,
+        None,
+        None,
+        None,
+    )
