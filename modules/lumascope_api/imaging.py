@@ -56,7 +56,7 @@ class _NoFrame:
 
     reason: str
     leg: str
-    setting: str | None = None
+    source: str | None = None
 
     @property
     def removed(self) -> bool:
@@ -65,7 +65,7 @@ class _NoFrame:
     def error(self, member: str) -> CaptureFailedError | HardwareCommandRefusedError:
         if self.removed:
             return _camera_not_connected(member)
-        return CaptureFailedError(self.reason, setting=self.setting)
+        return CaptureFailedError(self.reason, source=self.source)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1569,9 +1569,7 @@ class ImagingAPI:
                             f'change within the grab bound (last frame seq={frame.seq}, '
                             f'{unmet.change.rule.rule.value} rule) -- capture rejected.'
                         )
-                        return _NoFrame(
-                            'no_fresh_frame', leg, setting=FrameValidity.SOURCE_NAMES[source]
-                        )
+                        return _NoFrame('no_fresh_frame', leg, source=source)
                     logger.debug(
                         f'[SCOPE API ] get_image: frame seq={frame.seq} does not count '
                         f'for the {source} change; waiting for the next'
@@ -1694,7 +1692,7 @@ class ImagingAPI:
                                 f'exposed under the previous settings, or it '
                                 f'clamped the requested value. Capture rejected.'
                             )
-                            return _NoFrame('chunk_rejected', leg, setting=stale_source)
+                            return _NoFrame('chunk_rejected', leg, source=stale_source)
                         logger.debug(
                             f'[SCOPE API ] get_image: rejecting frame exposed '
                             f'under stale {stale_source}; waiting for a frame '

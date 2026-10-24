@@ -8,7 +8,8 @@ first frame ``FrameValidity.judge`` counts for every change it does not
 exclude, taking the next otherwise. The camera's clock is mapped once per
 cycle, before its drain, and that mapping is what the drain, the judge and
 the frame's record read. A grab whose bound passes with no frame counting
-raises ``no_fresh_frame``, naming the change as a person says it.
+raises ``no_fresh_frame``, naming the change's source, and its words say
+the change as a person says it.
 """
 
 import dataclasses
@@ -111,7 +112,8 @@ def test_a_clock_rule_change_is_waited_out_on_the_cameras_clock(sim_scope):
 def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monkeypatch):
     """A frame the judge does not count is passed over, and when the grab's
     bound passes with none counting the capture raises ``no_fresh_frame``
-    with the change in a person's words, never returning the old frame."""
+    naming the change's source, its words saying the change as a person
+    does, never returning the old frame."""
     frame_validity = sim_scope.imaging.frame_validity
     sim_scope.motion.home('Z')
     sim_scope.motion.move_z(sim_scope.motion.get_current_position('Z') + 50.0)
@@ -131,7 +133,7 @@ def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monke
     with pytest.raises(CaptureFailedError) as raised:
         sim_scope.imaging.capture_and_wait(accept_dark=True)
 
-    assert (raised.value.reason, raised.value.setting) == ('no_fresh_frame', 'the focus move')
+    assert (raised.value.reason, raised.value.source) == ('no_fresh_frame', 'z_move')
     assert 'the focus move' in str(raised.value)
 
 
@@ -158,5 +160,13 @@ def test_a_frame_an_excluded_change_does_not_count_for_is_kept(sim_scope, monkey
     )
 
 
-def test_every_source_has_a_name_a_person_says():
-    assert set(FrameValidity.SOURCE_NAMES) == set(FrameValidity.SKIP_FRAMES)
+def test_a_capture_can_fail_for_every_source_in_a_persons_words():
+    # A source with no words would turn the capture's no_fresh_frame into a
+    # TypeError at the raise.
+    unspoken = []
+    for source in FrameValidity.SKIP_FRAMES:
+        try:
+            CaptureFailedError('no_fresh_frame', source=source)
+        except TypeError:
+            unspoken.append(source)
+    assert unspoken == []

@@ -519,7 +519,7 @@ class TestCaptureTimeChunkVerification:
             verify_chunk_targets=True,
             timeout_s=0.01,
         ).error('get_image')
-        assert (failed.reason, failed.setting) == ('chunk_rejected', 'exposure')
+        assert (failed.reason, failed.source) == ('chunk_rejected', 'exposure')
 
     def test_no_targets_means_no_verification(self):
         """Hardware auto-gain clears targets; chunk mismatch must not block."""

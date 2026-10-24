@@ -28,5 +28,5 @@ def test_rejected_capture_names_the_setting():
     with pytest.raises(CaptureFailedError) as failed:
         imaging._capture_and_wait_impl(timeout_s=1.0)
 
-    assert (failed.value.reason, failed.value.setting) == ('chunk_rejected', 'exposure')
+    assert (failed.value.reason, failed.value.source) == ('chunk_rejected', 'exposure')
     assert 'exposure' in str(failed.value)

@@ -371,24 +371,6 @@ class FrameValidity:
         'line_noise_reduction': 2,
     }
 
-    # Each source's change as a person says it, for a capture that got no
-    # frame after it (``CaptureFailedError`` ``'no_fresh_frame'``).
-    SOURCE_NAMES: ClassVar[dict] = {
-        'led': 'the LED change',
-        'gain': 'the gain change',
-        'exposure': 'the exposure change',
-        'xy_move': 'the stage move',
-        'z_move': 'the focus move',
-        'turret': 'the turret move',
-        'auto_gain': 'auto gain turning on',
-        'pixel_format': 'the pixel format change',
-        'frame_size': 'the frame size change',
-        'binning': 'the binning change',
-        'black_level': 'the black level change',
-        'conversion_gain_mode': 'the conversion gain mode change',
-        'line_noise_reduction': 'the line noise reduction change',
-    }
-
     # One shape for every trace row this class writes. A row records the
     # comparison the gate actually made: the frame's arrival ordinal against
     # the ordinal the write was stamped against, and what the count stands at

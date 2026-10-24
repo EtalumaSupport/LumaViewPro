@@ -1536,7 +1536,7 @@ class CaptureError(_Umbrella, Exception):
         self.reason = reason
 
 
-@api_fields('setting')
+@api_fields('source')
 class CaptureFailedError(Fault, CaptureError):
     """A capture or a recording was attempted and produced nothing.
 
@@ -1553,21 +1553,39 @@ class CaptureFailedError(Fault, CaptureError):
             - ``'deadline_expired'`` -- the scope's state kept changing for
               longer than the capture's budget.
             - ``'chunk_rejected'`` -- frames came, but none was exposed at
-              the ``setting`` asked.
+              the ``source`` setting asked.
             - ``'no_fresh_frame'`` -- frames came, but none within the
-              capture's bound counted for the ``setting`` changed: each was
+              capture's bound counted for the ``source`` change: each was
               exposed, by its source's rule, before that change reached it.
             - ``'recording_not_started'`` -- the camera did not take the
               recording's frame listener.
             - ``'unknown_save_encoding'`` -- a frame was handed an encoding
               no writer knows, which the program, not the person, got wrong.
-        setting: For ``'chunk_rejected'``, the setting no frame matched,
-            ``'exposure'`` or ``'gain'``; for ``'no_fresh_frame'``, the
-            change no frame came after, as a person says it (``'the focus
-            move'``, ``FrameValidity.SOURCE_NAMES``); None otherwise.
+        source: The ``FrameValidity`` source the capture failed for: for
+            ``'chunk_rejected'`` the setting no frame matched, ``'exposure'``
+            or ``'gain'``; for ``'no_fresh_frame'`` the change no frame came
+            after (``'z_move'``, ``'led'``); None otherwise.
     """
 
-    setting: str | None
+    source: str | None
+
+    # Each source's change as a person says it, in the words of a
+    # ``'no_fresh_frame'`` failure.
+    _CHANGE_WORDS: ClassVar[dict[str, str]] = {
+        'led': 'the LED change',
+        'gain': 'the gain change',
+        'exposure': 'the exposure change',
+        'xy_move': 'the stage move',
+        'z_move': 'the focus move',
+        'turret': 'the turret move',
+        'auto_gain': 'auto gain turning on',
+        'pixel_format': 'the pixel format change',
+        'frame_size': 'the frame size change',
+        'binning': 'the binning change',
+        'black_level': 'the black level change',
+        'conversion_gain_mode': 'the conversion gain mode change',
+        'line_noise_reduction': 'the line noise reduction change',
+    }
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'no_frame': (
@@ -1585,12 +1603,12 @@ class CaptureFailedError(Fault, CaptureError):
         'chunk_rejected': (
             'Capture Failed',
             'The camera kept delivering frames that were not exposed at the '
-            '{setting} asked for, so none was captured. Try again; if it repeats, '
-            'the camera is holding a different {setting} than was set.',
+            '{source} asked for, so none was captured. Try again; if it repeats, '
+            'the camera is holding a different {source} than was set.',
         ),
         'no_fresh_frame': (
             'Capture Failed',
-            'No frame the camera delivered in time was exposed after {setting}, '
+            'No frame the camera delivered in time was exposed after {change}, '
             'so nothing was captured. Try again; if it repeats, check that the '
             'live view is moving.',
         ),
@@ -1606,21 +1624,24 @@ class CaptureFailedError(Fault, CaptureError):
         ),
     }
 
-    def __init__(self, reason: str, *, setting: str | None = None, encoding: str | None = None):
+    def __init__(self, reason: str, *, source: str | None = None, encoding: str | None = None):
         if reason not in self._WORDS:
             raise TypeError(f'CaptureFailedError has no reason {reason!r}')
-        if (setting is None) == (reason in ('chunk_rejected', 'no_fresh_frame')):
+        if (source is None) == (reason in ('chunk_rejected', 'no_fresh_frame')):
             raise TypeError(
-                f'a {reason!r} capture failure takes setting= exactly when '
+                f'a {reason!r} capture failure takes source= exactly when '
                 'chunk_rejected or no_fresh_frame'
             )
+        if source is not None and source not in self._CHANGE_WORDS:
+            raise TypeError(f'CaptureFailedError has no source {source!r}')
         if (encoding is None) == (reason == 'unknown_save_encoding'):
             raise TypeError(
                 f'a {reason!r} capture failure takes encoding= exactly when unknown_save_encoding'
             )
         self.title, words = self._WORDS[reason]
-        super().__init__(words.format(setting=setting, encoding=encoding), reason)
-        self.setting = setting
+        change = self._CHANGE_WORDS.get(source)
+        super().__init__(words.format(source=source, change=change, encoding=encoding), reason)
+        self.source = source
 
     @property
     def words_for_person(self) -> bool:
