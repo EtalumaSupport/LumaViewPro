@@ -2,14 +2,15 @@
 """Every record field typed with a closed set is judged as the record is built.
 
 ``api_fields`` finds a dataclass's closed-set fields from the record's
-module when it marks the record, and judges them at each build, so a
+module when it marks the record -- a member, a tuple, list or frozenset of
+them, or a mapping keyed by them -- and judges them at each build, so a
 caller's plain string becomes the member and a value outside the set is
 refused ``not_offered`` (``modules.closed_sets``). A field it cannot find
 -- its set imported only for type checking, defined below the record, held
-in a container, or on a NamedTuple, which has no build to judge in -- would
-hold whatever string a caller built it with, and a comparison with a member
-would quietly go the wrong way. This resolves every published record's
-annotations in full and names each such field.
+in some other form, or on a NamedTuple, which has no build to judge in --
+would hold whatever string a caller built it with, and a comparison with a
+member would quietly go the wrong way. This resolves every published
+record's annotations in full and names each such field.
 """
 
 import dataclasses
@@ -42,7 +43,9 @@ def _unjudged() -> dict[str, str]:
 
 
 def test_the_guard_sees_a_judged_field():
-    assert api_surface.closed_fields_of(LedReading) == {'state': (LedState, False)}
+    assert api_surface.closed_fields_of(LedReading) == {
+        'state': api_surface.ClosedField(LedState, False)
+    }
 
 
 def test_every_records_closed_set_field_is_judged():

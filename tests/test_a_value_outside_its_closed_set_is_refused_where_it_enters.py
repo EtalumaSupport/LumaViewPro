@@ -2,8 +2,9 @@
 """A value outside its closed set is refused where it enters, in one word: ``not_offered``.
 
 A closed set is a ``StrEnum``. Wherever one of its values enters -- a
-member's parameter, a field of a record a caller builds, an item of a
-typed container -- the member or its plain string is taken and the body
+member's parameter, a field of a record a caller builds (or an item or key
+of one that holds several), an item of a typed container -- the member or
+its plain string is taken and the body
 gets the member, and anything else that is a string is refused
 ``ArgumentRefusedError`` ``'not_offered'``, naming the argument and offering
 the set's values. Over REST the same judge runs: the wire hands the string
@@ -12,10 +13,12 @@ pydantic refused. A value that is not a string at all stays the door's
 ``wrong_argument_type``.
 """
 
+import dataclasses
+
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.api_surface import api
+from modules.api_surface import api, api_fields
 from modules.exceptions import ArgumentRefusedError, ArgumentTypeRefusedError
 from modules.lumascope_api.camera import CameraAutoMode
 from modules.lumascope_api.illumination import LedReading, LedSnapshot, LedState
@@ -114,6 +117,30 @@ def test_a_record_built_with_a_string_outside_the_set_is_refused_naming_its_fiel
         'LedReading.state',
         tuple(m.value for m in LedState),
     )
+
+
+@api_fields('modes', 'by_mode')
+@dataclasses.dataclass(frozen=True)
+class _Held:
+    """A record holding a closed set's members in a tuple and as a mapping's keys."""
+
+    modes: tuple[CameraAutoMode, ...]
+    by_mode: dict[CameraAutoMode, int]
+
+
+def test_a_records_items_and_keys_built_with_plain_strings_hold_the_members():
+    held = _Held(('Off', CameraAutoMode.ONCE), {'Continuous': 1})
+
+    assert held.modes == (CameraAutoMode.OFF, CameraAutoMode.ONCE)
+    assert [type(m) for m in held.modes] == [CameraAutoMode, CameraAutoMode]
+    assert type(held.modes) is tuple
+    assert [type(k) for k in held.by_mode] == [CameraAutoMode]
+    assert held.by_mode == {CameraAutoMode.CONTINUOUS: 1}
+
+
+def test_a_records_item_or_key_outside_the_set_is_refused_naming_its_place():
+    _not_offered(lambda: _Held(('Off', 'Twice'), {}), '_Held.modes[1]', OFFERED)
+    _not_offered(lambda: _Held((), {'Twice': 1}), "_Held.by_mode['Twice']", OFFERED)
 
 
 def test_a_snapshot_a_caller_built_with_plain_strings_restores_its_lit_address(session):

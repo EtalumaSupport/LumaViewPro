@@ -58,7 +58,9 @@ is judged as the record is built, by whoever builds it -- the API, a
 Python caller handing a record back, the wire decoding one: a member's
 plain string is stored as the member, and any other value is
 ``ArgumentRefusedError`` ``'not_offered'``, naming ``Record.field``
-(``modules.closed_sets``). The field is found from the record's module
+(``modules.closed_sets``). So are the items of a field that is a tuple,
+list or frozenset of one, and the keys of a field that is a mapping
+keyed by one, each named by its place (``Record.field[0]``). The field is found from the record's module
 when the record is marked, so its set is imported or defined above it;
 ``tests/guards/test_a_records_closed_set_is_judged.py`` holds every such
 field judged.
@@ -85,7 +87,7 @@ import re
 import sys
 import types
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 # The attribute the mark is recorded under, on the function itself: a
 # property's getter, a classmethod's or staticmethod's function, or the
@@ -101,8 +103,8 @@ EVENT_ATTRIBUTE = '_lvp_api_event'
 # The attribute a class that is not a dataclass or NamedTuple declares
 # itself a record under.
 RECORD_ATTRIBUTE = '_lvp_api_record'
-# The attribute a record's closed-set fields are recorded under, by name:
-# the set, and whether None is one of the field's values.
+# The attribute a record's closed-set fields are recorded under, by name,
+# each as its ``ClosedField``.
 CLOSED_FIELDS_ATTRIBUTE = '_lvp_api_closed_fields'
 # The attributes the four marks are recorded under, each its own: a new
 # value of MARK_ATTRIBUTE would be read as unmarked by every host that
@@ -253,24 +255,55 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
     return publish
 
 
-def _closed_set_of(annotation: object, names: dict[str, object]) -> tuple[type, bool] | None:
-    """The closed set an annotation names, and whether it admits None; None when it names none.
+class ClosedField(typing.NamedTuple):
+    """Where a record's field holds a closed set's members."""
 
-    Read as written: a set, or a set or None. A string annotation's names
-    are looked up in ``names``, the record's module.
+    closed_set: type[enum.StrEnum]
+    # Whether None is one of the field's values.
+    optional: bool
+    # None: the field is a member; 'items': a tuple, list or frozenset of
+    # members; 'keys': a mapping keyed by members.
+    holds: str | None = None
+
+
+def _closed_field_of(annotation: object, names: dict[str, object]) -> ClosedField | None:
+    """How an annotation holds a closed set; None when it holds none.
+
+    A string annotation is read in ``names``, the record's module, as far as
+    the module has run: a set it cannot find there (imported only for type
+    checking, or defined below the record) is no set here, and the guard
+    names the field.
     """
     if isinstance(annotation, str):
-        parts = [part.strip() for part in annotation.split('|')]
-        arms = [names.get(part, part) for part in parts if part != 'None']
-        optional = len(arms) < len(parts)
-    elif typing.get_origin(annotation) in (types.UnionType, typing.Union):
-        arms = [arm for arm in typing.get_args(annotation) if arm is not type(None)]
-        optional = len(arms) < len(typing.get_args(annotation))
-    else:
-        arms, optional = [annotation], False
-    if len(arms) == 1 and isinstance(arms[0], type) and issubclass(arms[0], enum.StrEnum):
-        return arms[0], optional
+        try:
+            # An annotation is an expression; this reads it as typing does.
+            annotation = eval(annotation, dict(names))
+        except NameError:
+            return None
+    arms = (
+        typing.get_args(annotation)
+        if typing.get_origin(annotation) in (types.UnionType, typing.Union)
+        else (annotation,)
+    )
+    present = [arm for arm in arms if arm is not type(None)]
+    if len(present) != 1:
+        return None
+    optional = len(present) < len(arms)
+    (arm,) = present
+    if _is_closed_set(arm):
+        return ClosedField(arm, optional)
+    origin, args = typing.get_origin(arm), typing.get_args(arm)
+    if not args or not _is_closed_set(args[0]):
+        return None
+    if origin in (list, frozenset) or (origin is tuple and args[1:] in ((), (Ellipsis,))):
+        return ClosedField(args[0], optional, 'items')
+    if origin in (dict, Mapping):
+        return ClosedField(args[0], optional, 'keys')
     return None
+
+
+def _is_closed_set(annotation: object) -> bool:
+    return isinstance(annotation, type) and issubclass(annotation, enum.StrEnum)
 
 
 def _judge_closed_fields(cls: type) -> None:
@@ -278,7 +311,7 @@ def _judge_closed_fields(cls: type) -> None:
     names = vars(sys.modules[cls.__module__])
     closed = {}
     for field in dataclasses.fields(cls):
-        found = _closed_set_of(field.type, names)
+        found = _closed_field_of(field.type, names)
         if found is not None:
             closed[field.name] = found
     setattr(cls, CLOSED_FIELDS_ATTRIBUTE, closed)
@@ -290,14 +323,26 @@ def _judge_closed_fields(cls: type) -> None:
         # module imports this one.
         from modules.closed_sets import refuse_unless_offered
 
-        for name, (closed_set, optional) in closed.items():
+        for name, (closed_set, optional, holds) in closed.items():
             value = getattr(self, name)
             if value is None and optional:
                 continue
-            member = refuse_unless_offered(closed_set, value, f'{cls.__name__}.{name}')
-            if member is not value:
+            where = f'{cls.__name__}.{name}'
+            if holds is None:
+                judged = refuse_unless_offered(closed_set, value, where)
+            elif holds == 'items':
+                judged = type(value)(
+                    refuse_unless_offered(closed_set, item, f'{where}[{index}]')
+                    for index, item in enumerate(value)
+                )
+            else:
+                judged = {
+                    refuse_unless_offered(closed_set, key, f'{where}[{key!r}]'): item
+                    for key, item in value.items()
+                }
+            if judged is not value:
                 # A frozen record refuses setattr; the build is not done yet.
-                object.__setattr__(self, name, member)
+                object.__setattr__(self, name, judged)
 
     # The generated __init__ calls __post_init__ when the class has one, so
     # the judge goes first inside it; otherwise it follows __init__.
@@ -407,8 +452,8 @@ def field_event(cls: type, name: str) -> type | None:
     return None
 
 
-def closed_fields_of(cls: type) -> dict[str, tuple[type, bool]]:
-    """Each closed-set field a dataclass record judges as it is built: its set, and whether it admits None."""
+def closed_fields_of(cls: type) -> dict[str, ClosedField]:
+    """Each closed-set field a dataclass record judges as it is built, and how it holds its set."""
     return vars(cls).get(CLOSED_FIELDS_ATTRIBUTE, {})
 
 
