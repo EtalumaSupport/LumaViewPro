@@ -235,8 +235,8 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
             'PUT',
             'scope/camera/image_mode',
             {'mode': 'bogus'},
-            'out_of_range',
-            {'path': 'image_mode', 'member': None},
+            'not_offered',
+            {'argument': 'mode'},
         ),
         (
             'POST',

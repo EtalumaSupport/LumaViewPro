@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import enum
 import logging
 import typing
 
@@ -24,10 +25,11 @@ from modules.exceptions import (
     SettingRefusedError,
     StoredSettingReplacedNotice,
 )
+from modules.closed_sets import member_of
 from modules.image_mode import (
     VALID_LIVE_OUTPUT_FORMATS,
     VALID_SEQUENCED_OUTPUT_FORMATS,
-    available_modes,
+    ImageMode,
 )
 from modules.finite_number import is_finite_number
 from modules.layer_record import parse_display_color
@@ -233,6 +235,16 @@ def _refuse_unknown_format(path: str, value: object, formats: frozenset) -> None
         )
 
 
+def _refuse_unless_member(path: str, value: object, closed_set: type[enum.StrEnum]) -> None:
+    # A setting that holds a closed set is judged by the set's one judge, in
+    # the setting's own refusal, which the load replaces and reports.
+    if member_of(closed_set, value) is None:
+        offered = ', '.join(member.value for member in closed_set)
+        raise SettingRefusedError(
+            'not_offered', path, f'it must be one of {offered}, not {value!r}'
+        )
+
+
 def _overlap(path: str, value: float) -> None:
     try:
         TilingConfig.validate_overlap_percent(value)
@@ -281,7 +293,7 @@ def _simulator_tier(path: str, value: str) -> None:
 
 
 def _image_mode(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, frozenset(available_modes()))
+    _refuse_unless_member(path, value, ImageMode)
 
 
 def _acquire(path: str, value: str | None) -> None:

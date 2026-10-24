@@ -421,7 +421,7 @@ The image mode, the binning and the frame each have one writer, on the camera (`
 
 ```python
 camera = session.scope.camera
-camera.set_image_mode('12bit_scientific')    # saved once the camera took it; SettingRefusedError (out_of_range) for an unknown mode;
+camera.set_image_mode(ImageMode.SCIENTIFIC)  # or '12bit_scientific'; saved once the camera took it; ArgumentRefusedError (not_offered) for an unknown mode;
                                              # CameraSettingRejected if the camera refuses the format
 camera.set_binning(2)                        # the delivered FrameSize(width, height); the framed
                                              # region is kept and divided by the new factor.
@@ -526,7 +526,7 @@ At start-up, every stored setting is held to the writer's rule, and a value
 it would refuse -- the wrong kind (NaN included) on any setting, or outside
 a range above, a protocol schedule, a `motion.acceleration_max_pct`
 outside 1 to 100, a `binning.size` that is not a positive square `NxN` label,
-an `image_mode` that is not an image mode, a layer's `acquire` that is not
+an `image_mode` that is not an `ImageMode` value, a layer's `acquire` that is not
 `'image'`, `'video'` or null, an `objective_id` the catalogue lacks on a scope with no turret, or a plate the
 catalogue cannot resolve -- is replaced for
 that key alone by the shipped value, and the session reports one notice
@@ -2223,7 +2223,7 @@ scope.camera.set_binning(2)
 scope.camera.read_binning()                       # read from the camera now; None with no camera;
                                                    #   raises CameraReadFailedError when the camera does not answer
 scope.capabilities.camera_binning_sizes            # e.g. (1, 2, 4)
-scope.camera.set_image_mode('12bit_scientific')    # the camera's pixel format for the mode, then saved; raises CameraSettingRejected on refusal
+scope.camera.set_image_mode(ImageMode.SCIENTIFIC)  # ImageMode (modules.image_mode): EIGHT_BIT '8bit', SCIENTIFIC, SCALED, FALSE_COLOR_RGB; the camera's pixel format for the mode, then saved; raises CameraSettingRejected on refusal
 scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12')
 
 
@@ -2240,7 +2240,7 @@ scope.camera.auto_exposure                        #   running) or CONTINUOUS; an
                                                   #   lock and a one-shot switch both
 scope.camera.high_conversion_gain                 # these two have no driver read: the write
 scope.camera.line_noise_reduction                 #   the camera took
-scope.camera.image_mode                           # the saved mode; the camera holds only its pixel format
+scope.camera.image_mode                           # the saved mode, an ImageMode; the camera holds only its pixel format
 scope.camera.active                               # bool: connected and active, as last found
 
 # The longest exposure the camera may be using now (ms), no driver I/O: the

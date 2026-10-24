@@ -73,6 +73,8 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
         ('zstack.range', 10**400, 'wrong_kind'),
         ('BF.focus', 'abc', 'wrong_kind'),
         ('step_channel_order', ['BF'], 'derived'),
+        # A closed set's leaf: a value outside the set is not one it offers.
+        ('image_mode', '16bit', 'not_offered'),
         # A socket takes a whole port above the ones the system reserves.
         ('rest_api.port', 8000.5, 'out_of_range'),
         ('rest_api.port', 70000, 'out_of_range'),

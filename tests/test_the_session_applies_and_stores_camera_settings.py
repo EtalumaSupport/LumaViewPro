@@ -18,13 +18,14 @@ from __future__ import annotations
 import pytest
 
 from modules.exceptions import (
+    ArgumentRefusedError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
     MissingPart,
     Refusal,
-    SettingRefusedError,
 )
+from modules.image_mode import ImageMode
 
 
 @pytest.fixture
@@ -318,11 +319,19 @@ class TestTheImageMode:
         before = session.settings['image_mode']
         pixel_format = session.scope.camera.pixel_format
 
-        with pytest.raises(SettingRefusedError) as refused:
+        with pytest.raises(ArgumentRefusedError) as refused:
             session.camera.set_image_mode(mode)
-        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'image_mode')
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'mode')
         assert session.settings['image_mode'] == before
         assert session.scope.camera.pixel_format == pixel_format
+
+    def test_a_mode_set_by_its_member_is_stored_as_its_string_and_read_as_the_member(self, session):
+        session.camera.set_image_mode(ImageMode.SCALED)
+
+        stored = session.settings['image_mode']
+        assert (type(stored), stored) == (str, '12bit_scaled')
+        read = session.camera.image_mode
+        assert (type(read), read) == (ImageMode, '12bit_scaled')
 
 
 class TestTheCameraToggles:

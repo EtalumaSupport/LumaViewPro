@@ -22,6 +22,7 @@ The 8-bit default preserves the shipped behavior: the retiring
 from __future__ import annotations
 
 import dataclasses
+import enum
 from collections.abc import Iterable
 
 import numpy as np
@@ -29,10 +30,22 @@ import numpy as np
 from lvp_logger import logger
 from modules.exceptions import ConfigurationDefectError
 
-IMAGE_MODE_8BIT = '8bit'
-IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
-IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
-IMAGE_MODE_12BIT_FALSE_COLOR_RGB = '12bit_false_color_rgb'
+
+class ImageMode(enum.StrEnum):
+    """The image mode captures are taken and saved in (the module docstring)."""
+
+    EIGHT_BIT = '8bit'
+    SCIENTIFIC = '12bit_scientific'
+    SCALED = '12bit_scaled'
+    FALSE_COLOR_RGB = '12bit_false_color_rgb'
+
+
+# The engineering plugin imports these names; they go once it names the
+# members.
+IMAGE_MODE_8BIT = ImageMode.EIGHT_BIT
+IMAGE_MODE_12BIT_SCIENTIFIC = ImageMode.SCIENTIFIC
+IMAGE_MODE_12BIT_SCALED = ImageMode.SCALED
+IMAGE_MODE_12BIT_FALSE_COLOR_RGB = ImageMode.FALSE_COLOR_RGB
 
 # The sequenced-output formats, spelled as the settings files hold them
 # verbatim -- none can be renamed without a settings migration. The
@@ -99,9 +112,9 @@ OUTPUT_FORMAT_LABELS = {
 
 LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.items()}
 
-DEFAULT_IMAGE_MODE = IMAGE_MODE_8BIT
+DEFAULT_IMAGE_MODE = ImageMode.EIGHT_BIT
 
-_MODE_TABLE: dict[str, dict] = {
+_MODE_TABLE: dict[ImageMode, dict] = {
     IMAGE_MODE_8BIT: {'capture_depth': 8, 'save_encoding': SAVE_ENCODING_8BIT},
     IMAGE_MODE_12BIT_SCIENTIFIC: {
         'capture_depth': 12,
@@ -116,7 +129,7 @@ def resolve_image_mode(mode: str) -> dict:
     """Resolve an image_mode value to its derived capture depth and save encoding.
 
     Args:
-        mode: one of the IMAGE_MODE_* values.
+        mode: an ``ImageMode``, or its plain string.
 
     Returns:
         A fresh dict with 'capture_depth' (int) and 'save_encoding' (str).
@@ -352,18 +365,13 @@ LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 _TWELVE_BIT_PIXEL_FORMATS = ('Mono12', 'Mono12p', 'Mono12g24IDS')
 
 
-def available_modes() -> list:
-    """The image_mode values, in selector order: every one, on every camera.
+def available_modes() -> list[ImageMode]:
+    """The image modes, in selector order: every one, on every camera.
 
     A mode is a save policy -- reduce to 8 bits, or keep the payload at the
     depth the frame has -- so every camera can honour every mode.
     """
-    return [
-        IMAGE_MODE_8BIT,
-        IMAGE_MODE_12BIT_SCIENTIFIC,
-        IMAGE_MODE_12BIT_SCALED,
-        IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
-    ]
+    return list(ImageMode)
 
 
 def available_mode_labels() -> list:

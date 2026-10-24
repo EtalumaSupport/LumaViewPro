@@ -796,13 +796,13 @@ def prepare_loaded(
     """The one preparation every settings dict gets: ``loaded`` made USABLE against ``template``.
 
     Reading a file, or taking a dict from a caller's hand, is only the
-    first step. In order: a numpy scalar a caller's dict carries, at any
-    depth, is made the Python value it holds, so the store and the file
-    written from it hold Python values; the containers are held to the
-    template's kinds (the merge would not repair a mismatch, it only
-    recurses where both sides are dicts, so this comes first); the retired
-    spellings and the values the running version cannot use are folded
-    forward; the turret
+    first step. In order: the containers are held to the template's kinds
+    (the merge would not repair a mismatch, it only recurses where both
+    sides are dicts, so this comes first); the retired spellings and the
+    values the running version cannot use are folded forward; a numpy
+    scalar or a closed set's member, a caller's or a fold's, at any depth,
+    is made the plain value it holds, so the store and the file written
+    from it hold plain data; the turret
     slot keys become ints on BOTH sides before the merge, because merged
     afterwards the template's string keys would sit beside the stored int
     keys and the normalization that followed would let the template's
@@ -838,7 +838,6 @@ def prepare_loaded(
             the write's own reason (``'out_of_range'``, ``'wrong_kind'``,
             ``'not_a_number'``).
     """
-    python_values(loaded)
     template = copy.deepcopy(template)
     _normalize_turret_slot_keys(template)
     problems = _check_container_shape(loaded, template)
@@ -853,6 +852,9 @@ def prepare_loaded(
             + '; '.join(f'{where}: expected {want}, got {got}' for where, want, got, _ in problems)
         )
     _apply_load_migrations(logger, loaded)
+    # After the migrations, so a value one writes (a migrated image mode) is
+    # plain data too, as a value a caller handed is.
+    python_values(loaded)
     _normalize_turret_slot_keys(loaded)
     added = _deep_merge_defaults(loaded, template, logger=logger)
     if added:

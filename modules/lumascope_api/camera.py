@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
-import modules.settings_paths as settings_paths
+from modules.image_mode import ImageMode
 from modules.closed_sets import refuse_unless_offered
 from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
@@ -1959,7 +1959,7 @@ class CameraAPI:
 
     @api(sets='image_mode')
     @_guarded_write
-    def set_image_mode(self, mode: str) -> None:
+    def set_image_mode(self, mode: ImageMode) -> None:
         """Capture in ``mode``: apply the camera format it needs, then save it.
 
         The one writer of ``image_mode`` for every host. The mode names a
@@ -1970,7 +1970,7 @@ class CameraAPI:
         nothing to apply; the mode is saved and bring-up applies it.
 
         Raises:
-            SettingRefusedError: ``'out_of_range'``, ``mode`` is not an image
+            ArgumentRefusedError: ``'not_offered'``, ``mode`` is not an image
                 mode. Nothing is applied or saved.
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are written at the depth it started with.
@@ -1980,7 +1980,6 @@ class CameraAPI:
                 saved, so captures are never tagged with a depth the camera
                 is not delivering.
         """
-        settings_paths.refuse_outside_range('image_mode', mode)
         capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
         target = image_mode.select_capture_pixel_format(
             capture_depth, self._scope.capabilities.camera_pixel_formats
@@ -3073,7 +3072,7 @@ class CameraAPI:
 
     @api
     @property
-    def image_mode(self) -> str:
+    def image_mode(self) -> ImageMode:
         """The image mode captures are taken in: the saved one, which
         ``set_image_mode`` writes. The camera holds no copy of a mode, only
         the pixel format the mode chose (``pixel_format``).
@@ -3081,7 +3080,7 @@ class CameraAPI:
         Raises:
             ConfigError: ``'scope_not_composed'``, no session bound this scope.
         """
-        return self._scope.read_setting('image_mode')
+        return ImageMode(self._scope.read_setting('image_mode'))
 
     @api
     @property

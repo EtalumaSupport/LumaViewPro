@@ -72,6 +72,17 @@ def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, k
     assert notice.reason == 'stored_setting_replaced'
 
 
+def test_a_stored_value_outside_a_closed_set_is_replaced_and_told(tmp_path):
+    def edit(current):
+        current['image_mode'] = '16bit'
+
+    settings, told = _prepare(tmp_path, edit)
+
+    assert settings['image_mode'] == '8bit'
+    (notice,) = told
+    assert notice.replacements == [('image_mode', '16bit', '8bit')]
+
+
 def test_a_stored_nan_is_replaced_and_told(tmp_path):
     shipped = json.loads(TEMPLATE.read_text())
 

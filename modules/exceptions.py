@@ -1405,6 +1405,9 @@ class SettingRefusedError(Refusal, ConfigError):
             refused for it too. ``'wrong_kind'`` -- the value is not the kind
             the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
+            ``'not_offered'`` -- the setting holds a closed set (a
+            ``StrEnum``, such as ``image_mode``'s ``ImageMode``) and the
+            value is not one of its values.
         path: The dotted path that was written.
         detail: Why, as a clause about the value (``'it must be above 0,
             not 0'``), for a caller that names the setting its own way: a
