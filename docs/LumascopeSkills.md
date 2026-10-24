@@ -1183,9 +1183,9 @@ import dataclasses
 from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
 
 method = CellCountMethod(
-    filters=CellCountFilters(area=FilterBounds(min=20, max=None)),  # square microns; None is open
+    filters=CellCountFilters(area_um2=FilterBounds(min=20, max=None)),  # None is open
 )
-method = dataclasses.replace(method, threshold=30)
+method = dataclasses.replace(method, threshold_pct=30)
 pp.count_cells(folder, method=method)
 
 pp.save_cell_count_method(method, 'methods/cells.json')   # the file LumaViewPro's panel saves
@@ -1194,20 +1194,20 @@ method = pp.load_cell_count_method('methods/cells.json')
 
 Over REST a method is sent as an object of every one of its fields, as `GET /api/v1/post_processing/default_cell_count_method` answers it: start from that answer and change what you need.
 
-To see what a method keeps before counting a folder, `pp.preview_cell_count(image, method, significant_bits=..., pixel_size_um=...)` counts one image you hold, as `count_cells` counts each file, and answers a `CellCountPreview`: `image`, the image with the kept regions outlined, and `counts`, a `CellCounts` holding the values of that image's `results.csv` row (`num_cells`, `total_object_area`, `area_unit`, `total_object_intensity`). `significant_bits` is the image's payload depth and `pixel_size_um` the scale it states (microns per pixel, or `None`), which the method's `pixels_per_um` overrides, as in the count. It counts on the caller's thread, not the post-processing lane, so it answers while a build or a run goes on, and it hands back an image array, so it is in-process only.
+To see what a method keeps before counting a folder, `pp.preview_cell_count(image, method, significant_bits=..., pixel_size_um=...)` counts one image you hold, as `count_cells` counts each file, and answers a `CellCountPreview`: `image`, the image with the kept regions outlined, and `counts`, a `CellCounts` holding the values of that image's `results.csv` row (`num_cells`, `total_object_area_px2`, `total_object_area_um2`, `total_object_intensity`). `significant_bits` is the image's payload depth and `pixel_size_um` the scale it states (microns per pixel, or `None`), which the method's `pixels_per_um` overrides, as in the count. It counts on the caller's thread, not the post-processing lane, so it answers while a build or a run goes on, and it hands back an image array, so it is in-process only.
 
 A form that bounds the area and perimeter with sliders asks `pp.cell_count_size_scale(method, shape=image.shape, pixel_size_um=...)`, the range the panel offers: a `CellCountSizeScale` holding `pixels_per_um`, the scale the count measures at (`None` for pixels), and for `area` and `perimeter` a `SizeSliderStops`: the slider `positions` of its stops, the `sizes` they stand for (stretched at the low end, so small sizes get most of the travel), and `reach`, the largest size the image holds. In Python, `size_at(positions)` and `positions_of(sizes)` map between the two. With no `shape` (no image yet) a position stands for its own size. A `shape` that is not an image's rows and columns, each at least 1, or a `pixel_size_um` that is not a positive number, is refused (`PostProcessingRefusedError`, `invalid_setting`), as `preview_cell_count` refuses that scale.
 
-Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
+Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area_px2` (the kept regions' area in pixels), `total_object_area_um2` (in square microns, empty for an image counted in pixels) and `total_object_intensity` (the area in pixels times the mean intensity in percent of full scale, the same whatever the scale). Setting `pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
 
 | Field | Meaning |
 |---|---|
 | `pixels_per_um` | `None` (the default) to use each image's own scale; or a positive number of camera pixels per micron, which overrides it for every image |
 | `fluorescent_mode` | `True` (the default) for bright objects on a dark background; `False` inverts the image first |
-| `threshold` | brightness threshold, percent of full scale; 20 by default |
-| `filters.area`, `filters.perimeter` | a `FilterBounds(min, max)` in square microns and microns; open (`None`) by default. A set bound refuses an image counted in pixels |
+| `threshold_pct` | brightness threshold, percent of full scale; 20 by default |
+| `filters.area_um2`, `filters.perimeter_um` | a `FilterBounds(min, max)` in square microns and microns; open (`None`) by default. A set bound refuses an image counted in pixels |
 | `filters.sphericity` | a `FilterBounds`, 0 to 1 |
-| `filters.intensity_min` / `intensity_mean` / `intensity_max` | a `FilterBounds` for each region's minimum, mean and maximum intensity, percent of full scale; 0 to 100 by default |
+| `filters.intensity_min_pct` / `intensity_mean_pct` / `intensity_max_pct` | a `FilterBounds` for each region's minimum, mean and maximum intensity, percent of full scale; 0 to 100 by default |
 
 A method the count cannot use cannot be built: `CellCountMethod` and `CellCountFilters` raise `PostProcessingRefusedError` with `reason='method_invalid'` as they are built, the message naming the field (a `pixels_per_um` that is not a positive number, a `fluorescent_mode` that is not `True` or `False`, a threshold or bound that is not a number, a filter whose `min` is above its `max`), and a method sent over REST is refused the same before the count is queued. A method file is the nested JSON LumaViewPro has always written (`context`, `segmentation`, `filters`, and a `metadata` entry marking it a method file); `load_cell_count_method` refuses a file it cannot read or that is not a method file (`method_unreadable`) and one holding a method the count cannot use (`method_invalid`, naming the field by its place in the file), the message naming the file. Both run on the caller's thread, not the post-processing lane. A method file saved before LumaViewPro read each image's scale (`metadata.version` `'1'`) carries the old fixed default of 1.0 pixels per micron: the load drops it, so the method uses each image's own scale, and says so once.
 
@@ -3798,11 +3798,11 @@ Reached through a REST problem, whose members carry it.
 
 Reached through a `CellCountMethod`'s `filters`.
 
-- `area`
-- `intensity_max`
-- `intensity_mean`
-- `intensity_min`
-- `perimeter`
+- `area_um2`
+- `intensity_max_pct`
+- `intensity_mean_pct`
+- `intensity_min_pct`
+- `perimeter_um`
 - `sphericity`
 
 ### CellCountMethod
@@ -3812,7 +3812,7 @@ Reached through `session.post_processing.default_cell_count_method()` and `load_
 - `filters`
 - `fluorescent_mode`
 - `pixels_per_um`
-- `threshold`
+- `threshold_pct`
 
 ### CellCountPreview
 
@@ -3833,9 +3833,9 @@ Reached through returned by `session.post_processing.count_cells`.
 
 Reached through a `CellCountPreview`'s `counts`.
 
-- `area_unit`
 - `num_cells`
-- `total_object_area`
+- `total_object_area_px2`
+- `total_object_area_um2`
 - `total_object_intensity`
 
 ### CellCountSizeScale

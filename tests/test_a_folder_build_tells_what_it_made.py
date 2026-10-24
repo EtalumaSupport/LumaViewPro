@@ -64,8 +64,8 @@ def counter(monkeypatch):
         return None, {
             'summary': {
                 'num_regions': 3,
-                'total_object_area': 1.0,
-                'area_unit': 'px2',
+                'total_object_area_px2': 1.0,
+                'total_object_area_um2': None,
                 'total_object_intensity': 2.0,
             }
         }

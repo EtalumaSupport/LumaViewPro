@@ -122,8 +122,8 @@ def test_a_method_holding_numpy_is_saved_as_python(tmp_path):
     from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
 
     method = CellCountMethod(
-        threshold=np.int64(20),
-        filters=CellCountFilters(area=FilterBounds(np.float32(10.0), np.int64(500))),
+        threshold_pct=np.int64(20),
+        filters=CellCountFilters(area_um2=FilterBounds(np.float32(10.0), np.int64(500))),
     )
     path = tmp_path / 'method.json'
 
@@ -132,4 +132,4 @@ def test_a_method_holding_numpy_is_saved_as_python(tmp_path):
     saved = json.loads(path.read_text())
     assert saved['filters']['area'] == {'min': 10.0, 'max': 500}
     assert saved['segmentation']['parameters']['threshold'] == 20
-    assert type(method.filters.area.max) is np.int64, "the caller's method was changed"
+    assert type(method.filters.area_um2.max) is np.int64, "the caller's method was changed"

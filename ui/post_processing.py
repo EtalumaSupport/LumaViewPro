@@ -540,13 +540,13 @@ class CellCountControls(BoxLayout):
         filters = method.filters
         self.ids.text_cell_count_pixels_per_um_id.text = _scale_text(method.pixels_per_um)
         self.ids.cell_count_fluorescent_mode_id.active = method.fluorescent_mode
-        self.ids.slider_cell_count_threshold_id.value = method.threshold
+        self.ids.slider_cell_count_threshold_id.value = method.threshold_pct
         self._show_size_filters()
         for slider_id, bounds in (
             ('slider_cell_count_sphericity_id', filters.sphericity),
-            ('slider_cell_count_min_intensity_id', filters.intensity_min),
-            ('slider_cell_count_mean_intensity_id', filters.intensity_mean),
-            ('slider_cell_count_max_intensity_id', filters.intensity_max),
+            ('slider_cell_count_min_intensity_id', filters.intensity_min_pct),
+            ('slider_cell_count_mean_intensity_id', filters.intensity_mean_pct),
+            ('slider_cell_count_max_intensity_id', filters.intensity_max_pct),
         ):
             self.ids[slider_id].value = (bounds.min, bounds.max)
         self._regenerate_image_preview()
@@ -565,23 +565,24 @@ class CellCountControls(BoxLayout):
 
         No bound is the slider's stop at that end.
         """
-        area_unit, perimeter_unit = _AREA_UNIT, _PERIMETER_UNIT
-        for slider_id, label_id, size, unit in (
+        filters = self._method.filters
+        for slider_id, label_id, size, bounds, unit in (
             (
                 'slider_cell_count_area_id',
                 'label_cell_count_area_id',
                 'area',
-                area_unit,
+                filters.area_um2,
+                _AREA_UNIT,
             ),
             (
                 'slider_cell_count_perimeter_id',
                 'label_cell_count_perimeter_id',
                 'perimeter',
-                perimeter_unit,
+                filters.perimeter_um,
+                _PERIMETER_UNIT,
             ),
         ):
             slider = self.ids[slider_id]
-            bounds = getattr(self._method.filters, size)
             stops = getattr(self._size_scale, size)
             low = slider.min if bounds.min is None else stops.positions_of((bounds.min, 0))[0]
             high = slider.max if bounds.max is None else stops.positions_of((0, bounds.max))[1]
@@ -665,7 +666,7 @@ class CellCountControls(BoxLayout):
     def slider_adjustment_threshold(self):
         value = self.ids['slider_cell_count_threshold_id'].value
         gui_logger.slider('CELL_COUNT_THRESHOLD', value)
-        self._method = dataclasses.replace(self._method, threshold=value)
+        self._method = dataclasses.replace(self._method, threshold_pct=value)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -673,7 +674,7 @@ class CellCountControls(BoxLayout):
     def slider_adjustment_area(self):
         low, high = self._size_bounds_from_slider('slider_cell_count_area_id', 'area')
         gui_logger.slider('CELL_COUNT_AREA_RANGE', _range_text(low, high, ''))
-        self._take_filter('area', low, high)
+        self._take_filter('area_um2', low, high)
         self.ids['label_cell_count_area_id'].text = _range_text(low, high, _AREA_UNIT)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
@@ -687,7 +688,7 @@ class CellCountControls(BoxLayout):
     def slider_adjustment_perimeter(self):
         low, high = self._size_bounds_from_slider('slider_cell_count_perimeter_id', 'perimeter')
         gui_logger.slider('CELL_COUNT_PERIMETER_RANGE', _range_text(low, high, ''))
-        self._take_filter('perimeter', low, high)
+        self._take_filter('perimeter_um', low, high)
         self.ids['label_cell_count_perimeter_id'].text = _range_text(low, high, _PERIMETER_UNIT)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
@@ -711,7 +712,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_min_intensity_id'].value[0]
         hi = self.ids['slider_cell_count_min_intensity_id'].value[1]
         gui_logger.slider('CELL_COUNT_MIN_INTENSITY_RANGE', f'{lo}-{hi}')
-        self._take_filter('intensity_min', lo, hi)
+        self._take_filter('intensity_min_pct', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -720,7 +721,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_mean_intensity_id'].value[0]
         hi = self.ids['slider_cell_count_mean_intensity_id'].value[1]
         gui_logger.slider('CELL_COUNT_MEAN_INTENSITY_RANGE', f'{lo}-{hi}')
-        self._take_filter('intensity_mean', lo, hi)
+        self._take_filter('intensity_mean_pct', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -729,7 +730,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_max_intensity_id'].value[0]
         hi = self.ids['slider_cell_count_max_intensity_id'].value[1]
         gui_logger.slider('CELL_COUNT_MAX_INTENSITY_RANGE', f'{lo}-{hi}')
-        self._take_filter('intensity_max', lo, hi)
+        self._take_filter('intensity_max_pct', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()

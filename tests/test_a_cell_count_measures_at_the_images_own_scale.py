@@ -67,8 +67,8 @@ def test_the_default_method_states_no_scale_and_filters_no_size():
     method = CellCountMethod()
 
     assert method.pixels_per_um is None
-    assert method.filters.area == FilterBounds(None, None)
-    assert method.filters.perimeter == FilterBounds(None, None)
+    assert method.filters.area_um2 == FilterBounds(None, None)
+    assert method.filters.perimeter_um == FilterBounds(None, None)
 
 
 @pytest.mark.parametrize(
@@ -109,12 +109,14 @@ def test_a_folder_count_measures_each_image_at_its_own_scale(tmp_path):
 
     rows = _results(tmp_path)
     scaled, unscaled = rows['scaled.tiff'], rows['unscaled.png']
-    assert scaled['area_unit'] == 'um2'
-    assert unscaled['area_unit'] == 'px2'
-    # Same pixels: the micron area is the pixel area at 0.5 um per pixel.
-    assert float(scaled['total_object_area']) == pytest.approx(
-        float(unscaled['total_object_area']) * 0.25, abs=0.01
+    assert unscaled['total_object_area_um2'] == ''
+    # Same pixels: the same pixel area and intensity, and the micron area is
+    # the pixel area at 0.5 um per pixel.
+    assert float(scaled['total_object_area_px2']) == float(unscaled['total_object_area_px2']) > 0
+    assert float(scaled['total_object_area_um2']) == pytest.approx(
+        float(scaled['total_object_area_px2']) * 0.25, abs=0.01
     )
+    assert scaled['total_object_intensity'] == unscaled['total_object_intensity']
 
 
 def test_an_override_scale_applies_to_every_image(tmp_path):
@@ -123,13 +125,16 @@ def test_an_override_scale_applies_to_every_image(tmp_path):
 
     PostProcessing().apply_cell_count_to_folder(tmp_path, method)
 
-    assert _results(tmp_path)['unscaled.png']['area_unit'] == 'um2'
+    row = _results(tmp_path)['unscaled.png']
+    assert float(row['total_object_area_um2']) == pytest.approx(
+        float(row['total_object_area_px2']) / 4, abs=0.01
+    )
 
 
 def test_a_size_filter_is_refused_for_an_image_with_no_scale(tmp_path):
     _capture(tmp_path / 'scaled.tiff', pixel_size_um=0.5)
     _png(tmp_path / 'unscaled.png')
-    method = CellCountMethod(filters=CellCountFilters(area=FilterBounds(10, None)))
+    method = CellCountMethod(filters=CellCountFilters(area_um2=FilterBounds(10, None)))
 
     with pytest.raises(PostProcessingFailedError) as failed:
         PostProcessing().apply_cell_count_to_folder(tmp_path, method)
@@ -140,7 +145,7 @@ def test_a_size_filter_is_refused_for_an_image_with_no_scale(tmp_path):
 
 
 def test_a_preview_of_an_image_with_no_scale_refuses_a_size_filter():
-    method = CellCountMethod(filters=CellCountFilters(perimeter=FilterBounds(None, 50)))
+    method = CellCountMethod(filters=CellCountFilters(perimeter_um=FilterBounds(None, 50)))
 
     with pytest.raises(PostProcessingRefusedError) as refused:
         PostProcessing().preview_cell_count(
@@ -158,7 +163,7 @@ def test_a_preview_without_a_scale_measures_in_pixels():
     (region,) = stats['regions'].values()
     assert region['area']['units'] == 'px^2'
     assert region['perimeter']['units'] == 'px'
-    assert stats['summary']['area_unit'] == 'px2'
+    assert stats['summary']['total_object_area_um2'] is None
 
 
 def test_a_version_one_method_files_old_default_scale_is_dropped_and_said(tmp_path, monkeypatch):

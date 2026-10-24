@@ -32,7 +32,7 @@ _FIELD[8:20, 8:20] = 255  # a 12 x 12 square
 _FIELD[30:56, 30:56] = 255  # a 26 x 26 square
 
 # Keeps the larger square only, at the image's 0.5 um per pixel: 36 um2 and 169 um2.
-_METHOD = CellCountMethod(filters=CellCountFilters(area=FilterBounds(min=100, max=None)))
+_METHOD = CellCountMethod(filters=CellCountFilters(area_um2=FilterBounds(min=100, max=None)))
 
 
 @pytest.fixture
@@ -80,8 +80,8 @@ def test_the_preview_counts_an_image_as_the_folder_count_counts_its_file(session
 
     counts = preview.counts
     assert counts.num_cells == int(row['num_cells']) == 1
-    assert counts.area_unit == row['area_unit'] == 'um2'
-    assert counts.total_object_area == pytest.approx(float(row['total_object_area']))
+    assert counts.total_object_area_px2 == pytest.approx(float(row['total_object_area_px2']))
+    assert counts.total_object_area_um2 == pytest.approx(float(row['total_object_area_um2']))
     assert counts.total_object_intensity == pytest.approx(float(row['total_object_intensity']))
     assert preview.image.shape[:2] == pixels.shape[:2]
     assert not np.array_equal(preview.image, pixels), 'no outline was drawn'
@@ -93,14 +93,15 @@ def test_the_methods_scale_overrides_the_images_own(session):
         _FIELD, method, significant_bits=8, pixel_size_um=0.5
     ).counts
     # At 1 pixel per um both squares are over 100 um2.
-    assert (counts.num_cells, counts.area_unit) == (2, 'um2')
+    assert counts.num_cells == 2
+    assert counts.total_object_area_um2 == counts.total_object_area_px2
 
 
 def test_an_image_with_no_scale_is_counted_in_pixels_and_refuses_a_size_filter(session):
     counts = session.post_processing.preview_cell_count(
         _FIELD, CellCountMethod(), significant_bits=8, pixel_size_um=None
     ).counts
-    assert (counts.num_cells, counts.area_unit) == (2, 'px2')
+    assert (counts.num_cells, counts.total_object_area_um2) == (2, None)
     with pytest.raises(PostProcessingRefusedError) as refused:
         session.post_processing.preview_cell_count(
             _FIELD, _METHOD, significant_bits=8, pixel_size_um=None

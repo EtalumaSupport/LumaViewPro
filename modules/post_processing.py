@@ -117,8 +117,8 @@ def _refuse_size_filters_without_a_scale(method: CellCountMethod, name: str) -> 
     The bounds are in microns; applying them to pixels would count a
     different set of objects and report it as the filtered one.
     """
-    for size in ('area', 'perimeter'):
-        bounds = getattr(method.filters, size)
+    filters = method.filters
+    for size, bounds in (('area', filters.area_um2), ('perimeter', filters.perimeter_um)):
         if bounds.min is not None or bounds.max is not None:
             raise PostProcessingRefusedError(
                 operation=CELL_COUNT_OPERATION,
@@ -382,8 +382,8 @@ class PostProcessing:
             'file',
             'time',
             'num_cells',
-            'total_object_area',
-            'area_unit',
+            'total_object_area_px2',
+            'total_object_area_um2',
             'total_object_intensity',
         ]
         filenames = [f for f in os.listdir(path) if image_utils.is_image(f)]
@@ -418,8 +418,8 @@ class PostProcessing:
                     'filename': os.path.basename(filename),
                     'time': time_created,
                     'num_cells': region_info['summary']['num_regions'],
-                    'total_object_area': region_info['summary']['total_object_area'],
-                    'area_unit': region_info['summary']['area_unit'],
+                    'total_object_area_px2': region_info['summary']['total_object_area_px2'],
+                    'total_object_area_um2': region_info['summary']['total_object_area_um2'],
                     'total_object_intensity': region_info['summary']['total_object_intensity'],
                 }
             )

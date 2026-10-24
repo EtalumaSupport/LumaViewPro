@@ -19,6 +19,19 @@ from tests.settings_fixtures import complete_settings
 # Stands for a new empty protocol's handle, made for each request that names it.
 PROTOCOL = '<protocol>'
 
+
+def _cell_count_method(threshold: str, area: str, perimeter: str, intensity: str) -> dict:
+    """The default cell-count method as a wire client sends it, its fields under the given names."""
+    filters = {
+        area: {'min': None, 'max': None},
+        perimeter: {'min': None, 'max': None},
+        'sphericity': {'min': 0.0, 'max': 1.0},
+    }
+    for which in ('min', 'mean', 'max'):
+        filters[f'intensity_{which}{intensity}'] = {'min': 0, 'max': 100}
+    return {'pixels_per_um': None, 'fluorescent_mode': True, threshold: 20, 'filters': filters}
+
+
 # (method, old route, old arguments, new route, new arguments): a GET's
 # arguments are its query, any other method's its JSON body. PROTOCOL in a
 # route or an argument is the new protocol's id.
@@ -189,6 +202,16 @@ RENAMED = [
         {},
         'scope/motion/is_current_slot_objective_set',
         {},
+    ),
+    (
+        'POST',
+        'post_processing/save_cell_count_method',
+        {'method': _cell_count_method('threshold', 'area', 'perimeter', ''), 'path': 'cells.json'},
+        'post_processing/save_cell_count_method',
+        {
+            'method': _cell_count_method('threshold_pct', 'area_um2', 'perimeter_um', '_pct'),
+            'path': 'cells.json',
+        },
     ),
 ]
 

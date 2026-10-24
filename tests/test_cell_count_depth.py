@@ -63,8 +63,8 @@ def _capture_depth(post):
             {
                 'summary': {
                     'num_regions': 0,
-                    'total_object_area': 0,
-                    'area_unit': 'px2',
+                    'total_object_area_px2': 0.0,
+                    'total_object_area_um2': None,
                     'total_object_intensity': 0.0,
                 }
             },

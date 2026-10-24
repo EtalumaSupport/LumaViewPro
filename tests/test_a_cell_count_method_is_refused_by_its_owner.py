@@ -54,8 +54,10 @@ def test_a_filter_whose_min_is_above_its_max_is_refused_naming_it():
 
 
 def test_an_open_bound_is_a_usable_filter():
-    filters = CellCountFilters(area=FilterBounds(None, None), perimeter=FilterBounds(None, 50))
-    assert CellCountMethod(filters=filters).filters.perimeter.max == 50
+    filters = CellCountFilters(
+        area_um2=FilterBounds(None, None), perimeter_um=FilterBounds(None, 50)
+    )
+    assert CellCountMethod(filters=filters).filters.perimeter_um.max == 50
 
 
 @pytest.mark.parametrize('flag', ['yes', 1, None])
@@ -69,7 +71,7 @@ def test_a_fluorescent_mode_that_is_not_true_or_false_is_refused(flag):
 @pytest.mark.parametrize('threshold', ['20', None, float('nan')])
 def test_a_threshold_that_is_not_a_number_is_refused_naming_it(threshold):
     with pytest.raises(PostProcessingRefusedError) as refused:
-        CellCountMethod(threshold=threshold)
+        CellCountMethod(threshold_pct=threshold)
     assert refused.value.reason == 'method_invalid'
     assert 'threshold' in str(refused.value)
 
@@ -77,15 +79,15 @@ def test_a_threshold_that_is_not_a_number_is_refused_naming_it(threshold):
 @pytest.mark.parametrize('bound', ['10', [1], True])
 def test_a_filter_bound_that_is_not_a_number_is_refused_naming_it(bound):
     with pytest.raises(PostProcessingRefusedError) as refused:
-        CellCountFilters(intensity_max=FilterBounds(min=bound, max=100))
+        CellCountFilters(intensity_max_pct=FilterBounds(min=bound, max=100))
     assert refused.value.reason == 'method_invalid'
-    assert 'filters.intensity_max.min' in str(refused.value)
+    assert 'filters.intensity_max_pct.min' in str(refused.value)
 
 
 def test_filters_that_are_not_their_records_are_refused_naming_them():
     with pytest.raises(PostProcessingRefusedError) as as_dict:
-        CellCountFilters(area={'min': None, 'max': None})
-    assert 'filters.area' in str(as_dict.value)
+        CellCountFilters(area_um2={'min': None, 'max': None})
+    assert 'filters.area_um2' in str(as_dict.value)
     with pytest.raises(PostProcessingRefusedError) as whole:
         CellCountMethod(filters={})
     assert whole.value.reason == 'method_invalid'

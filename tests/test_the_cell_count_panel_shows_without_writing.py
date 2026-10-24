@@ -81,7 +81,7 @@ def test_showing_a_method_writes_nothing_and_shows_open_bounds_at_the_stops(
 ):
     records = []
     monkeypatch.setattr(panel_module.gui_logger, 'slider', lambda *a: records.append(a))
-    method = CellCountMethod(filters=CellCountFilters(perimeter=FilterBounds(20, None)))
+    method = CellCountMethod(filters=CellCountFilters(perimeter_um=FilterBounds(20, None)))
     panel = _panel(method, size_scale)
     panel.ids = _Ids(vars(panel.ids))
 
@@ -146,10 +146,10 @@ def test_a_released_size_slider_writes_open_bounds_at_its_stops_and_records_once
     panel.ids['slider_cell_count_area_id'].value = (10, 100)
     panel_module.CellCountControls.slider_adjustment_area(panel)
 
-    assert panel._method.filters.area == FilterBounds(10, None)
+    assert panel._method.filters.area_um2 == FilterBounds(10, None)
     assert records == [('CELL_COUNT_AREA_RANGE', '\u2265 10')]
     assert panel.ids['label_cell_count_area_id'].text == '\u2265 10 \u03bcm\u00b2'
 
     panel.ids['slider_cell_count_area_id'].value = (0, 100)
     panel_module.CellCountControls.slider_adjustment_area(panel)
-    assert panel._method.filters.area == FilterBounds(None, None)
+    assert panel._method.filters.area_um2 == FilterBounds(None, None)

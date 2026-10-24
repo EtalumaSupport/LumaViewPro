@@ -49,8 +49,10 @@ def test_a_saved_method_loads_back_as_it_was(post, tmp_path):
     method = CellCountMethod(
         pixels_per_um=2.5,
         fluorescent_mode=False,
-        threshold=35,
-        filters=CellCountFilters(area=FilterBounds(10, 500), intensity_mean=FilterBounds(5, 90)),
+        threshold_pct=35,
+        filters=CellCountFilters(
+            area_um2=FilterBounds(10, 500), intensity_mean_pct=FilterBounds(5, 90)
+        ),
     )
     path = tmp_path / 'method.json'
     post.save_cell_count_method(method, path)

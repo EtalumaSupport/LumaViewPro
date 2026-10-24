@@ -192,7 +192,7 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
         return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
-    method = CellCountMethod(threshold=35)
+    method = CellCountMethod(threshold_pct=35)
 
     told = []
 

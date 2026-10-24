@@ -32,12 +32,12 @@ _SEGMENTATION_ALGORITHM = 'initial'
 
 # Each filter's path in the saved form, by its field.
 _FILTER_PATHS = {
-    'area': ('area',),
-    'perimeter': ('perimeter',),
+    'area_um2': ('area',),
+    'perimeter_um': ('perimeter',),
     'sphericity': ('sphericity',),
-    'intensity_min': ('intensity', 'min'),
-    'intensity_mean': ('intensity', 'mean'),
-    'intensity_max': ('intensity', 'max'),
+    'intensity_min_pct': ('intensity', 'min'),
+    'intensity_mean_pct': ('intensity', 'mean'),
+    'intensity_max_pct': ('intensity', 'max'),
 }
 
 
@@ -67,7 +67,7 @@ def _check_filters(filters: Mapping[str, object], source: str) -> None:
 
 
 def _check_method(
-    pixels_per_um: object, fluorescent_mode: object, threshold: object, source: str
+    pixels_per_um: object, fluorescent_mode: object, threshold_pct: object, source: str
 ) -> None:
     """Refuse a scale, mode or threshold the count cannot use, naming the field.
 
@@ -82,8 +82,8 @@ def _check_method(
         )
     if not isinstance(fluorescent_mode, bool):
         _refuse_method(source, f'fluorescent_mode must be true or false, not {fluorescent_mode!r}')
-    if not is_finite_number(threshold):
-        _refuse_method(source, f'threshold must be a number, not {threshold!r}')
+    if not is_finite_number(threshold_pct):
+        _refuse_method(source, f'threshold_pct must be a number, not {threshold_pct!r}')
 
 
 @api_fields('min', 'max')
@@ -100,18 +100,25 @@ class FilterBounds:
     max: float | None = None
 
 
-@api_fields('area', 'perimeter', 'sphericity', 'intensity_min', 'intensity_mean', 'intensity_max')
+@api_fields(
+    'area_um2',
+    'perimeter_um',
+    'sphericity',
+    'intensity_min_pct',
+    'intensity_mean_pct',
+    'intensity_max_pct',
+)
 @dataclasses.dataclass(frozen=True)
 class CellCountFilters:
     """Which regions a count keeps, each bound checked as the filters are built.
 
     Attributes:
-        area: In square microns.
-        perimeter: In microns.
+        area_um2: A region's area, in square microns.
+        perimeter_um: A region's perimeter, in microns.
         sphericity: From 0 to 1.
-        intensity_min: A region's darkest pixel, in percent of full scale.
-        intensity_mean: A region's mean pixel, in percent of full scale.
-        intensity_max: A region's brightest pixel, in percent of full scale.
+        intensity_min_pct: A region's darkest pixel, in percent of full scale.
+        intensity_mean_pct: A region's mean pixel, in percent of full scale.
+        intensity_max_pct: A region's brightest pixel, in percent of full scale.
 
     Raises:
         PostProcessingRefusedError: reason ``method_invalid``, a filter
@@ -119,12 +126,12 @@ class CellCountFilters:
             None, or a min above its max; the message names the filter.
     """
 
-    area: FilterBounds = FilterBounds()
-    perimeter: FilterBounds = FilterBounds()
+    area_um2: FilterBounds = FilterBounds()
+    perimeter_um: FilterBounds = FilterBounds()
     sphericity: FilterBounds = FilterBounds(0.0, 1.0)
-    intensity_min: FilterBounds = FilterBounds(0, 100)
-    intensity_mean: FilterBounds = FilterBounds(0, 100)
-    intensity_max: FilterBounds = FilterBounds(0, 100)
+    intensity_min_pct: FilterBounds = FilterBounds(0, 100)
+    intensity_mean_pct: FilterBounds = FilterBounds(0, 100)
+    intensity_max_pct: FilterBounds = FilterBounds(0, 100)
 
     def __post_init__(self):
         _check_filters(
@@ -132,7 +139,7 @@ class CellCountFilters:
         )
 
 
-@api_fields('pixels_per_um', 'fluorescent_mode', 'threshold', 'filters')
+@api_fields('pixels_per_um', 'fluorescent_mode', 'threshold_pct', 'filters')
 @dataclasses.dataclass(frozen=True)
 class CellCountMethod:
     """How a count finds and keeps cells, checked as it is built.
@@ -146,27 +153,27 @@ class CellCountMethod:
             pixels per micron; None counts each image at its own scale.
         fluorescent_mode: Bright cells on a dark field; False inverts the
             image first.
-        threshold: The brightness that separates a cell from the field, in
-            percent of full scale.
+        threshold_pct: The brightness that separates a cell from the field,
+            in percent of full scale.
         filters: Which regions are kept.
 
     Raises:
         PostProcessingRefusedError: reason ``method_invalid``, a
             *pixels_per_um* that is not a positive number or None (0 or
             below counts nothing, NaN writes NaN areas), a
-            *fluorescent_mode* that is not True or False, a *threshold* that
+            *fluorescent_mode* that is not True or False, a *threshold_pct* that
             is not a number, or *filters* that is not a
             ``CellCountFilters``; the message names the field.
     """
 
     pixels_per_um: float | None = None
     fluorescent_mode: bool = True
-    threshold: float = 20
+    threshold_pct: float = 20
     filters: CellCountFilters = CellCountFilters()
 
     def __post_init__(self):
         _check_method(
-            self.pixels_per_um, self.fluorescent_mode, self.threshold, 'The cell-count method'
+            self.pixels_per_um, self.fluorescent_mode, self.threshold_pct, 'The cell-count method'
         )
         if not isinstance(self.filters, CellCountFilters):
             _refuse_method(
@@ -190,7 +197,7 @@ def saved_form(method: CellCountMethod) -> dict:
         },
         'segmentation': {
             'algorithm': _SEGMENTATION_ALGORITHM,
-            'parameters': {'threshold': method.threshold},
+            'parameters': {'threshold': method.threshold_pct},
         },
         'filters': filters,
     }
@@ -221,7 +228,7 @@ def from_saved_form(saved: object, *, source: str) -> CellCountMethod:
     fields = {
         'pixels_per_um': _saved_field(saved, ('context', 'pixels_per_um'), source),
         'fluorescent_mode': _saved_field(saved, ('context', 'fluorescent_mode'), source),
-        'threshold': _saved_field(saved, ('segmentation', 'parameters', 'threshold'), source),
+        'threshold_pct': _saved_field(saved, ('segmentation', 'parameters', 'threshold'), source),
     }
     _saved_field(saved, ('segmentation', 'algorithm'), source)
     filters = {

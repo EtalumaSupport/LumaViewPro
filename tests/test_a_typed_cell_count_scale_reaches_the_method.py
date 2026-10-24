@@ -111,9 +111,9 @@ def test_with_a_preview_loaded_the_size_scale_is_asked_at_the_typed_scale(bounda
 
 
 def test_the_owner_answers_a_new_method_and_leaves_the_one_it_was_given():
-    method = CellCountMethod(threshold=35)
+    method = CellCountMethod(threshold_pct=35)
     changed = with_pixels_per_um(method, '3.5')
-    assert changed == CellCountMethod(threshold=35, pixels_per_um=3.5)
+    assert changed == CellCountMethod(threshold_pct=35, pixels_per_um=3.5)
     assert method.pixels_per_um is None
 
 

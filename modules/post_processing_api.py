@@ -148,22 +148,24 @@ class CellCountResult:
     counted: int
 
 
-@api_fields('num_cells', 'total_object_area', 'area_unit', 'total_object_intensity')
+@api_fields('num_cells', 'total_object_area_px2', 'total_object_area_um2', 'total_object_intensity')
 @dataclasses.dataclass(frozen=True)
 class CellCounts:
     """What a cell count measured in one image: the values of its row in ``results.csv``.
 
     Attributes:
         num_cells: The regions the method kept.
-        total_object_area: Their area, in ``area_unit``.
-        area_unit: ``'um2'``, or ``'px2'`` when the image was counted in
-            pixels.
-        total_object_intensity: Their area times their mean intensity.
+        total_object_area_px2: Their area, in pixels.
+        total_object_area_um2: Their area, in square microns; None when the
+            image was counted in pixels, with no scale.
+        total_object_intensity: Their area in pixels times their mean
+            intensity in percent of full scale, so it does not change with
+            the scale.
     """
 
     num_cells: int
-    total_object_area: float
-    area_unit: str
+    total_object_area_px2: float
+    total_object_area_um2: float | None
     total_object_intensity: float
 
 
@@ -1246,8 +1248,8 @@ class PostProcessingAPI:
             image=outlined,
             counts=CellCounts(
                 num_cells=summary['num_regions'],
-                total_object_area=summary['total_object_area'],
-                area_unit=summary['area_unit'],
+                total_object_area_px2=summary['total_object_area_px2'],
+                total_object_area_um2=summary['total_object_area_um2'],
                 total_object_intensity=summary['total_object_intensity'],
             ),
         )
