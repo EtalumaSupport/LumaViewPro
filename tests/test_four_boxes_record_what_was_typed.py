@@ -120,8 +120,8 @@ def _acceleration_panel(typed, caplog):
         }
         _show_acceleration_limit = AdvancedSettings._show_acceleration_limit
 
-        def set_acceleration_limit(self, val_pct):
-            applied.append(val_pct)
+        def set_acceleration_limit(self, limit_pct):
+            applied.append(limit_pct)
             seen.append(_records(caplog))
 
     return _Panel(), applied, seen

@@ -305,7 +305,7 @@ class AdvancedSettings(Popup):
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value
         gui_logger.slider('ACCELERATION', acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
+        self.set_acceleration_limit(limit_pct=acc_val)
 
     def acceleration_pct_text(self):
         typed = self.ids['acceleration_pct_text'].text
@@ -319,7 +319,7 @@ class AdvancedSettings(Popup):
             return
         # As typed: the motion API owns the range and refuses outside it; the
         # redraw then shows the limit that is stored.
-        self.set_acceleration_limit(val_pct=acc_val)
+        self.set_acceleration_limit(limit_pct=acc_val)
 
     def _show_acceleration_limit(self):
         """Show the box the limit its slider holds, as its kv binding does."""
@@ -341,7 +341,7 @@ class AdvancedSettings(Popup):
     _acceleration_dispatch_trigger = None
     _pending_acceleration_pct = None
 
-    def set_acceleration_limit(self, val_pct):
+    def set_acceleration_limit(self, limit_pct):
         """Hand the acceleration limit to the Session, which commands the motors and stores it.
 
         The motor serial write goes through ``io_executor`` instead of running
@@ -354,7 +354,7 @@ class AdvancedSettings(Popup):
         slider always lands on the last value the user picked.
         """
         # Stash the most recent value; the trigger reads it when it fires.
-        self._pending_acceleration_pct = int(val_pct)
+        self._pending_acceleration_pct = int(limit_pct)
         if self._acceleration_dispatch_trigger is None:
             self._acceleration_dispatch_trigger = Clock.create_trigger(
                 lambda dt: self._dispatch_acceleration_to_motor(),
@@ -374,10 +374,10 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         if ctx is None or self._pending_acceleration_pct is None:
             return
-        val_pct = self._pending_acceleration_pct
+        limit_pct = self._pending_acceleration_pct
         session = ctx.session
         submit_reported(
-            lambda: session.set_acceleration_limit(val_pct),
+            lambda: session.set_acceleration_limit(limit_pct),
             self._show_stored_acceleration_limit,
             'ACCELERATION_LIMIT',
             lane=ctx.io_executor,

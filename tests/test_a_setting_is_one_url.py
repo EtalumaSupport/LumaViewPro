@@ -33,7 +33,7 @@ _WRITES = {
     'objective_id': ({'objective_id': '10x Oly'}, None, '10x Oly'),
     'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
-    'acceleration_limit_pct': ({'val_pct': 40}, None, 40),
+    'acceleration_limit_pct': ({'limit_pct': 40}, None, 40),
     'channel_acquire': ({'channel': 'Blue', 'mode': 'video'}, {'channel': 'Blue'}, 'video'),
     'channel_auto_gain': ({'channel': 'Green', 'enabled': True}, {'channel': 'Green'}, True),
     'saved_focus_z_um': ({'channel': 'Blue', 'z_um': 5000.0}, {'channel': 'Blue'}, 5000.0),

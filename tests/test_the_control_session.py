@@ -745,14 +745,14 @@ class TestTheRestDoor:
         session_id = taken.json()
         assert sim_session.control.taken_by == Caller.REST
 
-        refused = client.put('/api/v1/acceleration_limit_pct', json={'val_pct': 40})
+        refused = client.put('/api/v1/acceleration_limit_pct', json={'limit_pct': 40})
         assert refused.status_code == 409
         assert refused.json()['reason'] == 'control_session_held'
         assert refused.json()['control_session'] == 'plate reader'
 
         written = client.put(
             '/api/v1/acceleration_limit_pct',
-            json={'val_pct': 40},
+            json={'limit_pct': 40},
             headers={'Control-Session': session_id},
         )
         assert written.status_code == 200, written.text
@@ -773,7 +773,7 @@ class TestTheRestDoor:
 
         refused = client.put(
             '/api/v1/acceleration_limit_pct',
-            json={'val_pct': 40},
+            json={'limit_pct': 40},
             headers={'Control-Session': session_id},
         )
         assert refused.status_code == 409

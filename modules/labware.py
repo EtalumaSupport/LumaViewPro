@@ -78,8 +78,8 @@ class Labware:
         return self.rows * self.columns > 0
 
     @api(in_process=True, reads=True)
-    def get_well_index(self, x: float, y: float) -> tuple[int, int] | None:
-        """The (column, row) of the well centre nearest plate position (x, y) in mm.
+    def get_well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None:
+        """The (column, row) of the well centre nearest plate position (x_mm, y_mm).
 
         None when that centre is outside the grid: the position is more
         than half a pitch beyond the outer well centres, off the plate's
@@ -88,16 +88,16 @@ class Labware:
         names its nearest well whether or not it is inside it.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, ``x`` or ``y`` is not a
-                finite number, which names no well.
+            ArgumentRefusedError: ``'not_a_number'``, ``x_mm`` or ``y_mm`` is
+                not a finite number, which names no well.
         """
-        for name, value in (('x', x), ('y', y)):
+        for name, value in (('x_mm', x_mm), ('y_mm', y_mm)):
             refuse_unless_finite_number(value, name)
         if not self.has_wells():
             return None
 
-        i = (x - self.offset_x_mm) / self.spacing_x_mm
-        j = (y - self.offset_y_mm) / self.spacing_y_mm
+        i = (x_mm - self.offset_x_mm) / self.spacing_x_mm
+        j = (y_mm - self.offset_y_mm) / self.spacing_y_mm
 
         i = round(i)
         j = round(j)
@@ -106,7 +106,7 @@ class Labware:
         return i, j
 
     def get_well_label(self, x: float, y: float) -> str:
-        index = self.get_well_index(x=x, y=y)
+        index = self.get_well_index(x_mm=x, y_mm=y)
         if index is None:
             # Off the grid or a plate with none: empty, not a fabricated
             # token, so filename builders and metadata writers omit the well

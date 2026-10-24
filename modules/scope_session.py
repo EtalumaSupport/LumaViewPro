@@ -5297,7 +5297,7 @@ class ScopeSession:
 
     @api(sets='acceleration_limit_pct')
     @_guarded_write
-    def set_acceleration_limit(self, val_pct: int) -> None:
+    def set_acceleration_limit(self, limit_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
         The one writer of ``motion.acceleration_max_pct``, stored once the
@@ -5307,12 +5307,12 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller to take it. Nothing
                 is stored.
-            AccelerationLimitRefusedError: ``val_pct`` is outside the range
+            AccelerationLimitRefusedError: ``limit_pct`` is outside the range
                 the motion API accepts (a ValueError). Nothing is stored.
         """
-        self.scope.motion.set_acceleration_limit(val_pct=val_pct)
+        self.scope.motion.set_acceleration_limit(limit_pct=limit_pct)
         with self.settings_lock:
-            self._store_setting('motion.acceleration_max_pct', val_pct)
+            self._store_setting('motion.acceleration_max_pct', limit_pct)
 
     # --- Hardware commands: NOT forwarded ---
     # The Session surface deliberately carries no hardware-command

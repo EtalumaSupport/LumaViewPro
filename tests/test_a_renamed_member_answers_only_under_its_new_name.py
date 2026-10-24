@@ -203,6 +203,7 @@ RENAMED = [
         'scope/motion/is_current_slot_objective_set',
         {},
     ),
+    ('PUT', 'acceleration_limit_pct', {'val_pct': 40}, 'acceleration_limit_pct', {'limit_pct': 40}),
     (
         'POST',
         'post_processing/save_cell_count_method',

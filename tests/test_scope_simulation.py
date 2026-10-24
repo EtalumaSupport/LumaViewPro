@@ -226,7 +226,7 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('refuse_camera_read', ('gain', 'raise', 0), 'fault_bound', 'count'),
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),
-        ('delay_reply', ('motor', 0.0), 'fault_bound', 'seconds'),
+        ('delay_reply', ('motor', 0.0), 'fault_bound', 'delay_s'),
     ],
 )
 def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, reason, argument):

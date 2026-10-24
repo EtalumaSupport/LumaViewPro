@@ -120,5 +120,5 @@ class TestAccelerationBound:
         """from_settings and the motion API read the one check."""
         scope = build_scope(simulate=True)
         with pytest.raises(ValueError):
-            scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX + 1)
-        scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX)
+            scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX + 1)
+        scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX)

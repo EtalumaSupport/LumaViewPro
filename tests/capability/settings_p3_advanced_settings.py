@@ -52,13 +52,13 @@ try:
 
     # --- acceleration limit: API setter with a documented raise ----------
     try:
-        mo.set_acceleration_limit(val_pct=50)
+        mo.set_acceleration_limit(limit_pct=50)
         _common.ok('acceleration 50% applied', True)
     except Exception as e:
         _common.ok('acceleration 50% applied', False, f'{type(e).__name__}: {e}')
     for bad in (0, 250, -5):
         try:
-            mo.set_acceleration_limit(val_pct=bad)
+            mo.set_acceleration_limit(limit_pct=bad)
             _common.ok(f'acceleration {bad}% refused', False, 'accepted')
         except ValueError as e:
             _common.ok(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')

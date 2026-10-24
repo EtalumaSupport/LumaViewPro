@@ -108,7 +108,7 @@ _MANUAL_REFUSES = {
     'home_t': lambda m: m.home('T'),
     'stop_motion': lambda m: m.stop_motion(),
     'precision': lambda m: m.set_precision_mode('Z', True),
-    'acceleration': lambda m: m.set_acceleration_limit(val_pct=50),
+    'acceleration': lambda m: m.set_acceleration_limit(limit_pct=50),
     'limits': lambda m: m.get_axis_limits('Z'),
 }
 

@@ -1330,7 +1330,7 @@ class Lumascope:
             self._store_absent_camera_features(config)
         # Asked first: a scope with no motor controller has no limit to set.
         if self.motor_connected:
-            self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
+            self.motion._set_acceleration_limit_impl(limit_pct=config.acceleration_pct)
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
         # A start that fails is what bring-up found about the camera, kept

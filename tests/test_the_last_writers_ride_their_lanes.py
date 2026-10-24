@@ -46,7 +46,7 @@ def _lane_now():
 _GATED = [
     (
         'set_acceleration_limit',
-        lambda sc: sc.motion.set_acceleration_limit(val_pct=50),
+        lambda sc: sc.motion.set_acceleration_limit(limit_pct=50),
         '_motion_driver',
         'set_acceleration_limits',
         'io',
@@ -209,7 +209,7 @@ class TestAcceleration:
         monkeypatch.setattr(type(sc), 'motor_connected', property(lambda self: False))
         spy, lanes = _spy(sc, '_motion_driver', 'set_acceleration_limits')
         with spy, pytest.raises(HardwareCommandRefusedError):
-            sc.motion.set_acceleration_limit(val_pct=50)
+            sc.motion.set_acceleration_limit(limit_pct=50)
         assert lanes == []
 
 

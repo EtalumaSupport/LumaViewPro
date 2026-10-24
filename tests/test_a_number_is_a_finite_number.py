@@ -148,7 +148,7 @@ def test_plate_coordinates_and_a_well_are_refused(session, value):
 
     _refused(lambda: runtime_state.plate_to_stage(value, 10.0), 'x_mm')
     _refused(lambda: runtime_state.stage_to_plate(10.0, value), 'y_um')
-    _refused(lambda: plate.get_well_index(value, 10.0), 'x')
+    _refused(lambda: plate.get_well_index(value, 10.0), 'x_mm')
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

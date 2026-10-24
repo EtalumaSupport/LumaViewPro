@@ -1570,7 +1570,7 @@ class MotionAPI:
         """
         return self.is_any_axis_moving()
 
-    def set_acceleration_limit(self, val_pct: int) -> None:
+    def set_acceleration_limit(self, limit_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).
 
         Firmware that does not implement the AMAX / DMAX query needs no
@@ -1581,14 +1581,14 @@ class MotionAPI:
         value its firmware had rejected, with nothing said to anyone.
 
         Args:
-            val_pct: Acceleration limit as a percent of the firmware max.
+            limit_pct: Acceleration limit as a percent of the firmware max.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller (see
                 ``refuse_absent``); asked before the value, and nothing was
                 sent.
-            AccelerationLimitRefusedError: ``val_pct`` is not a whole number
+            AccelerationLimitRefusedError: ``limit_pct`` is not a whole number
                 or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``
                 (a ValueError). Refused on every board, real or simulated,
                 before it is commanded.
@@ -1596,14 +1596,14 @@ class MotionAPI:
         return self._dispatch_motion(
             self._set_acceleration_limit_impl,
             'set_acceleration_limit',
-            kwargs={'val_pct': val_pct},
+            kwargs={'limit_pct': limit_pct},
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    def _set_acceleration_limit_impl(self, val_pct: int) -> None:
+    def _set_acceleration_limit_impl(self, limit_pct: int) -> None:
         self.refuse_absent('set_acceleration_limit')
-        refuse_acceleration_pct(val_pct)
-        self._driver.set_acceleration_limits(val_pct=val_pct)
+        refuse_acceleration_pct(limit_pct)
+        self._driver.set_acceleration_limits(val_pct=limit_pct)
 
     # ------------------------------------------------------------------
     # Stateful method bodies.

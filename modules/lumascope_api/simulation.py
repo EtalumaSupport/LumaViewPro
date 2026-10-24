@@ -227,15 +227,15 @@ class SimulationAPI:
         raise self._not_injectable('drop_replies', target)
 
     @api(in_process=True)
-    def delay_reply(self, board: str, seconds: float) -> None:
-        """The board's next reply comes ``seconds`` late.
+    def delay_reply(self, board: str, delay_s: float) -> None:
+        """The board's next reply comes ``delay_s`` seconds late.
 
         A reply later than the driver waits for is no reply to it: the
         board did what it was told, and the host was not told so.
 
         Args:
             board: ``'motor'`` or ``'led'``.
-            seconds: How late the reply comes, above 0.
+            delay_s: How late the reply comes, in seconds, above 0.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -247,12 +247,12 @@ class SimulationAPI:
         """
         target = self._board('delay_reply', board)
         self._bound(
-            'seconds', seconds, 'a delay above 0 s, at most 30 days', 0 < seconds <= WAIT_S[1]
+            'delay_s', delay_s, 'a delay above 0 s, at most 30 days', 0 < delay_s <= WAIT_S[1]
         )
         if not isinstance(target, EmulatedBoard):
             raise self._not_injectable('delay_reply', target)
-        target.delay_next_reply(float(seconds))
-        self._record('delay_reply', target.disarm_reply, board=board, seconds=seconds)
+        target.delay_next_reply(float(delay_s))
+        self._record('delay_reply', target.disarm_reply, board=board, delay_s=delay_s)
 
     @api(in_process=True)
     def silence(self, board: str) -> None:
