@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 
 from lib import profile_trace
 from modules.exceptions import (
@@ -74,26 +74,49 @@ def _outcome_words(exception: BaseException) -> str:
         )
 
 
-class Severity(IntEnum):
-    """Notification severity levels (matches Python logging levels).
+class Severity(StrEnum):
+    """Notification severity, by its name; its logging level is ``level``.
 
     NOTICE sits between INFO and WARNING: user-facing status (start/done
     of a long unattended operation) that says so without misdeclaring
     itself as a fault. WARNING stays "something didn't work". The level
     says how a post is logged, not whether it is shown: ``shown`` on the
     notification says that.
+
+    Two severities are ordered by their levels, never by their names:
+    ``<``, ``<=``, ``>`` and ``>=`` raise, so an order read from the
+    strings cannot be written.
     """
 
-    DEBUG = logging.DEBUG  # 10
-    INFO = logging.INFO  # 20
-    NOTICE = 25
-    WARNING = logging.WARNING  # 30
-    ERROR = logging.ERROR  # 40
-    CRITICAL = logging.CRITICAL  # 50
+    DEBUG = 'DEBUG'
+    INFO = 'INFO'
+    NOTICE = 'NOTICE'
+    WARNING = 'WARNING'
+    ERROR = 'ERROR'
+    CRITICAL = 'CRITICAL'
 
+    @property
+    def level(self) -> int:
+        """The Python logging level a post of this severity is logged at."""
+        return _LOGGING_LEVELS[self]
+
+    def _unordered(self, other: object) -> bool:
+        raise TypeError('a Severity is not ordered by its name; compare the two .level values')
+
+    __lt__ = __le__ = __gt__ = __ge__ = _unordered
+
+
+_LOGGING_LEVELS = {
+    Severity.DEBUG: logging.DEBUG,
+    Severity.INFO: logging.INFO,
+    Severity.NOTICE: 25,
+    Severity.WARNING: logging.WARNING,
+    Severity.ERROR: logging.ERROR,
+    Severity.CRITICAL: logging.CRITICAL,
+}
 
 # Name the custom level so log lines read 'NOTICE', not 'Level 25'.
-logging.addLevelName(int(Severity.NOTICE), 'NOTICE')
+logging.addLevelName(Severity.NOTICE.level, 'NOTICE')
 
 
 class OutcomeKind(StrEnum):
@@ -281,7 +304,7 @@ def _log_display_line(
 
     because = f' ({reason})' if reason else ''
     logger.log(
-        int(severity),
+        severity.level,
         f'[{category}] {gui_logger.one_line(title)}{because}: {gui_logger.one_line(message)}',
     )
 
@@ -461,7 +484,7 @@ class NotificationCenter:
             from modules import gui_logger
 
             gui_logger.notification(
-                severity.name if hasattr(severity, 'name') else str(severity),
+                severity,
                 f'{category}/{title}',
                 message,
                 source=source or '',
@@ -522,7 +545,7 @@ class NotificationCenter:
                     [
                         f'{time.time() * 1000.0:.3f}',
                         suppressed_reason,
-                        getattr(severity, 'name', severity),
+                        severity,
                         category,
                         title,
                         int(bool(fatal)),
@@ -531,7 +554,11 @@ class NotificationCenter:
                 )
 
         if kind is None:
-            kind = OutcomeKind.NOTICE if severity <= Severity.NOTICE else OutcomeKind.UNCLASSIFIED
+            kind = (
+                OutcomeKind.NOTICE
+                if severity.level <= Severity.NOTICE.level
+                else OutcomeKind.UNCLASSIFIED
+            )
         n = Notification(
             severity=severity,
             category=category,
@@ -549,7 +576,7 @@ class NotificationCenter:
             shown=shown,
         )
         for min_sev, cb in listeners:
-            if severity >= min_sev:
+            if severity.level >= min_sev.level:
                 try:
                     cb(n)
                 except Exception:
@@ -658,7 +685,7 @@ class NotificationCenter:
                     _outcome_logger.warning(f'[{category}] refused ({type_name}{because}): {words}')
             elif notice:
                 if not do_show:
-                    _outcome_logger.log(int(Severity.NOTICE), f'[{category}] {type_name}: {words}')
+                    _outcome_logger.log(Severity.NOTICE.level, f'[{category}] {type_name}: {words}')
             else:
                 because = f' ({reason})' if reason else ''
                 _outcome_logger.error(

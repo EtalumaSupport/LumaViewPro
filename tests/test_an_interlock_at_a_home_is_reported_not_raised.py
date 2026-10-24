@@ -52,7 +52,7 @@ def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_post
     session.run_application_session(home_fn=refused, turret_fn=turret.append)
 
     title, words = REASONS[reason]
-    shown = [n for n in centre_posts if n.severity >= Severity.INFO]
+    shown = [n for n in centre_posts if n.severity.level >= Severity.INFO.level]
     assert [(n.severity, n.title, n.message) for n in shown] == [(Severity.WARNING, title, words)]
     assert turret == []
 

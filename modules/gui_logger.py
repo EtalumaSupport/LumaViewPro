@@ -97,9 +97,8 @@ def notification(severity: str, title: str, message: str, source: str = '') -> N
     Pipe character separates fields so log-scrapers can split cleanly
     when titles or messages contain colons.
     """
-    sev_str = severity if isinstance(severity, str) else str(severity)
     src_suffix = f' from={source}' if source else ''
-    _log.info(f'NOTIFICATION {sev_str} | {one_line(title)} | {one_line(message)}{src_suffix}')
+    _log.info(f'NOTIFICATION {severity} | {one_line(title)} | {one_line(message)}{src_suffix}')
 
 
 def dialog(title: str, body: str) -> None:

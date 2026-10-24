@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import enum
 import json
 import pathlib
 from concurrent.futures import Future
@@ -135,17 +136,20 @@ def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):
     assert outside == {'name': None, 'host_path': str(tmp_path)}
 
 
-def test_an_int_enum_crosses_as_its_name_as_every_enum_but_a_str_enum_does(tmp_path):
+def test_a_plain_enum_crosses_as_its_name_and_a_str_enum_as_its_value(tmp_path):
     from modules.notification_center import OutcomeKind, Severity
+
+    class Numbered(enum.Enum):
+        FIRST = 1
 
     def no_handle(obj):
         raise AssertionError(obj)
 
     encoded = wire_encoding.encode(
-        {'severity': Severity.WARNING, 'kind': OutcomeKind.REFUSAL},
+        {'numbered': Numbered.FIRST, 'severity': Severity.WARNING, 'kind': OutcomeKind.REFUSAL},
         live_folder=tmp_path,
         handle=no_handle,
         job=no_handle,
     )
 
-    assert encoded == {'severity': 'WARNING', 'kind': 'refusal'}
+    assert encoded == {'numbered': 'FIRST', 'severity': 'WARNING', 'kind': 'refusal'}

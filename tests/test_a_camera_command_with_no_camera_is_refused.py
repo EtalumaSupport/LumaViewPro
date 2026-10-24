@@ -119,7 +119,7 @@ def _camera_less(make_session, monkeypatch, model: str, **kwargs):
 
 
 def _camera_posts(posts) -> list:
-    return [n for n in posts if n.category == 'Camera' and n.severity.value >= logging.WARNING]
+    return [n for n in posts if n.category == 'Camera' and n.severity.level >= logging.WARNING]
 
 
 def _assert_names_the_camera(refusal: HardwareCommandRefusedError) -> None:

@@ -662,7 +662,7 @@ class TestRunCleanupCancelledHandoff:
 
         args, _ = self._args(apply_led_transition_fn=cancelled_apply)
         run_cleanup(**args)
-        assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
+        assert [n for n in centre_posts if n.severity.level >= Severity.WARNING.level] == []
 
     def test_cancelled_return_move_is_not_a_cleanup_error(self, centre_posts):
         from concurrent.futures import CancelledError
@@ -677,7 +677,7 @@ class TestRunCleanupCancelledHandoff:
             default_move_fn=cancelled_move,
         )
         run_cleanup(**args)
-        assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
+        assert [n for n in centre_posts if n.severity.level >= Severity.WARNING.level] == []
 
 
 class TestFinalStepKeepsLedWhenCleanupRestoresIt:

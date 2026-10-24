@@ -66,7 +66,7 @@ class TestAFailedMergeTellsTheUserOnce:
             f'{[(n.title, n.message) for n in failures]}'
         )
         assert failures[0].title == 'Composite Failed'
-        assert failures[0].severity >= Severity.ERROR
+        assert failures[0].severity.level >= Severity.ERROR.level
         return failures[0]
 
     def test_a_channel_that_captured_nothing_fails_the_merge(self, tmp_path):
@@ -87,14 +87,14 @@ class TestAFailedMergeTellsTheUserOnce:
             )
 
         assert excinfo.value.reason == 'post_processing_failed'
-        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [
             ('Composite Failed', Severity.ERROR),
             ('Run Incomplete', Severity.ERROR),
         ], told
-        assert all('Blue' in n.message for n in seen if n.severity >= Severity.NOTICE), (
-            'each notice must name the channel that failed'
-        )
+        assert all(
+            'Blue' in n.message for n in seen if n.severity.level >= Severity.NOTICE.level
+        ), 'each notice must name the channel that failed'
 
     def test_a_refusal_from_the_merge_is_told_as_itself(self, tmp_path, monkeypatch):
         from modules.composite_generation import CompositeGeneration
@@ -117,7 +117,7 @@ class TestAFailedMergeTellsTheUserOnce:
 
         # A warning under its own title, never re-typed as a merge failure.
         assert excinfo.value.reason == 'no_data'
-        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [('Composite Not Possible', Severity.WARNING)], told
 
     def test_the_merge_raises(self, tmp_path, monkeypatch):
@@ -188,5 +188,5 @@ class TestAFailedMergeTellsTheUserOnce:
         # The wait's own outcome, told under its own title as the
         # hyperstack build tells it.
         assert excinfo.value.reason == 'write_batch_timeout'
-        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [('Run Images Not Written', Severity.ERROR)], told

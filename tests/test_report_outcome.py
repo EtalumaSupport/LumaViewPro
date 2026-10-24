@@ -83,7 +83,7 @@ class TestANotice:
             centre.report_outcome(notice, solicited=True, category='Protocol')
 
         assert [(n.severity, n.title) for n in centre.shown] == [(Severity.NOTICE, 'Single Scan')]
-        assert _records(caplog) == [(NOTIFICATIONS, int(Severity.NOTICE), False)]
+        assert _records(caplog) == [(NOTIFICATIONS, Severity.NOTICE.level, False)]
         (line,) = [r.getMessage() for r in caplog.records if r.name == NOTIFICATIONS]
         assert '(single_scan)' in line, line
 
