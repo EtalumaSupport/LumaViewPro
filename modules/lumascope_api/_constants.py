@@ -7,9 +7,8 @@ breaks the import cycle that would otherwise force lazy imports in
 the sub-API files.
 
 Other modules in the package alias these onto their classes for
-back-compat (e.g. `Lumascope._VALID_AXIS_NAMES = _VALID_AXIS_NAMES`)
-so existing callers (`scope._VALID_AXIS_NAMES`, tests reading the
-class attribute) keep working.
+back-compat (e.g. `Lumascope._MOTOR_POSITION_LIMIT = MOTOR_POSITION_LIMIT`)
+so existing callers (tests reading the class attribute) keep working.
 """
 
 import numbers
@@ -17,38 +16,9 @@ from typing import NamedTuple
 
 from modules.exceptions import (
     AccelerationLimitRefusedError,
-    ArgumentRefusedError,
     PositionOutOfRangeError,
 )
 from modules.api_surface import api_fields
-
-# Structural axis-name vocabulary used only for input sanity checks
-# ("did the caller pass a real axis letter?"). NOT a capability query --
-# use `scope.capabilities.axes` for "what does this scope have?".
-_VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
-
-
-def refuse_unknown_axis(axis: object, names: tuple[str, ...] = _VALID_AXIS_NAMES) -> None:
-    """Refuse a name that is not one of the axis names a member takes.
-
-    The one check of an axis name, asked by every member that takes one
-    before it asks whether the scope has the axis: a name that is no axis
-    is the request's fault on every scope, while an axis this model lacks
-    is the hardware's answer (``MotionAPI.refuse_absent``) or, for a
-    read, the answer a missing axis gives. Names are exact: ``'x'`` is not
-    ``'X'``, so each axis has one spelling in every log and on every wire.
-
-    Args:
-        axis: The name given.
-        names: The names the member takes, when not every axis: a home
-            takes ``'ALL'`` and no X or Y, a jog no T.
-
-    Raises:
-        ArgumentRefusedError: ``'axis_unknown'``, offering ``names``.
-    """
-    if not isinstance(axis, str) or axis not in names:
-        raise ArgumentRefusedError('axis_unknown', argument='axis', value=axis, offered=names)
-
 
 # The simulated boards a simulated scope can be built on: a Python
 # stand-in with no timing; the production driver against the real firmware

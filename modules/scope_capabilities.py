@@ -40,6 +40,7 @@ from lvp_logger import logger
 from modules import common_utils
 from modules.api_surface import api_fields
 from modules.frame_validity import FrameRule, FrameValidity
+from modules.axes import Axis
 
 if TYPE_CHECKING:
     from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
@@ -283,7 +284,7 @@ class ScopeCapabilities:
     """
 
     # ---- Motion ----
-    axes: tuple[str, ...]
+    axes: tuple[Axis, ...]
     """Axes physically present on this scope -- from
     `motion.detect_present_axes()`. e.g. ('Z',) for LS820/LVC LS620,
     ('X','Y','Z') for LS850, ('X','Y','Z','T') for LS850T, () for no
@@ -479,7 +480,9 @@ class ScopeCapabilities:
                 camera that names none, or no camera.
         """
         # Motion
-        axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
+        axes = _probe(
+            'detect_present_axes', lambda: tuple(Axis(a) for a in motion.detect_present_axes()), ()
+        )
         model = channel_identity.model or ''
 
         # Optics (read once at boot; motorconfig is loaded once at driver

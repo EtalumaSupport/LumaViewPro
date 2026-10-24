@@ -61,7 +61,7 @@ def test_an_unknown_objective_is_refused_with_its_reason(turret_session, slot):
 def test_an_axis_without_a_jog_is_refused(turret_session):
     with pytest.raises(ArgumentRefusedError) as refused:
         turret_session.scope.motion.jog_step_um('T', coarse=True)
-    assert (refused.value.reason, refused.value.offered) == ('axis_unknown', ('X', 'Y', 'Z'))
+    assert (refused.value.reason, refused.value.offered) == ('not_offered', ('X', 'Y', 'Z'))
 
 
 @pytest.mark.parametrize(

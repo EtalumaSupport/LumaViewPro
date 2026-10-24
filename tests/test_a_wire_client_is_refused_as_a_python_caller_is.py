@@ -215,7 +215,7 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     )
 
     assert (body['reason'], body['argument'], body['offered']) == (
-        'axis_unknown',
+        'not_offered',
         'axis',
         ['X', 'Y', 'Z', 'T'],
     )

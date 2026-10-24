@@ -3512,10 +3512,6 @@ class ArgumentRefusedError(Refusal, ValueError):
               not a finite one: NaN, an infinity, a ``bool`` or not a
               number at all. Every comparison with NaN is False, so a
               range check alone passes it.
-            - ``'axis_unknown'`` -- the name is not one of the axis names
-              the member takes (``offered``). Names are exact: ``'x'`` is
-              not ``'X'``. An axis this model lacks is a name, and is
-              refused as absent hardware, not here.
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
             - ``'well_unknown'`` -- a well label the selected plate
@@ -3624,10 +3620,6 @@ class ArgumentRefusedError(Refusal, ValueError):
         'not_a_number': (
             'Not a Number',
             '{argument} must be a finite number; {value!r} is not one.',
-        ),
-        'axis_unknown': (
-            'Not an Axis',
-            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'plate_frame_axis': (
             'Not a Plate Axis',

@@ -12,6 +12,7 @@ re-exports below. ``Frame`` is the record a frame listener receives.
 """
 
 from drivers.camera import Frame
+from modules.axes import Axis, StageAxis
 from modules.lumascope_api._constants import AxisPosition, TurretStatus
 from modules.lumascope_api._lumascope import (
     AxisState,
@@ -22,22 +23,25 @@ from modules.lumascope_api.capabilities import Capabilities
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
 from modules.lumascope_api.illumination import IlluminationAPI
 from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.motion import MotionAPI
+from modules.lumascope_api.motion import HomeTarget, MotionAPI
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.lumascope_api.runtime_state import RuntimeState
 
 __all__ = [
+    'Axis',
     'AxisPosition',
     'AxisState',
     'CameraAPI',
     'Capabilities',
     'DiagnosticsAPI',
     'Frame',
+    'HomeTarget',
     'IlluminationAPI',
     'ImagingAPI',
     'Lumascope',
     'MotionAPI',
     'ProtocolsAPI',
     'RuntimeState',
+    'StageAxis',
     'TurretStatus',
 ]

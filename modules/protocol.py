@@ -42,6 +42,7 @@ import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import Z_REFERENCES, ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
+from modules.axes import StageAxis
 from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
@@ -342,7 +343,7 @@ def axes_outside_travel(
         stage['X'], stage['Y'] = converted.x_um, converted.y_um
     return [
         axis
-        for axis in ('X', 'Y', 'Z')
+        for axis in StageAxis
         if axis in stage
         and axis in axis_limits
         and not (axis_limits[axis].min_um <= stage[axis] <= axis_limits[axis].max_um)

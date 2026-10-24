@@ -98,7 +98,7 @@ from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
 from modules.coord_transformations import PlateLocation
-from modules.lumascope_api._constants import refuse_unknown_axis
+from modules.axes import StageAxis
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.python_values import python_values
@@ -396,7 +396,7 @@ class Status:
     lock: ControlsLock
     control: ControlSession | None
     run_refused: ProtocolRunRefusedError | None
-    axes: dict[str, AxisPosition]
+    axes: dict[StageAxis, AxisPosition]
     turret: TurretStatus | None
     parts: tuple[PartStatus, ...]
     camera_streaming: bool
@@ -2764,7 +2764,7 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def save_bookmark(self, axes: 'Iterable[str]') -> PlateLocation:
+    def save_bookmark(self, axes: 'Iterable[StageAxis]') -> PlateLocation:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
 
         X and Y are stored in plate millimetres on the selected plate, Z in
@@ -2776,6 +2776,8 @@ class ScopeSession:
             ``axes`` is None.
 
         Raises:
+            ArgumentRefusedError: ``'not_offered'``, a name in ``axes`` that
+                is not X, Y or Z. Nothing is written.
             AxisStateUnknownError: an axis's position is not known, so the
                 number it reports is not one to save. Nothing is written.
             HardwareCommandRefusedError: ``'not_connected'`` -- the motor
@@ -2816,7 +2818,7 @@ class ScopeSession:
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
     @api(stop='Operation.stop')
-    def start_go_to_bookmark(self, axes: 'Iterable[str]') -> Operation:
+    def start_go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> Operation:
         """Start ``axes`` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
 
         Reads ``bookmark`` for the axes given, as ``save_bookmark`` wrote
@@ -2829,7 +2831,7 @@ class ScopeSession:
             (``Operation.all_of``).
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, a name in ``axes`` that
+            ArgumentRefusedError: ``'not_offered'``, a name in ``axes`` that
                 is not X, Y or Z. Nothing was driven.
             HardwareCommandRefusedError: ``'not_connected'``,
                 ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
@@ -2841,9 +2843,6 @@ class ScopeSession:
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command.
         """
-        axes = tuple(axes)
-        for axis in axes:
-            refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
         mark = self.bookmark
         motion = self.scope.motion
         moves = []
@@ -2862,13 +2861,13 @@ class ScopeSession:
         return Operation.all_of(tuple(moves))
 
     @api
-    def go_to_bookmark(self, axes: 'Iterable[str]') -> None:
+    def go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> None:
         """Move ``axes`` to the bookmark, and return once they have arrived.
 
         ``start_go_to_bookmark`` followed by its operation's ``result()``.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, as
+            ArgumentRefusedError: ``'not_offered'``, as
                 ``start_go_to_bookmark``.
             HardwareCommandRefusedError: ``'not_connected'``,
                 ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
@@ -5231,7 +5230,7 @@ class ScopeSession:
         # axis is unknown, and the remedy is the cable, not a home.
         self.scope.motion.refuse_controller_not_connected('get_current_plate_position')
         self.scope.motion.refuse_unknown_positions(
-            ('X', 'Y', 'Z'), recording=True, then='try again'
+            tuple(StageAxis), recording=True, then='try again'
         )
         return self.plate_position_on(self.settings['protocol']['labware'])
 

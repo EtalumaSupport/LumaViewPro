@@ -45,6 +45,7 @@ from modules.exceptions import (
     unknown_positions_sentence,
 )
 from modules.lumascope_api.camera import camera_range_words
+from modules.axes import StageAxis
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.api_surface import api, api_fields
 
@@ -1151,7 +1152,7 @@ class ProtocolsAPI:
             if steps['Auto_Focus'].astype(bool).any():
                 needed.append('autofocus moves Z')
         if needed:
-            missing = ', '.join(axis for axis in ('X', 'Y', 'Z') if axis not in present)
+            missing = ', '.join(axis for axis in StageAxis if axis not in present)
             self._refuse(
                 reason='positions_unreachable',
                 message=(
@@ -1188,7 +1189,7 @@ class ProtocolsAPI:
 
     def _driven_axes(self) -> list[str]:
         """The position axes this scope has a motor for, in X, Y, Z order."""
-        return [axis for axis in ('X', 'Y', 'Z') if axis in self._scope.capabilities.axes]
+        return [axis for axis in StageAxis if axis in self._scope.capabilities.axes]
 
     def _refuse_missing_positions(self, names: list[str], lacking: list[str], *, then: str) -> None:
         """Refuse ``step_position_missing`` for the steps ``names``, which have no ``lacking`` position."""
@@ -1240,7 +1241,7 @@ class ProtocolsAPI:
         outside = []
         for idx, step in steps.iterrows():
             axes = axes_outside_travel(
-                {axis: step[axis] for axis in ('X', 'Y', 'Z')}, axis_limits, **plate
+                {axis: step[axis] for axis in StageAxis}, axis_limits, **plate
             )
             if axes:
                 outside.append(f'step {idx + 1} ({step["Name"]}): {", ".join(axes)}')

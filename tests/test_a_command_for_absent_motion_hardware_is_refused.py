@@ -197,7 +197,7 @@ def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_ses
     scope = make_session(model).scope
     with pytest.raises(ArgumentRefusedError) as refused:
         scope.motion.set_precision_mode('Q', True)
-    assert refused.value.reason == 'axis_unknown'
+    assert refused.value.reason == 'not_offered'
 
 
 # --- A controller out of reach --------------------------------------------------

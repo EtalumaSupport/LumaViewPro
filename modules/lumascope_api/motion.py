@@ -29,6 +29,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import dataclasses
+import enum
 import functools
 import logging as _logging
 import threading
@@ -136,29 +137,37 @@ OVERSHOOT_LEG_TIMEOUT_S = 15.0
 # The axes a plate coordinate is defined for: the plate lies in X and Y.
 _PLATE_AXES = ('X', 'Y')
 
-# What a home takes: Z, the turret, or every axis the board has. X and Y
-# home only with the rest.
-HOME_AXES = ('Z', 'T', 'ALL')
-
 # Match _lumascope.py's module-level _api_log channel so relocated
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
 
+from modules.axes import Axis, StageAxis
 from modules.lumascope_api._constants import (
     AxisPosition,
     AxisState,
     MOTOR_POSITION_LIMIT,
     TurretStatus,
     refuse_acceleration_pct,
-    refuse_unknown_axis,
     refuse_unless_turret_slot,
 )
 from modules.api_surface import api, api_fields
+from modules.closed_sets import refuse_unless_offered
 from modules.coord_transformations import AxisLimits, PlateLocation
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
     from drivers.protocols import MotorBoardProtocol
+
+
+class HomeTarget(enum.StrEnum):
+    """What a home takes: Z, the turret, or every axis the board has.
+
+    X and Y home only with the rest.
+    """
+
+    Z = Axis.Z.value
+    T = Axis.T.value
+    ALL = 'ALL'
 
 
 class _Move:
@@ -233,7 +242,7 @@ class _Move:
 class PositionChanged:
     """A position event: a stage axis, and its state and position as ``axis_positions`` answers."""
 
-    axis: str
+    axis: StageAxis
     at: AxisPosition
 
 
@@ -440,6 +449,8 @@ class MotionAPI:
             present_axes: List of axis names the hardware actually has.
             homed_axes: Those axes the hardware reports as already homed.
         """
+        # Keyed by the members, so every answer read from these is too.
+        present_axes = [Axis(ax) for ax in present_axes]
         self._pos_cache = dict.fromkeys(present_axes, 0.0)
         self._axis_state = dict.fromkeys(present_axes, AxisState.UNKNOWN)
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
@@ -515,7 +526,7 @@ class MotionAPI:
         return state in (AxisState.IDLE, AxisState.MOVING)
 
     @api(reads=True)
-    def position_is_known(self, axis: str) -> bool:
+    def position_is_known(self, axis: Axis) -> bool:
         """Whether *axis* has a reference position an absolute move can use.
 
         Offered to callers as a question rather than only as an exception.
@@ -537,9 +548,8 @@ class MotionAPI:
             UNKNOWN or HOMING, or an axis this scope does not have.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, *axis* is no axis name.
+            ArgumentRefusedError: ``'not_offered'``, *axis* is no axis name.
         """
-        refuse_unknown_axis(axis)
         with self._axis_state_lock:
             state = self._axis_state.get(axis)
         return self._position_known(state)
@@ -864,14 +874,12 @@ class MotionAPI:
                 bookmark'``).
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, a name in *axes* is
+            ArgumentRefusedError: ``'not_offered'``, a name in *axes* is
                 no axis name.
             AxisStateUnknownError: Naming every refused axis. Raised, not
                 reported: the gesture's boundary reports it.
         """
-        wanted = set(axes)
-        for axis in wanted:
-            refuse_unknown_axis(axis)
+        wanted = {refuse_unless_offered(Axis, axis, 'axes') for axis in axes}
         with self._axis_state_lock:
             states = {axis: s for axis, s in self._axis_state.items() if axis in wanted}
         refused = {
@@ -1028,7 +1036,9 @@ class MotionAPI:
                 return f'unread ({e})'
 
         def read() -> dict[str, tuple[int, int] | str]:
-            return {axis: read_axis(axis) for axis in self._scope.capabilities.axes}
+            # Keyed by each axis's plain name: the dict is written into a log
+            # line, where a member's repr would stand in for the name.
+            return {axis.value: read_axis(axis) for axis in self._scope.capabilities.axes}
 
         before = read()
         logger.info(f'Limit switch status before homing: {before}', extra={'force_error': True})
@@ -1375,7 +1385,7 @@ class MotionAPI:
         self._fire_turret_listeners()
 
     @api(reads=True)
-    def jog_step_um(self, axis: str, coarse: bool) -> float:
+    def jog_step_um(self, axis: StageAxis, coarse: bool) -> float:
         """The jog step for ``axis`` under the active objective.
 
         A jog's size scales with the objective, so the active objective's
@@ -1384,19 +1394,18 @@ class MotionAPI:
         ``move_xy_by`` and ``move_z_by`` take.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
                 'Y' or 'Z': the turret has no jog.
             ObjectiveUnknownError: The objective in the light path is
                 unknown; no step is guessed, so nothing should move.
         """
-        refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
         _, objective = self._scope.runtime_state.resolve_current_objective()
-        if axis == 'Z':
+        if axis == StageAxis.Z:
             return objective.jog_z_coarse_um if coarse else objective.jog_z_fine_um
         return objective.jog_xy_coarse_um if coarse else objective.jog_xy_fine_um
 
     @api(reads=True)
-    def get_actual_position(self, axis: str) -> float | None:
+    def get_actual_position(self, axis: StageAxis) -> float | None:
         """Query a stage axis's actual hardware position via serial (not cached), in um.
 
         Unlike get_current_position(), which serves the in-memory cache,
@@ -1416,20 +1425,19 @@ class MotionAPI:
             installed or for an axis this scope does not have.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
                 'Y' or 'Z'.
             HardwareCommandRefusedError: ``'not_connected'``, the installed
                 motor controller is not connected (its cable pulled).
             HardwareError: the controller did not report the position.
         """
-        refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
         if not self._has_position(axis):
             return None
         self.refuse_absent('get_actual_position')
         return self._driver.current_pos(axis)
 
     @api
-    def set_precision_mode(self, axis: str, enabled: bool) -> None:
+    def set_precision_mode(self, axis: Axis, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
         Precision mode uses accurate but slightly slower motor stopping.
@@ -1442,13 +1450,12 @@ class MotionAPI:
             enabled: True for precise positioning, False for speed.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name; nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``refuse_absent``); nothing was sent.
         """
-        refuse_unknown_axis(axis)
         return self._dispatch_motion(
             self._set_precision_mode_impl,
             'set_precision_mode',
@@ -1474,7 +1481,7 @@ class MotionAPI:
             flight ends ``'stopped'``.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
@@ -1483,7 +1490,7 @@ class MotionAPI:
                 failed is not "short of the target", so it is never
                 answered as False.
         """
-        refuse_unknown_axis(axis)
+        axis = refuse_unless_offered(Axis, axis, 'axis')
         self.refuse_absent('get_target_status', axis)
         return self._read_target_status(axis)
 
@@ -1507,7 +1514,7 @@ class MotionAPI:
             return False
 
     @api(reads=True)
-    def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
+    def get_limit_switch_status(self, axis: Axis) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
         Tells a caller WHY a move stopped short: an axis that reached a limit
@@ -1524,14 +1531,13 @@ class MotionAPI:
 
         Raises:
             HardwareError: the board did not answer the read.
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``refuse_absent``); a switch the scope does not have is
                 never answered as clear.
         """
-        refuse_unknown_axis(axis)
         self.refuse_absent('get_limit_switch_status', axis)
         return self._driver.limit_switch_status(axis=axis)
 
@@ -1644,7 +1650,7 @@ class MotionAPI:
             then: What the user does once the scope knows its position.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, a name in *axes* is no
+            ArgumentRefusedError: ``'not_offered'``, a name in *axes* is no
                 axis name; nothing was opened.
             AxisStateUnknownError: Naming every refused axis; nothing was
                 opened.
@@ -1701,7 +1707,7 @@ class MotionAPI:
         return action == self._home_impl and self._scope.capabilities.has_turret
 
     @api(reads=True)
-    def get_axis_state(self, axis: str) -> str:
+    def get_axis_state(self, axis: Axis) -> str:
         """Get the current state of an axis.
 
         Args:
@@ -1712,15 +1718,14 @@ class MotionAPI:
             an axis this scope does not have.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
         """
-        refuse_unknown_axis(axis)
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
     @api(in_process=True, event=PositionChanged)
-    def add_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
+    def add_position_listener(self, listener: Callable[[StageAxis, AxisPosition], None]) -> None:
         """Register a callback for position/state changes on a stage axis: X, Y or Z.
 
         The listener is called with ``(axis, AxisPosition)`` whenever the
@@ -1733,7 +1738,7 @@ class MotionAPI:
         schedule any UI work via ``Clock.schedule_once``.
 
         Args:
-            listener: ``callable(axis: str, at: AxisPosition)``
+            listener: ``callable(axis: StageAxis, at: AxisPosition)``
 
         Raises:
             Nothing.
@@ -1742,7 +1747,7 @@ class MotionAPI:
             self._position_listeners.append(listener)
 
     @api(in_process=True)
-    def remove_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
+    def remove_position_listener(self, listener: Callable[[StageAxis, AxisPosition], None]) -> None:
         """Unregister a position listener.
 
         Args:
@@ -1817,13 +1822,14 @@ class MotionAPI:
 
     def _fire_position_listeners(self, axis: str):
         """Notify the listeners of a change on *axis*: a stage axis's as ``axis_positions`` answers it, the turret's as ``turret_status`` does."""
-        if axis == 'T':
+        if axis == Axis.T:
             self._fire_turret_listeners()
             return
-        at = self.axis_positions()[axis]
+        stage_axis = StageAxis(axis)
+        at = self.axis_positions()[stage_axis]
         with self._position_listeners_lock:
             listeners = list(self._position_listeners)
-        notifications.tell_listeners(listeners, axis, at, category='Motion')
+        notifications.tell_listeners(listeners, stage_axis, at, category='Motion')
 
     def _fire_turret_listeners(self):
         """Notify all turret listeners of the turret's state and slot, as ``turret_status`` answers them."""
@@ -1846,7 +1852,7 @@ class MotionAPI:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
     @api(reads=True)
-    def get_axis_limits(self, axis: str) -> AxisLimits | None:
+    def get_axis_limits(self, axis: Axis) -> AxisLimits | None:
         """Get the travel limits for an axis, in um.
 
         Args:
@@ -1858,14 +1864,13 @@ class MotionAPI:
             Callers must handle the None case.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``refuse_absent``); an axis the scope does not have has no
                 travel to answer with.
         """
-        refuse_unknown_axis(axis)
         self.refuse_absent('get_axis_limits', axis)
         limits = self._driver.get_axis_limits(axis=axis)
         if limits is None:
@@ -1957,7 +1962,7 @@ class MotionAPI:
         return all(self._position_known(state) for state in stage_states)
 
     @api(reads=True)
-    def axes_without_position(self) -> dict[str, str]:
+    def axes_without_position(self) -> dict[Axis, str]:
         """Which of this scope's axes do not know their position, and why.
 
         The question a run asks before it starts and before each capture:
@@ -1972,7 +1977,7 @@ class MotionAPI:
         no position to lose, so nothing about it is unknown.
 
         Returns:
-            dict[str, str]: Axis name to its state (``AxisState.UNKNOWN``
+            dict[Axis, str]: Axis to its state (``AxisState.UNKNOWN``
                 or ``AxisState.HOMING``) for every axis whose position is
                 not known, in the scope's axis order. Empty when every
                 axis knows its position.
@@ -1988,7 +1993,7 @@ class MotionAPI:
             }
 
     @api(reads=True)
-    def axis_positions(self) -> dict[str, AxisPosition]:
+    def axis_positions(self) -> dict[StageAxis, AxisPosition]:
         """Every stage axis's state and its position, or None where the position is not known.
 
         One snapshot: the state and the cache are read together, so a
@@ -2004,7 +2009,7 @@ class MotionAPI:
         other path nests the two, so this order cannot meet its reverse.
 
         Returns:
-            dict[str, AxisPosition]: Stage axis name to (state, position), in
+            dict[StageAxis, AxisPosition]: Stage axis to (state, position), in
                 the scope's axis order.
 
         Raises:
@@ -2015,9 +2020,11 @@ class MotionAPI:
             with self._pos_cache_lock:
                 cache = dict(self._pos_cache)
         return {
-            ax: AxisPosition(state, cache.get(ax) if self._position_known(state) else None)
+            StageAxis(ax): AxisPosition(
+                state, cache.get(ax) if self._position_known(state) else None
+            )
             for ax, state in states.items()
-            if ax != 'T'
+            if ax != Axis.T
         }
 
     def _raise_unread_axes(self, home: str, homed: tuple | list, read: set[str]) -> None:
@@ -2083,7 +2090,7 @@ class MotionAPI:
             return self._pos_cache.get(axis, 0.0)
 
     @api(reads=True)
-    def get_target_position(self, axis: str) -> float | None:
+    def get_target_position(self, axis: StageAxis) -> float | None:
         """Get the target position for a stage axis (where it is commanded to go), in um.
 
         The last target this API wrote to the board for the axis, while the
@@ -2107,10 +2114,9 @@ class MotionAPI:
                 hardware behind it (see ``_has_position``).
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
                 'Y' or 'Z'.
         """
-        refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
         if not self._has_position(axis):
             return None
         with self._axis_state_lock:
@@ -2128,7 +2134,7 @@ class MotionAPI:
         return self._read_position_cache(axis)
 
     @api(reads=True)
-    def get_target_positions(self) -> dict[str, float]:
+    def get_target_positions(self) -> dict[StageAxis, float]:
         """The target of every stage axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
 
         An axis with no hardware behind it is left out, and so is the
@@ -2138,12 +2144,12 @@ class MotionAPI:
             Nothing.
         """
         return {
-            ax: self.get_target_position(ax)
+            StageAxis(ax): self.get_target_position(ax)
             for ax in self._scope.capabilities.axes
-            if ax != 'T' and self._has_position(ax)
+            if ax != Axis.T and self._has_position(ax)
         }
 
-    def get_current_position(self, axis: str) -> float | None:
+    def get_current_position(self, axis: Axis) -> float | None:
         """Get the current position for an axis; um for X/Y/Z, turret slot (1-4) for T.
 
         Reads from the in-memory position cache. During MOVING the cache
@@ -2161,15 +2167,15 @@ class MotionAPI:
                 read since bring-up is UNKNOWN at 0.0, which nothing read.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
         """
-        refuse_unknown_axis(axis)
+        axis = refuse_unless_offered(Axis, axis, 'axis')
         if not self._has_position(axis):
             return None
         return self._read_position_cache(axis)
 
-    def get_current_positions(self) -> dict[str, float]:
+    def get_current_positions(self) -> dict[Axis, float]:
         """The position of every axis the scope has a position for, by axis name, as ``get_current_position`` answers each.
 
         An axis with no hardware behind it is left out. No serial I/O.
@@ -3021,7 +3027,7 @@ class MotionAPI:
         ).result()
 
     @api
-    def home(self, axis: str = 'ALL') -> None:
+    def home(self, axis: HomeTarget = HomeTarget.ALL) -> None:
         """Home the given axis set, and wait for it.
 
         Returns only when the home established a reference: every homed
@@ -3041,7 +3047,7 @@ class MotionAPI:
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread; nothing was started (``start_home`` is the form
                 for a button).
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not
                 ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
@@ -3079,7 +3085,7 @@ class MotionAPI:
             raise
 
     @api(stop='Operation.stop')
-    def start_home(self, axis: str = 'ALL') -> Operation:
+    def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation:
         """Start the home ``home`` runs, without waiting for it; returns its ``Operation``.
 
         For a caller that must not block for the length of a home -- a
@@ -3092,7 +3098,7 @@ class MotionAPI:
         a home, and nothing once the home has ended.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not
                 ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier has not ended; or the home was refused as
@@ -3116,12 +3122,11 @@ class MotionAPI:
             raise
         return Operation.following(waiter, stop=stop, first=release_if_unrun)
 
-    def _home_body(self, axis: str) -> Callable[[], None]:
+    def _home_body(self, axis: HomeTarget) -> Callable[[], None]:
         """The home body for ``axis``."""
-        refuse_unknown_axis(axis, HOME_AXES)
-        if axis == 'Z':
+        if axis == HomeTarget.Z:
             return self._zhome_impl
-        if axis == 'T':
+        if axis == HomeTarget.T:
             return self._home_turret_impl
         return self._home_impl
 

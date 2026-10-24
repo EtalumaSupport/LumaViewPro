@@ -48,6 +48,7 @@ from modules.common_utils import (
     resolve_channel_identity,
 )
 from modules.coord_transformations import PlatePosition
+from modules.axes import StageAxis
 from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
@@ -1058,7 +1059,7 @@ def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
     or stage offset selected there is no plate frame to state X and Y in,
     and no home will change that, so that is said too.
     """
-    unknown = [ax for ax in ('X', 'Y', 'Z') if ax in scope.motion.axes_without_position()]
+    unknown = [ax for ax in StageAxis if ax in scope.motion.axes_without_position()]
     if not unknown and to_plate is not None:
         return
     notifications.report_outcome(

@@ -27,7 +27,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
-from modules.lumascope_api._constants import refuse_unknown_axis
+from modules.axes import Axis
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -1109,17 +1109,16 @@ class DiagnosticsAPI:
     # for one that did.
 
     @api(in_process=True, reads=True, engineering=True)
-    def read_motor_drv_status(self, axis: str) -> int | None:
+    def read_motor_drv_status(self, axis: Axis) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
 
         Returns the raw register value as int (caller decodes bits),
         or None when the firmware does not implement DRVSTAT_<axis>.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name; nothing was read.
         """
-        refuse_unknown_axis(axis)
         drv = getattr(self._scope, '_motion_driver', None)
         if drv is None or not hasattr(drv, 'read_drv_status'):
             return None

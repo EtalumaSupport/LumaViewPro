@@ -35,7 +35,7 @@ from drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from modules.api_surface import api, api_fields
 from modules.exceptions import ArgumentRefusedError
 from modules.finite_number import WAIT_S, refuse_unless_finite_number
-from modules.lumascope_api._constants import refuse_unknown_axis
+from modules.axes import Axis
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -367,7 +367,7 @@ class SimulationAPI:
     # --- the stage ---
 
     @api(in_process=True)
-    def fail_home(self, axis: str, how: str) -> None:
+    def fail_home(self, axis: Axis, how: str) -> None:
         """``axis``'s home fails in the simulated hardware, until ``clear``.
 
         Args:
@@ -376,15 +376,14 @@ class SimulationAPI:
                 ``'stall'`` (the motor stalls) or ``'absent'`` (no motor).
 
         Raises:
-            ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'axis_unknown'``; ``'fault_unknown'`` for ``how``, or for a
+            ArgumentRefusedError: ``'not_offered'`` for ``axis``;
+                ``'needs_simulated_scope'``; ``'fault_unknown'`` for ``how``, or for a
                 scope with no motor board; ``'not_injectable_on_board'`` on
                 the fast motor board, which runs no firmware to fail a home;
                 ``'argument_not_on_board'`` for a ``how`` the TMCM-6110
                 cannot show (it has ``'switch_never_trips'``).
         """
         self._refuse_unless_simulated('fail_home')
-        refuse_unknown_axis(axis)
         if how not in HOME_FAULTS:
             raise ArgumentRefusedError(
                 'fault_unknown', argument='how', value=how, offered=HOME_FAULTS
@@ -408,7 +407,7 @@ class SimulationAPI:
         self._record('fail_home', undo, axis=axis, how=how)
 
     @api(in_process=True)
-    def hold_axis(self, axis: str, at_fraction: float = 0.5) -> threading.Event:
+    def hold_axis(self, axis: Axis, at_fraction: float = 0.5) -> threading.Event:
         """``axis``'s next move halts part of the way and never arrives, until ``clear``.
 
         A stop, a home or a new target on the axis ends the move it holds,
@@ -425,8 +424,8 @@ class SimulationAPI:
             releases the move, which then travels the rest.
 
         Raises:
-            ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'axis_unknown'``; ``'not_a_number'`` or ``'fault_bound'``
+            ArgumentRefusedError: ``'not_offered'`` for ``axis``;
+                ``'needs_simulated_scope'``; ``'not_a_number'`` or ``'fault_bound'``
                 for a fraction outside 0 to 1; ``'fault_unknown'`` for a
                 scope with no motor board; ``'not_injectable_on_board'``
                 on every board but the fast motor board: the firmware's
@@ -434,7 +433,6 @@ class SimulationAPI:
                 TMCM-6110's arrives too.
         """
         self._refuse_unless_simulated('hold_axis')
-        refuse_unknown_axis(axis)
         self._bound('at_fraction', at_fraction, 'between 0 and 1', 0 < at_fraction < 1)
         target = self._board('hold_axis', MOTOR)
         if not isinstance(target, SimulatedMotorBoard):

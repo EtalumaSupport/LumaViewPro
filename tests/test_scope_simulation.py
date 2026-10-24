@@ -212,7 +212,7 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('unplug', ('camera',), 'fault_unknown', 'board'),
         ('drop_replies', ('motor', 0), 'fault_bound', 'count'),
         ('hold_axis', ('X', 1.0), 'fault_bound', 'at_fraction'),
-        ('hold_axis', ('x',), 'axis_unknown', 'axis'),
+        ('hold_axis', ('x',), 'not_offered', 'axis'),
         ('fail_home', ('X', 'jammed'), 'fault_unknown', 'how'),
         ('refuse_camera_write', ('focus', 'false'), 'fault_unknown', 'node'),
         ('refuse_camera_write', ('gain', 'no'), 'fault_unknown', 'answer'),

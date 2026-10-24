@@ -514,8 +514,6 @@ class TestPerAxisDictsFromDriver:
        it returns silently -- the API behaves the same on Null hardware
        and on partial-hardware scopes
     5. Input sanity validation rejects non-axis names like 'Q'
-    6. The misnamed `VALID_AXES` constant is gone; `_VALID_AXIS_NAMES` is
-       a private input-vocabulary tuple, not a capability query
     """
 
     def test_xyzt_scope_dicts_have_xyzt_keys(self):
@@ -557,20 +555,6 @@ class TestPerAxisDictsFromDriver:
         assert scope.motion._pos_cache == {}
         assert scope.motion._axis_state == {}
         assert scope.motion._arrival_events == {}
-
-    def test_no_hardcoded_VALID_AXES_constant(self):
-        """The misnamed `VALID_AXES` class constant has been deleted.
-        It implied "what axes are available" but actually meant "what
-        axis names we accept as input" -- which is now the private
-        `_VALID_AXIS_NAMES`."""
-        assert not hasattr(Lumascope, 'VALID_AXES'), (
-            'Lumascope.VALID_AXES must be removed -- its name was misleading '
-            '(implied capability, meant vocabulary). Use axes_present() for '
-            'capability queries; _VALID_AXIS_NAMES is the private input '
-            'vocabulary tuple.'
-        )
-        assert hasattr(Lumascope, '_VALID_AXIS_NAMES')
-        assert tuple(Lumascope._VALID_AXIS_NAMES) == ('X', 'Y', 'Z', 'T')
 
 
 class TestRunGrabLifecycleBenchmark:

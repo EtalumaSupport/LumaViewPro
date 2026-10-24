@@ -284,11 +284,10 @@ class Lumascope:
     # publishes its own through `scope.capabilities.led_max_ma`, and a
     # constant here would be a second copy that drifts.
     # LED channel set comes from self._led_driver.available_channels() -- varies by
-    # Canonical home for these is `_constants.py`; alias on the class so
-    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope._MOTOR_POSITION_LIMIT`)
-    # keep working. Sub-API modules import from `_constants.py` directly
-    # to avoid a circular dep with this file.
-    _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
+    # Canonical home for this is `_constants.py`; alias on the class so
+    # existing callers (`Lumascope._MOTOR_POSITION_LIMIT`) keep working.
+    # Sub-API modules import from `_constants.py` directly to avoid a
+    # circular dep with this file.
     _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
     # How long the exit hook waits for a disconnect already in flight -- the

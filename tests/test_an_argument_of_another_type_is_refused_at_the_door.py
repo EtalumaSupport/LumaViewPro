@@ -90,7 +90,7 @@ def test_none_is_taken_only_where_the_signature_says_so(session):
     refused = _refused(
         lambda: session.scope.motion.start_home(None), 'MotionAPI.start_home', 'axis'
     )
-    assert refused.declared == 'str'
+    assert refused.declared == 'HomeTarget'
     _refused(lambda: session.saved_focus_z_um(None), 'ScopeSession.saved_focus_z_um', 'channel')
 
 

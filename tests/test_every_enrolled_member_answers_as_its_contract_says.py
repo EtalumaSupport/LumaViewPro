@@ -846,7 +846,7 @@ def _bad_rows() -> list[Bad]:
             'MotionAPI.home',
             lambda s: s.session.scope.motion.home('Q'),
             ArgumentRefusedError,
-            'axis_unknown',
+            'not_offered',
             ('/api/v1/scope/motion/home', lambda s: {'axis': 'Q'}),
         ),
         Bad(
