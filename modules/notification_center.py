@@ -195,7 +195,7 @@ def _next_outcome_id() -> int:
     'category',
     'title',
     'message',
-    'timestamp',
+    'monotonic_s',
     'source',
     'fatal',
     'solicited',
@@ -205,7 +205,7 @@ def _next_outcome_id() -> int:
     'outcome_id',
     'reason',
     'shown',
-    'wall_time',
+    'wall_time_epoch_s',
 )
 @dataclass(frozen=True)
 class Notification:
@@ -223,7 +223,7 @@ class Notification:
     category: str  # e.g. "Motor", "Camera", "FileIO", "Protocol"
     title: str  # short summary shown in popup title
     message: str  # detail shown in popup body
-    timestamp: float = field(default_factory=time.monotonic)
+    monotonic_s: float = field(default_factory=time.monotonic)
     source: str = ''  # optional originating module/function
     fatal: bool = False  # reaches listeners even while a protocol suppresses popups
     # True when this notification ANSWERS a request that just arrived --
@@ -252,9 +252,9 @@ class Notification:
     # post that declares none.
     reason: str = ''
     shown: bool = True
-    # Wall-clock seconds, for a client in another process; ``timestamp`` is
-    # monotonic and orders two notifications within this one.
-    wall_time: float = field(default_factory=time.time)
+    # Wall-clock seconds, for a client in another process; ``monotonic_s``
+    # orders two notifications within this one.
+    wall_time_epoch_s: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -537,7 +537,7 @@ class NotificationCenter:
             category=category,
             title=title,
             message=message,
-            timestamp=now,
+            monotonic_s=now,
             source=source,
             fatal=fatal,
             operation_key=operation_key,

@@ -58,7 +58,7 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
         self.reason = 'falsifying_change_in_flight'
 
 
-@api_fields('name', 'taken_by', 'taken_at')
+@api_fields('name', 'taken_by', 'taken_at_epoch_s')
 @dataclass(frozen=True)
 class ControlSession:
     """The one client controlling the scope: what it was taken as, and by whom.
@@ -70,12 +70,12 @@ class ControlSession:
     Attributes:
         name: The name the client took it with, for the person at the scope.
         taken_by: The host the take came through (``modules.caller``).
-        taken_at: When it was taken, as ``time.time()``.
+        taken_at_epoch_s: When it was taken, as ``time.time()``.
     """
 
     name: str
     taken_by: Caller
-    taken_at: float
+    taken_at_epoch_s: float
 
 
 class ControlSessionHeldError(Refusal, Exception):
@@ -666,7 +666,7 @@ class ActivityClaim:
                 raise ControlSessionRefusedError('write_in_flight')
             if finishing():
                 raise ControlSessionRefusedError('work_finishing')
-            session = ControlSession(name=name, taken_by=caller, taken_at=time.time())
+            session = ControlSession(name=name, taken_by=caller, taken_at_epoch_s=time.time())
             controller = ControllerTaking(self, session, uuid.uuid4().hex)
             self._control = (session, controller)
         self.announce()

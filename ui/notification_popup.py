@@ -255,18 +255,18 @@ def _show_superseding(n) -> None:
 
     recorded = _operation_popups.get(key)
     if recorded is not None:
-        popup, recorded_timestamp = recorded
+        popup, recorded_monotonic_s = recorded
         # Kivy's clock core ships compiled, so the order in which two
         # zero-delay callbacks are applied is not something this code can
         # read and rely on. Comparing the notifications' own timestamps makes
         # the order irrelevant: an older notice arriving late neither
         # dismisses the newer popup nor puts its own stale message back up.
-        if recorded_timestamp > n.timestamp:
+        if recorded_monotonic_s > n.monotonic_s:
             return
         popup.dismiss()  # a no-op if the user already closed it by hand
         del _operation_popups[key]
 
-    _operation_popups[key] = (_open(n), n.timestamp)
+    _operation_popups[key] = (_open(n), n.monotonic_s)
 
 
 def notification_popup_bridge(n) -> None:

@@ -729,7 +729,7 @@ for judgment in session.scope.imaging.judge_frame(frame, mapping):   # frame: fr
 
 ### The control session
 
-One client controls the scope at a time. `session.take_control(name)` takes the control session and returns its id, a string told to the taker and to no one else: it is what a call in the session names, and what ends it. `session.control` reads the live session as a `ControlSession` -- the `name` it was taken with, `taken_by` (the host the take came through) and `taken_at` -- and never its id; None when none is held. While it is held, every write that is not the holder's is refused: a hardware command (`HardwareCommandRefusedError`), a setting or a file (`ControlSessionRefusedError`), a run, a recording, a home or a diagnostic (each taker's own refusal), all with `reason` `control_session_held` and the session's name in `control_session`. The display preferences are written by anyone, and a stop is never refused. `session.status` carries the session as `control`.
+One client controls the scope at a time. `session.take_control(name)` takes the control session and returns its id, a string told to the taker and to no one else: it is what a call in the session names, and what ends it. `session.control` reads the live session as a `ControlSession` -- the `name` it was taken with, `taken_by` (the host the take came through) and `taken_at_epoch_s` (wall-clock seconds) -- and never its id; None when none is held. While it is held, every write that is not the holder's is refused: a hardware command (`HardwareCommandRefusedError`), a setting or a file (`ControlSessionRefusedError`), a run, a recording, a home or a diagnostic (each taker's own refusal), all with `reason` `control_session_held` and the session's name in `control_session`. The display preferences are written by anyone, and a stop is never refused. `session.status` carries the session as `control`.
 
 The holder acts in its session by its id: in process, inside `with session.acting_in_control(session_id):`, where every call the block makes on its thread is the session's; over REST, by sending the id in a `Control-Session` header on each request. A done-callback the API runs on a thread of its own is outside the block and is refused as any non-holder's call. Inside the session the holder works the scope as anyone does without one: its runs, recordings, homes and diagnostics take the scope one at a time, and a recording still refuses the writes that would falsify its file.
 
@@ -1334,7 +1334,7 @@ Each call carries one `Notification` (`modules.notification_center`):
 | `fatal` | True for a fault that ends what was running |
 | `shown` | Whether the scope says this is for display now. False when it was muted: during a scan, a protocol, an autofocus scan of every step, or a run under a diagnostic's claim (non-fatal outcomes; a standalone autofocus, composite or z-stack is shown, whoever started it); during a standalone autofocus, composite or z-stack, a non-fatal outcome identical to one already shown in that run (same category, title and message); an outcome you did not ask for whose category and title were shown less than 10 s ago, a fatal one included (an answer to a request is never muted this way, and showing it restarts the 10 s); or during shutdown. You receive muted outcomes too; a display shows only `shown` ones |
 | `outcome_id` | One per outcome. An outcome delivered muted and later shown (because someone asked for it) arrives twice with the same id, `shown` False then True; keep the first of an id to count each outcome once |
-| `wall_time`, `timestamp` | Wall-clock seconds, and a monotonic time for ordering within the process |
+| `wall_time_epoch_s`, `monotonic_s` | Wall-clock seconds, and a monotonic time in seconds for ordering within the process |
 | `severity`, `category`, `operation_key` | The log level, the subsystem, and the operation a notice-then-outcome pair is about |
 
 A refusal raised to you carries `cause` beside `reason` (`RefusalCause`, `modules.exceptions`, a string enum): whether the same request could succeed later with you changing nothing. `'state'` -- the scope's state refused it (a run is live, an axis is not homed, the drive is unplugged), so the same request may succeed once that changes; a REST server answers 409. `'request'` -- as sent, it cannot succeed on this scope (a bad argument, a value outside a fixed rule or this hardware's range, hardware this scope does not have, a handle that no longer names anything live), so change it before sending it again; a REST server answers 422. A client that retries refusals retries only `'state'`. The cause is declared on the refusal's type, per reason where one type has both (`ProtocolRunRefusedError`, `HardwareCommandRefusedError`, `LiveFolderPathRefusedError`), never decided by the code that raises it. A type that declares none cannot be imported (`tests/guards/test_every_refusal_declares_its_cause.py`).
@@ -3875,7 +3875,7 @@ Reached through `scope.imaging.judge_frame`'s `mapping`, and a capture's `frame_
 Reached through `session.control`.
 
 - `name`
-- `taken_at`
+- `taken_at_epoch_s`
 - `taken_by`
 
 ### ControlSessionRefusedError
@@ -4210,6 +4210,7 @@ Reached through delivered to `session.add_outcome_listener`'s callback.
 - `fatal`
 - `kind`
 - `message`
+- `monotonic_s`
 - `operation_key`
 - `outcome_id`
 - `reason`
@@ -4218,9 +4219,8 @@ Reached through delivered to `session.add_outcome_listener`'s callback.
 - `shown`
 - `solicited`
 - `source`
-- `timestamp`
 - `title`
-- `wall_time`
+- `wall_time_epoch_s`
 
 ### Objective
 

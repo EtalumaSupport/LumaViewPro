@@ -468,7 +468,7 @@ class TestTheSessionsMembers:
 
         sim_session.take_control('plate reader')
         fields = {f.name for f in dataclasses.fields(sim_session.control)}
-        assert fields == {'name', 'taken_by', 'taken_at'}, (
+        assert fields == {'name', 'taken_by', 'taken_at_epoch_s'}, (
             'only the taker holds the id: a plugin reading session.control could act as the holder'
         )
 
