@@ -1707,15 +1707,15 @@ class MotionAPI:
         return action == self._home_impl and self._scope.capabilities.has_turret
 
     @api(reads=True)
-    def get_axis_state(self, axis: Axis) -> str:
+    def get_axis_state(self, axis: Axis) -> AxisState:
         """Get the current state of an axis.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            str: One of AxisState.UNKNOWN, IDLE, MOVING, HOMING; UNKNOWN for
-            an axis this scope does not have.
+            AxisState: UNKNOWN, IDLE, MOVING or HOMING; UNKNOWN for an axis
+            this scope does not have.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
@@ -1962,7 +1962,7 @@ class MotionAPI:
         return all(self._position_known(state) for state in stage_states)
 
     @api(reads=True)
-    def axes_without_position(self) -> dict[Axis, str]:
+    def axes_without_position(self) -> dict[Axis, AxisState]:
         """Which of this scope's axes do not know their position, and why.
 
         The question a run asks before it starts and before each capture:
@@ -1977,7 +1977,7 @@ class MotionAPI:
         no position to lose, so nothing about it is unknown.
 
         Returns:
-            dict[Axis, str]: Axis to its state (``AxisState.UNKNOWN``
+            dict[Axis, AxisState]: Axis to its state (``AxisState.UNKNOWN``
                 or ``AxisState.HOMING``) for every axis whose position is
                 not known, in the scope's axis order. Empty when every
                 axis knows its position.

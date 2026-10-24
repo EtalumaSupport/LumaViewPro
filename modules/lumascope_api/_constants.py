@@ -11,8 +11,9 @@ back-compat (e.g. `Lumascope._MOTOR_POSITION_LIMIT = MOTOR_POSITION_LIMIT`)
 so existing callers (tests reading the class attribute) keep working.
 """
 
+import dataclasses
+import enum
 import numbers
-from typing import NamedTuple
 
 from modules.exceptions import (
     AccelerationLimitRefusedError,
@@ -107,7 +108,7 @@ def refuse_unless_turret_slot(slot: object) -> None:
         )
 
 
-class AxisState:
+class AxisState(enum.StrEnum):
     """Possible states for a motion axis."""
 
     UNKNOWN = 'unknown'  # Not homed / state not known
@@ -117,7 +118,8 @@ class AxisState:
 
 
 @api_fields('position_um', 'state')
-class AxisPosition(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class AxisPosition:
     """One stage axis's state and its position, read together: X, Y or Z.
 
     ``position_um`` is None unless the axis is IDLE or MOVING: an axis whose
@@ -126,12 +128,13 @@ class AxisPosition(NamedTuple):
     not be handed it. The turret has a slot, not a position: ``TurretStatus``.
     """
 
-    state: str
+    state: AxisState
     position_um: float | None
 
 
 @api_fields('state', 'slot')
-class TurretStatus(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class TurretStatus:
     """The turret's state and the slot in the light path, read together.
 
     ``slot`` is ``MotionAPI.get_turret_slot``'s: the slot the last turret
@@ -141,5 +144,5 @@ class TurretStatus(NamedTuple):
     or unknown.
     """
 
-    state: str
+    state: AxisState
     slot: int | None

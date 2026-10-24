@@ -8,6 +8,11 @@ unknown positions, the capabilities, the status, a position event -- so a
 caller compares or keys by the member or its plain string alike. A member
 that takes a stage axis refuses the turret as it refuses any other name:
 the turret has a slot, not a position, and there is no bookmark of it.
+
+An axis's state is an ``AxisState`` the same way: answered as the member,
+and judged where a record holding one is built, so an ``AxisPosition`` or a
+``TurretStatus`` a caller builds with a plain string holds the member and
+one built with any other word is refused.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import pytest
 
 from modules.axes import Axis, StageAxis
 from modules.exceptions import ArgumentRefusedError
+from modules.lumascope_api import AxisPosition, AxisState, TurretStatus
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
@@ -71,3 +77,39 @@ def test_a_bookmark_of_the_turret_is_refused_and_nothing_is_written(session, mem
         ('X', 'Y', 'Z'),
     )
     assert session.settings['bookmark'] == before
+
+
+def test_an_axis_state_is_answered_as_the_member(session):
+    motion = session.scope.motion
+
+    answered = [
+        motion.get_axis_state('Z'),
+        motion.axis_positions()['Z'].state,
+        motion.turret_status().state,
+        session.status.turret.state,
+    ]
+
+    assert [(type(state), state) for state in answered] == [(AxisState, 'idle')] * 4
+
+
+def test_a_position_record_built_with_a_plain_state_holds_the_member():
+    built = [AxisPosition('idle', 1.0).state, TurretStatus('homing', None).state]
+    assert [(type(state), state) for state in built] == [
+        (AxisState, 'idle'),
+        (AxisState, 'homing'),
+    ]
+
+
+def test_a_position_record_built_with_a_word_that_is_no_state_is_refused():
+    states = ('unknown', 'idle', 'moving', 'homing')
+    for build, argument in (
+        (lambda: AxisPosition('parked', 1.0), 'AxisPosition.state'),
+        (lambda: TurretStatus('parked', 2), 'TurretStatus.state'),
+    ):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            build()
+        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
+            'not_offered',
+            argument,
+            states,
+        )
