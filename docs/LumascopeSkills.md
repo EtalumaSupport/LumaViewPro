@@ -1814,7 +1814,7 @@ scope.motion.start_move_z_by(100).result()
 # it stopped, its position known; interlocks() says why.
 # stop_motion works with the lid open. A board with no interlocks (every
 # EL-0940 scope) never raises these.
-scope.motion.interlocks()                        # frozenset of open interlocks, e.g. {'lid_open'}; empty when none
+scope.motion.interlocks()                        # frozenset of open Interlock members (LID_OPEN 'lid_open', STAGE_UNPOWERED 'stage_unpowered'); empty when none
 
 # Jog step under the active objective (z_coarse / z_fine for Z, xy_coarse / xy_fine for X, Y);
 # ObjectiveUnknownError when the objective is unknown -- no step is guessed

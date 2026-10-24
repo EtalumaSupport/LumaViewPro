@@ -141,6 +141,7 @@ _PLATE_AXES = ('X', 'Y')
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
 
+from lib.stage_interlock import INTERLOCK_TITLES
 from modules.axes import Axis, StageAxis
 from modules.lumascope_api._constants import (
     AxisPosition,
@@ -168,6 +169,18 @@ class HomeTarget(enum.StrEnum):
     Z = Axis.Z.value
     T = Axis.T.value
     ALL = 'ALL'
+
+
+# Built from the interlocks' one list, which a driver reads too and so
+# lives below modules/: the API names the driver's words by this set.
+Interlock = enum.StrEnum(
+    'Interlock', [(reason.upper(), reason) for reason in INTERLOCK_TITLES], module=__name__
+)
+Interlock.__doc__ = """A stage hardware interlock that, open, stops the stage.
+
+    Its value is also the reason a motion command is refused or stopped for
+    it, which stays a string, as every reason does.
+    """
 
 
 class _Move:
@@ -702,7 +715,7 @@ class MotionAPI:
         return HomingFaultError(home, 'error', axes)
 
     @api(reads=True)
-    def interlocks(self) -> frozenset[str]:
+    def interlocks(self) -> frozenset[Interlock]:
         """The stage's hardware interlocks open now (``'lid_open'``, ``'stage_unpowered'``).
 
         Empty on a board with none. Asked of the driver directly, not
@@ -714,13 +727,14 @@ class MotionAPI:
         or a reopen of the port.
 
         Returns:
-            frozenset[str]: The open interlocks' reasons.
+            frozenset[Interlock]: The open interlocks.
 
         Raises:
             HardwareError: the board did not answer the read; the stage's
                 state is unknown, which is not the same answer as none open.
         """
-        return self._driver.interlocks()
+        # The driver keeps its own words; the API names them by the set.
+        return frozenset(Interlock(name) for name in self._driver.interlocks())
 
     def refuse_absent(self, member: str, axis: str | None = None) -> None:
         """Refuse a command for motion hardware this scope does not have.

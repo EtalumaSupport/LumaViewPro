@@ -23,7 +23,7 @@ from modules.lumascope_api.capabilities import Capabilities
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
 from modules.lumascope_api.illumination import IlluminationAPI
 from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.motion import HomeTarget, MotionAPI
+from modules.lumascope_api.motion import HomeTarget, Interlock, MotionAPI
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.lumascope_api.runtime_state import RuntimeState
 
@@ -38,6 +38,7 @@ __all__ = [
     'HomeTarget',
     'IlluminationAPI',
     'ImagingAPI',
+    'Interlock',
     'Lumascope',
     'MotionAPI',
     'ProtocolsAPI',

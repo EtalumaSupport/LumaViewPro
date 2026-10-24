@@ -35,7 +35,7 @@ from modules.exceptions import (
     MoveNotCompletedError,
     MoveStoppedError,
 )
-from modules.lumascope_api import AxisState
+from modules.lumascope_api import AxisState, Interlock
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope, home_sim_scope
 from tests.case_walk import failing_cases
@@ -269,6 +269,20 @@ class TestALidOpenedDuringAMove:
 class TestTheInterlocksRead:
     def test_a_board_without_interlocks_answers_none(self, scope):
         assert scope.motion.interlocks() == frozenset()
+
+    def test_an_open_interlock_is_answered_as_the_member(self):
+        ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
+        try:
+            ls720.simulation.interlock(lid_open=True, powered=False)
+
+            answered = ls720.motion.interlocks()
+
+            assert sorted((type(i), i) for i in answered) == [
+                (Interlock, 'lid_open'),
+                (Interlock, 'stage_unpowered'),
+            ]
+        finally:
+            ls720.disconnect()
 
     def test_is_answered_while_the_io_lane_is_busy(self, scope, monkeypatch):
         monkeypatch.setattr(scope._motion_driver, 'interlocks', lambda: frozenset({'lid_open'}))
