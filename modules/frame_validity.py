@@ -96,7 +96,7 @@ class FrameValiditySource(enum.StrEnum):
     LINE_NOISE_REDUCTION = 'line_noise_reduction'
 
 
-class Counter(enum.Enum):
+class Counter(enum.StrEnum):
     """Who counted a frame toward a change: the capture's drain, a grab
     (a capture's own, or an ungated ``get_image``), or the live preview.
 
@@ -118,7 +118,7 @@ class Credit:
     by: Counter
 
 
-class Rule(enum.Enum):
+class Rule(enum.StrEnum):
     """How a frame is judged against a change of one source."""
 
     CLOCK = 'clock'
@@ -153,7 +153,7 @@ class FrameRule:
     provenance: Mapping[str, str] | None
 
     def __post_init__(self):
-        clock = self.rule is Rule.CLOCK
+        clock = self.rule == Rule.CLOCK
         if (self.delay_us is not None) != clock or (self.provenance is not None) != clock:
             raise ValueError(
                 f'a {self.rule.value} rule with delay {self.delay_us!r} and '
@@ -836,7 +836,7 @@ class FrameValidity:
                     and self._settle_check_fn is not None
                     and not self._settle_check_fn(source)
                 )
-                if change.rule.rule is Rule.CLOCK:
+                if change.rule.rule == Rule.CLOCK:
                     anchor = change.in_force_ns if change.needs_in_force else change.written_ns
                     if moving or anchor is None:
                         frames = max(frames, 1)
@@ -918,7 +918,7 @@ class FrameValidity:
         in_force = change.in_force_ns
         start = None
         qualifies_after = None
-        if change.rule.rule is Rule.CLOCK:
+        if change.rule.rule == Rule.CLOCK:
             start = frame.chunks.get('Timestamp') if frame.chunks else None
             anchor = in_force if change.needs_in_force else change.written_ns
             if mapping is not None and anchor is not None:
