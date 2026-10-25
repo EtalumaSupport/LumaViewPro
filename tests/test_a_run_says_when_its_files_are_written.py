@@ -17,6 +17,10 @@ from modules import live_work
 import modules.image_mode as image_mode
 import modules.protocol_image_writer as protocol_image_writer
 import modules.stack_builder as stack_builder
+from modules.exceptions import ArgumentRefusedError
+from modules.run_events import FilesWritten
+from modules.run_outcome import FilesOutcome
+from modules.sequenced_capture_runner import RunFiles
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -64,13 +68,29 @@ def test_the_files_wait_returns_once_the_images_land_and_the_next_run_is_admitte
         held_saves.set()
         files = first.files.result(timeout=WAIT_S)
         assert files is not None
-        assert files.outcome == 'written'
+        assert files.outcome == FilesOutcome.WRITTEN
+        assert type(files.outcome) is FilesOutcome
         assert files.written >= 1
         assert files.not_written == 0
         assert files.not_written_reason is None
 
         second = _scan(runner, tmp_path / 'runs', 'C2')
         assert second.result(timeout=WAIT_S) is not None
+
+
+def test_a_files_outcome_is_one_of_the_set_wherever_it_is_built(tmp_path):
+    # Both records a caller reads it in: the operation's result and the
+    # event a host carries elsewhere builds from its arguments.
+    assert RunFiles('incomplete', 0, 1, 'write_batch_save_failed').outcome == (
+        FilesOutcome.INCOMPLETE
+    )
+    assert type(FilesWritten(tmp_path, 'written').files) is FilesOutcome
+    with pytest.raises(ArgumentRefusedError) as refused:
+        RunFiles('partial', 0, 1, 'write_batch_save_failed')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'RunFiles.outcome')
+    with pytest.raises(ArgumentRefusedError) as refused:
+        FilesWritten(tmp_path, 'partial')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'FilesWritten.files')
 
 
 def test_an_image_that_failed_to_save_is_counted(tmp_path, monkeypatch):

@@ -42,6 +42,7 @@ from modules.exceptions import (
 )
 from modules.notification_center import notifications
 from modules.api_surface import api_fields
+from modules.run_outcome import FilesOutcome
 
 logger = logging.getLogger('lvp_logger')
 
@@ -803,14 +804,14 @@ class PluginRegistry:
         input_dir: str,
         manifest: dict,
         output_dir: str,
-        files: str,
+        files: FilesOutcome,
     ) -> None:
         """Invoke every post_processing plugin that opted in via
         PluginSpec.auto_run_on_protocol_complete=True.
 
         Called once per Full Protocol run, after all its output files are
         written and its hyperstack build has ended. ``files`` is the run's
-        write outcome; on ``'incomplete'`` -- some images are not on disk
+        write outcome; on ``INCOMPLETE`` -- some images are not on disk
         -- nothing runs, since a plugin reading the folder as whole would
         build from a partial one. Only a loaded plugin's processor runs: one
         unloaded since, or whose register failed after it registered the
@@ -822,7 +823,7 @@ class PluginRegistry:
         and reported, and does not block the others. A success is logged at
         INFO. Never raises.
         """
-        if files != 'written':
+        if files != FilesOutcome.WRITTEN:
             logger.warning(
                 f"[Plugins ] Post-processing auto-run skipped for {input_dir}: the run's "
                 f'images were not all written ({files})'

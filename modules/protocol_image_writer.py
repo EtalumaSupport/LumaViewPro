@@ -50,6 +50,7 @@ from modules.run_outcome import (
     FailedCapture,
     FatalTold,
     FocusFailure,
+    FilesOutcome,
     RunEnding,
     RunStatus,
     TakenCapture,
@@ -191,8 +192,8 @@ class RunWriteBatch:
             return len(self._outstanding)
 
     @property
-    def outcome(self) -> str | None:
-        """``'written'`` or ``'incomplete'`` once complete; None before."""
+    def outcome(self) -> FilesOutcome | None:
+        """What became of the run's images once complete; None before."""
         return self._outcome
 
     @property
@@ -371,7 +372,7 @@ class RunWriteBatch:
         if due is not None:
             self._complete(*due)
 
-    def when_complete(self, on_complete: Callable[[str], None]) -> None:
+    def when_complete(self, on_complete: Callable[[FilesOutcome], None]) -> None:
         """Run ``on_complete(outcome)`` once, when the batch completes.
 
         Now, on the caller's thread, when the last write has already
@@ -430,7 +431,7 @@ class RunWriteBatch:
         """
         if not self._completed.wait(timeout=timeout_s):
             raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
-        if self._outcome != 'written':
+        if self._outcome != FilesOutcome.WRITTEN:
             raise RunFilesNotWrittenError(self.not_written_reason)
 
     def _refuse_if_ended(self, what: str) -> None:
@@ -518,10 +519,12 @@ class RunWriteBatch:
             return None
         # An abandon is incomplete whatever it counted: after it, the run's
         # later images are refused at hand-over and never reach the count.
-        self._outcome = 'incomplete' if (self._abandoned or self._lost) else 'written'
+        self._outcome = (
+            FilesOutcome.INCOMPLETE if (self._abandoned or self._lost) else FilesOutcome.WRITTEN
+        )
         return self._on_complete, self._outcome
 
-    def _complete(self, on_complete, outcome: str) -> None:
+    def _complete(self, on_complete, outcome: FilesOutcome) -> None:
         # Complete BEFORE the actions: one of them is the run-state edge,
         # and a listener re-reading the levels on it must already read the
         # drain as over -- no later edge would correct it.

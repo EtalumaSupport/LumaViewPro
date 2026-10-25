@@ -23,6 +23,7 @@ import numpy as np
 
 from modules.api_surface import api_fields, event_metadata
 from modules.kivy_utils import schedule_ui
+from modules.run_outcome import FilesOutcome
 
 if TYPE_CHECKING:
     from modules.protocol import Protocol
@@ -97,10 +98,10 @@ class RunEnded:
 @api_fields('run_dir', 'files')
 @dataclasses.dataclass(frozen=True)
 class FilesWritten:
-    """A ``files_written`` event: the run's folder, and ``'written'`` or ``'incomplete'``."""
+    """A ``files_written`` event: the run's folder, and what became of its images."""
 
     run_dir: pathlib.Path | None
-    files: str
+    files: FilesOutcome
 
 
 @api_fields(
@@ -150,8 +151,8 @@ class RunEvents:
             before or after its ``files_written``. ``run_dir`` is None for a run that
             saved nothing.
         files_written: ``(run_dir, files)`` once the run's last image write
-            has landed: ``files`` is ``'written'``, or ``'incomplete'`` when
-            some of its images are not on disk.
+            has landed: ``files`` is ``FilesOutcome.WRITTEN``, or
+            ``INCOMPLETE`` when some of its images are not on disk.
         on_ui_thread: Whether the handlers above but ``frame_captured``
             run on the UI dispatcher's thread. A GUI sets it for handlers
             that draw; the default runs each on the sending thread.
@@ -179,7 +180,7 @@ class RunEvents:
     run_ended: Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None = (
         dataclasses.field(default=None, metadata=event_metadata(RunEnded))
     )
-    files_written: Callable[[pathlib.Path | None, str], object] | None = dataclasses.field(
+    files_written: Callable[[pathlib.Path | None, FilesOutcome], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(FilesWritten)
     )
     on_ui_thread: bool = False

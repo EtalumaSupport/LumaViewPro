@@ -30,7 +30,7 @@ from modules.operation import settling
 from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_events import RunEvents, deliver
-from modules.run_outcome import STOP_REASONS, RunEnding, RunStatus
+from modules.run_outcome import STOP_REASONS, FilesOutcome, RunEnding, RunStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -73,11 +73,11 @@ def send_run_ended(
 
 
 def send_files_written(
-    events: RunEvents, run: EngineRun, *, run_dir: pathlib.Path | None, files: str
+    events: RunEvents, run: EngineRun, *, run_dir: pathlib.Path | None, files: FilesOutcome
 ) -> None:
     """Send the run's one ``files_written``; one of *run*'s files events once it has run.
 
-    ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
+    ``files`` is the run's write outcome: ``WRITTEN``, or ``INCOMPLETE``
     when some of its images are not on disk.
     """
     deliver(

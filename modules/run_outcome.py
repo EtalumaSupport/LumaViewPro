@@ -77,6 +77,18 @@ class RunStatus(enum.StrEnum):
     FAILED_AT_START = 'failed_at_start'
 
 
+class FilesOutcome(enum.StrEnum):
+    """What became of a run's images once its writes are done.
+
+    ``WRITTEN`` when every image the run captured is on disk;
+    ``INCOMPLETE`` when some are not -- a write that failed, or writes
+    given up on by a writer recovery or a shutdown.
+    """
+
+    WRITTEN = 'written'
+    INCOMPLETE = 'incomplete'
+
+
 # The heading of each way a run can end, by the ending's reason: the one
 # place an ending is titled, so the popup, the run's outcome and the failure
 # raised to a caller title one ending one way wherever it was recorded.

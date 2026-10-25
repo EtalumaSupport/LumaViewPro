@@ -68,6 +68,7 @@ from modules.run_outcome import (
     FILES_LOST_ENDINGS,
     CaptureTally,
     EndingLatch,
+    FilesOutcome,
     PendingRunOutcome,
     RunEnding,
     RunStatus,
@@ -135,13 +136,12 @@ T = typing.TypeVar('T')
 class RunFiles:
     """What became of one run's images, once its writes are done.
 
-    The run's batch's own account, read when it completed: outcome is
-    ``'written'`` when every image the run captured is on disk, else
-    ``'incomplete'``, with how many are not and why (the batch's
-    ``not_written_reason``).
+    The run's batch's own account, read when it completed: its outcome,
+    and when it is ``INCOMPLETE``, how many images are not on disk and why
+    (the batch's ``not_written_reason``).
     """
 
-    outcome: str
+    outcome: FilesOutcome
     written: int
     not_written: int
     not_written_reason: str | None
@@ -2549,7 +2549,7 @@ class SequencedCaptureRunner:
 
     def _close_run_writes(
         self, write_batch: RunWriteBatch, ending: RunEnding, run: EngineRun
-    ) -> typing.Callable[[str], None]:
+    ) -> typing.Callable[[FilesOutcome], None]:
         """Close the run's writes; return what follows the last one landing.
 
         Once every image the run captured is on disk -- or given up on by a
@@ -2594,7 +2594,7 @@ class SequencedCaptureRunner:
                     short, solicited=False, category='Protocol', log_only=told_of_images
                 )
 
-        def _files_written(outcome: str) -> None:
+        def _files_written(outcome: FilesOutcome) -> None:
             # One line per run, when its last write lands: a run's images
             # keep landing after the run ends, and this is the one place
             # that knows they are all in.
@@ -2608,7 +2608,7 @@ class SequencedCaptureRunner:
                 f'{write_batch.written} written, {write_batch.not_written} not written'
                 + (f' ({reason})' if reason else '')
             )
-            if outcome == 'written':
+            if outcome == FilesOutcome.WRITTEN:
                 logger.info(line)
             else:
                 logger.warning(line)
