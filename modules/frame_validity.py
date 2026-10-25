@@ -305,7 +305,7 @@ class Judgment:
         capture's log line both carry. A time the judgment has none of is
         absent, never a stand-in."""
         out = {
-            'source': self.change.source,
+            'source': self.change.source.value,
             'rule': self.change.rule.rule.value,
             'counts': self.counts,
             'frames_after': self.frames_after,

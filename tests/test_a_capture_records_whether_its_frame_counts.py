@@ -322,6 +322,43 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
     assert _judgment(record, 'exposure').counts
 
 
+def test_a_full_depth_file_carries_the_judgments_as_plain_words(sim_scope, tmp_path):
+    # A 16-bit frame goes through tifffile's ImageJ writer, which writes the
+    # plane's dict as its text and is read back as a literal: a closed set's
+    # member there wrote its repr, no literal, and the whole plane came back
+    # as a string every post-processing build then failed on.
+    sim_scope.camera.set_exposure_ms(20.0)
+    image = sim_scope.imaging.capture_and_wait(accept_dark=True, force_to_8bit=True)
+    record = sim_scope.imaging.last_capture_info['frame_record']
+    metadata = image_save.generate_image_metadata(
+        sim_scope,
+        channel='BF',
+        plate_x_mm=12.0,
+        plate_y_mm=8.0,
+        stage_z_um=4321.0,
+        objective_id='10x Oly',
+        frame_record=record,
+        labware=WellPlateLoader().get_plate('6 well microplate'),
+        well_label='A1',
+    )
+    path = tmp_path / 'judged_full_depth.tif'
+    image_utils.write_tiff(
+        data=image.astype(np.uint16) << 4,
+        file_loc=path,
+        metadata=metadata,
+        ome=False,
+        color=release_color('BF'),
+        significant_bits=12,
+        save_encoding='msb_aligned',
+        white_bits=None,
+    )
+
+    saved = image_utils.read_postproc_input_metadata(path)
+
+    assert saved['frame_validity'] == [j.fields() for j in record.judgments]
+    assert {type(j['source']) for j in saved['frame_validity']} == {str}
+
+
 def test_a_listeners_frame_is_judged_through_the_api(sim_scope):
     imaging = sim_scope.imaging
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
