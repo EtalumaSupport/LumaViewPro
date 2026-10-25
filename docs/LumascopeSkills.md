@@ -2383,7 +2383,7 @@ scope.camera_connected                             # bool property (mirror of mo
 scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} no sensor, None no camera, a failed read raises
 scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
                                                    # timestamp clock (camera_timestamp_tick_hz), read at connect
-scope.capabilities.camera_sensor                   # 'Aptina MT9P031', and camera_shutter 'rolling' or 'global', from
+scope.capabilities.camera_sensor                   # 'Aptina MT9P031', and camera_shutter, a CameraShutter ('rolling' or 'global'), from
                                                    # the camera's datasheet entry; None for a camera none describes
 scope.capabilities.camera_sdk_version              # the vendor SDK's version, read at connect; None without one
 scope.capabilities.camera_limits                   # the gain and exposure ranges, read at connect (CameraLimits)

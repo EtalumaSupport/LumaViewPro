@@ -35,6 +35,7 @@ from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFaultError
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
+from modules.scope_capabilities import CameraShutter
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -762,11 +763,12 @@ class TestScopeCapabilities:
         assert caps.led_max_ma == scope._led_driver.max_ma()
 
     def test_the_cameras_datasheet_facts_are_capabilities(self):
-        """The sensor and its shutter, from the camera's datasheet entry,
-        and the SDK's version, read at connect; the simulated camera is
-        driven without a vendor SDK."""
+        """The sensor and its shutter, a ``CameraShutter``, from the camera's
+        datasheet entry, and the SDK's version, read at connect; the
+        simulated camera is driven without a vendor SDK."""
         caps = build_scope(simulate=True).capabilities
-        assert (caps.camera_sensor, caps.camera_shutter) == ('Simulated', 'rolling')
+        assert (caps.camera_sensor, caps.camera_shutter) == ('Simulated', CameraShutter.ROLLING)
+        assert type(caps.camera_shutter) is CameraShutter
         assert caps.camera_sdk_version is None
 
     def test_a_camera_no_datasheet_entry_describes_has_no_sensor_or_shutter(self):

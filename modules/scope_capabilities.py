@@ -30,6 +30,7 @@ properties, not frozen snapshot fields.
 
 from __future__ import annotations
 
+import enum
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -241,6 +242,13 @@ def _frame(value: object) -> FrameSize | None:
     return FrameSize(width=int(value['width']), height=int(value['height']))
 
 
+class CameraShutter(enum.StrEnum):
+    """How a camera's sensor exposes a frame, as its datasheet entry says."""
+
+    ROLLING = 'rolling'
+    GLOBAL = 'global'
+
+
 @api_fields(
     'axes',
     'camera_binning_sizes',
@@ -348,9 +356,9 @@ class ScopeCapabilities:
     """The camera's sensor (``'Sony IMX334LLR-C'``), from the camera's
     datasheet entry; None for a camera no entry describes, or no camera."""
 
-    camera_shutter: str | None
-    """The sensor's shutter, ``'rolling'`` or ``'global'``, from the same
-    entry; None where ``camera_sensor`` is."""
+    camera_shutter: CameraShutter | None
+    """The sensor's shutter, from the same entry; None where
+    ``camera_sensor`` is."""
 
     camera_sdk_version: str | None
     """The version of the camera vendor's SDK the camera is driven through,
