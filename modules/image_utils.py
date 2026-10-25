@@ -2249,7 +2249,7 @@ def write_tiff(
     # the bits it can reach and shown against one frame's white, and a file
     # that drops the white reopens about N times dimmer than it was taken.
     # Required, None for a file whose values were remapped (a composite, an
-    # enhanced or feature-stitched image) and so are shown at their depth.
+    # enhanced image) and so are shown at their depth.
     if white_bits is not None and white_bits > significant_bits:
         raise ValueError(
             f'white at {white_bits} bits lies above the {significant_bits}-bit payload it describes'

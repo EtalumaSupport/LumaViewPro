@@ -218,6 +218,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'`` for a board this scope lacks;
                 ``'fault_bound'`` for a count below 1;
                 ``'argument_not_on_board'`` for a count of None on a
@@ -276,6 +277,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'`` for a board this scope lacks;
                 ``'not_a_number'`` or ``'fault_bound'`` for a delay not
                 above 0 or past 30 days, the longest wait every host can
@@ -297,6 +299,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` on the
                 fast LED board and a firmware board, whose silence is
                 ``unplug``.
@@ -321,6 +324,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` where
                 ``silence`` is, and on the FX2, whose stream does not
                 resume.
@@ -339,6 +343,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` on the
                 fast LED board, which has no link to lose.
         """
@@ -362,6 +367,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` where
                 ``unplug`` is, and on the FX2, which re-enumerates on its
                 own.
@@ -383,6 +389,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_offered'``, ``board`` is not a ``Part``;
                 ``'fault_unknown'``; ``'not_a_number'`` or ``'fault_bound'``
                 for a negative boot or one past 30 days;
                 ``'not_injectable_on_board'`` on every
