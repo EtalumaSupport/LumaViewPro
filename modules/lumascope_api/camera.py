@@ -1815,7 +1815,7 @@ class CameraAPI:
             'set_auto_exposure',
             args=(mode,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-            satisfied_when_absent=(True if mode is CameraAutoMode.OFF else _REFUSED_WHEN_ABSENT),
+            satisfied_when_absent=(True if mode == CameraAutoMode.OFF else _REFUSED_WHEN_ABSENT),
         )
 
     def _set_auto_exposure_impl(self, mode: CameraAutoMode) -> bool | None:
@@ -1839,7 +1839,7 @@ class CameraAPI:
 
         if not self._driver or not self._driver.active:
             return None
-        state = mode is CameraAutoMode.CONTINUOUS
+        state = mode == CameraAutoMode.CONTINUOUS
         if not self._camera_has_auto_exposure():
             # See _set_auto_gain_impl: off is such a camera's state, not a write.
             if state:

@@ -359,7 +359,7 @@ class AppRuntime(StrEnum):
     @property
     def frozen(self) -> bool:
         """Whether the process is a PyInstaller build, installed or not."""
-        return self is not AppRuntime.SOURCE
+        return self != AppRuntime.SOURCE
 
 
 def launch_root() -> pathlib.Path:
@@ -450,7 +450,7 @@ def get_source_root(
     if source_path is not None:
         return pathlib.Path(source_path)
 
-    if app_runtime() is not AppRuntime.INSTALLED:
+    if app_runtime() != AppRuntime.INSTALLED:
         return launch_root()
 
     version, _build_timestamp = read_version()

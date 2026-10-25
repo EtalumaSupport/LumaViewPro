@@ -372,7 +372,7 @@ def _lit_channel_pairs(
     return frozenset(
         (r.address, r.illumination_ma)
         for r in readings or ()
-        if r.state is LedState.LIT and (r.illumination_ma > 0 or not drop_nonpositive)
+        if r.state == LedState.LIT and (r.illumination_ma > 0 or not drop_nonpositive)
     )
 
 
@@ -450,7 +450,7 @@ class LedReading:
     illumination_ma: float | None
 
     def __post_init__(self) -> None:
-        if (self.illumination_ma is not None) != (self.state is LedState.LIT):
+        if (self.illumination_ma is not None) != (self.state == LedState.LIT):
             raise ValueError(
                 f'a {self.state} LED reading with illumination_ma={self.illumination_ma!r}: '
                 'only a lit address carries a current'
@@ -483,9 +483,9 @@ class _Held:
     illumination_ma: float | None = None
 
     def __post_init__(self) -> None:
-        if self.state is LedState.DARK:
+        if self.state == LedState.DARK:
             raise ValueError('a dark LED address is absent from the store, never held')
-        if (self.illumination_ma is not None) != (self.state is LedState.LIT):
+        if (self.illumination_ma is not None) != (self.state == LedState.LIT):
             raise ValueError(
                 f'a held {self.state} LED address with illumination_ma={self.illumination_ma!r}'
             )
@@ -1236,7 +1236,7 @@ class IlluminationAPI:
         if readings is None:
             return None
         _api_log.info(
-            f'save_led_state tag={tag}: {[r.address for r in readings if r.state is LedState.LIT]}'
+            f'save_led_state tag={tag}: {[r.address for r in readings if r.state == LedState.LIT]}'
         )
         return LedSnapshot(tag, readings)
 

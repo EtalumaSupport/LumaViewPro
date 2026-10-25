@@ -3378,7 +3378,7 @@ class ScopeSession:
         address = self.scope.illumination.color2ch(layer)
         if address is None or not self.scope.led_connected:
             return False
-        return self.scope.illumination.get_led_state(layer).state is LedState.LIT
+        return self.scope.illumination.get_led_state(layer).state == LedState.LIT
 
     def _set_shown_channel(self, shown: ShownChannel) -> None:
         """Store ``shown`` and tell the listeners when it changed."""
@@ -5597,7 +5597,7 @@ class ScopeSession:
                         lit = [
                             r.name or f'address {r.address}'
                             for r in self.scope.illumination.get_led_states() or ()
-                            if r.state is LedState.LIT
+                            if r.state == LedState.LIT
                         ]
                         state_text = (
                             'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'

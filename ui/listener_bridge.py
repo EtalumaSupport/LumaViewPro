@@ -282,7 +282,7 @@ class UIListenerBridge:
             readings = self._scope.illumination.get_led_states() or ()
             reading = next((r for r in readings if r.address == a), None)
             if reading is not None and reading.name is not None:
-                self._write_led_button(reading.name, lit=reading.state is LedState.LIT)
+                self._write_led_button(reading.name, lit=reading.state == LedState.LIT)
 
         schedule_ui(_update_led_ui, 0)
 
@@ -364,7 +364,7 @@ class UIListenerBridge:
             lit = {
                 r.name
                 for r in self._scope.illumination.get_led_states() or ()
-                if r.state is LedState.LIT
+                if r.state == LedState.LIT
             }
             for color in common_utils.get_layers_with_led():
                 self._write_led_button(color, lit=color in lit)

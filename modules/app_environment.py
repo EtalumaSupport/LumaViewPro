@@ -47,7 +47,7 @@ def init_environment(main_file: str) -> AppEnvironment:
     # starts empty, so the shipped data is copied into it on first launch;
     # this runs before the logger is imported, which reads debug_mode there.
     source_path = str(get_source_root())
-    if app_runtime() is AppRuntime.INSTALLED:
+    if app_runtime() == AppRuntime.INSTALLED:
         os.makedirs(source_path, exist_ok=True)
         if not os.path.exists(os.path.join(source_path, 'data')):
             shutil.copytree(os.path.join(script_path, 'data'), os.path.join(source_path, 'data'))
@@ -343,7 +343,7 @@ def capture_installer_logs(
     from modules import path_utils
 
     copied: list[str] = []
-    if path_utils.app_runtime() is not path_utils.AppRuntime.INSTALLED:
+    if path_utils.app_runtime() != path_utils.AppRuntime.INSTALLED:
         return copied
     source_dir = (
         pathlib.Path(temp_dir) if temp_dir is not None else pathlib.Path(tempfile.gettempdir())

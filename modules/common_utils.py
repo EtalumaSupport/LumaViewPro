@@ -532,7 +532,7 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', shown_layer: str) 
     from modules.lumascope_api.illumination import LedState
 
     for reading in illumination.get_led_states() or ():
-        if reading.state is LedState.LIT and reading.name is not None:
+        if reading.state == LedState.LIT and reading.name is not None:
             return reading.name
     return shown_layer
 

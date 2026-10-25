@@ -300,7 +300,7 @@ def repair_refusal() -> str | None:
     """
     if sys.platform != 'win32':
         return 'repair_needs_windows'
-    if app_runtime() is not AppRuntime.INSTALLED:
+    if app_runtime() != AppRuntime.INSTALLED:
         return 'repair_needs_installed_build'
     root = launch_root()
     if not (root / DRIVER_STEP_EXE).is_file() or not (root / PACKAGE_DIR / PACKAGE_INF).is_file():
