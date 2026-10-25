@@ -19,7 +19,7 @@ import pytest
 
 from modules.exceptions import SupportReportNotSavedError
 from modules.notification_center import notifications
-from modules.tech_support_report import SupportReportSaved, TechSupportReport
+from modules.tech_support_report import SupportReportKind, SupportReportSaved, TechSupportReport
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -55,7 +55,8 @@ def test_a_support_report_that_fails_says_why(session, monkeypatch, tmp_path):
     monkeypatch.setattr(TechSupportReport, '_generate', _fails)
     with pytest.raises(SupportReportNotSavedError, match='the disk is full') as raised:
         session.make_support_report(output_dir=tmp_path / 'out')
-    assert raised.value.report == 'support report'
+    assert raised.value.report == SupportReportKind.SUPPORT_REPORT
+    assert type(raised.value.report) is SupportReportKind
 
 
 def test_the_person_is_shown_the_reports_own_words(centre_posts):
@@ -69,6 +70,8 @@ def test_the_person_is_shown_the_reports_own_words(centre_posts):
 def test_a_saved_logs_zip_says_where_it_is(session, tmp_path):
     saved = session.make_logs_zip(output_dir=tmp_path / 'out')
     assert saved.path.is_file()
+    assert saved.report == SupportReportKind.LOGS_ZIP
+    assert type(saved.report) is SupportReportKind
     assert saved.title == 'Logs Zip Saved'
     assert str(tmp_path / 'out') in saved.message
 

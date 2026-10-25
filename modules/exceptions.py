@@ -21,6 +21,7 @@ from modules.run_outcome import ENDING_TITLES
 if TYPE_CHECKING:
     from modules.frame_validity import FrameValiditySource
     from modules.plugins import PluginNotLoaded
+    from modules.tech_support_report import SupportReportKind
 
 # A camera that is connected and not delivering frames: a run refused at its
 # start and a capture refused at its call carry the one heading.
@@ -4571,7 +4572,7 @@ class SupportReportNotSavedError(Fault, Exception):
     report.
 
     Attributes:
-        report: ``'support report'`` or ``'logs zip'``.
+        report: Which ZIP was not saved.
     """
 
     reason = 'support_report_not_saved'
@@ -4579,7 +4580,7 @@ class SupportReportNotSavedError(Fault, Exception):
     words_for_person = True
     title = 'Support Report Not Saved'
 
-    def __init__(self, report: str, cause: BaseException):
+    def __init__(self, report: 'SupportReportKind', cause: BaseException):
         words = str(cause) or type(cause).__name__
         super().__init__(
             f'The {report} was not saved: {words}\n\nContact {SUPPORT_ADDRESS} directly.'

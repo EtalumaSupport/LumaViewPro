@@ -1443,9 +1443,10 @@ try:
     saved = session.make_logs_zip(output_dir='/data/support')   # seconds: logs, data folder, recent
                                                                 # protocols, video receipts; no hardware
 except SupportReportNotSavedError as e:         # no ZIP; the failure's own words, chained from it
-    print(e.report, e)                          # 'support report' or 'logs zip'
+    print(e.report, e)                          # a SupportReportKind: 'support report' or 'logs zip'
 
 saved.path      # the ZIP
+saved.report    # a SupportReportKind: 'support report' or 'logs zip'
 saved.title     # 'Support Report Saved' or 'Logs Zip Saved'
 saved.message   # the folder it is in, and the address to send it to
                 # Both copy the data folder with the value of every "api_key"

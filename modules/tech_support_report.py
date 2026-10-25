@@ -1607,7 +1607,17 @@ class FirmwareDiagnostics:
 # ---------------------------------------------------------------------------
 
 
-_REPORT_TITLES = {'support report': 'Support Report Saved', 'logs zip': 'Logs Zip Saved'}
+class SupportReportKind(enum.StrEnum):
+    """Which ZIP a support request saved: the full support report, or the logs alone."""
+
+    SUPPORT_REPORT = 'support report'
+    LOGS_ZIP = 'logs zip'
+
+
+_REPORT_TITLES = {
+    SupportReportKind.SUPPORT_REPORT: 'Support Report Saved',
+    SupportReportKind.LOGS_ZIP: 'Logs Zip Saved',
+}
 
 
 @api_fields('path', 'report')
@@ -1617,17 +1627,11 @@ class SupportReportSaved:
 
     Attributes:
         path: The ZIP.
-        report: ``'support report'`` or ``'logs zip'``.
+        report: Which ZIP it is.
     """
 
     path: pathlib.Path
-    report: str
-
-    def __post_init__(self):
-        if self.report not in _REPORT_TITLES:
-            raise ValueError(
-                f'{self.report!r} is not a report; use one of {sorted(_REPORT_TITLES)}'
-            )
+    report: SupportReportKind
 
     @api
     @property
@@ -1708,7 +1712,7 @@ class TechSupportReport:
         try:
             return self._generate(cb, include_bandwidth_test, output_dir)
         except Exception as e:
-            raise SupportReportNotSavedError('support report', e) from e
+            raise SupportReportNotSavedError(SupportReportKind.SUPPORT_REPORT, e) from e
 
     def _generate(self, cb, include_bw, output_dir):
         cb(0, 'Starting report generation...')
@@ -2935,7 +2939,7 @@ class TechSupportReport:
                 cb(100, f'Done -- {zip_path.name}')
                 return zip_path
         except Exception as e:
-            raise SupportReportNotSavedError('logs zip', e) from e
+            raise SupportReportNotSavedError(SupportReportKind.LOGS_ZIP, e) from e
 
     def _create_zip(self, tmp, sn, output_dir, report_type='tsr'):
         output_dir = pathlib.Path(output_dir)
@@ -3098,7 +3102,7 @@ def main() -> int:
         return 1
 
     print('\n')  # Newline after progress bar
-    logger.info(f'  {SupportReportSaved(zip_path, "support report").message}')
+    logger.info(f'  {SupportReportSaved(zip_path, SupportReportKind.SUPPORT_REPORT).message}')
     logger.info('')
 
     return 0

@@ -4483,7 +4483,11 @@ class ScopeSession:
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries.
         """
-        from modules.tech_support_report import SupportReportSaved, TechSupportReport
+        from modules.tech_support_report import (
+            SupportReportKind,
+            SupportReportSaved,
+            TechSupportReport,
+        )
 
         report = TechSupportReport(session=self)
         with self._count_in_flight(live_work.WorkKind.SUPPORT_REPORT):
@@ -4493,7 +4497,7 @@ class ScopeSession:
                     include_bandwidth_test=include_bandwidth_test,
                     output_dir=output_dir,
                 ),
-                'support report',
+                SupportReportKind.SUPPORT_REPORT,
             )
 
     @api
@@ -4524,13 +4528,17 @@ class ScopeSession:
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries.
         """
-        from modules.tech_support_report import SupportReportSaved, TechSupportReport
+        from modules.tech_support_report import (
+            SupportReportKind,
+            SupportReportSaved,
+            TechSupportReport,
+        )
 
         report = TechSupportReport(session=self)
         with self._count_in_flight(live_work.WorkKind.LOGS_ZIP):
             return SupportReportSaved(
                 report.generate_logs_only(callback=on_progress, output_dir=output_dir),
-                'logs zip',
+                SupportReportKind.LOGS_ZIP,
             )
 
     @api
