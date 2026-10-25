@@ -37,6 +37,15 @@ guard holds four things over every class defined under ``modules/``:
    and is not judged. No marked annotation names ``timedelta``: a duration
    is a float of seconds. A return's unit is in its member's name or its
    record, so a return is not judged by name.
+8. **Every fixed word is a closed set.** No marked member's parameter or
+   return and no published field names a plain ``Enum`` or an ``IntEnum``:
+   a closed set is a ``StrEnum``, so it crosses the wire as its word and
+   equals its plain string. Every one that holds a ``str`` -- a parameter,
+   a return, a field, a dict's key or a callback's argument -- is in
+   ``OPEN_STRINGS`` with the reason its words are open (a channel key, a
+   catalogue key, a reason word, words a person reads, a camera's, board's
+   or OS's own word, ...), so a fixed list of words written later as a
+   ``str`` fails here until it is a ``StrEnum`` or its reason is given.
 
 Annotations are read as strings and resolved by class name over the loaded
 classes, never through ``typing.get_type_hints``, which raises on the
@@ -530,4 +539,340 @@ def test_every_quantity_names_its_unit(universe: dict[str, type], marked: dict[s
     assert not offenders, (
         "A published float's name says no unit; end it in one of UNIT_SUFFIXES, or, when it "
         'has none, enter it in UNITLESS with the reason:\n  ' + '\n  '.join(offenders)
+    )
+
+
+# The reasons a published str is open: its words are not a fixed list the
+# API owns. Each entry below is read one by one, none admitted by pattern,
+# and each must still be a hit, so a str made a StrEnum deletes it here.
+_CHANNEL = "a channel key, the release's layer vocabulary (W5c)"
+_OBJECTIVE = 'an objective catalogue key'
+_LABWARE = 'a labware catalogue key'
+_MODEL = 'a model catalogue key'
+_TILING = 'a tiling catalogue key'
+_FILTERSET = 'a filterset, as the catalogue or the board names it'
+_CATALOGUE_TEXT = 'catalogue text, as the installation file writes it'
+_WELL = 'a well label of the selected plate'
+_TILE = "a tile label of the step's grid"
+_STEP = "a protocol step's name or label"
+_SEQUENCE = "a run's sequence name, the caller's"
+_NAME = 'a name the caller gives'
+_PROSE = 'words a person reads'
+_REASON = 'a reason word: why a thing happened is a string; what it is, an enum'
+_SETTING = 'a settings path'
+_MEMBER = "an API member's or argument's name"
+_TYPE = 'a type, as source text'
+_OFFERED = "the values offered for the refused argument, any set's"
+_PATH = 'a file-system path or file name, in process'
+_CAMERA = "the camera's or its SDK's own word"
+_BOARD = "the board's own report, as its firmware gives it"
+_OS = "the operating system's own word"
+_PLUGIN = "a plugin's name, namespace or version, or the host callback it failed in"
+_CONTROL = "a control session's name or id"
+_VERSION = 'a version, as its source writes it'
+_COLOUR = 'a colour as text, or a channel key naming one'
+_NUMBER_TEXT = 'a number given as its text'
+_COLUMN = 'a column of the results file read'
+_RECORD_KEYS = "a record's keys, not a set (TODO.md, outside W5b)"
+_PROVENANCE = "the measuring run's record, as the characterization writes it"
+_LISTENER = "a listener's own name"
+_TAG = "the caller's tag for a snapshot"
+_SOURCE = 'the module or function a post came from'
+_CATEGORY = "composed from the GUI's label and the executor's action, the dedup identity"
+_KEY = "an outcome's operation key, the caller's"
+_HEADER = "the protocol file format's header line"
+_LED_D = "part D: an LED by its channel's name or its address"
+
+OPEN_STRINGS: dict[str, str] = {
+    'ArgumentRefusedError.argument field': _MEMBER,
+    'ArgumentRefusedError.member field': _MEMBER,
+    'ArgumentRefusedError.offered field': _OFFERED,
+    'ArgumentTypeRefusedError.argument field': _MEMBER,
+    'ArgumentTypeRefusedError.declared field': _TYPE,
+    'ArgumentTypeRefusedError.member field': _MEMBER,
+    'BringUpRecord.substitution parameter setting': _SETTING,
+    'BuildResult.message field': _PROSE,
+    'BuildsResult.message field': _PROSE,
+    'CameraAPI.apply parameter channel': _CHANNEL,
+    'CameraAPI.pixel_format return': _CAMERA,
+    'CameraAPI.read_pixel_format return': _CAMERA,
+    'CameraAPI.save_camera_state parameter tag': _TAG,
+    'CameraLink.link_speed_unit field': _CAMERA,
+    'CameraLink.transport field': _CAMERA,
+    'CatalogueNameRefusedError.argument field': _MEMBER,
+    'CatalogueNameRefusedError.offered field': _OFFERED,
+    'CellCountResult.message field': _PROSE,
+    'ChannelIdentity.filterset field': _FILTERSET,
+    'ChannelIdentity.find parameter key_name': _CHANNEL,
+    'ChannelIdentity.model field': _MODEL,
+    'ChannelIdentity.refuse_unless_on_scope parameter channel': _CHANNEL,
+    'ChannelIdentity.refuse_unless_on_scope parameter member': _MEMBER,
+    'ChannelIdentity.refuse_unless_on_scope parameter then': _PROSE,
+    'ChannelRecord.display_color field': _COLOUR,
+    'ChannelRecord.display_name field': _PROSE,
+    'ChannelRecord.key_name field': _CHANNEL,
+    'ChannelRecord.label field': _PROSE,
+    'ControlSession.name field': _CONTROL,
+    'ControlSessionRefusedError.control_session field': _CONTROL,
+    'ControlsLock.control_named field': _PROSE,
+    'ControlsLock.named return': _PROSE,
+    'ControlsLock.run_named field': _PROSE,
+    'DegradedOutput.fallback_reason field': _REASON,
+    'DiagnosticRefusedError.control_session field': _CONTROL,
+    'DiagnosticsAPI.get_camera_temperatures_degc return': _CAMERA,
+    'DiagnosticsAPI.motor_fan_spin_times return': _RECORD_KEYS,
+    'DisplayRates.frame_interval_percentiles_ms return': _RECORD_KEYS,
+    'EnhanceResult.message field': _PROSE,
+    'FailedCapture.cause field': _REASON,
+    'FailedCapture.step_name field': _STEP,
+    'FocusFailure.cause field': _REASON,
+    'FocusFailure.step_name field': _STEP,
+    'FrameRecord.camera_model field': _CAMERA,
+    'FrameRecord.held_channel field': _CHANNEL,
+    'FrameRule.provenance field': _PROVENANCE,
+    'GraphOptions.x_axes field': _COLUMN,
+    'GraphOptions.y_axes field': _COLUMN,
+    'GraphResult.message field': _PROSE,
+    'HardwareCommandRefusedError.control_session field': _CONTROL,
+    'IlluminationAPI.add_led_listener parameter listener': _CHANNEL,
+    'IlluminationAPI.ch2color return': _LED_D,
+    'IlluminationAPI.color2ch parameter color': _LED_D,
+    'IlluminationAPI.get_led_state parameter channel': _CHANNEL,
+    'IlluminationAPI.led_off parameter channel': _LED_D,
+    'IlluminationAPI.led_on parameter channel': _LED_D,
+    'IlluminationAPI.remove_led_listener parameter listener': _CHANNEL,
+    'IlluminationAPI.save_led_state parameter tag': _TAG,
+    'ImagingAPI.add_frame_listener parameter name': _LISTENER,
+    'ImagingAPI.set_scale_bar_color parameter color': _COLOUR,
+    'InjectedFault.arguments field': _MEMBER,
+    'InjectedFault.member field': _MEMBER,
+    'Labware.name field': _CATALOGUE_TEXT,
+    'Labware.standard field': _CATALOGUE_TEXT,
+    'LedBoardInfo.firmware_date field': _BOARD,
+    'LedBoardInfo.firmware_version field': _BOARD,
+    'LedReading.name field': _CHANNEL,
+    'LedSnapshot.tag field': _TAG,
+    'LiveFolderEntry.name field': _PATH,
+    'Lumascope.labware return': _LABWARE,
+    'Lumascope.objectives return': _OBJECTIVE,
+    'Lumascope.scope_models return': _MODEL,
+    'ManualRecordingController.end_reason return': _REASON,
+    'MotionAPI.move_to_well parameter well': _WELL,
+    'MotionAPI.start_move_to_well parameter well': _WELL,
+    'MotorBoardInfo.firmware_date field': _BOARD,
+    'MotorBoardInfo.firmware_version field': _BOARD,
+    'MotorBoardInfo.model field': _BOARD,
+    'MotorBoardInfo.serial_number field': _BOARD,
+    'NamespaceHealth.namespace field': _PLUGIN,
+    'Notification.category field': _CATEGORY,
+    'Notification.message field': _PROSE,
+    'Notification.operation_key field': _KEY,
+    'Notification.reason field': _REASON,
+    'Notification.source field': _SOURCE,
+    'Notification.title field': _PROSE,
+    'Objective.description field': _PROSE,
+    'Objective.id field': _OBJECTIVE,
+    'Objective.short_name field': _CATALOGUE_TEXT,
+    'ObjectiveQuestion.choices field': _OBJECTIVE,
+    'ObjectiveQuestion.proposed field': _OBJECTIVE,
+    'PartStatus.cause field': _REASON,
+    'PartStatus.describe return': _PROSE,
+    'PartStatus.detail field': _PROSE,
+    'PluginNotLoaded.name field': _PLUGIN,
+    'PluginNotLoaded.reason field': _REASON,
+    'PluginNotLoaded.version field': _PLUGIN,
+    'PluginRuntimeError.exc_type field': _TYPE,
+    'PluginRuntimeError.hook field': _PLUGIN,
+    'PluginRuntimeError.message field': _PROSE,
+    'PluginRuntimeError.namespace field': _PLUGIN,
+    'PluginRuntimeError.plugin_name field': _PLUGIN,
+    'PluginStatus.name field': _PLUGIN,
+    'PluginStatus.namespace field': _PLUGIN,
+    'PluginStatus.version field': _PLUGIN,
+    'PostProcessingAPI.draw_graph parameter x': _COLUMN,
+    'PostProcessingAPI.draw_graph parameter y': _COLUMN,
+    'PostProcessingAPI.draw_graph parameter x_label': _PROSE,
+    'PostProcessingAPI.draw_graph parameter y_label': _PROSE,
+    'PostProcessingAPI.draw_graph parameter title': _PROSE,
+    'PostProcessingAPI.graph parameter x': _COLUMN,
+    'PostProcessingAPI.graph parameter y': _COLUMN,
+    'PostProcessingAPI.graph parameter x_label': _PROSE,
+    'PostProcessingAPI.graph parameter y_label': _PROSE,
+    'PostProcessingAPI.graph parameter title': _PROSE,
+    'PostProcessingAPI.graph_options parameter x': _COLUMN,
+    'PostProcessingAPI.graph_options parameter y': _COLUMN,
+    'PostProcessingAPI.video parameter frame_rate_fps': _NUMBER_TEXT,
+    'Protocol.PROTOCOL_FILE_HEADER field': _HEADER,
+    'Protocol.capture_prefix return': _NAME,
+    'Protocol.capture_root return': _PATH,
+    'Protocol.channel_settings return': _CHANNEL,
+    'Protocol.labware_id return': _LABWARE,
+    'Protocol.tiling return': _TILING,
+    'Protocol.validate_steps parameter objectives': _OBJECTIVE,
+    'ProtocolRunRefusedError.control_session field': _CONTROL,
+    'ProtocolRunner.run_autofocus parameter channel': _CHANNEL,
+    'ProtocolRunner.run_autofocus parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_composite parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_protocol parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_single_scan parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.run_zstack parameter channel': _CHANNEL,
+    'ProtocolRunner.run_zstack parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_autofocus parameter channel': _CHANNEL,
+    'ProtocolRunner.start_autofocus parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_composite parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_protocol parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_single_scan parameter sequence_name': _SEQUENCE,
+    'ProtocolRunner.start_zstack parameter channel': _CHANNEL,
+    'ProtocolRunner.start_zstack parameter sequence_name': _SEQUENCE,
+    'ProtocolSizeAdvisory.message field': _PROSE,
+    'ProtocolsAPI.focus_z_um parameter then': _PROSE,
+    'RecordingRefusedError.control_session field': _CONTROL,
+    'Remedy.cancel_text field': _PROSE,
+    'Remedy.confirm_text field': _PROSE,
+    'RunFiles.not_written_reason field': _REASON,
+    'RunOutcome.cleanup_failures field': _PROSE,
+    'RunOutcome.merge_reason field': _REASON,
+    'RunOutcome.message field': _PROSE,
+    'RunOutcome.reason field': _REASON,
+    'RunOutcome.title field': _PROSE,
+    'RuntimeState.get_turret_config return': _OBJECTIVE,
+    'RuntimeState.get_well_label return': _WELL,
+    'RuntimeState.plate_to_stage parameter labware_id': _LABWARE,
+    'RuntimeState.plate_transform parameter labware_id': _LABWARE,
+    'RuntimeState.resolve_current_objective return': _OBJECTIVE,
+    'RuntimeState.stage_to_plate parameter labware_id': _LABWARE,
+    'SavedStill.channel field': _CHANNEL,
+    'SavedStill.objective_id field': _OBJECTIVE,
+    'SavedStill.well_label field': _WELL,
+    'ScopeCapabilities.camera_model field': _CAMERA,
+    'ScopeCapabilities.camera_pixel_formats field': _CAMERA,
+    'ScopeCapabilities.camera_sdk_version field': _CAMERA,
+    'ScopeCapabilities.camera_sensor field': _CAMERA,
+    'ScopeCapabilities.camera_serial_number field': _CAMERA,
+    'ScopeCapabilities.led_colors field': _CHANNEL,
+    'ScopeCapabilities.model field': _MODEL,
+    'ScopeModel.filterset field': _FILTERSET,
+    'ScopeModel.id field': _MODEL,
+    'ScopeSession.acting_in_control parameter session_id': _CONTROL,
+    'ScopeSession.add_settings_listener parameter listener': _SETTING,
+    'ScopeSession.add_shown_channel_listener parameter listener': _CHANNEL,
+    'ScopeSession.add_step return': _STEP,
+    'ScopeSession.add_step parameter channels': _CHANNEL,
+    'ScopeSession.app_version return': _VERSION,
+    'ScopeSession.apply_focus_to_channel_steps parameter channel': _CHANNEL,
+    'ScopeSession.apply_tiling parameter tiling': _TILING,
+    'ScopeSession.assign_turret_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.channel_acquire parameter channel': _CHANNEL,
+    'ScopeSession.channel_auto_gain parameter channel': _CHANNEL,
+    'ScopeSession.channel_auto_gain_lock parameter channel': _CHANNEL,
+    'ScopeSession.channel_colors return': _CHANNEL,
+    'ScopeSession.confirm_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.create parameter sim_model': _MODEL,
+    'ScopeSession.end_control parameter session_id': _CONTROL,
+    'ScopeSession.get_setting parameter path': _SETTING,
+    'ScopeSession.labware_id return': _LABWARE,
+    'ScopeSession.live_folder_listing parameter name': _PATH,
+    'ScopeSession.live_folder_path parameter name': _PATH,
+    'ScopeSession.model return': _MODEL,
+    'ScopeSession.model_at_next_start return': _MODEL,
+    'ScopeSession.new_protocol parameter tiling': _TILING,
+    'ScopeSession.objective_id return': _OBJECTIVE,
+    'ScopeSession.point_steps_at_turret_slot parameter objective_id': _OBJECTIVE,
+    'ScopeSession.protocol_files_stuck_write return': _PROSE,
+    'ScopeSession.put_live_folder_file parameter name': _PATH,
+    'ScopeSession.remove_settings_listener parameter listener': _SETTING,
+    'ScopeSession.remove_shown_channel_listener parameter listener': _CHANNEL,
+    'ScopeSession.rename_step return': _STEP,
+    'ScopeSession.rename_step parameter name': _STEP,
+    'ScopeSession.save_channel_focus parameter channel': _CHANNEL,
+    'ScopeSession.save_focus parameter channel': _CHANNEL,
+    'ScopeSession.saved_focus_z_um parameter channel': _CHANNEL,
+    'ScopeSession.select_labware parameter labware_id': _LABWARE,
+    'ScopeSession.select_model parameter model': _MODEL,
+    'ScopeSession.select_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.set_channel_acquire parameter channel': _CHANNEL,
+    'ScopeSession.set_channel_auto_gain parameter channel': _CHANNEL,
+    'ScopeSession.set_live_folder parameter folder': _PATH,
+    'ScopeSession.set_protocol_capture_root parameter root': _PATH,
+    'ScopeSession.set_protocol_filepath parameter file_path': _PATH,
+    'ScopeSession.set_protocol_labware return': _LABWARE,
+    'ScopeSession.set_protocol_labware parameter labware_id': _LABWARE,
+    'ScopeSession.show_channel parameter channel': _CHANNEL,
+    'ScopeSession.take_control return': _CONTROL,
+    'ScopeSession.take_control parameter name': _CONTROL,
+    'ScopeSession.turret_objective return': _OBJECTIVE,
+    'ScopeSession.update_settings parameter path': _SETTING,
+    'ScopeSession.update_step return': _STEP,
+    'ScopeSession.update_step parameter channel': _CHANNEL,
+    'ScopeSession.update_step parameter label': _STEP,
+    'ScopeSession.user_settings_file return': _PATH,
+    'SettingRefusedError.member field': _MEMBER,
+    'SettingRefusedError.path field': _SETTING,
+    'SettingsChanged.paths field': _SETTING,
+    'SettingsSetAside.reason field': _REASON,
+    'ShownChannel.channel field': _CHANNEL,
+    'SimulatedModelAnswer.model field': _MODEL,
+    'SimulationAPI.answer_model parameter model': _MODEL,
+    'SimulationAPI.bind_camera_usb_driver parameter hardware_id': _OS,
+    'SimulationAPI.bind_camera_usb_driver parameter service': _OS,
+    'SimulationAPI.drop_replies parameter command': _BOARD,
+    'SkippedBuild.message field': _PROSE,
+    'StepRecord.channel field': _CHANNEL,
+    'StepRecord.label field': _STEP,
+    'StepRecord.name field': _STEP,
+    'StepRecord.objective field': _OBJECTIVE,
+    'StepRecord.stim_config field': _CHANNEL,
+    'StepRecord.tile field': _TILE,
+    'StepRecord.well field': _WELL,
+    'Substitution.setting field': _SETTING,
+    'SupportReportSaved.message return': _PROSE,
+    'SupportReportSaved.title return': _PROSE,
+    'TakenCapture.step_name field': _STEP,
+    'TilingConfig.available field': _TILING,
+    'TilingConfig.available_configs return': _TILING,
+    'TilingConfig.default field': _TILING,
+    'TilingConfig.default_config return': _TILING,
+    'TurretSlotQuestion.objective_id field': _OBJECTIVE,
+    'UsbDeviceBinding.date field': _OS,
+    'UsbDeviceBinding.inf field': _OS,
+    'UsbDeviceBinding.instance_id field': _OS,
+    'UsbDeviceBinding.provider field': _OS,
+    'UsbDeviceBinding.service field': _OS,
+    'UsbDeviceBinding.version field': _OS,
+    'UsbIdentityBindings.hardware_id field': _OS,
+    'UsbIdentityBindings.name field': _OS,
+    'UsbIdentityBindings.needs field': _OS,
+    'Video.frame_rate_fps field': _NUMBER_TEXT,
+    'WorkItem.name field': _PROSE,
+}
+# A string whose absence from the walk would mean it lost its way.
+KNOWN_OPEN = 'Notification.category field'
+
+
+def test_every_fixed_word_is_a_closed_set(
+    universe: dict[str, type], marked: dict[str, str]
+) -> None:
+    loose, hits = [], set()
+    for name in sorted(marked):
+        cname, member = name.split('.', 1)
+        for edge, text in _edges(universe[cname], member):
+            if text is None:
+                continue
+            names = _named(text, holds_callbacks=edge != 'return')[1]
+            for used in names & universe.keys():
+                cls = universe[used]
+                if issubclass(cls, enum.Enum) and not issubclass(cls, enum.StrEnum):
+                    loose.append(f'{name} {edge}: {used}')
+            if 'str' in names:
+                hits.add(f'{name} {edge}')
+    assert KNOWN_OPEN in hits, f'the walk did not reach {KNOWN_OPEN}'
+    assert not loose, f'a closed set the API names is a StrEnum, never an Enum or IntEnum: {loose}'
+    stale = sorted(set(OPEN_STRINGS) - hits)
+    assert not stale, (
+        f'these are a closed set or gone now, so delete them from OPEN_STRINGS: {stale}'
+    )
+    offenders = sorted(hits - set(OPEN_STRINGS))
+    assert not offenders, (
+        'A published str takes or answers a word: make its fixed list a StrEnum, or, when '
+        'its words are open, enter it in OPEN_STRINGS with the reason:\n  ' + '\n  '.join(offenders)
     )
