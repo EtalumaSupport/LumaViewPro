@@ -15,7 +15,7 @@ from __future__ import annotations
 import pathlib
 
 from modules import wire_encoding
-from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, Remedy
+from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, Remedy, RemedyName
 from rest.problems import answered_by_member
 from rest.routes import RefusalAnswer, answer_type
 
@@ -38,7 +38,7 @@ def test_a_held_refusal_carries_its_problems_keys():
     refusal = ProtocolRunRefusedError(
         'files_writing_stalled',
         "A protocol's files have stopped writing.",
-        remedy=Remedy('recover_stalled_files', 'Recover', 'Wait'),
+        remedy=Remedy(RemedyName.RECOVER_FILE_WRITER, 'Recover', 'Wait'),
     )
 
     sent = _encoded(refusal)
@@ -48,7 +48,7 @@ def test_a_held_refusal_carries_its_problems_keys():
     assert sent['reason'] == 'files_writing_stalled'
     assert sent['detail'] == "A protocol's files have stopped writing."
     assert sent['remedy'] == {
-        'member': 'recover_stalled_files',
+        'member': 'recover_file_writer',
         'confirm_text': 'Recover',
         'cancel_text': 'Wait',
     }
