@@ -91,6 +91,7 @@ from modules.lumascope_api import AxisPosition, TurretStatus
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
+from modules.lumascope_api.motion import HomeTarget
 from modules.lumascope_api.camera import CameraAPI, LayerCameraRequest
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
@@ -5633,7 +5634,7 @@ class ScopeSession:
         self,
         *,
         disable_homing: bool = False,
-        home_fn: Callable[[str], object] | None = None,
+        home_fn: Callable[[HomeTarget], object] | None = None,
         turret_fn: Callable[[int], object] | None = None,
     ) -> Operation:
         """Start the standard startup motion without waiting for it; returns its ``Operation``.
@@ -5687,8 +5688,9 @@ class ScopeSession:
 
         Args:
             disable_homing: If True, issue no startup motion at all.
-            home_fn: Callable taking an axis name that homes it and raises
-                as ``MotionAPI.home`` does. Defaults to the motion API.
+            home_fn: Callable taking a ``HomeTarget`` that homes it and
+                raises as ``MotionAPI.home`` does; the startup motion hands it
+                ``HomeTarget.ALL``. Defaults to the motion API.
             turret_fn: Callable taking a turret slot. Defaults to
                 the motion API.
 
@@ -5746,7 +5748,7 @@ class ScopeSession:
         self,
         *,
         disable_homing: bool = False,
-        home_fn: Callable[[str], object] | None = None,
+        home_fn: Callable[[HomeTarget], object] | None = None,
         turret_fn: Callable[[int], object] | None = None,
     ) -> None:
         """Run the standard startup motion, and wait for it.
@@ -5773,7 +5775,7 @@ class ScopeSession:
         ).result()
 
     def _startup_motion(
-        self, home_fn: Callable[[str], object], turret_fn: Callable[[int], object]
+        self, home_fn: Callable[[HomeTarget], object], turret_fn: Callable[[int], object]
     ) -> None:
         """The startup motion's steps, run under its taking on the diagnostics worker."""
         # Wait for the home's result and honor it. Turret positioning is
@@ -5782,7 +5784,7 @@ class ScopeSession:
         # secondary cascade users report -- a second error on top of the
         # home's own, for motion that could never have been correct.
         try:
-            home_fn('ALL')
+            home_fn(HomeTarget.ALL)
         except (HomingFailedError, HardwareCommandRefusedError) as e:
             # A refusal for the hardware's state (no board, the lid open, the
             # stage unpowered) is the scope's to report; any other is a defect.

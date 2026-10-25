@@ -19,6 +19,7 @@ from modules.exceptions import (
     NoHardwareDetectedNotice,
     PartialHardwareError,
 )
+from modules.lumascope_api.motion import HomeTarget
 from modules.notification_center import OutcomeKind
 from tests.test_bring_up_is_a_record import _bring_up
 
@@ -70,4 +71,5 @@ def test_a_motor_that_came_up_is_homed(monkeypatch, tmp_path, centre_posts):
         session.shutdown()
         session.scope.disconnect()
 
-    assert homed == ['ALL']
+    assert homed == [HomeTarget.ALL]
+    assert type(homed[0]) is HomeTarget
