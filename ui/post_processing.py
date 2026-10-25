@@ -170,10 +170,13 @@ class ZProjectionControls(BoxLayout):
         Clock.schedule_once(self._init_ui, 0)
 
     def _init_ui(self, dt=0):
+        # Kivy is handed each method's word as plain text: it builds the
+        # strings it renders from the type of the text it holds, which a
+        # member's set refuses. The pick goes back as that word.
         methods = _app_ctx.ctx.session.post_processing.projection_methods()
-        self.ids['zprojection_method_spinner'].values = methods
+        self.ids['zprojection_method_spinner'].values = [str(method) for method in methods]
         # Opens on the API's default projection, as a REST or script caller's does.
-        self.ids['zprojection_method_spinner'].text = ZProject.method
+        self.ids['zprojection_method_spinner'].text = str(ZProject.method)
 
     @show_popup
     def run_zprojection(self, popup, path):
@@ -376,8 +379,12 @@ class GraphingControls(BoxLayout):
         self.ids.graphing_y_axis_spinner.values = self._y_axes
         self.ids.graphing_x_axis_spinner.text = self.selected_x_axis or _NO_X_AXIS
         self.ids.graphing_y_axis_spinner.text = self.selected_y_axis or _NO_Y_AXIS
-        self.ids.trendline_spinner.values = (_NO_TRENDLINE, *self._trendline_kinds)
-        self.ids.trendline_spinner.text = self._trendline_kind
+        # As the projection spinner: each trendline's word as plain text.
+        self.ids.trendline_spinner.values = (
+            _NO_TRENDLINE,
+            *(str(kind) for kind in self._trendline_kinds),
+        )
+        self.ids.trendline_spinner.text = str(self._trendline_kind)
         if self._figure is None:
             self._figure = self._drawn(self._trendline_kind)
         if self.graph_widget is None:
