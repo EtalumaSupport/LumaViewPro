@@ -102,6 +102,21 @@ class TestTheSessionAppliesARemedyByName:
         assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Remedy.member')
         assert refused.value.offered == tuple(RemedyName)
 
+    def test_every_name_a_remedy_can_hold_reaches_its_member(self):
+        """Each ``RemedyName`` is one ``apply_remedy`` acts on: on an idle
+        simulated scope its member refuses (nothing is stuck; the repair needs
+        a Classic on Windows), never a lookup failing on a name it lacks."""
+        from modules.exceptions import Refusal
+        from tests.settings_fixtures import complete_settings
+
+        idle = ScopeSession.create(complete_settings(), simulate=True)
+        try:
+            for name in RemedyName:
+                with pytest.raises(Refusal):
+                    idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
+        finally:
+            idle.shutdown()
+
 
 class TestTheReporterCarriesTheRemedyToItsListeners:
     def test_the_notification_of_a_refusal_carries_its_remedy(self):

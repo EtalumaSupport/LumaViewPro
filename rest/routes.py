@@ -26,6 +26,7 @@ import typing
 import pydantic
 
 from modules import wire_encoding
+from modules.exceptions import RemedyName
 from modules.operation import Operation
 from modules.wire_encoding import WireMember, WireParameter
 
@@ -87,7 +88,7 @@ class RemedyAnswer(pydantic.BaseModel):
     """The one action that answers a refusal: the Session member to call, and the words that offer it."""
 
     model_config = ANSWER_CONFIG
-    member: str
+    member: RemedyName
     confirm_text: str
     cancel_text: str
 
