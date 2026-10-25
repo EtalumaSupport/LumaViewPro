@@ -16,6 +16,7 @@ from lib.lumascope_error import Fault, LumascopeError, _Umbrella
 from lib.stage_interlock import INTERLOCK_TITLES
 from modules.api_surface import api_fields
 from modules.caller import Caller
+from modules.live_work import SCOPE_HOLDERS
 from modules.run_outcome import ENDING_TITLES
 
 if TYPE_CHECKING:
@@ -40,18 +41,16 @@ POST_PROCESSING_RUNNING_MESSAGE = (
 )
 
 
-class Holder(StrEnum):
-    """What holds the microscope when a refusal names its holder.
-
-    The claim's four holding kinds, by their ``WorkKind`` words, and an
-    autofocus sweep still in flight after its run ended.
-    """
-
-    PROTOCOL = 'protocol'
-    RECORDING = 'recording'
-    HOME = 'home'
-    DIAGNOSTIC = 'diagnostic'
-    AUTOFOCUS = 'autofocus'
+# What holds the microscope when a refusal names its holder: the kinds that
+# hold the scope, by their WorkKind words, and an autofocus sweep still in
+# flight after its run ended. Built from SCOPE_HOLDERS, so the claim and the
+# refusal spell the holding kinds once.
+Holder = StrEnum(
+    'Holder',
+    [(kind.name, kind.value) for kind in sorted(SCOPE_HOLDERS)] + [('AUTOFOCUS', 'autofocus')],
+    module=__name__,
+)
+Holder.__doc__ = 'What holds the microscope when a refusal names its holder.'
 
 
 def _holder(kind: str | None) -> Holder | None:

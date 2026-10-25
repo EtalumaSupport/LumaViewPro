@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 from modules.api_surface import api, api_fields
 from modules.caller import Caller, current_caller
-from modules.live_work import WorkKind
+from modules.live_work import SCOPE_HOLDERS, WorkKind
 from modules.exceptions import (
     UNDER_CONTROL_TITLE,
     ControlSessionRefusedError,
@@ -177,6 +177,11 @@ class ActivityHolder:
         # A plain string of the set is taken as its member; any other word
         # is no activity, and fails here, before anything is taken.
         object.__setattr__(self, 'kind', WorkKind(self.kind))
+        if self.kind not in SCOPE_HOLDERS:
+            raise ValueError(
+                f'{str(self.kind)!r} is work the session does, not one that holds the scope: '
+                f'a holder is one of {", ".join(sorted(SCOPE_HOLDERS))}'
+            )
         if (self.kind == WorkKind.PROTOCOL) != (self.run is not None):
             raise ValueError(
                 f'a {str(self.kind)!r} holder with run={self.run!r}: a run names its run, '
@@ -789,8 +794,9 @@ class ActivityClaim:
                 thread does not act for its holder. Nothing was taken.
             FalsifyingChangeInFlightError: ``owner`` is ``RECORDING`` and a
                 write that would falsify it is running.
-            ValueError: ``owner`` is no ``WorkKind``; a run claimed without
-                its identity, or another activity claimed with one.
+            ValueError: ``owner`` is no ``WorkKind``, or one that does not
+                hold the scope (``live_work.SCOPE_HOLDERS``); a run claimed
+                without its identity, or another activity claimed with one.
         """
         holder = ActivityHolder(kind=owner, run=run)
         taking = current_taking()

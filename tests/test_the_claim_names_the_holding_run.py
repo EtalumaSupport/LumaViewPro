@@ -46,6 +46,17 @@ class TestTheClaimCarriesTheRun:
         assert claim.owner is None
         assert claim.try_claim(WorkKind.RECORDING), 'the failed take left the claim held'
 
+    def test_a_claim_taken_by_work_that_does_not_hold_the_scope_fails_and_takes_nothing(self):
+        # A still, a build or a report is work the session does, not a holder
+        # of the scope: a refusal could not name it as one.
+        claim = ActivityClaim()
+
+        with pytest.raises(ValueError, match='holds the scope'):
+            claim.try_claim(WorkKind.STILL)
+
+        assert claim.owner is None
+        assert claim.try_claim(WorkKind.HOME), 'the failed take left the claim held'
+
     def test_an_activity_that_is_not_a_run_names_no_starter(self):
         claim = ActivityClaim()
 
