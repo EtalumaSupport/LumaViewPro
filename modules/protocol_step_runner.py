@@ -40,7 +40,7 @@ from modules.lumascope_api.illumination import (
 )
 from modules.notification_center import notifications
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from modules.run_outcome import RunEnding
+from modules.run_outcome import RunEnding, RunStatus
 from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 
 if TYPE_CHECKING:
@@ -52,8 +52,8 @@ from modules.run_events import deliver
 def _ending_of_a_failed_autofocus(failed: BaseException) -> RunEnding:
     """How a single-autofocus run ends when its autofocus did not focus, in its words."""
     if isinstance(failed, AutofocusOutOfTravelError):
-        return RunEnding('failed', 'autofocus_not_started', str(failed))
-    return RunEnding('failed', 'autofocus_failed', str(failed))
+        return RunEnding(RunStatus.FAILED, 'autofocus_not_started', str(failed))
+    return RunEnding(RunStatus.FAILED, 'autofocus_failed', str(failed))
 
 
 class ProtocolStepRunner:

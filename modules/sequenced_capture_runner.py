@@ -70,6 +70,7 @@ from modules.run_outcome import (
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
+    RunStatus,
 )
 
 from modules.scheduler import Scheduler
@@ -83,7 +84,7 @@ from modules.api_surface import api_fields
 from modules.operation import Operation
 
 # How a run ends when STOP is pressed while it is live.
-_ENDED_BY_STOP = RunEnding('aborted', 'stage_stopped', str(RunEndedByStopNotice()))
+_ENDED_BY_STOP = RunEnding(RunStatus.ABORTED, 'stage_stopped', str(RunEndedByStopNotice()))
 
 # How often the run loop re-asks whether the camera lane has gone idle
 # before the run takes the camera; a still's grab is tens to hundreds of
@@ -704,7 +705,7 @@ class SequencedCaptureRunner:
             # run's own teardown halting its stage, which a press relays
             # back here -- changes nothing and names no stopper.
             if self._ending.set_if_unset(
-                ending or RunEnding('aborted', 'stopped', f'Stopped by {stopper.words}.')
+                ending or RunEnding(RunStatus.ABORTED, 'stopped', f'Stopped by {stopper.words}.')
             ):
                 logger.info(
                     f'[{self.LOGGER_NAME}] {the_run_named(self._run_identity)} '
@@ -738,7 +739,7 @@ class SequencedCaptureRunner:
                 f'tearing down the {self._run_identity.words} run, started by '
                 f'{self._run_identity.started_by.words}, without an owner check'
             )
-            ending = RunEnding('aborted', 'shutdown', reason)
+            ending = RunEnding(RunStatus.ABORTED, 'shutdown', reason)
             self._ending.set_if_unset(ending)
             self.protocol_thread.abort()
             run = self._run_handle
@@ -1508,7 +1509,7 @@ class SequencedCaptureRunner:
                 return None
             if self.camera_executor.in_flight_task_stalled(WRITE_STALL_FATAL_S):
                 return RunEnding(
-                    'failed',
+                    RunStatus.FAILED,
                     'camera_lane_stalled',
                     'A camera command did not finish, so the run did not start. '
                     'Restart LumaViewPro if the camera stays busy.',
@@ -1852,13 +1853,13 @@ class SequencedCaptureRunner:
         """
         logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
         if isinstance(exc, RunStartError):
-            ending = RunEnding('failed_at_start', exc.reason, exc.message)
+            ending = RunEnding(RunStatus.FAILED_AT_START, exc.reason, exc.message)
         else:
             # Anything else reaching here is not an L1 sentence -- a serial
             # fault from the camera-state save, say. The user gets the one
             # thing that is true and actionable; the log has the rest.
             ending = RunEnding(
-                'failed_at_start',
+                RunStatus.FAILED_AT_START,
                 'start_failed',
                 'The run could not start. See the log for details.',
             )
@@ -2087,7 +2088,7 @@ class SequencedCaptureRunner:
         does not raise: cleanup must still give the scope back.
         """
         target = self._write_focus_to
-        if target is None or ending.status != 'completed':
+        if target is None or ending.status != RunStatus.COMPLETED:
             return
         try:
             target.adopt_focus_from(self._protocol)
@@ -2133,13 +2134,13 @@ class SequencedCaptureRunner:
                 RunEndedByStopNotice(), solicited=False, category='Protocol'
             )
             return ending
-        if ending.status != 'completed':
+        if ending.status != RunStatus.COMPLETED:
             return ending
         unfocused = self._unfocused_words(len(focus_failures))
         if tally.missing <= 0:
             if not unfocused:
                 return ending
-            return RunEnding('completed', 'completed', unfocused)
+            return RunEnding(RunStatus.COMPLETED, 'completed', unfocused)
         incomplete = RunIncompleteError(
             asked=tally.asked,
             captured=tally.captured,
@@ -2150,7 +2151,9 @@ class SequencedCaptureRunner:
 
             notifications.report_outcome(incomplete, solicited=False, category='Protocol')
         return RunEnding(
-            'incomplete', 'captures_failed', ' '.join(filter(None, (str(incomplete), unfocused)))
+            RunStatus.INCOMPLETE,
+            'captures_failed',
+            ' '.join(filter(None, (str(incomplete), unfocused))),
         )
 
     @staticmethod
@@ -2220,7 +2223,7 @@ class SequencedCaptureRunner:
                 if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
                     outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
             if (
-                ending.status not in ('completed', 'incomplete')
+                ending.status not in (RunStatus.COMPLETED, RunStatus.INCOMPLETE)
                 or self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE
             ):
                 outcome.resolve_if_pending(ending)
@@ -2307,7 +2310,7 @@ class SequencedCaptureRunner:
             ending = self._ending.get() if live else None
             return RunProgress(
                 is_live=live,
-                is_stopping=ending is not None and ending.status == 'aborted',
+                is_stopping=ending is not None and ending.status == RunStatus.ABORTED,
                 is_last_run=self._last_run() is run,
                 run_dir=run._run_dir,
                 step_index=self._step_index() if live else None,
@@ -2430,7 +2433,7 @@ class SequencedCaptureRunner:
         # own notice after what became of the merge, whether it merged or
         # not, and before the outcome settles.
         incomplete = None
-        if ending.status == 'incomplete':
+        if ending.status == RunStatus.INCOMPLETE:
             tally = self._image_writer.capture_tally
             incomplete = RunIncompleteError(
                 asked=tally.asked,
@@ -2571,7 +2574,7 @@ class SequencedCaptureRunner:
         # are not all there, in the one report its run makes.
         merge_reports_files = (
             self._run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE
-            and ending.status in ('completed', 'incomplete')
+            and ending.status in (RunStatus.COMPLETED, RunStatus.INCOMPLETE)
         )
         # Whether the person was shown a fault that lost files: the one the
         # funnel showed, which ended the run or came after a Stop. Read
@@ -2663,7 +2666,7 @@ class SequencedCaptureRunner:
         """
         recorded = self._ending.get() or ending
         if (
-            recorded.status in ('completed', 'incomplete')
+            recorded.status in (RunStatus.COMPLETED, RunStatus.INCOMPLETE)
             or self._original_led_states is None
             or not self._scope.motor_connected
         ):

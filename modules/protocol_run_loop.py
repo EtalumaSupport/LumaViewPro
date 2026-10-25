@@ -23,7 +23,7 @@ from modules.exceptions import (
     describe_unknown_positions,
 )
 from modules.run_events import deliver
-from modules.run_outcome import RunEnding, hardware_disconnected_ending
+from modules.run_outcome import RunEnding, RunStatus, hardware_disconnected_ending
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import EngineRun, SequencedCaptureRunner
@@ -45,8 +45,8 @@ MAX_CONSECUTIVE_SCAN_FAILURES = 3
 # One object, because a normal ending is one fact: the loop reaches its end
 # either having run every scan or having been told to stop, and both exits
 # report through the same record.
-RUN_COMPLETED = RunEnding('completed', 'completed', 'The run finished normally.')
-RUN_STOPPED = RunEnding('aborted', 'stopped', 'Stopped')
+RUN_COMPLETED = RunEnding(RunStatus.COMPLETED, 'completed', 'The run finished normally.')
+RUN_STOPPED = RunEnding(RunStatus.ABORTED, 'stopped', 'Stopped')
 
 
 class ProtocolRunLoop:
@@ -71,7 +71,7 @@ class ProtocolRunLoop:
                 f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
                 exc_info=True,
             )
-            ending = RunEnding('failed', 'run_loop_crashed', str(ex))
+            ending = RunEnding(RunStatus.FAILED, 'run_loop_crashed', str(ex))
             # Through the funnel, as every run-killing fault: a crashed run
             # is shown, and a fault already shown stays the one shown.
             self._p.abort_run_fatal(ending.reason, ending.message)
@@ -79,7 +79,7 @@ class ProtocolRunLoop:
             self._p._cleanup(
                 ending
                 or RunEnding(
-                    'failed',
+                    RunStatus.FAILED,
                     'run_loop_crashed',
                     'The run loop stopped without saying how the run ended.',
                 ),
@@ -367,7 +367,7 @@ class ProtocolRunLoop:
                 if isinstance(ex, HardwareCommandRefusedError) and ex.reason in INTERLOCK_REASONS:
                     logger.error(f'[Protocol] Stage interlock refused a move during scan: {ex}')
                     ending = RunEnding(
-                        'failed',
+                        RunStatus.FAILED,
                         'interlock',
                         f'The run stopped. {ex}',
                     )
@@ -387,7 +387,7 @@ class ProtocolRunLoop:
                         exc_info=True,
                     )
                     ending = RunEnding(
-                        'failed',
+                        RunStatus.FAILED,
                         'position_lost',
                         f'The run stopped: {describe_unknown_positions(lost_axes)}. '
                         'Home the scope before running the protocol again.',
@@ -415,7 +415,7 @@ class ProtocolRunLoop:
                         'and the log for the cause, save the protocol, then '
                         'restart LumaViewPro and the protocol.'
                     )
-                    ending = RunEnding('failed', 'consecutive_scan_failures', message)
+                    ending = RunEnding(RunStatus.FAILED, 'consecutive_scan_failures', message)
                     p.end_run_failed(ending.reason, ending.message)
                     return ending
 

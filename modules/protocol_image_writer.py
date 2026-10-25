@@ -51,6 +51,7 @@ from modules.run_outcome import (
     FatalTold,
     FocusFailure,
     RunEnding,
+    RunStatus,
     TakenCapture,
     hardware_disconnected_ending,
 )
@@ -766,7 +767,7 @@ class ProtocolImageWriter:
         """
         self._abort_fn()
         self._fatal_abort_event.set()
-        told = self._ending.record_fatal(RunEnding('failed', reason, message))
+        told = self._ending.record_fatal(RunEnding(RunStatus.FAILED, reason, message))
         if told is FatalTold.SETTLED:
             return
         self._scope.illumination.force_off()
@@ -781,7 +782,7 @@ class ProtocolImageWriter:
         Told as the funnel tells a fault, by the run's latch, so it is shown
         once, and logged when a fault was shown first.
         """
-        told = self._ending.record_fatal(RunEnding('failed', reason, message))
+        told = self._ending.record_fatal(RunEnding(RunStatus.FAILED, reason, message))
         self._tell_failed(told, reason, domain, message)
 
     @staticmethod

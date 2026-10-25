@@ -30,7 +30,7 @@ from modules.operation import settling
 from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_events import RunEvents, deliver
-from modules.run_outcome import STOP_REASONS, RunEnding
+from modules.run_outcome import STOP_REASONS, RunEnding, RunStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -193,7 +193,7 @@ def run_cleanup(
     # AF future here belongs to SOMEONE ELSE -- most likely the very holder
     # whose lease refusal failed this run. Aborting it would steal the
     # operation the refusal deferred to.
-    if autofocus_thread is not None and ending.status != 'failed_at_start':
+    if autofocus_thread is not None and ending.status != RunStatus.FAILED_AT_START:
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
             autofocus_thread.abort(stay_put=ending.reason in STOP_REASONS)

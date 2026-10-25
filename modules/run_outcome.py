@@ -59,6 +59,24 @@ from collections.abc import Callable
 from modules.api_surface import api, api_fields
 
 
+class RunStatus(enum.StrEnum):
+    """How a run ended, in five words.
+
+    ``INCOMPLETE`` is a run that reached its end without every capture it
+    was asked for; ``ABORTED`` is an ending someone asked for (a Stop, or
+    the application tearing the run down); ``FAILED`` is one the
+    instrument imposed, including the strike ceiling for scans that kept
+    failing; ``FAILED_AT_START`` is a run that could not begin after it
+    committed.
+    """
+
+    COMPLETED = 'completed'
+    INCOMPLETE = 'incomplete'
+    ABORTED = 'aborted'
+    FAILED = 'failed'
+    FAILED_AT_START = 'failed_at_start'
+
+
 # The heading of each way a run can end, by the ending's reason: the one
 # place an ending is titled, so the popup, the run's outcome and the failure
 # raised to a caller title one ending one way wherever it was recorded.
@@ -98,12 +116,8 @@ class RunEnding:
     """How a run ended, and why, in the shape a refusal already uses.
 
     Attributes:
-        status: One of 'completed', 'incomplete', 'aborted', 'failed',
-            'failed_at_start'. 'incomplete' is a run that reached its
-            end without every capture it was asked for; 'aborted' is an
-            ending someone asked for (a Stop, or the application tearing
-            the run down); 'failed' is one the instrument imposed,
-            including the strike ceiling for scans that kept failing.
+        status: How the run ended; a plain string of the set is taken as
+            its member, and any other word fails where the ending is made.
         reason: Machine-readable cause, stable enough for a caller to
             branch on ('position_lost', 'disk_space_critical',
             'stopped', ...); one of ``ENDING_TITLES``' keys, or the
@@ -115,11 +129,14 @@ class RunEnding:
             caller serialises.
     """
 
-    status: str
+    status: RunStatus
     reason: str
     message: str
 
     def __post_init__(self):
+        # Judged where the ending is made: the outcome built from it is
+        # built inside cleanup's resolvers, which never raise.
+        object.__setattr__(self, 'status', RunStatus(self.status))
         if self.reason not in ENDING_TITLES:
             raise TypeError(f'a run cannot end with the reason {self.reason!r}: it has no title')
 
@@ -138,7 +155,7 @@ def hardware_disconnected_ending(parts: tuple[str, ...]) -> RunEnding:
     """
     gone = ' and '.join(parts)
     return RunEnding(
-        'failed',
+        RunStatus.FAILED,
         'hardware_disconnected',
         f'The {gone} disconnected during the run. Check the USB cable and power '
         'connections, save the protocol, then restart LumaViewPro and the protocol.',
@@ -380,8 +397,7 @@ class RunOutcome:
     shape for every run kind.
 
     Attributes:
-        status: One of 'completed', 'incomplete', 'aborted', 'failed',
-            'failed_at_start'.
+        status: How the run ended.
         reason: Why the RUN ended ('stopped', 'position_lost',
             'captures_failed', ...).
         title: Short human sentence, suitable as a popup heading.
@@ -436,7 +452,7 @@ class RunOutcome:
             autofocus focused, and for a run with none.
     """
 
-    status: str
+    status: RunStatus
     reason: str
     title: str
     message: str

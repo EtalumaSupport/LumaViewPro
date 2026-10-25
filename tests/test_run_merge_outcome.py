@@ -23,15 +23,20 @@ second-cleanup-pass row is the one that matters most: a two-state design
 reports 'failed' over the real merge result on every successful run.
 """
 
+import dataclasses
 import pathlib
 import threading
 
+import pytest
+
+from modules.exceptions import ArgumentRefusedError
 from modules.run_outcome import (
     ARMED,
     PENDING,
     RESOLVED,
     PendingRunOutcome,
     RunEnding,
+    RunStatus,
 )
 
 _COMPLETED = RunEnding('completed', 'completed', 'The run finished.')
@@ -70,6 +75,34 @@ class TestArming:
         outcome = PendingRunOutcome()
         outcome.resolve_if_pending(_ABORTED)
         assert outcome.arm(_COMPLETED) is None
+
+
+class TestStatus:
+    def test_a_settled_run_reads_its_status_as_a_run_status(self):
+        # A plain string of the set is the member it names, so a caller
+        # comparing with the string and one comparing with the member agree.
+        outcome = PendingRunOutcome()
+        outcome.resolve_if_pending(RunEnding('aborted', 'stopped', 'Stopped by the user.'))
+        settled = outcome.wait(timeout_s=0.1)
+        assert type(settled.status) is RunStatus
+        assert settled.status == RunStatus.ABORTED == 'aborted'
+
+    def test_an_ending_in_no_status_of_the_set_fails_where_it_is_made(self):
+        # Not later, inside a resolver: those run in cleanup's finally and
+        # never raise, or the run's claim on the scope would leak.
+        with pytest.raises(ValueError, match='RunStatus'):
+            RunEnding('finished', 'completed', 'The run finished.')
+
+    def test_an_outcome_built_with_no_status_of_the_set_is_refused(self):
+        outcome = PendingRunOutcome()
+        outcome.resolve_if_pending(_COMPLETED)
+        settled = outcome.wait(timeout_s=0.1)
+        with pytest.raises(ArgumentRefusedError) as refused:
+            dataclasses.replace(settled, status='finished')
+        assert (refused.value.reason, refused.value.argument) == (
+            'not_offered',
+            'RunOutcome.status',
+        )
 
 
 class TestCleanupResolver:
