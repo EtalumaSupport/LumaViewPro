@@ -47,7 +47,7 @@ from modules.exceptions import (
 )
 from modules.activity_claim import ActivityHolder, current_taking, guarded_write
 from modules.live_work import WorkKind
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import FrameValidity, FrameValiditySource
 from modules.scope_capabilities import FrameSize
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -800,7 +800,7 @@ class CameraAPI:
         driver = self._driver
         if driver is None:
             return None
-        armed = self.frame_validity.changes().get('auto_gain')
+        armed = self.frame_validity.changes().get(FrameValiditySource.AUTO_GAIN)
         frame = driver.grab()
         deadline = time.monotonic() + max(self._grab_sizing_exposure_s() * 3, 1.0)
         while armed is not None and (frame is None or frame.seq <= armed.at_seq):
@@ -816,12 +816,12 @@ class CameraAPI:
         *,
         member: str,
         refusal: Callable[[], CameraSettingRejected] | None,
-        invalidates: tuple[str, ...] = (),
-        force_invalidate: tuple[str, ...] = (),
-        targets: tuple[tuple[str, float | None], ...] = (),
-        force_clear: tuple[str, ...] = (),
+        invalidates: tuple[FrameValiditySource, ...] = (),
+        force_invalidate: tuple[FrameValiditySource, ...] = (),
+        targets: tuple[tuple[FrameValiditySource, float | None], ...] = (),
+        force_clear: tuple[FrameValiditySource, ...] = (),
         cache_update: dict[str, object] | None = None,
-        target_from_result: tuple[str, ...] = (),
+        target_from_result: tuple[FrameValiditySource, ...] = (),
         holds: tuple[str, ...] = (),
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
@@ -1065,9 +1065,9 @@ class CameraAPI:
             _write_gain,
             member='set_gain_db',
             refusal=lambda: _value_rejection('gain_db', gain_db),
-            force_invalidate=('gain',),
-            targets=(('gain', float(gain_db)),),
-            target_from_result=('gain',),
+            force_invalidate=(FrameValiditySource.GAIN,),
+            targets=((FrameValiditySource.GAIN, float(gain_db)),),
+            target_from_result=(FrameValiditySource.GAIN,),
             holds=('gain_db',),
         )
         applied = _value_in_effect(ok, float(gain_db))
@@ -1139,9 +1139,9 @@ class CameraAPI:
             _write_exposure,
             member='set_exposure_ms',
             refusal=lambda: _value_rejection('exposure_ms', exposure_ms),
-            force_invalidate=('exposure',),
-            targets=(('exposure', float(exposure_ms) * 1000.0),),
-            target_from_result=('exposure',),
+            force_invalidate=(FrameValiditySource.EXPOSURE,),
+            targets=((FrameValiditySource.EXPOSURE, float(exposure_ms) * 1000.0),),
+            target_from_result=(FrameValiditySource.EXPOSURE,),
             holds=('exposure_ms',),
         )
         applied = _value_in_effect(ok, float(exposure_ms), scale=0.001)
@@ -1557,8 +1557,10 @@ class CameraAPI:
             _write_auto_gain,
             member='set_auto_gain',
             refusal=lambda: _mode_rejection('auto_gain', state, 'auto-gain'),
-            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
-            force_clear=('gain',),
+            force_invalidate=(FrameValiditySource.GAIN, FrameValiditySource.AUTO_GAIN)
+            if arm_settle
+            else (FrameValiditySource.GAIN,),
+            force_clear=(FrameValiditySource.GAIN,),
             # Continuous auto-gain runs the camera's exposure loop with it.
             cache_update={'auto_gain': _mode_of(state), 'auto_exposure': _mode_of(state)},
         )
@@ -1639,7 +1641,10 @@ class CameraAPI:
             # (the disarm dropped the gain target) so the capture proceeds
             # without an exposure/gain gate rather than rejecting forever.
             self._camera_write(
-                lambda: None, member='lock_auto_gain', refusal=None, force_clear=('exposure',)
+                lambda: None,
+                member='lock_auto_gain',
+                refusal=None,
+                force_clear=(FrameValiditySource.EXPOSURE,),
             )
             logger.warning(
                 '[AG CONVERGE] locked: state=FAILED -- the camera reported no '
@@ -1855,8 +1860,8 @@ class CameraAPI:
             lambda: self._driver.auto_exposure_t(state),
             member='set_auto_exposure',
             refusal=lambda: _mode_rejection('auto_exposure', mode, 'auto-exposure'),
-            force_invalidate=('exposure',),
-            force_clear=('exposure',),
+            force_invalidate=(FrameValiditySource.EXPOSURE,),
+            force_clear=(FrameValiditySource.EXPOSURE,),
             cache_update={'auto_exposure': mode},
         )
         # Hardware-truth wins over cache after the auto cycle ends.
@@ -2361,7 +2366,7 @@ class CameraAPI:
             lambda: self._driver.set_frame_size(w, h),
             member='set_frame_size',
             refusal=_refused,
-            force_invalidate=('frame_size',),
+            force_invalidate=(FrameValiditySource.FRAME_SIZE,),
             holds=('frame_size',),
         )
         if not delivered:
@@ -2411,7 +2416,7 @@ class CameraAPI:
             lambda: self._driver.set_binning_size(size=size),
             member='set_binning',
             refusal=_refused,
-            invalidates=('binning',),
+            invalidates=(FrameValiditySource.BINNING,),
             cache_update={'binning': int(size)},
         )
         # The delivered frame size is binning-dependent: it halves at 2x, so
@@ -2462,7 +2467,7 @@ class CameraAPI:
             lambda: self._driver.set_pixel_format(pixel_format),
             member='set_pixel_format',
             refusal=_refused,
-            invalidates=('pixel_format',),
+            invalidates=(FrameValiditySource.PIXEL_FORMAT,),
             cache_update={'pixel_format': pixel_format},
         )
         return True
@@ -2515,7 +2520,7 @@ class CameraAPI:
             lambda: self._driver.set_conversion_gain_mode(mode),
             member='set_conversion_gain_mode',
             refusal=lambda: _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode'),
-            invalidates=('conversion_gain_mode',),
+            invalidates=(FrameValiditySource.CONVERSION_GAIN_MODE,),
             cache_update={'high_conversion_gain': mode == 'High'},
         )
         return True
@@ -2561,7 +2566,7 @@ class CameraAPI:
             refusal=lambda: _mode_rejection(
                 'line_noise_reduction', enabled, 'line noise reduction'
             ),
-            invalidates=('line_noise_reduction',),
+            invalidates=(FrameValiditySource.LINE_NOISE_REDUCTION,),
             cache_update={'line_noise_reduction': bool(enabled)},
         )
         return True
@@ -2699,7 +2704,7 @@ class CameraAPI:
             _write_black_level,
             member='set_black_level',
             refusal=lambda: _value_rejection('black_level', value),
-            invalidates=('black_level',),
+            invalidates=(FrameValiditySource.BLACK_LEVEL,),
             holds=('black_level',),
         )
         self._commit_camera_writes({'black_level': _value_in_effect(result, float(value))})
@@ -3856,7 +3861,7 @@ class CameraAPI:
             refusal=lambda: _mode_rejection(
                 'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
             ),
-            force_invalidate=('gain', 'auto_gain'),
+            force_invalidate=(FrameValiditySource.GAIN, FrameValiditySource.AUTO_GAIN),
         )
 
     def auto_gain_once(
@@ -3940,8 +3945,8 @@ class CameraAPI:
             ),
             member='auto_gain_once',
             refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),
-            force_invalidate=('gain', 'exposure'),
-            force_clear=('gain', 'exposure'),
+            force_invalidate=(FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE),
+            force_clear=(FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE),
             # The one-shot runs both loops once, and the camera turns them off
             # when it is done: until a read finds Off, it is still running. A
             # one-shot not run changes neither.

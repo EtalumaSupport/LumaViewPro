@@ -33,7 +33,7 @@ from modules.exceptions import (
     FrameListenerNotRegisteredError,
     HardwareCommandRefusedError,
 )
-from modules.frame_validity import Change, Counter, FrameValidity, Judgment
+from modules.frame_validity import Change, Counter, FrameValidity, FrameValiditySource, Judgment
 from modules.lumascope_api.camera import AutoGainLock, LayerCameraRequest, _camera_not_connected
 from modules.lumascope_api.frame_record import BLOWN_FRACTION, ClockMapping, FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
@@ -56,7 +56,7 @@ class _NoFrame:
 
     reason: str
     leg: str
-    source: str | None = None
+    source: FrameValiditySource | None = None
 
     @property
     def removed(self) -> bool:
@@ -105,7 +105,7 @@ class _Judged:
     """
 
     mapping: ClockMapping | None
-    exclude_sources: tuple
+    exclude_sources: tuple[FrameValiditySource, ...]
     clock_bound_ns: int | None
 
     def unmet(self, frame_validity: FrameValidity, frame: Frame) -> Judgment | None:
@@ -799,7 +799,7 @@ class ImagingAPI:
         force_to_8bit: bool = True,
         *,
         accept_dark: bool = False,
-        exclude_sources: tuple = (),
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
         sum_count: int = 1,
@@ -821,7 +821,7 @@ class ImagingAPI:
 
         Args:
             force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity, e.g. ('z_move',).
+            exclude_sources: Sources to ignore for validity, e.g. ``(FrameValiditySource.Z_MOVE,)``.
                 The frame returned can predate an excluded change, so a
                 frame that is measured or recorded never excludes one.
             all_ones_check: Measure the frame's saturation. A blown frame
@@ -1270,7 +1270,9 @@ class ImagingAPI:
             uncertainty_ns=(after - before + 1) // 2,
         )
 
-    def _settle_budget(self, exclude_sources: tuple, frame_cost_s: float) -> tuple[int, float]:
+    def _settle_budget(
+        self, exclude_sources: tuple[FrameValiditySource, ...], frame_cost_s: float
+    ) -> tuple[int, float]:
         """The frames the changes are owed, and the seconds a capture budgets for them.
 
         The one settle term the capture's deadline and the public
@@ -1301,7 +1303,7 @@ class ImagingAPI:
         force_to_8bit: bool = True,
         *,
         accept_dark: bool = False,
-        exclude_sources: tuple = (),
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
         sum_count: int = 1,
@@ -1832,7 +1834,7 @@ class ImagingAPI:
         return self.frame_validity.judgments(frame, mapping)
 
     @api(in_process=True)
-    def recorded_changes(self) -> dict[str, Change]:
+    def recorded_changes(self) -> dict[FrameValiditySource, Change]:
         """Each source's last recorded change, settled or not, by source.
 
         What a frame is judged against (``judge_frame``): when the change was
@@ -2221,7 +2223,7 @@ class ImagingAPI:
         return self.frame_validity.is_valid
 
     @api(reads=True)
-    def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
+    def frames_until_valid(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> int:
         """Number of frames that must be grabbed before the next valid frame.
 
         Delegates to frame_validity.
@@ -2559,7 +2561,7 @@ class ImagingAPI:
             # to reach its output have come.
             if self._stream_bound_dropped_at is None:
                 self._stream_bound_dropped_at = delivered
-            in_pipeline = self.frame_validity.SKIP_FRAMES['exposure']
+            in_pipeline = self.frame_validity.SKIP_FRAMES[FrameValiditySource.EXPOSURE]
             if delivered - self._stream_bound_dropped_at < in_pipeline:
                 bound_s = held_s
             else:

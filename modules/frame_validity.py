@@ -33,7 +33,7 @@ bring-up and published as ``capabilities.frame_rules``.
 Usage:
     fv = FrameValidity(lambda: camera.frames_delivered)
     fv.set_settle_check(my_axis_check_fn)  # Register motion completion callback
-    fv.invalidate('z_move', began_ns=None)  # Z axis started moving
+    fv.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)  # Z axis started moving
     fv.frames_until_valid()                # Returns >0 (motion not complete)
     # ... frames are grabbed by live view, counter increments ...
     fv.frames_until_valid()                # Still >0 if Z still moving
@@ -44,7 +44,7 @@ Excluding a source asks whether the frame is valid ignoring that change,
 so the frame can predate it: fit for showing a frame during motion, never
 for one that is measured or recorded (autofocus waits out each Z move, or a
 step's score would be the previous step's):
-    fv.is_valid_for(exclude_sources=('z_move',))
+    fv.is_valid_for(exclude_sources=(FrameValiditySource.Z_MOVE,))
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ import math
 import threading
 import time
 import types
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, ClassVar
 
 from drivers.camera import Frame
@@ -76,6 +76,24 @@ TIMING_PROVENANCE = ('run_id', 'host', 'os', 'lvp_version', 'plugin_version', 'm
 def _is_amount(value) -> bool:
     """Whether a timing record's measured number is a number, 0 or more."""
     return isinstance(value, int | float) and not isinstance(value, bool) and value >= 0
+
+
+class FrameValiditySource(enum.StrEnum):
+    """What changed, for a capture to wait out: each a key of ``FrameValidity.SKIP_FRAMES``."""
+
+    LED = 'led'
+    GAIN = 'gain'
+    EXPOSURE = 'exposure'
+    XY_MOVE = 'xy_move'
+    Z_MOVE = 'z_move'
+    TURRET = 'turret'
+    AUTO_GAIN = 'auto_gain'
+    PIXEL_FORMAT = 'pixel_format'
+    FRAME_SIZE = 'frame_size'
+    BINNING = 'binning'
+    BLACK_LEVEL = 'black_level'
+    CONVERSION_GAIN_MODE = 'conversion_gain_mode'
+    LINE_NOISE_REDUCTION = 'line_noise_reduction'
 
 
 class Counter(enum.Enum):
@@ -178,7 +196,7 @@ class Change:
     long after the change its frame came.
 
     Attributes:
-        source: What changed, a key of ``FrameValidity.SKIP_FRAMES``.
+        source: What changed.
         at_seq: The frame the camera had already delivered when the change
             was recorded; for a move, once in force, when its stop was
             stamped (``FrameValidity.motion_settled``). A frame already in
@@ -217,7 +235,7 @@ class Change:
             change that does not wait on an axis.
     """
 
-    source: str
+    source: FrameValiditySource
     at_seq: int
     written_ns: int
     earliest_ns: int
@@ -335,17 +353,17 @@ class FrameValidity:
     # measured delay runs the clock rule instead (``frame_rules``). Each
     # instance copies them, so one scope's counts never outlive it into the
     # next scope in the process.
-    SKIP_FRAMES: ClassVar[dict] = {
-        'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
-        'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
+    SKIP_FRAMES: ClassVar[dict[FrameValiditySource, int]] = {
+        FrameValiditySource.LED: 2,  # LED on/off or current change (measured: 2 on a2A3536)
+        FrameValiditySource.GAIN: 2,  # Camera gain change (measured: 2 on a2A3536)
         # Camera exposure time change. Not a measurement: the a2A3536 timing
         # record's value that once stood beside it has no surviving source run.
-        'exposure': 3,
+        FrameValiditySource.EXPOSURE: 3,
         # A move's frames are counted from its stop (``motion_settled``).
         # Not measurements: no camera without a clock has a timing record.
-        'xy_move': 2,  # X or Y axis movement
-        'z_move': 2,  # Z axis movement
-        'turret': 2,  # Turret rotation
+        FrameValiditySource.XY_MOVE: 2,  # X or Y axis movement
+        FrameValiditySource.Z_MOVE: 2,  # Z axis movement
+        FrameValiditySource.TURRET: 2,  # Turret rotation
         # Frames for hardware continuous auto-gain to settle against the lit
         # scene after arming. Like led/gain/exposure this is an instrumentation
         # settling count, not a content measurement: the LED must be lit before
@@ -355,20 +373,20 @@ class FrameValidity:
         # Doubled to give AG more frames to ramp; the [AG CONVERGE] diagnostic
         # measures the real convergence need per camera for the eventual
         # camera_timing/<model>.json value (or a brightness-converge gate).
-        'auto_gain': 20,
+        FrameValiditySource.AUTO_GAIN: 20,
         # Geometry / format changes restart the grab engine or realloc the
         # camera buffer; the pipeline needs frames to flush the old
         # geometry before a capture reflects the new one. Conservative
         # defaults pending per-camera bench measurement into
         # camera_timing/<model>.json, like the others.
-        'pixel_format': 3,
-        'frame_size': 3,
-        'binning': 3,
+        FrameValiditySource.PIXEL_FORMAT: 3,
+        FrameValiditySource.FRAME_SIZE: 3,
+        FrameValiditySource.BINNING: 3,
         # Sensor settings that change the next frames like gain does. Unmeasured;
         # gain's count until a bench measurement goes into camera_timing.
-        'black_level': 2,
-        'conversion_gain_mode': 2,
-        'line_noise_reduction': 2,
+        FrameValiditySource.BLACK_LEVEL: 2,
+        FrameValiditySource.CONVERSION_GAIN_MODE: 2,
+        FrameValiditySource.LINE_NOISE_REDUCTION: 2,
     }
 
     # One shape for every trace row this class writes. A row records the
@@ -380,7 +398,9 @@ class FrameValidity:
     _TRACE_HEADER = 'ts_ms,event,source,frame_seq,at_seq,remaining,pending_count'
 
     # Sources that require physical hardware completion in addition to frame count.
-    MOTION_SOURCES = frozenset({'xy_move', 'z_move', 'turret'})
+    MOTION_SOURCES = frozenset(
+        {FrameValiditySource.XY_MOVE, FrameValiditySource.Z_MOVE, FrameValiditySource.TURRET}
+    )
 
     # Sources carrying per-frame chunk metadata, used to REJECT a frame at
     # capture time -- never to accept one. A chunk reports the register value
@@ -389,13 +409,13 @@ class FrameValidity:
     # the pixels; a chunk that DISAGREES proves the frame predates the write.
     # Only the disagreement direction is sound. LED has no chunk equivalent;
     # motion is firmware-gated via _settle_check_fn.
-    CHUNK_VALIDATABLE_SOURCES = frozenset({'gain', 'exposure'})
+    CHUNK_VALIDATABLE_SOURCES = frozenset({FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE})
 
     # Maps our source names to the chunk_data dict keys used by camera
     # drivers (chunk_data uses the genicam attribute symbolic names).
-    CHUNK_KEY_FOR_SOURCE: ClassVar[dict] = {
-        'gain': 'Gain',
-        'exposure': 'ExposureTime',
+    CHUNK_KEY_FOR_SOURCE: ClassVar[dict[FrameValiditySource, str]] = {
+        FrameValiditySource.GAIN: 'Gain',
+        FrameValiditySource.EXPOSURE: 'ExposureTime',
     }
 
     # Float-tolerance for chunk-match equality. ChunkExposureTime is in
@@ -409,9 +429,9 @@ class FrameValidity:
     # Gain round-trip error peaked at ~5e-5 dB (float epsilon), exposure was
     # bit-exact in microseconds. Tolerances set ~20x above observed max
     # for safety across future firmware revisions.
-    DEFAULT_CHUNK_TOLERANCE: ClassVar[dict] = {
-        'gain': 0.001,  # dB
-        'exposure': 2.0,  # microseconds
+    DEFAULT_CHUNK_TOLERANCE: ClassVar[dict[FrameValiditySource, float]] = {
+        FrameValiditySource.GAIN: 0.001,  # dB
+        FrameValiditySource.EXPOSURE: 2.0,  # microseconds
     }
 
     def __init__(self, frames_delivered):
@@ -449,12 +469,12 @@ class FrameValidity:
         # around a real mid-window invalidation.
         self._invalidation_counts = {}  # source -> total invalidate() calls
 
-    def set_settle_check(self, fn):
+    def set_settle_check(self, fn: Callable[[FrameValiditySource], bool]) -> None:
         """Register a callback that checks if a source has physically settled.
 
         Args:
-            fn: callable(source: str) -> bool. Returns True if the hardware
-                for this source has physically completed its state change.
+            fn: Answers whether the hardware for a source has physically
+                completed its state change.
                 For motion sources, this typically checks axis state == IDLE.
                 For non-motion sources, should return True.
 
@@ -465,14 +485,14 @@ class FrameValidity:
         self._settle_check_fn = fn
 
     @classmethod
-    def credit_rules(cls) -> Mapping[str, FrameRule]:
+    def credit_rules(cls) -> Mapping[FrameValiditySource, FrameRule]:
         """Every source on the credit rule: the rules of a camera with no measured delay."""
         return types.MappingProxyType(dict.fromkeys(cls.SKIP_FRAMES, CREDIT_RULE))
 
     @classmethod
     def rules_from_record(
         cls, record: dict | None, has_clock_latch: bool
-    ) -> Mapping[str, FrameRule]:
+    ) -> Mapping[FrameValiditySource, FrameRule]:
         """Each source's rule, from a camera's checked timing record.
 
         On a camera with a clock latch, a source the record holds an
@@ -500,14 +520,14 @@ class FrameValidity:
             delays = [v for v in directions.values() if 'apply_delay_us' in v]
             if delays:
                 slowest = max(delays, key=lambda v: v['apply_delay_us'])
-                rules[source] = FrameRule(
+                rules[FrameValiditySource(source)] = FrameRule(
                     rule=Rule.CLOCK,
                     delay_us=float(slowest['apply_delay_us']),
                     provenance=types.MappingProxyType(dict(slowest['provenance'])),
                 )
         return types.MappingProxyType(rules)
 
-    def use_rules(self, rules: Mapping[str, FrameRule]) -> None:
+    def use_rules(self, rules: Mapping[FrameValiditySource, FrameRule]) -> None:
         """Judge each change recorded from now on by its source's rule in ``rules``.
 
         Bring-up hands over the scope's ``capabilities.frame_rules``.
@@ -521,11 +541,11 @@ class FrameValidity:
         with self._lock:
             self._rules = rules
 
-    def invalidate(self, source: str, *, began_ns: int | None) -> Change:
+    def invalidate(self, source: FrameValiditySource, *, began_ns: int | None) -> Change:
         """Record that hardware state changed and frames need to settle.
 
         Args:
-            source: What changed: a key of SKIP_FRAMES.
+            source: What changed.
             began_ns: Host ``time.monotonic_ns()`` when the write that made
                 the change began, the change's ``earliest_ns``; None for a
                 change recorded before it is made (a move), whose earliest
@@ -677,7 +697,7 @@ class FrameValidity:
                 recording_id=profile_trace.NO_RECORDING,
             )
 
-    def _is_source_settled_unlocked(self, source: str, pending: Change) -> bool:
+    def _is_source_settled_unlocked(self, source: FrameValiditySource, pending: Change) -> bool:
         """Check if a source has settled. Must be called with _lock held."""
         if pending.remaining > 0:
             return False
@@ -686,7 +706,7 @@ class FrameValidity:
             return self._settle_check_fn(source)
         return True
 
-    def set_target(self, source: str, value: float | None) -> None:
+    def set_target(self, source: FrameValiditySource, value: float | None) -> None:
         """Record the requested value for a chunk-validatable source.
 
         The API layer (Lumascope.set_gain_db / set_exposure_ms) calls this
@@ -696,7 +716,7 @@ class FrameValidity:
         frame count alone.
 
         Args:
-            source: Source name (e.g. 'gain', 'exposure'). Sources outside
+            source: What the target is for (``GAIN``, ``EXPOSURE``). Sources outside
                 CHUNK_VALIDATABLE_SOURCES are accepted but never consulted.
             value: Target value to compare chunks against. None clears any
                 prior target.
@@ -707,7 +727,7 @@ class FrameValidity:
             else:
                 self._target_values[source] = float(value)
 
-    def target(self, source: str) -> float | None:
+    def target(self, source: FrameValiditySource) -> float | None:
         """Return the recorded target value for a source, or None if unset.
 
         Capture paths use this to decide whether a returned frame can be
@@ -716,20 +736,20 @@ class FrameValidity:
         value) means chunk verification does not apply.
 
         Args:
-            source: Source name (e.g. 'gain', 'exposure').
+            source: What the target is for (``GAIN``, ``EXPOSURE``).
         """
         with self._lock:
             return self._target_values.get(source)
 
     def chunk_match(
-        self, source: str, chunk_value: float | None, tolerance: float | None = None
+        self, source: FrameValiditySource, chunk_value: float | None, tolerance: float | None = None
     ) -> bool:
         """Public float-tolerant equality between a chunk value and the recorded target.
 
         Used by the capture path's stale-frame rejection, and by tests.
 
         Args:
-            source: Source name.
+            source: What the target is for.
             chunk_value: Observed value from chunk metadata. May be None.
             tolerance: Optional tolerance override; defaults to DEFAULT_CHUNK_TOLERANCE.
         """
@@ -749,11 +769,11 @@ class FrameValidity:
         with self._lock:
             return all(self._is_source_settled_unlocked(s, self._changes[s]) for s in self._pending)
 
-    def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
+    def is_valid_for(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> bool:
         """True if valid, ignoring specified sources.
 
         The frame can predate an excluded change: see the module docstring.
-            fv.is_valid_for(exclude_sources=('z_move',))
+            fv.is_valid_for(exclude_sources=(FrameValiditySource.Z_MOVE,))
         """
         with self._lock:
             return all(
@@ -762,7 +782,7 @@ class FrameValidity:
                 if s not in exclude_sources
             )
 
-    def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
+    def frames_until_valid(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> int:
         """Number of frames that must be grabbed before the next valid frame.
 
         Returns 0 if already valid. A move counts its frames from its stop,
@@ -784,7 +804,9 @@ class FrameValidity:
                         max_remaining = max(max_remaining, 1)
             return max(0, max_remaining)
 
-    def owed(self, exclude_sources: tuple = (), uncertainty_ns: int = 0) -> Owed:
+    def owed(
+        self, exclude_sources: tuple[FrameValiditySource, ...] = (), uncertainty_ns: int = 0
+    ) -> Owed:
         """What a capture waits on, each change by its own rule.
 
         A change judged by the credit rule is owed its count, as
@@ -829,7 +851,7 @@ class FrameValidity:
             return Owed(frames=frames, until_ns=until_ns)
 
     @property
-    def pending_sources(self) -> dict:
+    def pending_sources(self) -> dict[FrameValiditySource, int]:
         """Current pending sources and the frames each still needs (for debugging).
 
         Zero means the frame count is met, NOT that the source has settled:
@@ -848,7 +870,7 @@ class FrameValidity:
             return self._frame_counter
 
     @property
-    def invalidation_counts(self) -> dict:
+    def invalidation_counts(self) -> dict[FrameValiditySource, int]:
         """Per-source count of every invalidate() call, monotone for the
         instance's lifetime.
 
@@ -860,7 +882,7 @@ class FrameValidity:
         with self._lock:
             return dict(self._invalidation_counts)
 
-    def changes(self) -> dict[str, Change]:
+    def changes(self) -> dict[FrameValiditySource, Change]:
         """Each source's last recorded change, settled or not, by source."""
         with self._lock:
             return dict(self._changes)
@@ -931,7 +953,9 @@ class FrameValidity:
         changes = self.changes()
         return tuple(self.judge(frame, changes[source], mapping) for source in sorted(changes))
 
-    def motion_settled(self, source: str, at_ns: int, *, moving_seen_ns: int | None) -> None:
+    def motion_settled(
+        self, source: FrameValiditySource, at_ns: int, *, moving_seen_ns: int | None
+    ) -> None:
         """Stamp ``at_ns`` as the in-force time of ``source``'s change, if the settle check now passes.
 
         The motion API calls this after every write of an axis state the
@@ -992,7 +1016,9 @@ class FrameValidity:
         if profile_trace.ENABLE_PROFILE_TRACE:
             self._trace_rows([('in_force', source, '', at_seq, change.skip, pending_count)])
 
-    def unsettled_motion_sources(self, exclude_sources: tuple = ()) -> tuple:
+    def unsettled_motion_sources(
+        self, exclude_sources: tuple[FrameValiditySource, ...] = ()
+    ) -> tuple[FrameValiditySource, ...]:
         """Pending motion sources whose settle-check says still moving.
 
         The capture deadline suspends while this is non-empty: motion has

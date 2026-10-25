@@ -39,7 +39,7 @@ from drivers.null_ledboard import NullLEDBoard
 from lvp_logger import logger
 from modules import common_utils
 from modules.api_surface import api_fields
-from modules.frame_validity import FrameRule, FrameValidity
+from modules.frame_validity import FrameRule, FrameValidity, FrameValiditySource
 from modules.axes import Axis
 
 if TYPE_CHECKING:
@@ -420,7 +420,9 @@ class ScopeCapabilities:
     whose frames do not carry their start on that clock (no ``Timestamp``
     chunk); its frames carry no mapping."""
 
-    frame_rules: Mapping[str, FrameRule] = field(default_factory=FrameValidity.credit_rules)
+    frame_rules: Mapping[FrameValiditySource, FrameRule] = field(
+        default_factory=FrameValidity.credit_rules
+    )
     """Per frame-validity source, the rule a frame is judged by against its
     changes (``FrameValidity.judge``): the clock rule, with its measured
     delay and the run that measured it, where the camera has a clock latch

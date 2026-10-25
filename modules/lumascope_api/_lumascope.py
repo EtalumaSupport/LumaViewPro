@@ -84,7 +84,7 @@ from modules.lumascope_api.bring_up import (
     PartStatus,
     Substitution,
 )
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import FrameValidity, FrameValiditySource
 from modules.fx2_driver_step import repair_refusal
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
@@ -849,15 +849,18 @@ class Lumascope:
 
             changes = self.frame_validity.changes()
 
-            def settled_at(source: str) -> int | None:
+            def settled_at(source: FrameValiditySource) -> int | None:
                 change = changes.get(source)
                 return None if change is None else change.in_force_ns
 
-            led = changes.get('led')
+            led = changes.get(FrameValiditySource.LED)
             lit = live_lit_pairs(self.illumination)
             return {
-                'z_um': (self.motion.get_current_position('Z'), settled_at('z_move')),
-                'stage_xy': (_sim_stage_xy(), settled_at('xy_move')),
+                'z_um': (
+                    self.motion.get_current_position('Z'),
+                    settled_at(FrameValiditySource.Z_MOVE),
+                ),
+                'stage_xy': (_sim_stage_xy(), settled_at(FrameValiditySource.XY_MOVE)),
                 'illumination': (
                     (
                         sum(ma for _, ma in lit),
@@ -1039,7 +1042,7 @@ class Lumascope:
         # _focusing_event and _camera_temp_event on ImagingAPI.__init__.
         # Lumascope wires up the motion-settle check against the
         # frame_validity instance below.
-        def _motion_settle_check(source: str) -> bool:
+        def _motion_settle_check(source: FrameValiditySource) -> bool:
             # No motion change settles while a several-move command is open:
             # between two of its moves every axis can be at rest, and a frame
             # taken there is of neither where the command began nor where it
@@ -1050,14 +1053,14 @@ class Lumascope:
             # Axes that were never homed or moved stay UNKNOWN -- they shouldn't
             # block frame validity for sources that don't apply.
             idle_or_absent = (AxisState.IDLE, AxisState.UNKNOWN)
-            if source == 'z_move':
+            if source == FrameValiditySource.Z_MOVE:
                 return self.motion.get_axis_state('Z') in idle_or_absent
-            elif source == 'xy_move':
+            elif source == FrameValiditySource.XY_MOVE:
                 return (
                     self.motion.get_axis_state('X') in idle_or_absent
                     and self.motion.get_axis_state('Y') in idle_or_absent
                 )
-            elif source == 'turret':
+            elif source == FrameValiditySource.TURRET:
                 return self.motion.get_axis_state('T') in idle_or_absent
             return True
 

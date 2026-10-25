@@ -33,6 +33,7 @@ from modules.exceptions import (
 from modules.layer_record import IdentitySource, refuse_unknown_layer
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import api, api_fields
+from modules.frame_validity import FrameValiditySource
 
 if TYPE_CHECKING:
     from modules.activity_claim import Taking
@@ -785,7 +786,7 @@ class IlluminationAPI:
         # The change is recorded once the store holds it: a frame counts for
         # it by when it began against the record, and the light it is made
         # under is the store's (the simulated sensor reads it).
-        self._scope.frame_validity.invalidate('led', began_ns=began_ns)
+        self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         self._fire_led_listeners(reading)
         return commanded_ma
 
@@ -864,7 +865,7 @@ class IlluminationAPI:
             self._led_state.pop(channel, None)
             self._lit_by.pop(channel, None)
             reading = self._reading(channel)
-        self._scope.frame_validity.invalidate('led', began_ns=began_ns)
+        self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         self._fire_led_listeners(reading)
 
     def _leds_off_impl(self) -> None:
@@ -989,7 +990,7 @@ class IlluminationAPI:
             self._lit_by.clear()
             self._led_state.clear()
             readings = self._readings()
-        self._scope.frame_validity.invalidate('led', began_ns=began_ns)
+        self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         _api_log.info('leds_off')
         for reading in readings:
             self._fire_led_listeners(reading)
@@ -1293,7 +1294,7 @@ class IlluminationAPI:
             with self._led_state_lock:
                 self._lit_by.pop(ch, None)
                 self._led_state.pop(ch, None)
-            self._scope.frame_validity.invalidate('led', began_ns=began_ns)
+            self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
             _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:
                 reading = self._reading(ch)

@@ -153,6 +153,7 @@ from modules.lumascope_api._constants import (
 )
 from modules.api_surface import api, api_fields
 from modules.closed_sets import refuse_unless_offered
+from modules.frame_validity import FrameValiditySource
 from modules.coord_transformations import AxisLimits, PlateLocation
 from modules.live_work import WorkKind
 
@@ -282,7 +283,10 @@ class MotionAPI:
     # settle-check gates on the correct axis reaching IDLE. A turret
     # move that recorded 'xy_move' would clear the moment X/Y read idle,
     # before the turret physically finished.
-    _AXIS_VALIDITY_SOURCE: ClassVar[dict] = {'Z': 'z_move', 'T': 'turret'}
+    _AXIS_VALIDITY_SOURCE: ClassVar[dict[str, FrameValiditySource]] = {
+        'Z': FrameValiditySource.Z_MOVE,
+        'T': FrameValiditySource.TURRET,
+    }
 
     def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:
         # `driver` is in the signature for backcompat (Phase 1 Lumascope
@@ -1104,11 +1108,11 @@ class MotionAPI:
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         if 'Z' in present_axes:
-            self._scope.frame_validity.invalidate('z_move', began_ns=None)
+            self._scope.frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
         if 'X' in present_axes or 'Y' in present_axes:
-            self._scope.frame_validity.invalidate('xy_move', began_ns=None)
+            self._scope.frame_validity.invalidate(FrameValiditySource.XY_MOVE, began_ns=None)
         if 'T' in present_axes:
-            self._scope.frame_validity.invalidate('turret', began_ns=None)
+            self._scope.frame_validity.invalidate(FrameValiditySource.TURRET, began_ns=None)
         # One command, so the axes' changes come into force when it closes,
         # after the turret's slot is recorded: an axis saying IDLE first
         # would put the turret's change in force with no slot in the light
@@ -1262,7 +1266,7 @@ class MotionAPI:
                     self._safe_turret_move(),
                 ):
                     self._set_axis_state('T', AxisState.HOMING)
-                    self._scope.frame_validity.invalidate('turret', began_ns=None)
+                    self._scope.frame_validity.invalidate(FrameValiditySource.TURRET, began_ns=None)
                     homed = False
                     try:
                         self._driver.thome()
@@ -1920,7 +1924,7 @@ class MotionAPI:
         state_before = self._axis_states(('Z',))['Z']
         self._set_axis_state('Z', AxisState.HOMING)
         stops_asked = self._stops_asked
-        self._scope.frame_validity.invalidate('z_move', began_ns=None)
+        self._scope.frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
         try:
             with (
                 self._reference_position_logger(),
@@ -3438,7 +3442,7 @@ class MotionAPI:
                         ):
                             self._command_moving_seen_ns = moving_seen_ns
                 self._scope.frame_validity.motion_settled(
-                    self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'),
+                    self._AXIS_VALIDITY_SOURCE.get(axis, FrameValiditySource.XY_MOVE),
                     settled_ns,
                     moving_seen_ns=moving_seen_ns,
                 )
@@ -3586,7 +3590,7 @@ class MotionAPI:
         move = self._begin_move(axis, stop_generation)
         try:
             self._scope.frame_validity.invalidate(
-                self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'), began_ns=None
+                self._AXIS_VALIDITY_SOURCE.get(axis, FrameValiditySource.XY_MOVE), began_ns=None
             )
             return move, send()
         except MotionInterlockError as e:

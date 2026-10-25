@@ -19,6 +19,7 @@ from modules.caller import Caller
 from modules.run_outcome import ENDING_TITLES
 
 if TYPE_CHECKING:
+    from modules.frame_validity import FrameValiditySource
     from modules.plugins import PluginNotLoaded
 
 # A camera that is connected and not delivering frames: a run refused at its
@@ -1583,16 +1584,18 @@ class CaptureFailedError(Fault, CaptureError):
               recording's frame listener.
             - ``'unknown_save_encoding'`` -- a frame was handed an encoding
               no writer knows, which the program, not the person, got wrong.
-        source: The ``FrameValidity`` source the capture failed for: for
-            ``'chunk_rejected'`` the setting no frame matched, ``'exposure'``
-            or ``'gain'``; for ``'no_fresh_frame'`` the change no frame came
-            after (``'z_move'``, ``'led'``); None otherwise.
+        source: The source the capture failed for: for
+            ``'chunk_rejected'`` the setting no frame matched, ``EXPOSURE``
+            or ``GAIN``; for ``'no_fresh_frame'`` the change no frame came
+            after (``Z_MOVE``, ``LED``); None otherwise.
     """
 
-    source: str | None
+    source: 'FrameValiditySource | None'
 
     # Each source's change as a person says it, in the words of a
-    # ``'no_fresh_frame'`` failure.
+    # ``'no_fresh_frame'`` failure. Keyed by each ``FrameValiditySource``'s
+    # value, which its member finds: importing the set here closes an import
+    # cycle through the camera driver.
     _CHANGE_WORDS: ClassVar[dict[str, str]] = {
         'led': 'the LED change',
         'gain': 'the gain change',
@@ -1646,7 +1649,13 @@ class CaptureFailedError(Fault, CaptureError):
         ),
     }
 
-    def __init__(self, reason: str, *, source: str | None = None, encoding: str | None = None):
+    def __init__(
+        self,
+        reason: str,
+        *,
+        source: 'FrameValiditySource | None' = None,
+        encoding: str | None = None,
+    ):
         if reason not in self._WORDS:
             raise TypeError(f'CaptureFailedError has no reason {reason!r}')
         if (source is None) == (reason in ('chunk_rejected', 'no_fresh_frame')):
