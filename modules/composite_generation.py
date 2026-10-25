@@ -435,7 +435,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                         # inside the engine on every run kind, headless
                         # included, where there is no live mode to read.
                         save_encoding=image_mode.save_encoding_for_derived_output(
-                            img, image_mode.IMAGE_MODE_8BIT
+                            img, image_mode.ImageMode.EIGHT_BIT
                         ),
                         # Already rendered for display, shown as it is.
                         white_bits=None,

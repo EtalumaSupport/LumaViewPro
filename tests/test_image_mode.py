@@ -131,19 +131,13 @@ def test_config_helper_reads_the_stored_image_mode(mode, depth, encoding):
 
 def test_available_modes_are_every_mode_in_selector_order():
     """A mode is a save policy every camera honours, so all four are offered."""
-    from modules.image_mode import available_mode_labels, available_modes
+    from modules.image_mode import available_modes
 
     assert available_modes() == [
         '8bit',
         '12bit_scientific',
         '12bit_scaled',
         '12bit_false_color_rgb',
-    ]
-    assert available_mode_labels() == [
-        '8-bit',
-        'Scientific (full depth)',
-        'Scaled (full depth)',
-        'RGB (full depth)',
     ]
 
 
@@ -177,15 +171,6 @@ def test_select_capture_pixel_format_no_formats():
 
     assert select_capture_pixel_format(8, ()) is None
     assert select_capture_pixel_format(12, None) is None
-
-
-def test_image_mode_label_round_trip():
-    """Every mode has a label and the label maps back to the mode."""
-    from modules.image_mode import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE, resolve_image_mode
-
-    for mode, label in IMAGE_MODE_LABELS.items():
-        resolve_image_mode(mode)  # every labeled value is a real mode
-        assert LABEL_TO_IMAGE_MODE[label] == mode
 
 
 def test_each_output_format_has_one_label_and_reads_back_from_it():
@@ -941,13 +926,3 @@ def test_manual_capture_path_passes_save_encoding():
             f'a {call.func.id} call at line {call.lineno} still passes a '
             'retired color argument alongside the channel'
         )
-
-
-def test_the_mode_labels_differ_in_their_first_word():
-    """A spinner shortens text too wide for it from the right, so labels that
-    share their opening read the same in the closed selector; each mode's
-    label is told apart by its first word."""
-    from modules.image_mode import IMAGE_MODE_LABELS
-
-    first_words = [label.split()[0] for label in IMAGE_MODE_LABELS.values()]
-    assert len(set(first_words)) == len(first_words), first_words

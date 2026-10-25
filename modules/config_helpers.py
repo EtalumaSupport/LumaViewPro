@@ -1155,7 +1155,7 @@ def get_composite_image_capture_config_from_settings(
         )
 
     return image_mode.ImageCaptureConfig.from_image_mode(
-        image_mode.IMAGE_MODE_8BIT,
+        image_mode.ImageMode.EIGHT_BIT,
         output_format_live=output_format['live'],
         output_format_sequenced=resolved,
         jpg_quality=settings['jpg_quality'],

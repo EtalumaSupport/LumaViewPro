@@ -152,7 +152,7 @@ def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames)
 @pytest.fixture(scope='module')
 def ls620_session():
     settings = complete_settings(microscope='LS620')
-    settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
     session = ScopeSession.create(settings, simulate=True, warn_pre_release=False)
     yield session
     session.shutdown()
@@ -171,10 +171,10 @@ def test_an_ls620_sum_is_16bit_and_tagged_by_its_reach(ls620_session):
 
 def test_every_camera_is_offered_every_mode():
     assert image_mode.available_modes() == [
-        image_mode.IMAGE_MODE_8BIT,
-        image_mode.IMAGE_MODE_12BIT_SCIENTIFIC,
-        image_mode.IMAGE_MODE_12BIT_SCALED,
-        image_mode.IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
+        image_mode.ImageMode.EIGHT_BIT,
+        image_mode.ImageMode.SCIENTIFIC,
+        image_mode.ImageMode.SCALED,
+        image_mode.ImageMode.FALSE_COLOR_RGB,
     ]
 
 

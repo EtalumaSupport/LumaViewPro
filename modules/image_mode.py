@@ -40,13 +40,6 @@ class ImageMode(enum.StrEnum):
     FALSE_COLOR_RGB = '12bit_false_color_rgb'
 
 
-# The engineering plugin imports these names; they go once it names the
-# members.
-IMAGE_MODE_8BIT = ImageMode.EIGHT_BIT
-IMAGE_MODE_12BIT_SCIENTIFIC = ImageMode.SCIENTIFIC
-IMAGE_MODE_12BIT_SCALED = ImageMode.SCALED
-IMAGE_MODE_12BIT_FALSE_COLOR_RGB = ImageMode.FALSE_COLOR_RGB
-
 # The sequenced-output formats, spelled as the settings files hold them
 # verbatim -- none can be renamed without a settings migration. The
 # selectors show OUTPUT_FORMAT_LABELS instead. OUTPUT_FORMAT_HYPERSTACK swaps
@@ -115,13 +108,13 @@ LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.item
 DEFAULT_IMAGE_MODE = ImageMode.EIGHT_BIT
 
 _MODE_TABLE: dict[ImageMode, dict] = {
-    IMAGE_MODE_8BIT: {'capture_depth': 8, 'save_encoding': SAVE_ENCODING_8BIT},
-    IMAGE_MODE_12BIT_SCIENTIFIC: {
+    ImageMode.EIGHT_BIT: {'capture_depth': 8, 'save_encoding': SAVE_ENCODING_8BIT},
+    ImageMode.SCIENTIFIC: {
         'capture_depth': 12,
         'save_encoding': SAVE_ENCODING_RIGHT_ALIGNED,
     },
-    IMAGE_MODE_12BIT_SCALED: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_MSB_ALIGNED},
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_RGB},
+    ImageMode.SCALED: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_MSB_ALIGNED},
+    ImageMode.FALSE_COLOR_RGB: {'capture_depth': 12, 'save_encoding': SAVE_ENCODING_RGB},
 }
 
 
@@ -333,28 +326,11 @@ def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool)
     12bit_scaled -- that mode is new and reachable only by explicit selection.
     """
     if not use_full_pixel_depth:
-        return IMAGE_MODE_8BIT
+        return ImageMode.EIGHT_BIT
     if false_color_16bit:
-        return IMAGE_MODE_12BIT_FALSE_COLOR_RGB
-    return IMAGE_MODE_12BIT_SCIENTIFIC
+        return ImageMode.FALSE_COLOR_RGB
+    return ImageMode.SCIENTIFIC
 
-
-# User-facing labels for the Image mode selector. The selector is the only
-# place these strings appear; storage and the resolver use the enum values.
-# The strings must stay distinct, because LABEL_TO_IMAGE_MODE inverts this map
-# and a collision would silently drop a mode, and must differ in their first
-# words: a spinner shortens text too wide for it from the right, so two
-# labels that share a long opening read the same in the closed selector. The ids keep their 12bit_ names:
-# a full-depth mode keeps the payload at the depth the frame has, 12 bits where
-# the camera delivers 12, and a sum at the bits it can reach.
-IMAGE_MODE_LABELS = {
-    IMAGE_MODE_8BIT: '8-bit',
-    IMAGE_MODE_12BIT_SCIENTIFIC: 'Scientific (full depth)',
-    IMAGE_MODE_12BIT_SCALED: 'Scaled (full depth)',
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: 'RGB (full depth)',
-}
-
-LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 
 # Pixel formats that mean the camera can deliver a 12-bit payload. Match is
 # format-exact: Mono12 / Mono12p (Pylon wire names) and Mono12g24IDS (the IDS
@@ -372,11 +348,6 @@ def available_modes() -> list[ImageMode]:
     depth the frame has -- so every camera can honour every mode.
     """
     return list(ImageMode)
-
-
-def available_mode_labels() -> list:
-    """The user-facing labels for available_modes, in selector order."""
-    return [IMAGE_MODE_LABELS[mode] for mode in available_modes()]
 
 
 def select_capture_pixel_format(

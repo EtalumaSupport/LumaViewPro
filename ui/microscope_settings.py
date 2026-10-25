@@ -24,6 +24,7 @@ from modules.config_ui_getters import (
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
+from modules.image_mode import ImageMode
 from ui.ui_helpers import (
     refused_in_this_input,
     run_reported,
@@ -46,6 +47,24 @@ _FRAME_BOXES = {
     'frame_width_id': ('FRAME_WIDTH', 'width'),
     'frame_height_id': ('FRAME_HEIGHT', 'height'),
 }
+
+# The Image mode selector's labels. A label is display: storage, the API and
+# the resolver use the ImageMode values, so a label is renamed with no
+# migration. The strings must stay distinct, because LABEL_TO_IMAGE_MODE
+# inverts this map and a collision would silently drop a mode, and must
+# differ in their first words: a spinner shortens text too wide for it from
+# the right, so two labels that share a long opening read the same in the
+# closed selector. The values keep their 12bit_ names: a full-depth mode
+# keeps the payload at the depth the frame has, 12 bits where the camera
+# delivers 12, and a sum at the bits it can reach.
+IMAGE_MODE_LABELS = {
+    ImageMode.EIGHT_BIT: '8-bit',
+    ImageMode.SCIENTIFIC: 'Scientific (full depth)',
+    ImageMode.SCALED: 'Scaled (full depth)',
+    ImageMode.FALSE_COLOR_RGB: 'RGB (full depth)',
+}
+
+LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 
 
 class _CoalescingApplier:
@@ -184,7 +203,7 @@ class MicroscopeSettings(BoxLayout):
         # caches the mode and applies the pixel format.
         self.load_image_modes()
         mode = settings['image_mode']
-        self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
+        self.ids['image_mode_spinner'].text = IMAGE_MODE_LABELS[mode]
 
         self.show_capture_settings()
 
@@ -311,7 +330,9 @@ class MicroscopeSettings(BoxLayout):
 
     def load_image_modes(self):
         """Populate the image-mode spinner: every mode, on every camera."""
-        self.ids['image_mode_spinner'].values = image_mode.available_mode_labels()
+        self.ids['image_mode_spinner'].values = [
+            IMAGE_MODE_LABELS[mode] for mode in image_mode.available_modes()
+        ]
 
     # Drives the 8-bit binning depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
@@ -355,7 +376,7 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
 
         label = self.ids['image_mode_spinner'].text
-        mode = image_mode.LABEL_TO_IMAGE_MODE.get(label)
+        mode = LABEL_TO_IMAGE_MODE.get(label)
         if mode is None:
             return  # 'Select' placeholder or an unknown label -- ignore
 
@@ -383,7 +404,7 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         mode = ctx.settings['image_mode']
         ctx.scope_display.image_mode = mode
-        label = image_mode.IMAGE_MODE_LABELS[mode]
+        label = IMAGE_MODE_LABELS[mode]
         if self.ids['image_mode_spinner'].text != label:
             self.ids['image_mode_spinner'].text = label
         self._refresh_binning_depth_hint()

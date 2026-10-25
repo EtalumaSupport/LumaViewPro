@@ -491,13 +491,12 @@ class TestImageModeMirrorAgreesWithTheStore:
         from types import SimpleNamespace
 
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         settings = {'image_mode': stored_mode}
         scope_display = SimpleNamespace(image_mode=shown_mode)
         ids = {
-            'image_mode_spinner': SimpleNamespace(
-                text=image_mode_real.IMAGE_MODE_LABELS[shown_mode]
-            ),
+            'image_mode_spinner': SimpleNamespace(text=IMAGE_MODE_LABELS[shown_mode]),
         }
         log = _RecordingGuiLogger(ids)
         ctx = SimpleNamespace(settings=settings, scope_display=scope_display)
@@ -506,6 +505,7 @@ class TestImageModeMirrorAgreesWithTheStore:
             {
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'image_mode': image_mode_real,
+                'IMAGE_MODE_LABELS': IMAGE_MODE_LABELS,
                 'gui_logger': log,
             },
         )
@@ -532,6 +532,7 @@ class TestImageModeMirrorAgreesWithTheStore:
         # stayed and the selector moved. Either way the mirror follows the
         # store.
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         for stored in image_mode_real._MODE_TABLE:
             redraw, settings, scope_display, ids, _log = self._make_redraw(
@@ -543,12 +544,12 @@ class TestImageModeMirrorAgreesWithTheStore:
             assert settings['image_mode'] == scope_display.image_mode, (
                 f'the redraw to {stored} left the mirror and the store disagreeing'
             )
-            assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS[stored]
+            assert ids['image_mode_spinner'].text == IMAGE_MODE_LABELS[stored]
 
     def test_a_refused_format_puts_the_selector_back(self):
         # The Session refused 12-bit and stored nothing; the selector the
         # person moved goes back to the stored mode.
-        import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         redraw, _settings, scope_display, ids, _log = self._make_redraw(
             '8bit', shown_mode='12bit_scientific'
@@ -557,7 +558,7 @@ class TestImageModeMirrorAgreesWithTheStore:
 
         redraw()
 
-        assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS['8bit']
+        assert ids['image_mode_spinner'].text == IMAGE_MODE_LABELS['8bit']
         assert scope_display.image_mode == '8bit'
 
 
@@ -685,14 +686,43 @@ class TestTheImageModeSelectorRendersTheApi:
     predicate; the panel decides neither."""
 
     def test_every_mode_is_offered(self):
+        """The selector lists every mode the API offers, in its order, by label."""
         from types import SimpleNamespace
 
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import IMAGE_MODE_LABELS
 
         spinner = SimpleNamespace(values=None)
-        fn = _compile_ms_method('load_image_modes', {'image_mode': image_mode_real})
+        fn = _compile_ms_method(
+            'load_image_modes',
+            {'image_mode': image_mode_real, 'IMAGE_MODE_LABELS': IMAGE_MODE_LABELS},
+        )
         fn(SimpleNamespace(ids={'image_mode_spinner': spinner}))
-        assert spinner.values == image_mode_real.available_mode_labels()
+        assert spinner.values == [
+            '8-bit',
+            'Scientific (full depth)',
+            'Scaled (full depth)',
+            'RGB (full depth)',
+        ]
+
+    def test_every_label_names_one_mode(self):
+        """Every mode has a label and the label maps back to that mode, so a
+        pick reaches the API as the mode the selector showed."""
+        from modules.image_mode import ImageMode
+        from ui.microscope_settings import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE
+
+        assert set(IMAGE_MODE_LABELS) == set(ImageMode)
+        for mode, label in IMAGE_MODE_LABELS.items():
+            assert LABEL_TO_IMAGE_MODE[label] == mode
+
+    def test_the_mode_labels_differ_in_their_first_word(self):
+        """A spinner shortens text too wide for it from the right, so labels that
+        share their opening read the same in the closed selector; each mode's
+        label is told apart by its first word."""
+        from ui.microscope_settings import IMAGE_MODE_LABELS
+
+        first_words = [label.split()[0] for label in IMAGE_MODE_LABELS.values()]
+        assert len(set(first_words)) == len(first_words), first_words
 
     @pytest.mark.parametrize(
         ('mode', 'live', 'shown'),
@@ -767,13 +797,10 @@ def test_a_mode_redraw_refreshes_the_jpg_hint():
     from types import SimpleNamespace
 
     import modules.image_mode as image_mode_real
+    from ui.microscope_settings import IMAGE_MODE_LABELS
 
     settings = {'image_mode': '12bit_scientific'}
-    ids = {
-        'image_mode_spinner': SimpleNamespace(
-            text=image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
-        )
-    }
+    ids = {'image_mode_spinner': SimpleNamespace(text=IMAGE_MODE_LABELS['12bit_scientific'])}
     refreshed = []
     fn = _compile_ms_method(
         '_redraw_image_mode',
@@ -784,6 +811,7 @@ def test_a_mode_redraw_refreshes_the_jpg_hint():
                 )
             ),
             'image_mode': image_mode_real,
+            'IMAGE_MODE_LABELS': IMAGE_MODE_LABELS,
             'gui_logger': _RecordingGuiLogger(ids),
         },
     )

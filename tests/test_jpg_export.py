@@ -178,7 +178,7 @@ def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path):
     monkeypatch.setattr(manual_capture.logger, 'info', lambda msg: messages.append(msg))
 
     settings = _settings(tmp_path)
-    settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
     with _open_session(settings) as session:
         # Each frame carries a depth no image mode gives, so the log can only
         # have it from the captured frame itself.

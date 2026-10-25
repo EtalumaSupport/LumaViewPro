@@ -116,5 +116,5 @@ def test_the_jpg_depth_warning_renders_the_apis_predicate():
     kv = KV.read_text(encoding='utf-8')
     assert "'12-bit' in image_mode_spinner.text" not in kv
     assert 'root.jpg_depth_hint_active' in kv
-    assert image_mode.jpg_depth_warning_active(image_mode.IMAGE_MODE_12BIT_SCIENTIFIC, ('JPG',))
-    assert not image_mode.jpg_depth_warning_active(image_mode.IMAGE_MODE_8BIT, ('JPG',))
+    assert image_mode.jpg_depth_warning_active(image_mode.ImageMode.SCIENTIFIC, ('JPG',))
+    assert not image_mode.jpg_depth_warning_active(image_mode.ImageMode.EIGHT_BIT, ('JPG',))

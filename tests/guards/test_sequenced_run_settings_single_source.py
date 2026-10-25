@@ -28,11 +28,10 @@ import pytest
 
 import modules.config_helpers as config_helpers
 from modules.image_mode import (
-    IMAGE_MODE_8BIT,
-    IMAGE_MODE_12BIT_SCIENTIFIC,
     OUTPUT_FORMAT_HYPERSTACK,
     OUTPUT_FORMAT_OME_TIFF,
     ImageCaptureConfig,
+    ImageMode,
 )
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT, MemberNames
@@ -93,7 +92,7 @@ def test_helper_passes_settings_values_through():
         run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     )
     assert out == {
-        'image_capture_config': ImageCaptureConfig.from_image_mode(IMAGE_MODE_8BIT),
+        'image_capture_config': ImageCaptureConfig.from_image_mode(ImageMode.EIGHT_BIT),
         'keep_led_between_steps': True,
         'video_as_frames': True,
         'separate_folder_per_channel': True,
@@ -168,7 +167,7 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     overrides: its merge reads its inputs back as 8-bit, from a TIFF or an
     OME-TIFF, whatever the user's image mode and sequenced format."""
     settings = complete_settings(
-        image_mode=IMAGE_MODE_12BIT_SCIENTIFIC,
+        image_mode=ImageMode.SCIENTIFIC,
         image_output_format={'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK},
     )
     composite = config_helpers.get_sequenced_run_settings(
@@ -177,9 +176,9 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     scan = config_helpers.get_sequenced_run_settings(
         settings, run_mode=SequencedCaptureRunMode.SINGLE_SCAN
     )['image_capture_config']
-    assert composite.image_mode == IMAGE_MODE_8BIT
+    assert composite.image_mode == ImageMode.EIGHT_BIT
     assert composite.output_format_sequenced == OUTPUT_FORMAT_OME_TIFF
-    assert scan.image_mode == IMAGE_MODE_12BIT_SCIENTIFIC
+    assert scan.image_mode == ImageMode.SCIENTIFIC
     assert scan.output_format_sequenced == OUTPUT_FORMAT_HYPERSTACK
 
 

@@ -36,7 +36,7 @@ def _name(session, still) -> str:
 def summed(tmp_path):
     """A lit 12-bit frame summed three times, saved, with a client."""
     settings = _settings(tmp_path)
-    settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
     settings['BF']['sum'] = 3
     with _open_session(settings) as session:
         session.scope.motion.move_z(session.scope._camera_driver.get_nominal_focal_z())

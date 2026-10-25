@@ -219,7 +219,7 @@ class TestOverlays:
         overlay's 8-bit rendering must scale against the summed depth, since
         scaling against the per-frame depth refuses the frame."""
         settings = _settings(tmp_path)
-        settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+        settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
         settings['BF']['sum'] = 3
         with _open_session(settings) as session:
             # At the sample: homing leaves Z at the floor, where the

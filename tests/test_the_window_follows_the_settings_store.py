@@ -29,7 +29,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 import ui.microscope_settings as microscope_settings
-from modules import image_mode, kivy_utils
+from modules import kivy_utils
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
@@ -86,7 +86,9 @@ def test_each_widget_a_redraw_sets_to_the_stored_value_writes_nothing(session, h
     settings = session.settings
     panel = SimpleNamespace(
         ids={
-            'image_mode_spinner': _box(image_mode.IMAGE_MODE_LABELS[settings['image_mode']]),
+            'image_mode_spinner': _box(
+                microscope_settings.IMAGE_MODE_LABELS[settings['image_mode']]
+            ),
             'binning_spinner': _box(settings['binning']['size']),
             'jpg_quality_value_label': _box(''),
             'video_recording_format_spinner': _box(

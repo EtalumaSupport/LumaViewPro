@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.image_mode import IMAGE_MODE_8BIT, IMAGE_MODE_12BIT_SCIENTIFIC
+from modules.image_mode import ImageMode
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -37,8 +37,8 @@ def test_the_capabilities_name_the_deepest_depth_and_the_buffer_width(ls850t):
 
 
 def test_the_current_depth_follows_the_image_mode(ls850t):
-    ls850t.camera.set_image_mode(IMAGE_MODE_8BIT)
+    ls850t.camera.set_image_mode(ImageMode.EIGHT_BIT)
     assert ls850t.scope.imaging.significant_bits == 8
 
-    ls850t.camera.set_image_mode(IMAGE_MODE_12BIT_SCIENTIFIC)
+    ls850t.camera.set_image_mode(ImageMode.SCIENTIFIC)
     assert ls850t.scope.imaging.significant_bits == 12
