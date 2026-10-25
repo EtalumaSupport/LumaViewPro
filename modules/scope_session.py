@@ -77,7 +77,7 @@ from modules.exceptions import (
     ProtocolNotLoadedError,
     ProtocolRunRefusedError,
     Remedy,
-    RemedyUnknownError,
+    RemedyName,
     ScopeDisconnectError,
     ScopeModelDeferredNotice,
     ScopeModelUnknownError,
@@ -1962,9 +1962,10 @@ class ScopeSession:
         The one place a remedy's name becomes an action: the GUI's offer and
         a REST caller answer a refusal through this, never by resolving the
         name themselves. A name arrives as data -- from a refusal another
-        layer built, or from a caller sending it back -- so only the members
-        listed here are reachable through it. The member still decides
-        whether the remedy applies now, and refuses if not.
+        layer built, or from a caller sending it back -- and a ``Remedy``
+        holds only a ``RemedyName``, so only the members listed here are
+        reachable through it. The member still decides whether the remedy
+        applies now, and refuses if not.
 
         Returns:
             The remedy's own answer: ``recover_file_writer`` answers how many
@@ -1972,16 +1973,19 @@ class ScopeSession:
             bindings after the repair.
 
         Raises:
-            RemedyUnknownError: the remedy names a member not offered as one.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                as ``recover_file_writer``.
+            FileWriterNotStuckError: as ``recover_file_writer``.
+            CameraDriverRepairRefusedError: ``'repair_needs_windows'`` and the
+                other reasons ``repair_camera_driver`` names.
+            CameraDriverRepairFailedError: as ``repair_camera_driver``.
+            CameraUsbLookupFailedError: as ``repair_camera_driver``.
         """
-        remedies: dict[str, Callable[[], int | tuple[UsbIdentityBindings, ...]]] = {
-            'recover_file_writer': self.recover_file_writer,
-            'repair_camera_driver': self.repair_camera_driver,
+        remedies: dict[RemedyName, Callable[[], int | tuple[UsbIdentityBindings, ...]]] = {
+            RemedyName.RECOVER_FILE_WRITER: self.recover_file_writer,
+            RemedyName.REPAIR_CAMERA_DRIVER: self.repair_camera_driver,
         }
-        action = remedies.get(remedy.member)
-        if action is None:
-            raise RemedyUnknownError(remedy.member, remedies)
-        return action()
+        return remedies[remedy.member]()
 
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         """The stored settings of each layer, or of ``specific_layers``.

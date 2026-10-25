@@ -58,6 +58,13 @@ def _holder(kind: str | None) -> Holder | None:
     return None if kind is None else Holder(kind)
 
 
+class RemedyName(StrEnum):
+    """The Session members a refusal can name as its remedy (``ScopeSession.apply_remedy``)."""
+
+    RECOVER_FILE_WRITER = 'recover_file_writer'
+    REPAIR_CAMERA_DRIVER = 'repair_camera_driver'
+
+
 @api_fields('member', 'confirm_text', 'cancel_text')
 @dataclass(frozen=True)
 class Remedy:
@@ -76,7 +83,7 @@ class Remedy:
         cancel_text: The words that decline it and leave things as they are.
     """
 
-    member: str
+    member: RemedyName
     confirm_text: str
     cancel_text: str
 
@@ -178,30 +185,6 @@ def _require_a_cause(cls: type, mixin: type, names: tuple[str, ...]) -> None:
             f'{cls.__name__} declares no cause: state {" or ".join(names)} in its body '
             f'(cause = RefusalCause.REQUEST or RefusalCause.STATE)'
         )
-
-
-class RemedyUnknownError(Refusal, ValueError):
-    """A remedy was asked for by a name the Session does not offer.
-
-    A remedy names a Session member, and a name arrives as data -- from a
-    REST caller, or from a refusal built by another layer -- so only the
-    members the Session lists are reachable through it.
-
-    Attributes:
-        reason: ``'remedy_unknown'``.
-        member: The name that was asked for.
-    """
-
-    reason = 'remedy_unknown'
-    cause = RefusalCause.REQUEST
-    title = 'Unknown Remedy'
-
-    def __init__(self, member: str, offered: Iterable[str]):
-        super().__init__(
-            f"'{member}' is not an action the microscope offers as a remedy. "
-            f'The remedies are: {", ".join(sorted(offered))}.'
-        )
-        self.member = member
 
 
 class LiveFolderPathRefusedError(Refusal, ValueError):
@@ -1009,14 +992,6 @@ class CameraNotAvailableError(BringUpError):
         ),
     }
 
-    # Offered on 'camera_driver_unusable' where the Session can take it: an
-    # installed Windows build that carries the Classic driver package
-    # (``fx2_driver_step.repair_refusal``).
-    REPAIR: ClassVar[Remedy] = Remedy(
-        member='repair_camera_driver',
-        confirm_text='Install the driver (needs an administrator)',
-        cancel_text='Not now',
-    )
     # What 'camera_driver_unusable' tells the person to do, by whether the
     # driver can be installed from here.
     _UNUSABLE_ANSWER: ClassVar[dict[bool, str]] = {
@@ -1035,7 +1010,7 @@ class CameraNotAvailableError(BringUpError):
 
         Args:
             reason: One of ``_WORDS``' keys.
-            repairable: Offer Repair (``REPAIR``) as the answer; only for
+            repairable: Offer Repair (``repair()``) as the answer; only for
                 ``'camera_driver_unusable'``.
         """
         if repairable and reason != 'camera_driver_unusable':
@@ -1044,7 +1019,22 @@ class CameraNotAvailableError(BringUpError):
         if reason == 'camera_driver_unusable':
             message += self._UNUSABLE_ANSWER[repairable]
         super().__init__(message, reason)
-        self.remedy = self.REPAIR if repairable else None
+        self.remedy = self.repair() if repairable else None
+
+    @staticmethod
+    def repair() -> Remedy:
+        """The offer of Repair, on 'camera_driver_unusable' where the Session can take it.
+
+        An installed Windows build that carries the Classic driver package
+        (``fx2_driver_step.repair_refusal``). Built when it is offered, not
+        when this module loads: a ``Remedy`` is judged as it is built, and
+        the judge's refusal is defined in this module.
+        """
+        return Remedy(
+            member=RemedyName.REPAIR_CAMERA_DRIVER,
+            confirm_text='Install the driver (needs an administrator)',
+            cancel_text='Not now',
+        )
 
 
 class CameraDriverRepairRefusedError(Refusal, Exception):
@@ -2876,7 +2866,7 @@ class FileWriterStalledError(Fault, CaptureError):
     def recovery(unsaved: int) -> Remedy:
         """The offer that answers the stall."""
         return Remedy(
-            member='recover_file_writer',
+            member=RemedyName.RECOVER_FILE_WRITER,
             confirm_text=f'Discard {unsaved} unsaved and unlock',
             cancel_text='Keep waiting',
         )

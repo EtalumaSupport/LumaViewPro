@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError, Remedy, RemedyUnknownError
+from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, Remedy, RemedyName
 from modules.image_mode import ImageCaptureConfig
 from modules.notification_center import NotificationCenter, Severity
 from modules.protocol_image_writer import RunWriteBatch
@@ -94,14 +94,13 @@ class TestTheSessionAppliesARemedyByName:
         session.file_io_executor.replace_stuck_worker.assert_called_once()
         assert batch.outcome == 'incomplete'
 
-    def test_a_name_the_session_does_not_offer_is_refused(self, session):
-        """A remedy names a member; only the members the Session allows are reachable."""
-        with pytest.raises(RemedyUnknownError) as refused:
-            session.apply_remedy(Remedy(member='shutdown', confirm_text='Go', cancel_text='No'))
+    def test_a_name_the_session_does_not_offer_is_refused_where_the_remedy_is_built(self):
+        """A remedy names a member; it holds only a ``RemedyName``, so no other is reachable."""
+        with pytest.raises(ArgumentRefusedError) as refused:
+            Remedy(member='shutdown', confirm_text='Go', cancel_text='No')
 
-        assert refused.value.reason == 'remedy_unknown'
-        assert refused.value.title, 'a refusal is shown under its own title'
-        session.file_io_executor.replace_stuck_worker.assert_not_called()
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Remedy.member')
+        assert refused.value.offered == tuple(RemedyName)
 
 
 class TestTheReporterCarriesTheRemedyToItsListeners:

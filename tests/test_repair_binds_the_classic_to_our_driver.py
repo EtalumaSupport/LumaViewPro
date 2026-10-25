@@ -75,7 +75,7 @@ def test_the_remedy_runs_the_installed_step_and_returns_the_bound_device(
     heard = []
     fx2_session.add_outcome_listener(heard.append)
 
-    bindings = fx2_session.apply_remedy(CameraNotAvailableError.REPAIR)
+    bindings = fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert runs == [(launch_root() / 'lvp_fx2_driver_step.exe', 'install')]
     assert [identity.usable for identity in bindings] == [True, True]
