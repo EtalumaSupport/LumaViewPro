@@ -157,7 +157,7 @@ class ImageSettings(BoxLayout):
             control.illumination_support = bool(record.led_channel)
             # Luminescence is long and dim: its exposure sums frames, and
             # the camera's auto gain is not offered for it.
-            luminescence = record.modality == 'luminescence'
+            luminescence = record.modality == layer_record.Modality.LUMINESCENCE
             control.exposure_summing_support = luminescence
             control.autogain_support = not luminescence
         self._shown_layers = frozenset(records)

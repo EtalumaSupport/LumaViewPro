@@ -22,7 +22,9 @@ from modules.layer_record import (
     ChannelIdentity,
     ChannelRecord,
     GREY,
+    Background,
     IdentitySource,
+    Modality,
     format_display_color,
     load_layer_catalogue,
     output_color,
@@ -470,6 +472,27 @@ class TestRowParsing:
             (layer['key'], layer['modality'], layer['background'], layer['display_color'])
             for layer in CATALOGUE
         ]
+        assert {(type(r.modality), type(r.background)) for r in identity.channels} == {
+            (Modality, Background)
+        }
+
+    def test_a_record_of_a_modality_outside_the_set_is_refused(self):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ChannelRecord(
+                id=0,
+                key_name='BF',
+                display_name='BF',
+                led_channel=(3,),
+                excitation_nm=None,
+                modality='phase',
+                background='bright',
+                display_color='#ffffff',
+                label='BF',
+            )
+        assert (refused.value.reason, refused.value.argument) == (
+            'not_offered',
+            'ChannelRecord.modality',
+        )
 
     def test_single_channel_and_excitation_normalise(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': [row('Green', 'Green', 1, 488)]}})

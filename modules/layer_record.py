@@ -44,15 +44,25 @@ from modules.exceptions import (
 )
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api, api_fields
+from modules.closed_sets import member_of
 from modules.scope_capabilities import FrameSize
 
 
-# The values a catalogue record's `modality` and `background` take. The
-# modality is the kind of light a layer images; the background is what its
-# field of view looks like, which is not the modality's: darkfield is
-# transmitted light on a dark field.
-MODALITIES = ('transmitted', 'fluorescence', 'luminescence')
-BACKGROUNDS = ('bright', 'dark')
+class Modality(enum.StrEnum):
+    """The kind of light a layer images."""
+
+    TRANSMITTED = 'transmitted'
+    FLUORESCENCE = 'fluorescence'
+    LUMINESCENCE = 'luminescence'
+
+
+class Background(enum.StrEnum):
+    """What a layer's field of view looks like, which is not its modality's:
+    darkfield is transmitted light on a dark field."""
+
+    BRIGHT = 'bright'
+    DARK = 'dark'
+
 
 # The one encoding of a stored colour: catalogue, board block and the user's
 # override all write '#rrggbb', lower case, so one colour is one string.
@@ -98,8 +108,8 @@ def format_display_color(color: Color) -> str:
 class CatalogueLayer:
     """What a layer of one key is in this release, on every unit that has it.
 
-    `modality` is one of ``MODALITIES``; `background` one of ``BACKGROUNDS``,
-    what the scale bar and annotation text are drawn against.
+    `background` is what the scale bar and annotation text are drawn
+    against.
     `manual_max_exposure_ms` is the exposure slider's ceiling, None where the
     layer has none (luminescence integrates as long as the sensor allows).
     `display_color` is the release's colour for the layer, ``'#rrggbb'``.
@@ -116,8 +126,8 @@ class CatalogueLayer:
     """
 
     key: str
-    modality: str
-    background: str
+    modality: Modality
+    background: Background
     manual_max_exposure_ms: float | None
     display_color: str
     step_order: int
@@ -177,8 +187,8 @@ class ChannelRecord:
     display_name: str | None
     led_channel: tuple[int, ...]
     excitation_nm: float | None
-    modality: str
-    background: str
+    modality: Modality
+    background: Background
     display_color: str
     label: str
 
@@ -642,10 +652,12 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
     key = entry['key']
     if not isinstance(key, str) or not key:
         raise refuse('whose key is not a name')
-    if entry['modality'] not in MODALITIES:
-        raise refuse(f'whose modality is not one of {MODALITIES}')
-    if entry['background'] not in BACKGROUNDS:
-        raise refuse(f'whose background is not one of {BACKGROUNDS}')
+    modality = member_of(Modality, entry['modality'])
+    if modality is None:
+        raise refuse(f'whose modality is not one of {", ".join(Modality)}')
+    background = member_of(Background, entry['background'])
+    if background is None:
+        raise refuse(f'whose background is not one of {", ".join(Background)}')
     ceiling = entry['manual_max_exposure_ms']
     if ceiling is not None and not (_is_number(ceiling) and ceiling > 0):
         raise refuse('whose manual_max_exposure_ms is not a positive number or null')
@@ -661,8 +673,8 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
         raise refuse('whose sim_light_per_ma_s is not a positive number or null')
     return CatalogueLayer(
         key=key,
-        modality=entry['modality'],
-        background=entry['background'],
+        modality=modality,
+        background=background,
         manual_max_exposure_ms=None if ceiling is None else float(ceiling),
         display_color=entry['display_color'],
         step_order=step_order,
@@ -710,7 +722,7 @@ def _record(
     display = row.get('display_name')
     if display is not None and (not isinstance(display, str) or not display):
         return f'has malformed display_name {display!r}'
-    if release.modality == 'fluorescence':
+    if release.modality == Modality.FLUORESCENCE:
         if excitation is None:
             return 'has no excitation_nm'
         label = f'{excitation:g} nm'

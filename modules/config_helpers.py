@@ -19,6 +19,7 @@ from lvp_logger import logger, metrics_logger
 from modules.acquire_mode import AcquireMode
 from modules.api_surface import api
 from modules.coord_transformations import PlateLocation
+from modules.layer_record import Modality
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -289,12 +290,12 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
     return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(layer)]
 
 
-def _ag_ae_channel_class(layer: str) -> str:
+def _ag_ae_channel_class(layer: str) -> Modality:
     if layer in common_utils.get_transmitted_layers():
-        return 'transmitted'
+        return Modality.TRANSMITTED
     if layer in common_utils.get_luminescence_layers():
-        return 'luminescence'
-    return 'fluorescence'
+        return Modality.LUMINESCENCE
+    return Modality.FLUORESCENCE
 
 
 def model_has_turret(scopes: 'Mapping[str, ScopeModel]', model: str | None) -> bool:
@@ -826,9 +827,9 @@ DEFAULT_MAX_EXPOSURE_MS = 1000.0
 # tenth of a millisecond; sub-millisecond fluorescence or luminescence is
 # never realistic and its sliders start at 1 ms.
 DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
-    'transmitted': 0.1,
-    'fluorescence': 1.0,
-    'luminescence': 1.0,
+    Modality.TRANSMITTED: 0.1,
+    Modality.FLUORESCENCE: 1.0,
+    Modality.LUMINESCENCE: 1.0,
 }
 
 # Fallback gain slider upper bound used when no camera is connected.

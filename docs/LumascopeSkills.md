@@ -179,8 +179,8 @@ for channel in identity.channels:
     channel.display_name                 # the unit's name for the layer (e.g. 'BF-Phase' on FX2); None for a fluorescence
                                          # channel a board's Channels block names by its excitation alone
     channel.label                        # what to show: a fluorescence layer's excitation ('405 nm'), else display_name
-    channel.modality                     # 'transmitted' | 'fluorescence' | 'luminescence'
-    channel.background                   # 'bright' | 'dark': what an overlay is drawn against
+    channel.modality                     # Modality (modules.layer_record): 'transmitted' | 'fluorescence' | 'luminescence'
+    channel.background                   # Background: 'bright' | 'dark': what an overlay is drawn against
     channel.display_color                # the unit's colour for the layer, '#rrggbb': its board block row's, else the
                                          # release's; the colour used is session.channel_colors(), which applies the override
     channel.led_channel                  # tuple of board addresses; () = drives no LED

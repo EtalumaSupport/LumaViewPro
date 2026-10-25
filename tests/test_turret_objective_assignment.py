@@ -226,7 +226,7 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         data.mkdir()
         (data / 'current.json').write_text(_json.dumps(payload))
         # The template gives every catalogue key a block; empty ones will do here.
-        defaults = {modality: {} for modality in layer_record.MODALITIES}
+        defaults = {modality: {} for modality in layer_record.Modality}
         (data / 'settings.json').write_text(_json.dumps({**payload, 'channel_defaults': defaults}))
         prepared, _ = si.prepare_settings(
             logging.getLogger('t'), str(tmp_path), fall_back_to_template=True
