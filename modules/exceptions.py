@@ -38,6 +38,25 @@ POST_PROCESSING_RUNNING_MESSAGE = (
 )
 
 
+class Holder(StrEnum):
+    """What holds the microscope when a refusal names its holder.
+
+    The claim's four holding kinds, by their ``WorkKind`` words, and an
+    autofocus sweep still in flight after its run ended.
+    """
+
+    PROTOCOL = 'protocol'
+    RECORDING = 'recording'
+    HOME = 'home'
+    DIAGNOSTIC = 'diagnostic'
+    AUTOFOCUS = 'autofocus'
+
+
+def _holder(kind: str | None) -> Holder | None:
+    """The holder a refusal names, from the claim's kind or a member; None for none."""
+    return None if kind is None else Holder(kind)
+
+
 @api_fields('member', 'confirm_text', 'cancel_text')
 @dataclass(frozen=True)
 class Remedy:
@@ -1701,11 +1720,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         title: The heading shown above the sentence, the reason's
             (``_TITLES``).
         message: The sentence; the same text as the exception's message.
-        holder: What holds the microscope at refusal time
-            ('protocol' or 'recording' for the exclusive-activity claim
-            owner; 'autofocus' for a sweep in flight), or None when the
-            refusal is not holder-shaped (validation, hardware, file
-            drain).
+        holder: What holds the microscope at refusal time (the
+            exclusive-activity claim's kind, or ``AUTOFOCUS`` for a sweep
+            in flight), or None when the refusal is not holder-shaped
+            (validation, hardware, file drain).
         holder_trigger: Who holds the scope: the control session's taker
             for ``'control_session_held'``; otherwise who started the run
             that holds it -- ``'gui'``, ``'rest'`` or ``'api'``
@@ -1723,7 +1741,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     a REST problem carries who holds the scope beside the words.
     """
 
-    holder: str | None
+    holder: Holder | None
     holder_trigger: Caller | None
     control_session: str | None
 
@@ -1834,7 +1852,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         reason: str,
         message: str,
         *,
-        holder: 'str | None' = None,
+        holder: 'Holder | None' = None,
         holder_trigger: Caller | None = None,
         control_session: str | None = None,
         remedy: Remedy | None = None,
@@ -1843,7 +1861,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         self.reason = self._declared(reason)
         self.title = self._TITLES[reason]
         self.message = message
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
         self.remedy = remedy
@@ -1943,7 +1961,7 @@ class RecordingRefusedError(Refusal, CaptureError):
     ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
 
-    holder: str | None
+    holder: Holder | None
     holder_trigger: Caller | None
     control_session: str | None
     cause = RefusalCause.STATE
@@ -1965,7 +1983,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         reason: str,
         message: str,
         *,
-        holder: 'str | None' = None,
+        holder: 'Holder | None' = None,
         holder_trigger: Caller | None = None,
         control_session: str | None = None,
     ):
@@ -1974,7 +1992,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         super().__init__(message, reason)
         self.title = self._TITLES[reason]
         self.message = message
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
 
@@ -3073,7 +3091,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
     ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
 
-    holder: str | None
+    holder: Holder | None
     holder_trigger: Caller | None
     control_session: str | None
 
@@ -3119,7 +3137,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         self,
         reason: str,
         member: str,
-        holder: str | None = None,
+        holder: Holder | None = None,
         *,
         missing: 'MissingPart | None' = None,
         holder_trigger: Caller | None = None,
@@ -3138,7 +3156,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         super().__init__(sentence)
         self.reason = self._declared(reason)
         self.member = member
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
         self.missing = missing
@@ -3287,7 +3305,7 @@ def the_activity_named(kind: str | None) -> str:
     return _HOLDER_NOUNS.get(kind, 'Another activity')
 
 
-def _command_refused_sentence(reason: str, holder: str | None) -> str:
+def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
     if reason == 'capture_in_flight':
         return 'A capture is still being saved. Try again in a moment.'
     if reason == 'home_in_flight':
@@ -3348,7 +3366,7 @@ class DiagnosticRefusedError(Refusal, Exception):
     ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
 
-    holder: str | None
+    holder: Holder | None
     holder_trigger: Caller | None
     control_session: str | None
     cause = RefusalCause.STATE
@@ -3363,7 +3381,7 @@ class DiagnosticRefusedError(Refusal, Exception):
         reason: str,
         message: str,
         *,
-        holder: 'str | None' = None,
+        holder: 'Holder | None' = None,
         holder_trigger: Caller | None = None,
         control_session: str | None = None,
     ):
@@ -3373,7 +3391,7 @@ class DiagnosticRefusedError(Refusal, Exception):
         self.reason = reason
         self.title = self._TITLES[reason]
         self.message = message
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
 
@@ -3436,7 +3454,7 @@ class ControlSessionRefusedError(Refusal, Exception):
     ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
 
-    holder: str | None
+    holder: Holder | None
     holder_trigger: Caller | None
     control_session: str | None
 
@@ -3460,20 +3478,20 @@ class ControlSessionRefusedError(Refusal, Exception):
         self,
         reason: str,
         *,
-        holder: str | None = None,
+        holder: Holder | None = None,
         holder_trigger: Caller | None = None,
         control_session: str | None = None,
     ):
         self.reason = self._declared(reason)
         super().__init__(_control_refused_sentence(reason, holder, holder_trigger, control_session))
         self.title = self._TITLES[reason]
-        self.holder = holder
+        self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
 
 
 def _control_refused_sentence(
-    reason: str, holder: str | None, holder_trigger: Caller | None, control_session: str | None
+    reason: str, holder: Holder | None, holder_trigger: Caller | None, control_session: str | None
 ) -> str:
     if reason == 'control_session_held':
         return under_control_sentence(holder_trigger, control_session)

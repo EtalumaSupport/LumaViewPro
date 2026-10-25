@@ -18,6 +18,7 @@ from modules.exceptions import (
     ClaimStillLentError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
+    Holder,
 )
 from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.protocol_drives import run_identity
@@ -135,12 +136,19 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
                 pytest.fail('the block ran while another activity held the scope')
             assert excinfo.value.reason == 'exclusive_activity_running'
             assert excinfo.value.holder == holder_kind
+            assert type(excinfo.value.holder) is Holder
             # A run is named by its kind in words; any other activity by its kind.
             named = 'The scan run' if holder_kind == 'protocol' else holder_kind
             assert named in excinfo.value.message
             assert other.holds, "a refused diagnostic must not touch the holder's claim"
         finally:
             other.release()
+
+    def test_a_refusal_names_no_holder_outside_the_set(self):
+        with pytest.raises(ValueError, match='Holder'):
+            DiagnosticRefusedError(
+                reason='exclusive_activity_running', message='Busy.', holder='nap'
+            )
 
     def test_who_started_the_holding_run_is_named(self):
         session = _make_session()

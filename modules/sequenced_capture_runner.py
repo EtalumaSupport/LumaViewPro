@@ -49,6 +49,7 @@ from modules.exceptions import (
     CameraSettingRejected,
     CompositeFailedError,
     FileWriterStalledError,
+    Holder,
     ProtocolRunRefusedError,
     RecordIncompleteError,
     Remedy,
@@ -846,7 +847,7 @@ class SequencedCaptureRunner:
                 f'{the_run_named(holder, sentence_start=True)} is using the microscope. '
                 'Stop it from the control that started it, or let it finish.'
             ),
-            holder='protocol',
+            holder=Holder.PROTOCOL,
             holder_trigger=holder.started_by if holder is not None else None,
         )
 
@@ -931,7 +932,7 @@ class SequencedCaptureRunner:
         reason: str,
         message: str,
         *,
-        holder: 'str | None' = None,
+        holder: Holder | None = None,
         holder_trigger: Caller | None = None,
         control_session: str | None = None,
         remedy: Remedy | None = None,
@@ -956,7 +957,7 @@ class SequencedCaptureRunner:
         reason: str,
         message: str,
         *,
-        holder: 'str | None' = None,
+        holder: Holder | None = None,
         holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
     ) -> typing.NoReturn:
@@ -1109,7 +1110,7 @@ class SequencedCaptureRunner:
                     'did not stop when its run ended. Restart LumaViewPro if it '
                     'does not clear.'
                 ),
-                holder='autofocus',
+                holder=Holder.AUTOFOCUS,
                 holder_trigger=in_flight_sweep.run.started_by,
             )
 
