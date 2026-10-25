@@ -715,6 +715,16 @@ class TestTheImageModeSelectorRendersTheApi:
         for mode, label in IMAGE_MODE_LABELS.items():
             assert LABEL_TO_IMAGE_MODE[label] == mode
 
+    def test_every_output_format_has_one_label_and_reads_back_from_it(self):
+        """Every format has a label, and the label maps back to it, so a pick
+        stores the format the selector showed."""
+        from modules.image_mode import OutputFormat
+        from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT, OUTPUT_FORMAT_LABELS
+
+        assert set(OUTPUT_FORMAT_LABELS) == set(OutputFormat)
+        for fmt, label in OUTPUT_FORMAT_LABELS.items():
+            assert LABEL_TO_OUTPUT_FORMAT[label] == fmt
+
     def test_the_mode_labels_differ_in_their_first_word(self):
         """A spinner shortens text too wide for it from the right, so labels that
         share their opening read the same in the closed selector; each mode's
@@ -763,6 +773,7 @@ class TestTheImageModeSelectorRendersTheApi:
         from types import SimpleNamespace
 
         import modules.image_mode as image_mode_real
+        from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT
 
         settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
         refreshed = []
@@ -779,6 +790,7 @@ class TestTheImageModeSelectorRendersTheApi:
                 ),
                 'gui_logger': SimpleNamespace(select=lambda *a: None),
                 'image_mode': image_mode_real,
+                'LABEL_TO_OUTPUT_FORMAT': LABEL_TO_OUTPUT_FORMAT,
                 'run_reported': lambda fn, on_done, name: fn(),
             },
         )

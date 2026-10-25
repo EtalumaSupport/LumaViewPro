@@ -197,7 +197,7 @@ def main():
             from modules import image_mode
 
             session.update_settings(
-                'image_output_format.sequenced', image_mode.OUTPUT_FORMAT_HYPERSTACK
+                'image_output_format.sequenced', image_mode.OutputFormat.HYPERSTACK
             )
         protocol = session.new_protocol(tiling=args.tiling)
         session.set_protocol_schedule(

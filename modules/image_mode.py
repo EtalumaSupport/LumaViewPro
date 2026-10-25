@@ -28,6 +28,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from lvp_logger import logger
+from modules.closed_sets import member_of
 from modules.exceptions import ConfigurationDefectError
 
 
@@ -40,20 +41,26 @@ class ImageMode(enum.StrEnum):
     FALSE_COLOR_RGB = '12bit_false_color_rgb'
 
 
-# The sequenced-output formats, spelled as the settings files hold them
-# verbatim -- none can be renamed without a settings migration. The
-# selectors show OUTPUT_FORMAT_LABELS instead. OUTPUT_FORMAT_HYPERSTACK swaps
-# per-step TIFF writes for a post-run per-well stack build.
-OUTPUT_FORMAT_TIFF = 'TIFF'
-OUTPUT_FORMAT_OME_TIFF = 'OME-TIFF'
-OUTPUT_FORMAT_JPG = 'JPG'
-OUTPUT_FORMAT_HYPERSTACK = 'OME-TIFF Hyperstack'
+class OutputFormat(enum.StrEnum):
+    """The formats a capture is saved in.
+
+    The values are spelled as the settings files hold them verbatim -- none
+    can be renamed without a settings migration; the selectors show their
+    own labels. ``HYPERSTACK`` swaps per-step TIFF writes for a post-run
+    per-well stack build.
+    """
+
+    TIFF = 'TIFF'
+    OME_TIFF = 'OME-TIFF'
+    JPG = 'JPG'
+    HYPERSTACK = 'OME-TIFF Hyperstack'
+
 
 # The sequenced formats a post-run merge can read its per-channel frames
 # back out of. JPG is lossy and unreadable by the merge's loader; the
 # hyperstack build leaves a per-well stack with no 2D per-channel frame to
 # merge at all. A run whose product is a merge resolves to one of these.
-MERGEABLE_SEQUENCED_FORMATS = frozenset({OUTPUT_FORMAT_TIFF, OUTPUT_FORMAT_OME_TIFF})
+MERGEABLE_SEQUENCED_FORMATS = frozenset({OutputFormat.TIFF, OutputFormat.OME_TIFF})
 
 # Save-encoding tokens -- the derived on-disk shape, independent of the mode label.
 SAVE_ENCODING_8BIT = '8bit'
@@ -74,36 +81,13 @@ VALID_SAVE_ENCODINGS = frozenset(
     }
 )
 
-# Every output format a config may legitimately hold, split by selector because
-# the two selectors do not offer the same set. A value outside these means a
-# stale or hand-edited setting reached a run: the writer has no branch for it,
-# so it falls through to a plain .tiff with ome=False and a run configured for
-# a hyperstack quietly produces per-step files and no stack. The hyperstack is
-# a post-run per-well stack build, so it has no meaning for a single live
-# capture and the live selector never offers it.
-VALID_LIVE_OUTPUT_FORMATS = frozenset(
-    {
-        OUTPUT_FORMAT_TIFF,
-        OUTPUT_FORMAT_OME_TIFF,
-        OUTPUT_FORMAT_JPG,
-    }
-)
-
-VALID_SEQUENCED_OUTPUT_FORMATS = VALID_LIVE_OUTPUT_FORMATS | {OUTPUT_FORMAT_HYPERSTACK}
-
-# User-facing labels for the output-format selectors, in selector order.
-# Settings, the run and REST keep the formats as spelled above, so a label
-# is renamed with no migration. The hyperstack's stored spelling is too wide
-# for the closed selector, which would shorten it mid-word. The labels must
-# stay distinct, because LABEL_TO_OUTPUT_FORMAT inverts this map.
-OUTPUT_FORMAT_LABELS = {
-    OUTPUT_FORMAT_TIFF: 'TIFF',
-    OUTPUT_FORMAT_OME_TIFF: 'OME-TIFF',
-    OUTPUT_FORMAT_HYPERSTACK: 'Hyperstack',
-    OUTPUT_FORMAT_JPG: 'JPG',
-}
-
-LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.items()}
+# The formats a live capture is saved in: a sequenced capture takes every
+# OutputFormat, a live one all but the hyperstack, a post-run per-well stack
+# build with no meaning for a single capture. A value outside its set means
+# a stale or hand-edited setting reached a capture: the writer has no branch
+# for it, so it falls through to a plain .tiff with ome=False and a run
+# configured for a hyperstack quietly produces per-step files and no stack.
+LIVE_OUTPUT_FORMATS = (OutputFormat.TIFF, OutputFormat.OME_TIFF, OutputFormat.JPG)
 
 DEFAULT_IMAGE_MODE = ImageMode.EIGHT_BIT
 
@@ -146,8 +130,8 @@ class ImageCaptureConfig:
     image_mode: str
     capture_depth: int
     save_encoding: str
-    output_format_live: str = 'TIFF'
-    output_format_sequenced: str = 'TIFF'
+    output_format_live: OutputFormat = OutputFormat.TIFF
+    output_format_sequenced: OutputFormat = OutputFormat.TIFF
     jpg_quality: int = 90
 
     def __post_init__(self) -> None:
@@ -167,22 +151,21 @@ class ImageCaptureConfig:
         # the only place the bad value can still be named is where it entered.
         # Raising at construction puts it at the API boundary, which is run
         # start, so a REST caller sees the failure exactly as the GUI does.
-        for field_name, value, allowed in (
-            ('output_format_live', self.output_format_live, VALID_LIVE_OUTPUT_FORMATS),
-            (
-                'output_format_sequenced',
-                self.output_format_sequenced,
-                VALID_SEQUENCED_OUTPUT_FORMATS,
-            ),
+        for field_name, allowed in (
+            ('output_format_live', LIVE_OUTPUT_FORMATS),
+            ('output_format_sequenced', tuple(OutputFormat)),
         ):
-            if value not in allowed:
+            value = getattr(self, field_name)
+            member = member_of(OutputFormat, value)
+            if member not in allowed:
                 raise ConfigurationDefectError(
                     'settings_not_prepared',
                     f'ImageCaptureConfig {field_name}={value!r} is not a format '
-                    f'this build writes; expected one of {sorted(allowed)}. A run '
+                    f'this build writes; expected one of {", ".join(allowed)}. A run '
                     f'started with it would save plain TIFFs and no hyperstack, '
                     f'silently -- check image_output_format in the settings file.',
                 )
+            object.__setattr__(self, field_name, member)
 
         # Coerce here, not in from_image_mode, so a directly-constructed
         # config (JSON/UI text riding in as '85') fails or normalizes at
@@ -194,8 +177,8 @@ class ImageCaptureConfig:
         cls,
         mode: str,
         *,
-        output_format_live: str = 'TIFF',
-        output_format_sequenced: str = 'TIFF',
+        output_format_live: OutputFormat = OutputFormat.TIFF,
+        output_format_sequenced: OutputFormat = OutputFormat.TIFF,
         jpg_quality: int = 90,
     ) -> ImageCaptureConfig:
         """Build a config from one image_mode, deriving its coupled pair.
@@ -240,7 +223,7 @@ def depth_truncation_warning_active(feature_count: int, image_mode_value: str) -
     return resolve_image_mode(image_mode_value)['capture_depth'] == 8
 
 
-def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[str]) -> bool:
+def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[OutputFormat]) -> bool:
     """Whether to warn that a JPG output does not keep the full-depth payload.
 
     A JPG is 8 bits, so in a full-depth mode the payload is kept only in a
@@ -255,7 +238,7 @@ def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[str
         True if the JPG depth warning should be shown.
     """
     keeps_depth = resolve_image_mode(image_mode_value)['save_encoding'] != SAVE_ENCODING_8BIT
-    return keeps_depth and OUTPUT_FORMAT_JPG in output_formats
+    return keeps_depth and OutputFormat.JPG in output_formats
 
 
 def encoding_for_array(array: np.ndarray) -> str:

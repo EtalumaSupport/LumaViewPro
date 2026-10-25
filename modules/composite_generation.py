@@ -73,7 +73,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         transmitted = common_utils.get_transmitted_layers()
         blended = group['Color'].isin(transmitted).any()
         thresholds = kwargs['brightness_thresholds_percent']
-        settings = [('format', kwargs.get('output_format', 'TIFF'))]
+        settings = [('format', kwargs.get('output_format', image_mode.OutputFormat.TIFF))]
         for layer in sorted(set(group['Color']) - set(transmitted)):
             settings.append(
                 (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][layer]))
@@ -109,7 +109,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # capture path writes: an OME composite named plain .tiff reads as a
         # different format than it is, and the readers that branch on the
         # double extension would take the wrong path.
-        if kwargs.get('output_format') == image_mode.OUTPUT_FORMAT_OME_TIFF:
+        if kwargs.get('output_format') == image_mode.OutputFormat.OME_TIFF:
             extension = '.ome.tiff'
         else:
             extension = '.tiff'
@@ -147,7 +147,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         # tells the base class to skip its cv2.imwrite (which would swap
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
-        output_format = kwargs.get('output_format', 'TIFF')
+        output_format = kwargs.get('output_format', image_mode.OutputFormat.TIFF)
         if 'brightness_thresholds_percent' not in kwargs:
             raise ConfigurationDefectError(
                 'composite_thresholds_missing',
@@ -211,7 +211,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         df: pd.DataFrame,
         brightness_thresholds_percent: dict,
         output_file_loc: pathlib.Path | None = None,
-        output_format: str = 'TIFF',
+        output_format: image_mode.OutputFormat = image_mode.OutputFormat.TIFF,
         *,
         channel_colors: layer_record.ChannelColors,
     ):
@@ -415,12 +415,10 @@ class CompositeGeneration(ProtocolPostProcessor):
                     )
                     # Honor the run's output format. The composite is a
                     # single 2D RGB image, so only plain OME-TIFF applies --
-                    # 'OME-TIFF Hyperstack' has no per-frame meaning here and
+                    # the hyperstack has no per-frame meaning here and
                     # falls through to a plain TIFF, matching the per-frame
-                    # hyperstack downgrade. Normalize case so the run-config
-                    # token ('OME-TIFF') and the path-API token ('ome-tiff')
-                    # both map to ome=True.
-                    ome = output_format.strip().upper() == 'OME-TIFF'
+                    # hyperstack downgrade.
+                    ome = output_format == image_mode.OutputFormat.OME_TIFF
                     image_utils.write_tiff(
                         data=img,
                         file_loc=output_file_loc,

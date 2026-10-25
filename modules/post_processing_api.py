@@ -41,6 +41,7 @@ from modules import graph_analysis, live_work, path_utils
 from modules.activity_claim import ActivityHolder, the_holder_named
 from modules.cell_count_method import CellCountMethod
 from modules.finite_number import is_finite_number
+from modules.image_mode import OutputFormat
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
@@ -907,7 +908,7 @@ class PostProcessingAPI:
         self,
         run_dir: pathlib.Path,
         *,
-        output_format: str,
+        output_format: OutputFormat,
         thresholds: dict,
         channel_colors: ChannelColors,
         written: Callable[[], None],
@@ -1016,13 +1017,13 @@ class PostProcessingAPI:
 
         live = self._settings_snapshot()
         return self._composite_build(
-            output_format=live['image_output_format']['sequenced'],
+            output_format=OutputFormat(live['image_output_format']['sequenced']),
             thresholds=config_helpers.get_composite_blend_thresholds(live),
             channel_colors=self._channel_colors(),
         )
 
     def _composite_build(
-        self, *, output_format: str, thresholds: dict, channel_colors: ChannelColors
+        self, *, output_format: OutputFormat, thresholds: dict, channel_colors: ChannelColors
     ) -> Callable[..., dict]:
         """The composite of the format, thresholds and colours it is handed: one source per call."""
         from modules.composite_generation import CompositeGeneration

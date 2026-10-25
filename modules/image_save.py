@@ -163,7 +163,7 @@ def generate_image_save_path(
     file_root: str | None,
     append: str,
     tail_id_mode: str | None,
-    output_format: str,
+    output_format: image_mode.OutputFormat,
 ) -> pathlib.Path:
     """Generate a unique save path for an image given the naming inputs.
 
@@ -195,9 +195,9 @@ def generate_image_save_path(
     if file_root is None:
         file_root = ''
 
-    if output_format == 'OME-TIFF':
+    if output_format == image_mode.OutputFormat.OME_TIFF:
         file_extension = '.ome.tiff'
-    elif output_format == 'JPG':
+    elif output_format == image_mode.OutputFormat.JPG:
         file_extension = '.jpg'
     else:
         file_extension = '.tiff'
@@ -515,7 +515,7 @@ def prepare_image_for_saving(
     file_root: str,
     append: str,
     tail_id_mode: str,
-    output_format: str,
+    output_format: image_mode.OutputFormat,
     plate_x_mm: float | None,
     plate_y_mm: float | None,
     stage_z_um: float | None,
@@ -617,7 +617,7 @@ def save_image(
     false_color_on: bool,
     channel_colors: layer_record.ChannelColors,
     save_encoding: str,
-    output_format: str = 'TIFF',
+    output_format: image_mode.OutputFormat = image_mode.OutputFormat.TIFF,
     plate_x_mm: float | None = None,
     plate_y_mm: float | None = None,
     stage_z_um: float | None = None,
@@ -707,7 +707,7 @@ def save_image(
     # channel, and the metadata below says so.
     render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
 
-    if output_format == 'JPG':
+    if output_format == image_mode.OutputFormat.JPG:
         # JPG is a convenience / sharing export: the pixels come from the
         # raw array (to match the live preview) and the file has no place
         # for the metadata a TIFF carries, so skip prepare_image_for_saving.
@@ -747,10 +747,10 @@ def save_image(
         metadata = image_data['metadata']
         file_loc = metadata['file_loc']
 
-    ome = output_format == 'OME-TIFF'
+    ome = output_format == image_mode.OutputFormat.OME_TIFF
 
     try:
-        if output_format == 'JPG':
+        if output_format == image_mode.OutputFormat.JPG:
             # Convenience / sharing export: bake the displayed channel
             # color into 8-bit pixels and write a JPEG. Shares the
             # orientation convention with the TIFF path via

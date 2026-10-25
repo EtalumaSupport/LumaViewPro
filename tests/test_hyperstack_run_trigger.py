@@ -15,7 +15,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK, ImageCaptureConfig
+from modules.image_mode import ImageCaptureConfig, OutputFormat
 from modules.notification_center import OutcomeKind
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -28,7 +28,7 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     runner = bare_capture_runner(**overrides)
     runner._run_mode = run_mode
     runner._image_capture_config = ImageCaptureConfig.from_image_mode(
-        '8bit', output_format_sequenced=OUTPUT_FORMAT_HYPERSTACK
+        '8bit', output_format_sequenced=OutputFormat.HYPERSTACK
     )
     runner._run_dir = tmp_path
     # The run's writes, ended with nothing outstanding: its images are written.
@@ -291,6 +291,6 @@ def test_a_composite_run_never_carries_the_hyperstack_format():
     from tests.test_composite_run_config import _settings
 
     config = config_helpers.get_composite_image_capture_config_from_settings(
-        _settings(acquiring=('BF', 'Blue'), sequenced_format=OUTPUT_FORMAT_HYPERSTACK)
+        _settings(acquiring=('BF', 'Blue'), sequenced_format=OutputFormat.HYPERSTACK)
     )
-    assert config.output_format_sequenced != OUTPUT_FORMAT_HYPERSTACK
+    assert config.output_format_sequenced != OutputFormat.HYPERSTACK

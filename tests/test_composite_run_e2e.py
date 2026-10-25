@@ -32,7 +32,7 @@ import pytest
 import tifffile as tf
 
 from modules.caller import Caller, calling
-from modules.image_mode import OUTPUT_FORMAT_TIFF
+from modules.image_mode import OutputFormat
 from modules.run_events import RunEvents
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
@@ -50,8 +50,8 @@ _ACQUIRING = ('BF', 'Blue')
 def headless_settings(
     tmp_path,
     acquiring=_ACQUIRING,
-    sequenced_format=OUTPUT_FORMAT_TIFF,
-    live_format=OUTPUT_FORMAT_TIFF,
+    sequenced_format=OutputFormat.TIFF,
+    live_format=OutputFormat.TIFF,
 ):
     """The composite config fixture, plus what a real RUN needs on top.
 

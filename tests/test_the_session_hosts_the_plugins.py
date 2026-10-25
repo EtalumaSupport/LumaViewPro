@@ -239,7 +239,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
 
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _load(session, _plugin('after_build', processor=processor, auto_run=True))
-            _run_protocol(runner, tmp_path, sequenced_format=image_mode.OUTPUT_FORMAT_HYPERSTACK)
+            _run_protocol(runner, tmp_path, sequenced_format=image_mode.OutputFormat.HYPERSTACK)
             _drain_lane(session)
             deadline = threading.Event()
             for _ in range(int(WAIT_S / 0.05)):

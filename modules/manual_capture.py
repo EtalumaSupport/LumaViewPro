@@ -27,6 +27,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
 )
+from modules.image_mode import OutputFormat
 from modules.image_save import save_image
 from modules.image_utils import ImageStatistics
 from modules.layer_record import ChannelColors
@@ -80,7 +81,8 @@ class SavedStill:
         significant_bits: The depth of the array saved: the frame's as
             captured, or 8 for an overlay copy, the frame's 8-bit rendering.
             A scaled encoding stores the frame left-justified in its file.
-        output_format: ``'TIFF'``, ``'OME-TIFF'`` or ``'JPG'``.
+        output_format: The format it was saved in; never the hyperstack, which
+            a single capture has no meaning for.
         frame: The instrument's account of the frame (``FrameRecord``); an
             overlay copy carries its frame's.
         statistics: The values of the array saved, in its counts at
@@ -95,7 +97,7 @@ class SavedStill:
     stage_z_um: float | None
     well_label: str | None
     significant_bits: int
-    output_format: str
+    output_format: OutputFormat
     frame: FrameRecord
     statistics: ImageStatistics
 

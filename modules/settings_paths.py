@@ -27,11 +27,7 @@ from modules.exceptions import (
 )
 from modules.acquire_mode import AcquireMode
 from modules.closed_sets import member_of
-from modules.image_mode import (
-    VALID_LIVE_OUTPUT_FORMATS,
-    VALID_SEQUENCED_OUTPUT_FORMATS,
-    ImageMode,
-)
+from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from modules.finite_number import is_finite_number
 from modules.layer_record import parse_display_color
 from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
@@ -237,13 +233,20 @@ def _refuse_unknown_format(path: str, value: object, formats: frozenset) -> None
         )
 
 
-def _refuse_unless_member(path: str, value: object, closed_set: type[enum.StrEnum]) -> None:
+def _refuse_unless_member(
+    path: str,
+    value: object,
+    closed_set: type[enum.StrEnum],
+    within: tuple[enum.StrEnum, ...] | None = None,
+) -> None:
     # A setting that holds a closed set is judged by the set's one judge, in
-    # the setting's own refusal, which the load replaces and reports.
-    if member_of(closed_set, value) is None:
-        offered = ', '.join(member.value for member in closed_set)
+    # the setting's own refusal, which the load replaces and reports; a
+    # setting that takes part of the set offers that part.
+    offered = tuple(closed_set) if within is None else within
+    if member_of(closed_set, value) not in offered:
+        shown = str(value) if isinstance(value, enum.StrEnum) else value
         raise SettingRefusedError(
-            'not_offered', path, f'it must be one of {offered}, not {value!r}'
+            'not_offered', path, f'it must be one of {", ".join(offered)}, not {shown!r}'
         )
 
 
@@ -279,11 +282,11 @@ def _schedule(path: str, value: object) -> None:
 
 
 def _live_format(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, VALID_LIVE_OUTPUT_FORMATS)
+    _refuse_unless_member(path, value, OutputFormat, within=LIVE_OUTPUT_FORMATS)
 
 
 def _sequenced_format(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, VALID_SEQUENCED_OUTPUT_FORMATS)
+    _refuse_unless_member(path, value, OutputFormat)
 
 
 def _zstack_position(path: str, value: str) -> None:

@@ -27,12 +27,7 @@ import re
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.image_mode import (
-    OUTPUT_FORMAT_HYPERSTACK,
-    OUTPUT_FORMAT_OME_TIFF,
-    ImageCaptureConfig,
-    ImageMode,
-)
+from modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT, MemberNames
 from tests.settings_fixtures import complete_settings
@@ -168,7 +163,7 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     OME-TIFF, whatever the user's image mode and sequenced format."""
     settings = complete_settings(
         image_mode=ImageMode.SCIENTIFIC,
-        image_output_format={'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK},
+        image_output_format={'live': 'TIFF', 'sequenced': OutputFormat.HYPERSTACK},
     )
     composite = config_helpers.get_sequenced_run_settings(
         settings, run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE
@@ -177,9 +172,9 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
         settings, run_mode=SequencedCaptureRunMode.SINGLE_SCAN
     )['image_capture_config']
     assert composite.image_mode == ImageMode.EIGHT_BIT
-    assert composite.output_format_sequenced == OUTPUT_FORMAT_OME_TIFF
+    assert composite.output_format_sequenced == OutputFormat.OME_TIFF
     assert scan.image_mode == ImageMode.SCIENTIFIC
-    assert scan.output_format_sequenced == OUTPUT_FORMAT_HYPERSTACK
+    assert scan.output_format_sequenced == OutputFormat.HYPERSTACK
 
 
 def test_every_acquisition_run_call_is_classified():

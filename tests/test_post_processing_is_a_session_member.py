@@ -105,12 +105,12 @@ def test_the_composite_takes_the_users_format_and_thresholds(session, monkeypatc
     seen = _spy_build(monkeypatch, CompositeGeneration, 'load_folder')
     # Not the default, so a build that ignores the user's choice is caught.
     with session.settings_lock:
-        session.settings['image_output_format']['sequenced'] = image_mode.OUTPUT_FORMAT_OME_TIFF
+        session.settings['image_output_format']['sequenced'] = image_mode.OutputFormat.OME_TIFF
     session.post_processing.composite(tmp_path)
 
     settings = session.get_settings_snapshot()
     assert seen['output_format'] == settings['image_output_format']['sequenced']
-    assert seen['output_format'] == image_mode.OUTPUT_FORMAT_OME_TIFF
+    assert seen['output_format'] == image_mode.OutputFormat.OME_TIFF
     assert seen['brightness_thresholds_percent'] == (
         config_helpers.get_composite_blend_thresholds(settings)
     )

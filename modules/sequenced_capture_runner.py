@@ -2380,7 +2380,7 @@ class SequencedCaptureRunner:
         if self._run_mode.is_autofocus:
             return None
         config = self._image_capture_config
-        if config is None or config.output_format_sequenced != image_mode.OUTPUT_FORMAT_HYPERSTACK:
+        if config is None or config.output_format_sequenced != image_mode.OutputFormat.HYPERSTACK:
             return None
         run_dir = self._run_dir
         if run_dir is None:
@@ -2429,7 +2429,7 @@ class SequencedCaptureRunner:
         output_format = (
             self._image_capture_config.output_format_sequenced
             if self._image_capture_config is not None
-            else image_mode.OUTPUT_FORMAT_TIFF
+            else image_mode.OutputFormat.TIFF
         )
         # A composite missing a channel is told by the merge, once, as its
         # own notice after what became of the merge, whether it merged or

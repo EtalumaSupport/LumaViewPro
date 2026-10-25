@@ -28,6 +28,7 @@ from modules.exceptions import (
     CaptureFailedError,
     HardwareCommandRefusedError,
 )
+from modules.image_mode import OutputFormat
 from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
@@ -408,6 +409,7 @@ class TestAStillReturnsItsRecord:
 
         assert still.file.is_file()
         assert still.output_format == live_format
+        assert type(still.output_format) is OutputFormat
         assert still.channel == 'BF'
         assert still.objective_id == objective_id
         assert still.well_label == well

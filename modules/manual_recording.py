@@ -470,7 +470,7 @@ class ManualRecordingController:
         }
         hyperstack = (
             video_as_frames
-            and capture_config.output_format_sequenced == image_mode.OUTPUT_FORMAT_HYPERSTACK
+            and capture_config.output_format_sequenced == image_mode.OutputFormat.HYPERSTACK
         )
         # What the file will claim of the scope -- its frame size, and the
         # pixel size its objective and binning give -- is read by the engine

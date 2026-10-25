@@ -23,7 +23,7 @@ import pytest
 
 import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
-from modules.image_mode import OUTPUT_FORMAT_OME_TIFF, OUTPUT_FORMAT_TIFF, ImageMode
+from modules.image_mode import ImageMode, OutputFormat
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -39,7 +39,7 @@ _POSITION = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
 
 
 def _at_start():
-    settings = _run_settings(acquiring=('BF', 'Green'), sequenced_format=OUTPUT_FORMAT_TIFF)
+    settings = _run_settings(acquiring=('BF', 'Green'), sequenced_format=OutputFormat.TIFF)
     settings['image_mode'] = ImageMode.EIGHT_BIT
     settings['zstack'] = {
         'range': 20.0,
@@ -53,7 +53,7 @@ def _edited():
     """What the store holds once a write lands after the run's first read."""
     settings = _at_start()
     settings['image_mode'] = ImageMode.SCIENTIFIC
-    settings['image_output_format']['sequenced'] = OUTPUT_FORMAT_OME_TIFF
+    settings['image_output_format']['sequenced'] = OutputFormat.OME_TIFF
     settings['protocol']['labware'] = '6 well microplate'
     return settings
 

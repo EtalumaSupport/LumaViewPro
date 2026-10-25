@@ -173,39 +173,6 @@ def test_select_capture_pixel_format_no_formats():
     assert select_capture_pixel_format(12, None) is None
 
 
-def test_each_output_format_has_one_label_and_reads_back_from_it():
-    """Every sequenced format has a label, and the label maps back to it, so a
-    pick stores the format the selector showed."""
-    from modules.image_mode import (
-        LABEL_TO_OUTPUT_FORMAT,
-        OUTPUT_FORMAT_LABELS,
-        VALID_SEQUENCED_OUTPUT_FORMATS,
-    )
-
-    assert set(OUTPUT_FORMAT_LABELS) == VALID_SEQUENCED_OUTPUT_FORMATS
-    assert {LABEL_TO_OUTPUT_FORMAT[label] for label in OUTPUT_FORMAT_LABELS.values()} == set(
-        OUTPUT_FORMAT_LABELS
-    )
-    assert len(LABEL_TO_OUTPUT_FORMAT) == len(OUTPUT_FORMAT_LABELS), 'two formats share a label'
-
-
-def test_the_sequenced_selector_offers_exactly_the_labels():
-    """The kv spinner's values are the labels, in order: a value outside the
-    map would raise at its pick, and a label missing from the values could
-    never be picked."""
-    import ast
-    import re
-    from pathlib import Path
-
-    from modules.image_mode import OUTPUT_FORMAT_LABELS
-
-    kv = (Path(__file__).resolve().parents[1] / 'ui' / 'lumaviewpro.kv').read_text()
-    block = kv[kv.index('id: sequenced_image_output_format_spinner') :]
-    values = ast.literal_eval(re.search(r'values: (\(.*?\))', block).group(1))
-
-    assert values == tuple(OUTPUT_FORMAT_LABELS.values())
-
-
 @pytest.mark.parametrize(
     'feature_count, mode, expected',
     [

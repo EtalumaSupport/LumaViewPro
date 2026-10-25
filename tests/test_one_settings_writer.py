@@ -74,7 +74,9 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_fps', 201, 'out_of_range'),
         ('video.max_duration_s', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
-        ('image_output_format.live', 'BMP', 'out_of_range'),
+        ('image_output_format.live', 'BMP', 'not_offered'),
+        # A format of the set the live selector does not offer.
+        ('image_output_format.live', 'OME-TIFF Hyperstack', 'not_offered'),
         # A leaf shipped null takes null or the kind it holds when set.
         ('Blue.display_color', 7, 'wrong_kind'),
         ('step_channel_order', ['BF'], 'derived'),

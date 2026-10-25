@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from modules.coord_transformations import PlatePosition
-    from modules.image_mode import ImageCaptureConfig
+    from modules.image_mode import ImageCaptureConfig, OutputFormat
     from modules.labware import Labware
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
@@ -1186,7 +1186,7 @@ class ProtocolImageWriter:
         self,
         save_folder: pathlib.Path,
         step: pd.Series | dict,
-        output_format: str,
+        output_format: OutputFormat,
         protocol: Protocol,
         *,
         scan_count: int,
@@ -1692,7 +1692,7 @@ class ProtocolImageWriter:
         self,
         save_folder: str | None = None,
         name: str | None = None,
-        output_format: str | None = None,
+        output_format: OutputFormat | None = None,
         *,
         step: object | None = None,
         step_index: int,

@@ -38,7 +38,7 @@ import pathlib
 import pytest
 
 from modules.exceptions import CaptureError
-from modules.image_mode import OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_TIFF
+from modules.image_mode import OutputFormat
 from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
@@ -383,8 +383,8 @@ class TestTheFormatTheCompositeFollows:
         # fires only in the coercion branch.
         settings = headless_settings(
             tmp_path,
-            sequenced_format=OUTPUT_FORMAT_TIFF,
-            live_format=OUTPUT_FORMAT_JPG,
+            sequenced_format=OutputFormat.TIFF,
+            live_format=OutputFormat.JPG,
         )
         with open_composite_session(settings) as (_session, runner):
             with _info_lines() as logged:
@@ -415,7 +415,7 @@ class TestTheFormatTheCompositeFollows:
         # something else. Substituting silently leaves a user staring at
         # OME-TIFFs they never asked for with nothing to explain it, so
         # the log line is part of the behaviour, not a debugging aid.
-        settings = headless_settings(tmp_path, sequenced_format=OUTPUT_FORMAT_JPG)
+        settings = headless_settings(tmp_path, sequenced_format=OutputFormat.JPG)
         with open_composite_session(settings) as (_session, runner):
             with _info_lines() as logged:
                 artifact = pathlib.Path(
@@ -431,7 +431,7 @@ class TestTheFormatTheCompositeFollows:
             assert [
                 line
                 for line in logged
-                if _COERCION_LOG_FRAGMENT in line and OUTPUT_FORMAT_JPG in line
+                if _COERCION_LOG_FRAGMENT in line and OutputFormat.JPG in line
             ], (
                 f'the format was substituted with no override naming the rejected preference: {logged}'
             )

@@ -1149,7 +1149,7 @@ def get_composite_image_capture_config_from_settings(
     if requested in image_mode.MERGEABLE_SEQUENCED_FORMATS:
         resolved = requested
     else:
-        resolved = image_mode.OUTPUT_FORMAT_OME_TIFF
+        resolved = image_mode.OutputFormat.OME_TIFF
         logger.info(
             f'[Composite] Sequenced output format {requested!r} cannot be merged; '
             f'this run saves {resolved!r} instead.'

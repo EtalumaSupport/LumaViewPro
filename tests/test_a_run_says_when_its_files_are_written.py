@@ -131,7 +131,7 @@ def test_a_hyperstack_run_waits_for_its_build(tmp_path, monkeypatch):
                 runner,
                 tmp_path / 'runs',
                 'C1',
-                sequenced_format=image_mode.OUTPUT_FORMAT_HYPERSTACK,
+                sequenced_format=image_mode.OutputFormat.HYPERSTACK,
             )
             assert run.result(timeout=WAIT_S) is not None
             assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)

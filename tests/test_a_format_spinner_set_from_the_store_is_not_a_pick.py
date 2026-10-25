@@ -81,23 +81,23 @@ def _hyperstack_panel():
 
 def test_a_pick_of_the_hyperstack_label_stores_its_format(recorded):
     """The selector reads 'Hyperstack'; the store, the run and REST keep 'OME-TIFF Hyperstack'."""
-    from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK
+    from modules.image_mode import OutputFormat
     from ui.microscope_settings import MicroscopeSettings
 
     MicroscopeSettings.select_sequenced_image_output_format(_hyperstack_panel())
 
     _picks, stored = recorded
-    assert stored == {'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK}
+    assert stored == {'live': 'TIFF', 'sequenced': OutputFormat.HYPERSTACK}
 
 
 def test_the_hyperstack_label_restored_from_the_store_writes_nothing(recorded, monkeypatch):
     """The load sets the label from a stored 'OME-TIFF Hyperstack': not a pick."""
     import modules.app_context as _app_ctx
-    from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK
+    from modules.image_mode import OutputFormat
     from ui.microscope_settings import MicroscopeSettings
 
     picks, stored = recorded
-    stored['sequenced'] = OUTPUT_FORMAT_HYPERSTACK
+    stored['sequenced'] = OutputFormat.HYPERSTACK
     writes = []
     monkeypatch.setattr(_app_ctx.ctx, 'update_settings', lambda *call: writes.append(call))
 

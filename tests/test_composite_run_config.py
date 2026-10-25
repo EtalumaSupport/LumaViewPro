@@ -21,12 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.image_mode import (
-    OUTPUT_FORMAT_HYPERSTACK,
-    OUTPUT_FORMAT_JPG,
-    OUTPUT_FORMAT_OME_TIFF,
-    OUTPUT_FORMAT_TIFF,
-)
+from modules.image_mode import OutputFormat
 
 import modules.config_helpers as config_helpers
 from modules.layer_record import release_catalogue
@@ -56,7 +51,7 @@ def _layer(acquire=None, focus=0.0):
     }
 
 
-def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=None):
+def _settings(acquiring=(), sequenced_format=OutputFormat.TIFF, focus_by_layer=None):
     """A prepared settings store with *acquiring* layers set to capture images."""
     focus_by_layer = focus_by_layer or {}
     settings = {
@@ -73,7 +68,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
             'frame': {'width': 800, 'height': 600},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'motion': {'acceleration_max_pct': 100},
-            'image_output_format': {'live': OUTPUT_FORMAT_TIFF, 'sequenced': sequenced_format},
+            'image_output_format': {'live': OutputFormat.TIFF, 'sequenced': sequenced_format},
             'live_folder': '.',
             'protocol': {
                 'labware': '96 well microplate',
@@ -245,7 +240,7 @@ class TestTwoChannelFloor:
 class TestCompositeOutputFormat:
     @pytest.mark.parametrize(
         'user_format',
-        [OUTPUT_FORMAT_TIFF, OUTPUT_FORMAT_OME_TIFF],
+        [OutputFormat.TIFF, OutputFormat.OME_TIFF],
         ids=['tiff', 'ome_tiff'],
     )
     def test_a_mergeable_preference_passes_through_untouched(self, user_format):
@@ -256,18 +251,18 @@ class TestCompositeOutputFormat:
 
     @pytest.mark.parametrize(
         'user_format',
-        [OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_HYPERSTACK],
+        [OutputFormat.JPG, OutputFormat.HYPERSTACK],
         ids=['jpg', 'hyperstack'],
     )
     def test_a_format_the_merge_cannot_read_is_coerced(self, user_format):
         config = config_helpers.get_composite_image_capture_config_from_settings(
             _settings(acquiring=('BF', 'Blue'), sequenced_format=user_format)
         )
-        assert config.output_format_sequenced == OUTPUT_FORMAT_OME_TIFF
+        assert config.output_format_sequenced == OutputFormat.OME_TIFF
 
     @pytest.mark.parametrize(
         'user_format',
-        [OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_HYPERSTACK],
+        [OutputFormat.JPG, OutputFormat.HYPERSTACK],
         ids=['jpg', 'hyperstack'],
     )
     def test_the_coercion_is_logged(self, user_format, caplog):
@@ -292,9 +287,9 @@ class TestCompositeOutputFormat:
         # The coercion is also what keeps a composite run from entering the
         # per-well stack build, which has no 2D frame for the merge to read.
         config = config_helpers.get_composite_image_capture_config_from_settings(
-            _settings(acquiring=('BF', 'Blue'), sequenced_format=OUTPUT_FORMAT_HYPERSTACK)
+            _settings(acquiring=('BF', 'Blue'), sequenced_format=OutputFormat.HYPERSTACK)
         )
-        assert config.output_format_sequenced != OUTPUT_FORMAT_HYPERSTACK
+        assert config.output_format_sequenced != OutputFormat.HYPERSTACK
 
     def test_the_composite_captures_eight_bit(self):
         # build_composite downconverts to 8-bit, so a 12-bit capture would

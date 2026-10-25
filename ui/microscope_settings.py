@@ -24,7 +24,7 @@ from modules.config_ui_getters import (
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
-from modules.image_mode import ImageMode
+from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from ui.ui_helpers import (
     refused_in_this_input,
     run_reported,
@@ -65,6 +65,20 @@ IMAGE_MODE_LABELS = {
 }
 
 LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
+
+# The output-format selectors' labels, in selector order. A label is display:
+# the settings, the run and REST keep the OutputFormat values, so a label is
+# renamed with no migration. The hyperstack's stored spelling is too wide for
+# the closed selector, which would shorten it mid-word. The labels must stay
+# distinct, because LABEL_TO_OUTPUT_FORMAT inverts this map.
+OUTPUT_FORMAT_LABELS = {
+    OutputFormat.TIFF: 'TIFF',
+    OutputFormat.OME_TIFF: 'OME-TIFF',
+    OutputFormat.HYPERSTACK: 'Hyperstack',
+    OutputFormat.JPG: 'JPG',
+}
+
+LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.items()}
 
 
 class _CoalescingApplier:
@@ -293,13 +307,21 @@ class MicroscopeSettings(BoxLayout):
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
+        self.ids['live_image_output_format_spinner'].values = [
+            label for fmt, label in OUTPUT_FORMAT_LABELS.items() if fmt in LIVE_OUTPUT_FORMATS
+        ]
+        self.ids['sequenced_image_output_format_spinner'].values = list(
+            OUTPUT_FORMAT_LABELS.values()
+        )
+        self.ids['live_image_output_format_spinner'].text = OUTPUT_FORMAT_LABELS[
+            settings['image_output_format']['live']
+        ]
         # JPG quality slider reflects the saved preference; its row shows
         # and enables with the live format declaratively in the kv.
         jpg_quality = int(settings['jpg_quality'])
         show_on_slider(self.ids['jpg_quality_slider'], jpg_quality)
         self.ids['jpg_quality_value_label'].text = str(jpg_quality)
-        self.ids['sequenced_image_output_format_spinner'].text = image_mode.OUTPUT_FORMAT_LABELS[
+        self.ids['sequenced_image_output_format_spinner'].text = OUTPUT_FORMAT_LABELS[
             settings['image_output_format']['sequenced']
         ]
         self.ids['video_recording_format_spinner'].text = (
@@ -411,7 +433,7 @@ class MicroscopeSettings(BoxLayout):
         self._refresh_jpg_depth_hint()
 
     def select_live_image_output_format(self):
-        fmt = self.ids['live_image_output_format_spinner'].text
+        fmt = LABEL_TO_OUTPUT_FORMAT[self.ids['live_image_output_format_spinner'].text]
         # The settings load sets the spinner from the store, which fires this
         # too; that is not a pick, so nothing is written.
         if fmt == _app_ctx.ctx.settings['image_output_format']['live']:
@@ -445,9 +467,7 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.slider('JPG_QUALITY', int(value))
 
     def select_sequenced_image_output_format(self):
-        fmt = image_mode.LABEL_TO_OUTPUT_FORMAT[
-            self.ids['sequenced_image_output_format_spinner'].text
-        ]
+        fmt = LABEL_TO_OUTPUT_FORMAT[self.ids['sequenced_image_output_format_spinner'].text]
         # As the live format: a spinner set from the store writes nothing.
         if fmt == _app_ctx.ctx.settings['image_output_format']['sequenced']:
             return

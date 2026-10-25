@@ -388,7 +388,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if isinstance(output_format, dict) and output_format.get('sequenced') == 'ImageJ Hyperstack':
         # The file written never changed -- it was always OME-TIFF. Only the
         # label did, because it named a reader instead of the format.
-        output_format['sequenced'] = image_mode.OUTPUT_FORMAT_HYPERSTACK
+        output_format['sequenced'] = image_mode.OutputFormat.HYPERSTACK.value
         changed = True
 
     # The z-stack's reference was stored as the spinner's label. It is stored
