@@ -105,7 +105,7 @@ def _no_camera_cache() -> dict:
 _guarded_write = guarded_write(lambda camera: camera._scope._activity_claim)
 
 
-class AutoGainConvergence(enum.Enum):
+class AutoGainConvergence(enum.StrEnum):
     """Where a continuous auto-gain arm landed when the capture locked it.
 
     CONVERGED: exposure inside the layer class's usable range.
@@ -1716,11 +1716,11 @@ class CameraAPI:
         """
         if not lock.resume_after_capture:
             return
-        if lock.state is AutoGainConvergence.MAXED:
+        if lock.state == AutoGainConvergence.MAXED:
             outcome = ExposureAtMaximumNotice(lock.ceiling_ms)
-        elif lock.state is AutoGainConvergence.AT_MINIMUM:
+        elif lock.state == AutoGainConvergence.AT_MINIMUM:
             outcome = ExposureAtMinimumNotice(lock.exposure_ms, lock.floor_ms)
-        elif lock.state is AutoGainConvergence.FAILED:
+        elif lock.state == AutoGainConvergence.FAILED:
             outcome = AutoGainNotSettledError()
         else:
             return
