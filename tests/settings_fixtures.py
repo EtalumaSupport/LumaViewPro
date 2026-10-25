@@ -20,6 +20,7 @@ import pathlib
 import tempfile
 
 from modules import settings_init, settings_paths
+from modules.python_values import python_values
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _TEMPLATE = _REPO_ROOT / 'data' / 'settings.json'
@@ -75,6 +76,8 @@ def settings_writer(settings: dict):
     template = shipped_template()
 
     def update_settings(path: str, value: object) -> None:
+        # As the Session's: a closed set's member is written as its plain string.
+        value = python_values(value)
         settings_paths.check_write(template, path, value)
         *blocks, leaf = path.split('.')
         holder = settings

@@ -3,8 +3,8 @@
 
 ``settings_paths._RANGES`` is the one place a setting's range lives. Its two
 halves are a write through ``ScopeSession.update_settings``, which refuses a
-value outside the range with ``SettingRefusedError`` (``out_of_range``) and
-writes nothing, and the load, which replaces a stored value outside it with
+value outside the range with ``SettingRefusedError`` (``out_of_range``, or
+``not_offered`` for a setting that holds a closed set) and writes nothing, and the load, which replaces a stored value outside it with
 the shipped value for that key alone and tells it once. The load tests and the
 writer tests each pin the cases they were written for; this guard is the
 completeness check: the table below holds one out-of-range sample per range,
@@ -74,6 +74,10 @@ _OUT_OF_RANGE = {
     'rest_api.port': settings_paths.REST_API_PORT_RANGE[1] + 1,
 }
 
+# The settings that hold a closed set, whose write refuses a value outside it
+# ``not_offered``, the set's one word, not ``out_of_range``.
+_CLOSED_SETS = frozenset({'zstack.position'})
+
 # A whole-number setting's fraction, inside its bounds: the board, the
 # encoder and a socket each take a whole number, so a fraction is outside
 # the range too.
@@ -121,7 +125,8 @@ def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
         else:
             with pytest.raises(SettingRefusedError) as refused:
                 session.update_settings(path, value)
-            assert refused.value.reason == 'out_of_range'
+            expected = 'not_offered' if path in _CLOSED_SETS else 'out_of_range'
+            assert refused.value.reason == expected
             assert refused.value.path == path
         assert session.get_settings_snapshot() == before
 

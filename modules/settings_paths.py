@@ -36,6 +36,7 @@ from modules.finite_number import is_finite_number
 from modules.layer_record import parse_display_color
 from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
 from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
+from modules.zstack_config import ZStackReference
 from modules.python_values import python_values
 from modules.tiling_config import TilingConfig
 
@@ -286,7 +287,7 @@ def _sequenced_format(path: str, value: str) -> None:
 
 
 def _zstack_position(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, frozenset(common_utils.ZSTACK_POSITION_LABELS))
+    _refuse_unless_member(path, value, ZStackReference)
 
 
 def _simulator_tier(path: str, value: str) -> None:

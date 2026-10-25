@@ -100,6 +100,7 @@ from modules.config_helpers import DisplayRates
 from modules.coord_transformations import PlateLocation
 from modules.acquire_mode import AcquireMode
 from modules.axes import StageAxis
+from modules.zstack_config import ZStackReference
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.python_values import python_values
@@ -2026,11 +2027,11 @@ class ScopeSession:
         """The stored z-stack, what New and Add stack with.
 
         ``range`` and ``step_size`` in micrometres, and ``z_reference``, where
-        a step's Z sits in its stack: ``'top'``, ``'center'`` or ``'bottom'``.
+        a step's Z sits in its stack, a ``ZStackReference``. The store holds
+        each to its writer's rule at load and at every write.
 
         Raises:
-            ConfigError: the stored stack will not parse -- an unmapped
-                position label, or a range / step size that is not a number.
+            Nothing.
         """
         import modules.config_helpers as config_helpers
 
@@ -3069,12 +3070,11 @@ class ScopeSession:
         *,
         range_um: float,
         step_size_um: float,
-        z_reference: str,
+        z_reference: ZStackReference,
     ) -> None:
         """Expand every step of ``protocol`` not already in a stack into a z-stack.
 
-        ``z_reference`` says where each step's Z sits in its stack:
-        ``'top'``, ``'center'`` or ``'bottom'``.
+        ``z_reference`` says where each step's Z sits in its stack.
 
         Raises:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
@@ -3082,8 +3082,8 @@ class ScopeSession:
                 outside the Z travel. Nothing changes.
             ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
                 ``step_size_um`` is not a finite number. Nothing changes.
-            ArgumentRefusedError: ``'zstack_reference_unknown'``,
-                ``z_reference`` is not one of the three. Nothing changes.
+            ArgumentRefusedError: ``'not_offered'``, ``z_reference`` is not a
+                ``ZStackReference``. Nothing changes.
         """
         self.scope.protocols.apply_zstacking(
             protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference

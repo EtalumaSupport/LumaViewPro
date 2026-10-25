@@ -5,7 +5,6 @@ from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
-import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import is_image_saving_enabled
@@ -24,9 +23,20 @@ from ui.ui_helpers import (
     sync_layer_widgets_from_settings,
     typed_number,
 )
-from modules.zstack_config import ZStackConfig
+from modules.zstack_config import ZStackConfig, ZStackReference
 
 logger = logging.getLogger('LVP.ui.zstack')
+
+# The reference spinner's labels, in its order. A label is display: the store,
+# the API and a protocol hold the ZStackReference value, so a label is renamed
+# with no migration.
+ZSTACK_REFERENCE_LABELS = {
+    ZStackReference.TOP: 'Current Position at Top',
+    ZStackReference.CENTER: 'Current Position at Center',
+    ZStackReference.BOTTOM: 'Current Position at Bottom',
+}
+
+LABEL_TO_ZSTACK_REFERENCE = {label: ref for ref, label in ZSTACK_REFERENCE_LABELS.items()}
 
 
 class ZStack(FloatLayout):
@@ -86,14 +96,10 @@ class ZStack(FloatLayout):
             if self.ids[wid].text != typed[wid]:
                 gui_logger.text_input(f'{name}_APPLIED', self.ids[wid].text)
 
-        z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-            text_label=self.ids['zstack_spinner'].text
-        )
-
         zstack_config = ZStackConfig(
             range=settings['zstack']['range'],
             step_size=settings['zstack']['step_size'],
-            current_z_reference=z_reference,
+            current_z_reference=ZStackReference(settings['zstack']['position']),
             current_z_value=None,
         )
 
@@ -114,24 +120,25 @@ class ZStack(FloatLayout):
         gui_logger.text_input(name, self.ids[widget_id].text)
 
     def set_position(self) -> None:
-        position = self.ids['zstack_spinner'].text
-        # The spinner set from the store fires this too; that is not a pick.
-        if position == _app_ctx.ctx.settings['zstack']['position']:
+        position = LABEL_TO_ZSTACK_REFERENCE.get(self.ids['zstack_spinner'].text)
+        # The placeholder before the first redraw names no reference, and the
+        # spinner set from the store fires this too; neither is a pick.
+        if position is None or position == _app_ctx.ctx.settings['zstack']['position']:
             return
         _app_ctx.ctx.update_settings('zstack.position', position)
 
     def show_settings(self) -> None:
         """Show the stored z-stack: its reference, step, range and the steps they make."""
         settings = _app_ctx.ctx.settings['zstack']
-        self.ids['zstack_spinner'].text = settings['position']
+        reference = ZStackReference(settings['position'])
+        self.ids['zstack_spinner'].values = list(ZSTACK_REFERENCE_LABELS.values())
+        self.ids['zstack_spinner'].text = ZSTACK_REFERENCE_LABELS[reference]
         show_text(self.ids['zstack_stepsize_id'], str(settings['step_size']))
         show_text(self.ids['zstack_range_id'], str(settings['range']))
         zstack_config = ZStackConfig(
             range=settings['range'],
             step_size=settings['step_size'],
-            current_z_reference=common_utils.convert_zstack_reference_position_setting_to_config(
-                text_label=settings['position']
-            ),
+            current_z_reference=reference,
             current_z_value=None,
         )
         self.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())

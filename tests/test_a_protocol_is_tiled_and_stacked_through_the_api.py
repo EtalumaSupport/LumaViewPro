@@ -201,7 +201,7 @@ class TestZStacking:
 
         with pytest.raises(ArgumentRefusedError) as refused:
             session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='middle')
-        assert refused.value.reason == 'zstack_reference_unknown'
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'z_reference')
         assert refused.value.offered == ('top', 'center', 'bottom')
 
         assert _rows(protocol) == before
@@ -236,7 +236,7 @@ def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
     session.settings['zstack'] = {
         'range': range_um,
         'step_size': 5.0,
-        'position': 'Current Position at Center',
+        'position': 'center',
     }
     return session.new_protocol(use_zstacking=True)
 

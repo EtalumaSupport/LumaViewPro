@@ -122,7 +122,7 @@ def _zstack(args):
     zstack = {
         'step_size': ZSTACK_STEP_UM,
         'range': ZSTACK_STEP_UM * (args.slices - 1),
-        'position': 'Current Position at Center',
+        'position': 'center',
     }
     with headless_session(live, acquiring=('BF',), zstack=zstack) as (session, runner):
         _over_a_well(session)

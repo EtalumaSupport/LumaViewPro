@@ -1,14 +1,21 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import enum
+
 import numpy as np
 
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigurationDefectError
 
 
-# Where a stack sits against the Z it is built around: its top, its
-# centre or its bottom at that Z.
-Z_REFERENCES: tuple[str, ...] = ('top', 'center', 'bottom')
+class ZStackReference(enum.StrEnum):
+    """Where a stack sits against the Z it is built around: its top, its
+    centre or its bottom at that Z. The stored ``zstack.position`` holds the
+    value; the GUI shows its own label for each."""
+
+    TOP = 'top'
+    CENTER = 'center'
+    BOTTOM = 'bottom'
 
 
 class ZStackConfig:
@@ -16,7 +23,7 @@ class ZStackConfig:
         self,
         range: float,
         step_size: float,
-        current_z_reference: str,
+        current_z_reference: ZStackReference,
         current_z_value: float | None = None,
     ):
         self._range = range
@@ -39,11 +46,11 @@ class ZStackConfig:
     def step_positions(self) -> dict[int, float]:
         n_steps = self.number_of_steps()
 
-        if self._current_z_reference == 'top':
+        if self._current_z_reference == ZStackReference.TOP:
             start_pos = self._current_z_value - self._range
-        elif self._current_z_reference == 'center':
+        elif self._current_z_reference == ZStackReference.CENTER:
             start_pos = self._current_z_value - self._range / 2
-        elif self._current_z_reference == 'bottom':
+        elif self._current_z_reference == ZStackReference.BOTTOM:
             start_pos = self._current_z_value
         else:
             # Without this branch an unmapped reference -- or the None a

@@ -15,7 +15,7 @@ from harness import headless_session, probe_dir
 
 def main() -> int:
     live = probe_dir('zproject')
-    zstack = {'step_size': 5.0, 'range': 15.0, 'position': 'Current Position at Center'}
+    zstack = {'step_size': 5.0, 'range': 15.0, 'position': 'center'}
     with headless_session(live, acquiring=('BF',), zstack=zstack) as (session, runner):
         # The stack sweeps +/- range/2 around the current Z, so park Z
         # clear of the lower travel limit first.

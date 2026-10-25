@@ -35,7 +35,7 @@ from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from ui.microscope_settings import MicroscopeSettings
 from ui.protocol_settings import ProtocolSettings
-from ui.zstack import ZStack
+from ui.zstack import ZSTACK_REFERENCE_LABELS, ZStack
 
 
 @pytest.fixture
@@ -103,7 +103,9 @@ def test_each_widget_a_redraw_sets_to_the_stored_value_writes_nothing(session, h
     MicroscopeSettings.update_jpg_quality(panel, settings['jpg_quality'])
     MicroscopeSettings.select_video_recording_format(panel)
     ZStack.set_position(
-        SimpleNamespace(ids={'zstack_spinner': _box(settings['zstack']['position'])})
+        SimpleNamespace(
+            ids={'zstack_spinner': _box(ZSTACK_REFERENCE_LABELS[settings['zstack']['position']])}
+        )
     )
     ProtocolSettings.select_labware(
         SimpleNamespace(

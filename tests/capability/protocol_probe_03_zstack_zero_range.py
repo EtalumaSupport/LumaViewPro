@@ -10,7 +10,7 @@ from harness import make_session, banner
 session, live = make_session(
     'zszero',
     home=True,
-    zstack={'step_size': 0, 'range': 0, 'position': 'Current Position at Center'},
+    zstack={'step_size': 0, 'range': 0, 'position': 'center'},
 )
 try:
     from modules.protocol_runner import ProtocolRunner

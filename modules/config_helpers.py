@@ -23,6 +23,7 @@ from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
+from modules.zstack_config import ZStackReference
 
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
@@ -1017,23 +1018,21 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
     """Read z-stack params from the settings store.
 
     The store keeps the stack in a TOP-LEVEL ``zstack`` container -- not under
-    ``protocol`` -- and keeps its reference in ``position``, holding the
-    spinner's display LABEL. Both are written by the z-stack UI. Reading a
-    ``protocol.zstack`` container and a ``z_reference`` leaf found neither and
-    answered with invented values instead of failing.
+    ``protocol`` -- and keeps its reference in ``position``. Both are written
+    by the z-stack UI. Reading a ``protocol.zstack`` container and a
+    ``z_reference`` leaf found neither and answered with invented values
+    instead of failing.
 
     The store is prepared, so every key is read, and each holds what its
     writer and the load allow: ``range`` and ``step_size`` a finite number,
-    ``position`` one of the z-stack labels. The shipped ``step_size`` is 0,
+    ``position`` a ``ZStackReference`` value. The shipped ``step_size`` is 0,
     so an unconfigured store reports no stack.
     """
     zstack = settings['zstack']
     return {
         'range': float(zstack['range']),
         'step_size': float(zstack['step_size']),
-        'z_reference': common_utils.convert_zstack_reference_position_setting_to_config(
-            text_label=zstack['position']
-        ),
+        'z_reference': ZStackReference(zstack['position']),
     }
 
 

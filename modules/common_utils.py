@@ -13,7 +13,7 @@ import platform
 import re
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar
 
 import psutil
 
@@ -373,20 +373,6 @@ def resolve_step_rename(raw_text: str) -> str | None:
         The text to rename to, or None if the field is blank.
     """
     return raw_text if raw_text.strip() else None
-
-
-# The z-stack position labels the settings store, each with the reference a
-# stack is built from. The one vocabulary: the settings writer refuses any
-# other label (``settings_paths``), and the reader below converts them.
-ZSTACK_POSITION_LABELS: Final[dict[str, str]] = {
-    'Current Position at Top': 'top',
-    'Current Position at Center': 'center',
-    'Current Position at Bottom': 'bottom',
-}
-
-
-def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
-    return ZSTACK_POSITION_LABELS[text_label]
 
 
 def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:

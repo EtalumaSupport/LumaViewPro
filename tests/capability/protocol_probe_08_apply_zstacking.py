@@ -6,7 +6,7 @@ Distinct from the z-stack Acquire button (one field, one layer, run now).
 
 from harness import make_session, banner
 
-ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'Current Position at Center'}
+ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'center'}
 session, live = make_session('applyzs', home=True, zstack=dict(ZS))
 try:
     import modules.config_helpers as config_helpers

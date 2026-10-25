@@ -46,6 +46,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api.camera import camera_range_words
 from modules.axes import StageAxis
+from modules.zstack_config import ZStackReference
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.api_surface import api, api_fields
 
@@ -247,9 +248,9 @@ class ProtocolsAPI:
             ArgumentRefusedError: ``'protocol_source_ambiguous'``, not
                 exactly one source was given; ``'missing_key'``,
                 ``'wrong_kind'``, ``'not_a_number'``,
-                ``'zstack_reference_unknown'``, ``'not_offered'`` (a layer's
-                acquire mode) or ``'channel_unknown'``, a key of the
-                configuration, named by its path in ``argument``.
+                ``'not_offered'`` (the z-stack's reference or a layer's acquire
+                mode) or ``'channel_unknown'``, a key of the configuration,
+                named by its path in ``argument``.
             CatalogueNameRefusedError: the configuration names a plate or an
                 objective the installation's catalogues do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --
@@ -724,13 +725,12 @@ class ProtocolsAPI:
         *,
         range_um: float,
         step_size_um: float,
-        z_reference: str,
+        z_reference: ZStackReference,
     ) -> None:
         """Expand every step of ``protocol`` not already in a stack into a z-stack.
 
-        ``z_reference`` says where each step's Z sits in its stack:
-        ``'top'``, ``'center'`` or ``'bottom'``. The slices are ordered as a
-        run visits them.
+        ``z_reference`` says where each step's Z sits in its stack. The
+        slices are ordered as a run visits them.
 
         Raises:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
@@ -740,8 +740,8 @@ class ProtocolsAPI:
                 travel. Nothing changes.
             ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
                 ``step_size_um`` is not a finite number. Nothing changes.
-            ArgumentRefusedError: ``'zstack_reference_unknown'``,
-                ``z_reference`` is not one of the three. Nothing changes.
+            ArgumentRefusedError: ``'not_offered'``, ``z_reference`` is not a
+                ``ZStackReference``. Nothing changes.
         """
         self.refuse_missing_positions(protocol.steps(), then='stack them')
         protocol.apply_zstacking(

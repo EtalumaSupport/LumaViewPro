@@ -329,7 +329,7 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
     session = make_session(
         'LS820',
         acquiring=('BF',),
-        zstack={'range': 20.0, 'step_size': 10.0, 'position': 'Current Position at Center'},
+        zstack={'range': 20.0, 'step_size': 10.0, 'position': 'center'},
     )
     # Mid-travel: homed Z sits at 0, where a stack's lower slices fall outside.
     session.scope.motion.move_z(5000.0)

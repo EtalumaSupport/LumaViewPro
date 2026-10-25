@@ -34,7 +34,7 @@ def _zstack_settings(**overrides):
     settings['zstack'] = {
         'range': 20.0,
         'step_size': 5.0,
-        'position': 'Current Position at Center',
+        'position': 'center',
     }
     settings.update(overrides)
     return settings

@@ -380,6 +380,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     # and both of these import lvp_logger.logger at their own top.
     from modules import image_mode
     from modules.common_utils import get_layers
+    from modules.zstack_config import ZStackReference
 
     changed = False
 
@@ -388,6 +389,20 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         # The file written never changed -- it was always OME-TIFF. Only the
         # label did, because it named a reader instead of the format.
         output_format['sequenced'] = image_mode.OUTPUT_FORMAT_HYPERSTACK
+        changed = True
+
+    # The z-stack's reference was stored as the spinner's label. It is stored
+    # as its ZStackReference value now, and the label is the GUI's own, which
+    # may change; these are the labels earlier releases wrote, which do not.
+    zstack = settings_dict.get('zstack')
+    stored_label = zstack.get('position') if isinstance(zstack, dict) else None
+    retired_labels = {
+        'Current Position at Top': ZStackReference.TOP,
+        'Current Position at Center': ZStackReference.CENTER,
+        'Current Position at Bottom': ZStackReference.BOTTOM,
+    }
+    if isinstance(stored_label, str) and stored_label in retired_labels:
+        zstack['position'] = retired_labels[stored_label]
         changed = True
 
     # Protocol accordions are permanently enabled; a stored preference for

@@ -272,7 +272,7 @@ def _stack_settings(session, *, range_um, step_size_um):
     session.settings['zstack'] = {
         'range': range_um,
         'step_size': step_size_um,
-        'position': 'Current Position at Center',
+        'position': 'center',
     }
 
 

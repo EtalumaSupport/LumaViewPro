@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
 from modules.exceptions import (
-    ArgumentRefusedError,
     ConfigError,
     DuplicateCaptureFilenamesNotice,
     FocusNotWrittenError,
@@ -40,7 +39,7 @@ from modules.layer_record import refuse_unknown_layer
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
-from modules.zstack_config import Z_REFERENCES, ZStackConfig
+from modules.zstack_config import ZStackConfig, ZStackReference
 from modules.coord_transformations import CoordinateTransformer
 from modules.acquire_mode import AcquireMode
 from modules.axes import StageAxis
@@ -173,9 +172,9 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
 
     Raises:
         ArgumentRefusedError: ``'missing_key'``, ``'wrong_kind'``,
-            ``'not_a_number'``, ``'zstack_reference_unknown'``,
-            ``'not_offered'`` (a layer's acquire mode), ``'channel_unknown'``;
-            each names the key's path inside ``argument``.
+            ``'not_a_number'``, ``'not_offered'`` (the z-stack's reference
+            or a layer's acquire mode), ``'channel_unknown'``; each names the
+            key's path inside ``argument``.
     """
     refuse_unless_kind(config, 'dict', argument)
 
@@ -215,8 +214,10 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
         zstack_path = key_path(argument, 'zstack_params')
         read(zstack, 'range', 'number', zstack_path)
         read(zstack, 'step_size', 'number', zstack_path)
-        refuse_unless_zstack_reference(
-            required(zstack, 'z_reference', zstack_path), key_path(zstack_path, 'z_reference')
+        refuse_unless_offered(
+            ZStackReference,
+            required(zstack, 'z_reference', zstack_path),
+            key_path(zstack_path, 'z_reference'),
         )
 
     layers = read(config, 'layer_configs', 'dict', argument)
@@ -244,19 +245,6 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
             read(position, 'y', 'number', position_path, nullable=True)
             read(position, 'z', 'number', position_path, nullable=True)
             read(position, 'name', 'str', position_path)
-
-
-def refuse_unless_zstack_reference(reference: object, argument: str) -> None:
-    """Refuse a z-stack reference that is not one of ``Z_REFERENCES``.
-
-    Raises:
-        ArgumentRefusedError: ``'zstack_reference_unknown'``, naming
-            ``argument`` and offering the references.
-    """
-    if reference not in Z_REFERENCES:
-        raise ArgumentRefusedError(
-            'zstack_reference_unknown', argument=argument, value=reference, offered=Z_REFERENCES
-        )
 
 
 def _fill_factor_or_refuse(overlap_percent: object) -> float:
@@ -2852,10 +2840,10 @@ class Protocol:
             ProtocolRunRefusedError: the range or step size is not greater
                 than zero, the scope has no Z motor, or a slice falls outside
                 the Z travel. Reported once.
-            ArgumentRefusedError: ``'zstack_reference_unknown'``, the
-                reference is not one of ``Z_REFERENCES``.
+            ArgumentRefusedError: ``'not_offered'``, the reference is not a
+                ``ZStackReference``.
         """
-        refuse_unless_zstack_reference(zstack_params['z_reference'], 'z_reference')
+        refuse_unless_offered(ZStackReference, zstack_params['z_reference'], 'z_reference')
         _refuse_unless_zstack_has_extent(zstack_params)
 
         z_limits = _axis_limits_or_refuse(axis_limits, ('Z',), what='a z-stack')
@@ -2916,8 +2904,8 @@ class Protocol:
                 than zero, the scope has no Z motor, or a slice falls outside
                 the Z travel. Each is refused before any step changes, and
                 reported once.
-            ArgumentRefusedError: ``'zstack_reference_unknown'``, the
-                reference is not one of ``Z_REFERENCES``, refused before any
+            ArgumentRefusedError: ``'not_offered'``, the reference is not a
+                ``ZStackReference``, refused before any
                 step changes -- on a protocol with no steps too, which never
                 reaches the slice positions that would read it.
             StepNotFoundError: *only* names an index that is no step.

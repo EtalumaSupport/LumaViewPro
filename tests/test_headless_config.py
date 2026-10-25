@@ -157,9 +157,7 @@ class TestGetZstackParams:
     """
 
     def test_reads_the_stack_the_gui_wrote(self):
-        settings = complete_settings(
-            zstack={'range': 50, 'step_size': 5, 'position': 'Current Position at Top'}
-        )
+        settings = complete_settings(zstack={'range': 50, 'step_size': 5, 'position': 'top'})
         assert get_zstack_params_from_settings(settings) == {
             'range': 50.0,
             'step_size': 5.0,

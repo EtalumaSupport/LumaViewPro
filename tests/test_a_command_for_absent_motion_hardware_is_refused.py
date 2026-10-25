@@ -355,7 +355,7 @@ def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, 
 def test_a_z_stack_on_a_z_only_scope_returns_z_to_its_start(make_session, tmp_path, caplog):
     session = make_session(
         'LS820',
-        zstack={'step_size': 50, 'range': 200, 'position': 'Current Position at Center'},
+        zstack={'step_size': 50, 'range': 200, 'position': 'center'},
     )
     scope = session.scope
     scope.motion.move_z(3000.0)

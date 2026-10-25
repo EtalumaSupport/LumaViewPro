@@ -28,7 +28,7 @@ from tests.settings_fixtures import settings_writer
 
 @pytest.fixture
 def panel(monkeypatch):
-    settings = {'zstack': {'step_size': 5.0, 'range': 50.0}}
+    settings = {'zstack': {'step_size': 5.0, 'range': 50.0, 'position': 'center'}}
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
@@ -39,11 +39,6 @@ def panel(monkeypatch):
         ),
     )
     monkeypatch.setattr(zstack_module.gui_logger, 'text_input', lambda *a: None)
-    monkeypatch.setattr(
-        zstack_module.common_utils,
-        'convert_zstack_reference_position_setting_to_config',
-        lambda text_label: 'center',
-    )
     zstack = ZStack.__new__(ZStack)
     zstack.ids = {
         'zstack_stepsize_id': SimpleNamespace(text='5'),
@@ -99,3 +94,30 @@ def test_a_number_taken_stays_as_typed_and_records_no_put_back(panel, monkeypatc
     assert zstack.ids['zstack_stepsize_id'].text == '5'
     assert zstack.ids['zstack_range_id'].text == '50'
     assert recorded == []
+
+
+def test_a_reference_picked_is_stored_as_its_value_not_its_label(panel):
+    zstack, settings = panel
+    zstack.ids['zstack_spinner'].text = 'Current Position at Top'
+    zstack.set_position()
+    assert settings['zstack']['position'] == 'top'
+
+
+def test_the_placeholder_before_the_first_redraw_stores_nothing(panel):
+    zstack, settings = panel
+    zstack.ids['zstack_spinner'].text = 'Z Stack'
+    zstack.set_position()
+    assert settings['zstack']['position'] == 'center'
+
+
+def test_the_redraw_offers_every_reference_and_shows_the_stored_ones_label(panel, monkeypatch):
+    zstack, settings = panel
+    settings['zstack']['position'] = 'bottom'
+    monkeypatch.setattr(zstack_module, 'show_text', lambda box, text: setattr(box, 'text', text))
+    zstack.show_settings()
+    assert zstack.ids['zstack_spinner'].values == [
+        'Current Position at Top',
+        'Current Position at Center',
+        'Current Position at Bottom',
+    ]
+    assert zstack.ids['zstack_spinner'].text == 'Current Position at Bottom'

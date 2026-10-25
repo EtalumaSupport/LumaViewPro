@@ -44,7 +44,7 @@ def _at_start():
     settings['zstack'] = {
         'range': 20.0,
         'step_size': 5.0,
-        'position': 'Current Position at Center',
+        'position': 'center',
     }
     return settings
 

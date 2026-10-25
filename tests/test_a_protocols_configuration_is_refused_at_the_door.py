@@ -97,7 +97,7 @@ def test_a_value_of_the_wrong_kind_is_refused_before_anything_is_built(
 def test_an_unknown_zstack_reference_is_refused_offering_the_three(session, config):
     config['use_zstacking'] = True
     config['zstack_params'] = {'range': 20.0, 'step_size': 5.0, 'z_reference': 'middle'}
-    refusal = _refused(session, 'zstack_reference_unknown', input_config=config)
+    refusal = _refused(session, 'not_offered', input_config=config)
     assert refusal.offered == ('top', 'center', 'bottom')
 
 
@@ -190,7 +190,7 @@ def test_an_unknown_reference_is_refused_on_a_protocol_with_no_steps(session):
         session.scope.protocols.apply_zstacking(
             protocol, range_um=20.0, step_size_um=5.0, z_reference='middle'
         )
-    assert refused.value.reason == 'zstack_reference_unknown'
+    assert refused.value.reason == 'not_offered'
 
 
 @pytest.mark.parametrize(

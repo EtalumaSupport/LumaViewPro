@@ -17,6 +17,7 @@ import pytest
 
 import modules.settings_init as settings_init
 from modules.exceptions import InstallationFileError
+from modules.zstack_config import ZStackReference
 from tests.installation_fixtures import copy_installation_files
 
 logger = logging.getLogger('test_settings_preparation')
@@ -84,6 +85,53 @@ def test_legacy_file_is_fully_prepared(tmp_path):
     assert prepared['protocol']['labware'] == 'Center Plate'
     # and the keys the running version added since the file was written
     assert 'stimulation_enabled' in prepared
+
+
+@pytest.mark.parametrize(
+    ('label', 'reference'),
+    [
+        ('Current Position at Top', 'top'),
+        ('Current Position at Center', 'center'),
+        ('Current Position at Bottom', 'bottom'),
+    ],
+)
+def test_a_stored_zstack_label_loads_as_its_reference_with_nothing_replaced(
+    tmp_path, label, reference
+):
+    """An earlier release stored the z-stack reference as the spinner's label;
+    the load reads it as the ZStackReference value it names, so the user's
+    choice is kept, not replaced by the shipped one and reported."""
+    data_dir = _data_dir(tmp_path)
+    current = settings_init.load_template(logger, SHIPPED_TEMPLATE)
+    current['zstack']['position'] = label
+    (data_dir / 'current.json').write_text(json.dumps(current))
+    settings_init.take_stored_replacements()
+
+    prepared, rejected = settings_init.prepare_settings(
+        logger, str(tmp_path), fall_back_to_template=False
+    )
+
+    assert rejected is None
+    assert prepared['zstack']['position'] == reference
+    assert type(prepared['zstack']['position']) is str
+    assert settings_init.take_stored_replacements() == []
+
+
+def test_a_handed_zstack_label_is_read_as_its_reference(tmp_path):
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path), zstack={'position': 'Current Position at Bottom'}
+        ),
+        simulate=True,
+    )
+    try:
+        assert session.settings['zstack']['position'] == 'bottom'
+        assert session.get_zstack_params()['z_reference'] is ZStackReference.BOTTOM
+    finally:
+        session.shutdown()
 
 
 def test_a_headless_session_gets_the_same_preparation(tmp_path, monkeypatch):

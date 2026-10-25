@@ -3541,8 +3541,6 @@ class ArgumentRefusedError(Refusal, ValueError):
               words).
             - ``'protocol_source_ambiguous'`` -- not exactly one of the
               protocol sources ``offered`` was given.
-            - ``'zstack_reference_unknown'`` -- a z-stack reference that is
-              not one of ``offered``.
             - ``'not_a_setting'`` -- a dotted path that names no setting.
               The same fact a write is refused for as
               ``SettingRefusedError('not_a_setting')``; this type says a
@@ -3670,10 +3668,6 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Not a Binning Size',
             '{argument} must be NxN, with N a whole number of at least 1, such as 2x2; '
             '{value!r} is not.',
-        ),
-        'zstack_reference_unknown': (
-            'Not a Z-Stack Reference',
-            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'not_a_setting': (
             'Not a Setting',

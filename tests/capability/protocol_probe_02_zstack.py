@@ -14,7 +14,7 @@ import time
 
 from harness import make_session, banner
 
-ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'Current Position at Center'}
+ZS = {'step_size': 5.0, 'range': 20.0, 'position': 'center'}
 
 session, live = make_session('zstack', home=True, zstack=dict(ZS))
 try:
