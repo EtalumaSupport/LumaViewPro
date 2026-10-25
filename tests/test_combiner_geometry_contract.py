@@ -14,7 +14,8 @@ import pytest
 from modules import image_utils
 import modules.layer_record as layer_record
 from modules.composite_builder import CompositeChannel, build_composite
-from modules.zprojection import ZProjectMethod, zproject
+from modules.zproject_method import ZProjectMethod
+from modules.zprojection import zproject
 
 
 def _in_release_colours(images):

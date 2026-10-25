@@ -11,7 +11,8 @@ values are the new source of truth for the projection backend.
 import numpy as np
 import pytest
 
-from modules.zprojection import ZProjectMethod, zproject
+from modules.zproject_method import ZProjectMethod
+from modules.zprojection import zproject
 from tests.case_walk import failing_cases
 
 

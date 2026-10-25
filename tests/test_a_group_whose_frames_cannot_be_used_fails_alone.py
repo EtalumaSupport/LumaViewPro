@@ -37,6 +37,7 @@ from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from modules.zproject_method import ZProjectMethod
 
 
 def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: int = 256) -> None:
@@ -196,7 +197,7 @@ class TestTheReader:
     ('folder_of', 'bad_frame', 'build'),
     [
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: ZProjector(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjector.methods()[0], channel_colors=release_colors())),
+            path=f, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjectMethod.Min, channel_colors=release_colors())),
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: StackBuilder(has_turret=False).load_folder(
             path=f, tiling_configs_file_loc=TILING_CONFIGS, save_encoding='right_aligned', channel_colors=release_colors())),
         (_tiles, 'A1_BF_T0_0000.tiff', lambda f: Stitcher(has_turret=False).load_folder(
@@ -226,7 +227,7 @@ def test_a_slice_of_another_size_fails_its_group_and_the_others_are_built(tmp_pa
         ZProjector(has_turret=False).load_folder(
             path=folder,
             tiling_configs_file_loc=TILING_CONFIGS,
-            method=ZProjector.methods()[0],
+            method=ZProjectMethod.Min,
             channel_colors=release_colors(),
         )
 
@@ -364,7 +365,7 @@ def _zproject(folder):
     return ZProjector(has_turret=False).load_folder(
         path=folder,
         tiling_configs_file_loc=TILING_CONFIGS,
-        method=ZProjector.methods()[0],
+        method=ZProjectMethod.Min,
         channel_colors=release_colors(),
     )
 

@@ -17,8 +17,9 @@ import pytest
 
 import modules.sequential_io_executor as sie
 from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
-from modules.post_processing_api import CellCountResult, DegradedOutput, Stitch
+from modules.post_processing_api import CellCountResult, DegradedOutput, Stitch, ZProject
 from modules.stitch_mode import StitchAlgorithm, StitchMode
+from modules.zproject_method import ZProjectMethod
 
 
 @pytest.fixture
@@ -66,11 +67,8 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
 ):
     import importlib
 
-    from modules.zprojector import ZProjector
-
     if member == 'zproject':
-        # A real method name, read from the build rather than spelled here.
-        kwargs = {'method': ZProjector.methods()[0]}
+        kwargs = {'method': ZProjectMethod.Min}
     seen = _spy_build(monkeypatch, getattr(importlib.import_module(module), cls), method)
 
     # A turret scope, so a build told False is caught; and the caller's own
@@ -126,7 +124,6 @@ def test_a_folder_with_nothing_to_stitch_is_refused(session, tmp_path):
 @pytest.mark.parametrize(
     ('member', 'kwargs'),
     [
-        ('zproject', {'method': 'no such method'}),
         ('video', {'frame_rate_fps': 0}),
         ('video', {'frame_rate_fps': 0.5}),
         ('video', {'frame_rate_fps': '-3'}),
@@ -142,27 +139,31 @@ def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_pat
 def test_each_offered_mode_and_method_is_taken_and_no_other(session, tmp_path):
     """The stitch modes and projection methods are the session's reads, and
     each one offered is a setting the build takes: refused for the empty
-    folder, never for the setting. A stitch mode is a closed set, refused at
-    the door offering the set; a projection method is the build's to refuse."""
+    folder, never for the setting. Each is a closed set, so any other word is
+    refused at the door, offering the set."""
     post = session.post_processing
     assert post.stitch_modes() == (StitchMode.QUALITY, StitchMode.FAST_PREVIEW)
-    assert 'Max' in post.projection_methods()
-    for build, values in (('stitch', post.stitch_modes()), ('zproject', post.projection_methods())):
-        setting = 'mode' if build == 'stitch' else 'method'
+    assert post.projection_methods() == tuple(ZProjectMethod)
+    for build, setting, values, offered in (
+        ('stitch', 'mode', post.stitch_modes(), ('quality', 'fast_preview')),
+        (
+            'zproject',
+            'method',
+            post.projection_methods(),
+            ('Min', 'Max', 'Average', 'Median', 'Sum', 'StdDev'),
+        ),
+    ):
         for value in values:
             with pytest.raises(PostProcessingRefusedError) as refused:
                 getattr(post, build)(tmp_path, **{setting: value})
             assert refused.value.reason != 'invalid_setting', (build, value)
-    with pytest.raises(ArgumentRefusedError) as refused:
-        post.stitch(tmp_path, mode='sideways')
-    assert (refused.value.reason, refused.value.offered) == (
-        'not_offered',
-        ('quality', 'fast_preview'),
-    )
-    with pytest.raises(PostProcessingRefusedError) as refused:
-        post.zproject(tmp_path, method='sideways')
-    assert refused.value.reason == 'invalid_setting'
-    assert all(value in str(refused.value) for value in post.projection_methods())
+        with pytest.raises(ArgumentRefusedError) as refused:
+            getattr(post, build)(tmp_path, **{setting: 'sideways'})
+        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
+            'not_offered',
+            setting,
+            offered,
+        )
 
 
 def test_a_stitch_record_built_with_a_word_that_is_no_mode_is_refused():
@@ -170,6 +171,13 @@ def test_a_stitch_record_built_with_a_word_that_is_no_mode_is_refused():
         Stitch(mode='sideways')
     assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Stitch.mode')
     assert Stitch(mode='fast_preview').mode is StitchMode.FAST_PREVIEW
+
+
+def test_a_zproject_record_built_with_a_word_that_is_no_method_is_refused():
+    with pytest.raises(ArgumentRefusedError) as refused:
+        ZProject(method='max')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'ZProject.method')
+    assert ZProject(method='Sum').method is ZProjectMethod.Sum
 
 
 def test_a_degraded_output_names_its_algorithms_by_the_set(tmp_path):

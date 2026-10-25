@@ -1151,7 +1151,10 @@ pp = session.post_processing
 pp.stitch(folder, mode=StitchMode.QUALITY)   # a StitchMode (modules.stitch_mode) or its plain string,
                                              # 'quality' or 'fast_preview' (pp.stitch_modes()); any other
                                              # is ArgumentRefusedError (not_offered); one mosaic per tiled group
-pp.zproject(folder, method='Max')            # one of pp.projection_methods()
+pp.zproject(folder, method=ZProjectMethod.Max)  # a ZProjectMethod (modules.zproject_method) or its
+                                             # plain string, 'Min', 'Max', 'Average', 'Median', 'Sum' or
+                                             # 'StdDev' (pp.projection_methods()); any other is
+                                             # ArgumentRefusedError (not_offered)
 pp.composite(folder)                         # output format and per-channel blend thresholds
                                              # are the user's configuration, as a run's merge uses
 pp.video(folder, frame_rate_fps=None,        # None: a recording plays at its own measured rate

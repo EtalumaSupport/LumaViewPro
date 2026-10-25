@@ -50,6 +50,7 @@ from modules.exceptions import (
 from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
 from modules.stitch_mode import StitchAlgorithm, StitchMode
+from modules.zproject_method import ZProjectMethod
 from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
@@ -281,10 +282,10 @@ class ZProject:
     """A z-projection, as ``build`` takes it: each Z-stack to one image.
 
     Attributes:
-        method: One of ``PostProcessingAPI.projection_methods()``.
+        method: How each stack's slices are reduced.
     """
 
-    method: str = 'Max'
+    method: ZProjectMethod = ZProjectMethod.Max
 
 
 @api_fields('mode')
@@ -598,15 +599,13 @@ class PostProcessingAPI:
         return tuple(StitchMode)
 
     @api(reads=True)
-    def projection_methods(self) -> tuple[str, ...]:
+    def projection_methods(self) -> tuple[ZProjectMethod, ...]:
         """The methods ``zproject(method=)`` and ``ZProject(method)`` take.
 
         Raises:
             Nothing.
         """
-        from modules.zprojector import ZProjector
-
-        return tuple(ZProjector.methods())
+        return tuple(ZProjectMethod)
 
     @api
     def stitch(
@@ -647,18 +646,19 @@ class PostProcessingAPI:
         self,
         folder: FilePath,
         *,
-        method: str = ZProject.method,
+        method: ZProjectMethod = ZProject.method,
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Project each Z-stack in *folder* to one image by *method*
         (one of ``projection_methods()``).
 
         Raises:
+            ArgumentRefusedError: ``'not_offered'``, *method* is not a
+                ``ZProjectMethod``, before the build is queued.
             LiveFolderPathRefusedError: ``'not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
-            PostProcessingRefusedError: reason ``invalid_setting``, *method*
-                is not a projection method, before the build is queued; or a
-                folder it cannot build from (``ProtocolPostProcessor``): reason
+            PostProcessingRefusedError: a folder it cannot build from
+                (``ProtocolPostProcessor``): reason
                 ``protocol_data_unreadable``, ``no_images``,
                 ``unsupported_source_format``, ``output_outside_folder``,
                 ``collision``, ``excluded_inputs`` or ``no_data``.
@@ -996,19 +996,9 @@ class PostProcessingAPI:
         )
 
     def _zproject_build(self, settings: ZProject) -> Callable[..., dict]:
-        """The z-projection of *settings*, its method checked before anything is queued."""
+        """The z-projection of *settings*, whose method its record judged as it was built."""
         from modules.zprojector import ZProjector
 
-        methods = self.projection_methods()
-        if settings.method not in methods:
-            raise PostProcessingRefusedError(
-                operation=PostProcessingOperation.Z_PROJECTION,
-                reason='invalid_setting',
-                message=(
-                    f'{settings.method!r} is not a projection method; use one of '
-                    f'{", ".join(methods)}.'
-                ),
-            )
         return functools.partial(
             ZProjector(has_turret=self._has_turret()).load_folder,
             tiling_configs_file_loc=self._tiling_configs_path(),

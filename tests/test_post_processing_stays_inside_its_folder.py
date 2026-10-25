@@ -20,6 +20,7 @@ from modules.zprojector import ZProjector
 from tests.test_capture_collision_policy import TILING_CONFIGS
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from modules.zproject_method import ZProjectMethod
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -93,7 +94,7 @@ def _project(folder):
     return ZProjector(has_turret=False).load_folder(
         path=folder,
         tiling_configs_file_loc=TILING_CONFIGS,
-        method=ZProjector.methods()[0],
+        method=ZProjectMethod.Min,
         channel_colors=release_colors(),
     )
 

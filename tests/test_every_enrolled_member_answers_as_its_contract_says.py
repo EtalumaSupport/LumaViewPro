@@ -883,7 +883,7 @@ def _bad_rows() -> list[Bad]:
             lambda s, f, **k: pp(s).zproject(f, **({'method': 'Max'} | k)),
             {'method': 'Max'},
             'method',
-            unusable,
+            (ArgumentRefusedError, 'not_offered'),
         ),
         (
             'composite',

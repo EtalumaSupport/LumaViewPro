@@ -17,6 +17,7 @@ from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 import modules.zprojection as zprojection
+from modules.zproject_method import ZProjectMethod
 
 from lvp_logger import logger
 
@@ -148,12 +149,8 @@ class ZProjector(ProtocolPostProcessor):
             **kwargs,
         )
 
-    @staticmethod
-    def methods() -> list[str]:
-        return zprojection.ZProjectMethod.list()
-
     def _zproject_for_multi_channel(
-        self, images_data: list[np.ndarray], method: zprojection.ZProjectMethod
+        self, images_data: list[np.ndarray], method: ZProjectMethod
     ) -> np.ndarray | None:
         sample_image = images_data[0]
         used_color_planes = image_utils.get_used_color_planes(image=sample_image)
@@ -190,7 +187,7 @@ class ZProjector(ProtocolPostProcessor):
         }
 
     def _zproject_for_single_channel(
-        self, images_data: list[np.ndarray], method: str
+        self, images_data: list[np.ndarray], method: ZProjectMethod
     ) -> np.ndarray | None:
         project_result = zprojection.zproject(images_data=images_data, method=method)
 
@@ -213,11 +210,11 @@ class ZProjector(ProtocolPostProcessor):
         self,
         path: pathlib.Path,
         df: pd.DataFrame,
-        method: str,
+        method: ZProjectMethod,
         output_file_loc: pathlib.Path,
         channel_colors: layer_record.ChannelColors,
     ):
-        method = zprojection.ZProjectMethod[method]
+        method = ZProjectMethod(method)
 
         first_slice_row = df.iloc[0]
         first_slice_path = path / first_slice_row['Filepath']
@@ -241,7 +238,7 @@ class ZProjector(ProtocolPostProcessor):
         # A Sum reaches past its inputs' range and is tagged with the bits it
         # can reach, by the rule a summed capture is tagged with; every other
         # method keeps its values within the inputs' range.
-        if method == zprojection.ZProjectMethod.Sum:
+        if method == ZProjectMethod.Sum:
             output_depth = image_utils.summed_significant_bits(len(input_depths), input_depth)
         else:
             output_depth = input_depth
@@ -279,7 +276,7 @@ class ZProjector(ProtocolPostProcessor):
         # integrates; a Sum adds the slices, so beside the per-frame exposure
         # it would state a fraction of the output's integration. Every other
         # method keeps each pixel one slice's value or a statistic of them.
-        if method == zprojection.ZProjectMethod.Sum:
+        if method == ZProjectMethod.Sum:
             metadata.pop('frames_summed', None)
         image_utils.write_tiff(
             data=result['image'],
