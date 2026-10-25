@@ -1148,7 +1148,9 @@ Builds over a folder of captured images are session members, the same ones LumaV
 ```python
 pp = session.post_processing
 
-pp.stitch(folder, mode='quality')            # one of pp.stitch_modes(); one mosaic per tiled group
+pp.stitch(folder, mode=StitchMode.QUALITY)   # a StitchMode (modules.stitch_mode) or its plain string,
+                                             # 'quality' or 'fast_preview' (pp.stitch_modes()); any other
+                                             # is ArgumentRefusedError (not_offered); one mosaic per tiled group
 pp.zproject(folder, method='Max')            # one of pp.projection_methods()
 pp.composite(folder)                         # output format and per-channel blend thresholds
                                              # are the user's configuration, as a run's merge uses

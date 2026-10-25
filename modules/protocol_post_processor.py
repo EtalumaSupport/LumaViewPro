@@ -26,6 +26,7 @@ from modules.objectives_loader import objective_short_name
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.stitch_mode import StitchMode
 
 from lvp_logger import logger
 
@@ -822,7 +823,7 @@ class ProtocolPostProcessor(abc.ABC):
                 if self._name == 'Stitcher':
                     mode_label = (
                         'Fast Preview'
-                        if kwargs.get('stitching_mode') == 'fast_preview'
+                        if kwargs.get('stitching_mode') == StitchMode.FAST_PREVIEW
                         else 'Quality'
                     )
                     # current_group already names the group now starting, which

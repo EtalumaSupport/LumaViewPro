@@ -131,7 +131,7 @@ def test_the_mode_router_keeps_a_stitcher_for_every_mode():
     # live here; what remains is that the router still routes to each stitcher.
     router = (REPO / 'modules' / 'stitching_core.py').read_text(encoding='utf-8')
 
-    assert "mode == 'fast_preview'" in router
+    assert 'mode == StitchMode.FAST_PREVIEW' in router
     assert 'fft_phase_stitcher' in router
     assert 'overlap_stitcher' in router
     assert 'stage_position_stitcher' in router

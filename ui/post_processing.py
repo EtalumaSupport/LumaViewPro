@@ -18,6 +18,7 @@ from ui.progress_popup import show_popup
 from modules import gui_logger
 from modules.cell_count_method import CellCountMethod, FilterBounds
 from modules.post_processing_api import BuildResult, CellCountSizeScale, ZProject
+from modules.stitch_mode import StitchMode
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
@@ -122,9 +123,9 @@ class StitchControls(BoxLayout):
     done = BooleanProperty(False)
     stitching_mode = StringProperty('Quality')
     # The words each button shows for a mode of the session's stitch_modes().
-    _MODE_VALUES: ClassVar[dict[str, str]] = {
-        'Quality': 'quality',
-        'Fast Preview': 'fast_preview',
+    _MODE_VALUES: ClassVar[dict[str, StitchMode]] = {
+        'Quality': StitchMode.QUALITY,
+        'Fast Preview': StitchMode.FAST_PREVIEW,
     }
 
     def __init__(self, **kwargs):

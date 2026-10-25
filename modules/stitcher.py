@@ -19,13 +19,12 @@ from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.layer_record import ChannelColors
+from modules.stitch_mode import StitchMode
 
 logger = logging.getLogger('LVP.modules.stitcher')
 
 
 class Stitcher(ProtocolPostProcessor):
-    QUALITY_MODE = 'quality'
-    FAST_PREVIEW_MODE = 'fast_preview'
     _PLACE = 'tile position'
 
     def __init__(self, *args, **kwargs):
@@ -65,7 +64,7 @@ class Stitcher(ProtocolPostProcessor):
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         return post_derivation.Step(
             PostFunction.STITCHED,
-            (('mode', kwargs.get('stitching_mode', self.QUALITY_MODE)),),
+            (('mode', kwargs.get('stitching_mode', StitchMode.QUALITY)),),
         )
 
     def _places(self, group: pd.DataFrame) -> pd.Series:
@@ -165,7 +164,7 @@ class Stitcher(ProtocolPostProcessor):
             df=df[stitch_columns],
             pixel_size_um=pixel_size_um,
             output_file_loc=kwargs.get('output_file_loc'),
-            stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
+            stitching_mode=kwargs.get('stitching_mode', StitchMode.QUALITY),
             channel_colors=kwargs['channel_colors'],
         )
         result.setdefault('metadata', {})['channel_group_id'] = self._stitched_channel_group(df)

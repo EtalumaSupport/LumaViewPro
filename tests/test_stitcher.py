@@ -18,6 +18,7 @@ import tifffile
 # ---------------------------------------------------------------------------
 
 from modules import post_derivation
+from modules.stitch_mode import StitchMode
 from modules.stitch_algorithms import (
     _image_stats,
     align_tile_positions,
@@ -832,7 +833,7 @@ class TestSimplePositionStitcher:
             tmp_path,
             df,
             pixel_size_um=1.0,
-            stitching_mode=Stitcher.FAST_PREVIEW_MODE,
+            stitching_mode=StitchMode.FAST_PREVIEW,
             channel_colors=release_colors(),
         )
 

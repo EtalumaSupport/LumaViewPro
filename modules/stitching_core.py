@@ -20,6 +20,7 @@ import modules.common_utils as common_utils
 import modules.derived_output_encoding as derived_output_encoding
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+from modules.stitch_mode import StitchMode
 from modules.stitch_algorithms import (
     crop_to_content,
     estimate_overlap_offset,
@@ -687,7 +688,7 @@ def channel_aware_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None = None,
     output_file_loc: pathlib.Path | None = None,
-    stitching_mode: str = 'quality',
+    stitching_mode: StitchMode = StitchMode.QUALITY,
     *,
     channel_colors: layer_record.ChannelColors,
 ) -> dict:
@@ -697,9 +698,7 @@ def channel_aware_stitcher(
     NCC. Both use recorded stage geometry and retain source pixels; OpenCV's
     unconstrained panorama stitcher is deliberately not an automatic fallback.
     """
-    mode = str(stitching_mode or 'quality').lower()
-    if mode not in {'quality', 'fast_preview'}:
-        return _failure('channel_aware_stitcher', f'unknown stitching mode: {mode}')
+    mode = StitchMode(stitching_mode)
     sample, _, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
     overlap = infer_stage_overlap(df, pixel_size_um=pixel_size_um, tile_shape=sample.shape[:2])
     logger.info(
@@ -717,7 +716,7 @@ def channel_aware_stitcher(
         'channel_colors': channel_colors,
     }
     chain: list[tuple[str, Callable[[], dict]]] = []
-    if overlap['has_overlap'] and mode == 'fast_preview':
+    if overlap['has_overlap'] and mode == StitchMode.FAST_PREVIEW:
         chain.append(
             (
                 'fast_fft_phase',

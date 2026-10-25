@@ -21,6 +21,7 @@ import hashlib
 from collections.abc import Mapping
 
 from modules.common_utils import POST_TOKEN_VIDEO, PostFunction
+from modules.stitch_mode import StitchMode
 
 _STEP_SEPARATOR = '>'
 _SETTING_SEPARATOR = ','
@@ -137,7 +138,7 @@ def name_tokens(derivation: str) -> tuple[str, ...]:
             tokens.append(f'zproj_{step.setting("method")}' if known else 'zproj')
         elif step.kind is PostFunction.STITCHED:
             tokens.append('stitched')
-            if known and step.setting('mode') == 'fast_preview':
+            if known and step.setting('mode') == StitchMode.FAST_PREVIEW:
                 tokens.append(STITCH_FAST_PREVIEW_TOKEN)
         elif step.kind is PostFunction.COMPOSITE:
             # The name's channel is 'Composite'; only its settings need a token.

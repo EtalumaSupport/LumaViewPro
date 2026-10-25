@@ -16,8 +16,9 @@ import time
 import pytest
 
 import modules.sequential_io_executor as sie
-from modules.exceptions import PostProcessingRefusedError
-from modules.post_processing_api import CellCountResult
+from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from modules.post_processing_api import CellCountResult, Stitch
+from modules.stitch_mode import StitchMode
 
 
 @pytest.fixture
@@ -125,7 +126,6 @@ def test_a_folder_with_nothing_to_stitch_is_refused(session, tmp_path):
 @pytest.mark.parametrize(
     ('member', 'kwargs'),
     [
-        ('stitch', {'mode': 'sideways'}),
         ('zproject', {'method': 'no such method'}),
         ('video', {'frame_rate_fps': 0}),
         ('video', {'frame_rate_fps': 0.5}),
@@ -142,9 +142,10 @@ def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_pat
 def test_each_offered_mode_and_method_is_taken_and_no_other(session, tmp_path):
     """The stitch modes and projection methods are the session's reads, and
     each one offered is a setting the build takes: refused for the empty
-    folder, never for the setting."""
+    folder, never for the setting. A stitch mode is a closed set, refused at
+    the door offering the set; a projection method is the build's to refuse."""
     post = session.post_processing
-    assert post.stitch_modes() == ('quality', 'fast_preview')
+    assert post.stitch_modes() == (StitchMode.QUALITY, StitchMode.FAST_PREVIEW)
     assert 'Max' in post.projection_methods()
     for build, values in (('stitch', post.stitch_modes()), ('zproject', post.projection_methods())):
         setting = 'mode' if build == 'stitch' else 'method'
@@ -152,10 +153,23 @@ def test_each_offered_mode_and_method_is_taken_and_no_other(session, tmp_path):
             with pytest.raises(PostProcessingRefusedError) as refused:
                 getattr(post, build)(tmp_path, **{setting: value})
             assert refused.value.reason != 'invalid_setting', (build, value)
-        with pytest.raises(PostProcessingRefusedError) as refused:
-            getattr(post, build)(tmp_path, **{setting: 'sideways'})
-        assert refused.value.reason == 'invalid_setting'
-        assert all(value in str(refused.value) for value in values)
+    with pytest.raises(ArgumentRefusedError) as refused:
+        post.stitch(tmp_path, mode='sideways')
+    assert (refused.value.reason, refused.value.offered) == (
+        'not_offered',
+        ('quality', 'fast_preview'),
+    )
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        post.zproject(tmp_path, method='sideways')
+    assert refused.value.reason == 'invalid_setting'
+    assert all(value in str(refused.value) for value in post.projection_methods())
+
+
+def test_a_stitch_record_built_with_a_word_that_is_no_mode_is_refused():
+    with pytest.raises(ArgumentRefusedError) as refused:
+        Stitch(mode='sideways')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Stitch.mode')
+    assert Stitch(mode='fast_preview').mode is StitchMode.FAST_PREVIEW
 
 
 def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatch, tmp_path):

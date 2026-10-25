@@ -866,14 +866,24 @@ def _bad_rows() -> list[Bad]:
             'not_a_number',
         ),
     ]
-    for name, member, call, wire_extra, setting in (
-        ('stitch', 'PostProcessingAPI.stitch', lambda s, f, **k: pp(s).stitch(f, **k), {}, 'mode'),
+    # A setting of a closed set is refused at the door; any other by the build.
+    unusable = (PostProcessingRefusedError, 'invalid_setting')
+    for name, member, call, wire_extra, setting, (refusal, reason) in (
+        (
+            'stitch',
+            'PostProcessingAPI.stitch',
+            lambda s, f, **k: pp(s).stitch(f, **k),
+            {},
+            'mode',
+            (ArgumentRefusedError, 'not_offered'),
+        ),
         (
             'zproject',
             'PostProcessingAPI.zproject',
             lambda s, f, **k: pp(s).zproject(f, **({'method': 'Max'} | k)),
             {'method': 'Max'},
             'method',
+            unusable,
         ),
         (
             'composite',
@@ -881,6 +891,7 @@ def _bad_rows() -> list[Bad]:
             lambda s, f, **k: pp(s).composite(f),
             {},
             None,
+            unusable,
         ),
         (
             'video',
@@ -888,6 +899,7 @@ def _bad_rows() -> list[Bad]:
             lambda s, f, **k: pp(s).video(f, **k),
             {},
             'frame_rate_fps',
+            unusable,
         ),
     ):
         route = f'/api/v1/post_processing/{name}'
@@ -920,8 +932,8 @@ def _bad_rows() -> list[Bad]:
                     lambda s, call=call, setting=setting, bogus=bogus: call(
                         s, s.live / 'images', **{setting: bogus}
                     ),
-                    PostProcessingRefusedError,
-                    'invalid_setting',
+                    refusal,
+                    reason,
                     (
                         route,
                         lambda s, extra=wire_extra, setting=setting, bogus=bogus: {

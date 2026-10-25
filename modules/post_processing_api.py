@@ -49,6 +49,7 @@ from modules.exceptions import (
 )
 from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
+from modules.stitch_mode import StitchMode
 from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
@@ -292,11 +293,10 @@ class Stitch:
     """A stitch, as ``build`` takes it: each tiled scan to one mosaic.
 
     Attributes:
-        mode: One of ``PostProcessingAPI.stitch_modes()``: ``'quality'`` or
-            ``'fast_preview'``.
+        mode: How the tiles are registered.
     """
 
-    mode: str = 'quality'
+    mode: StitchMode = StitchMode.QUALITY
 
 
 @api_fields('frame_rate_fps', 'timestamp_overlay')
@@ -589,15 +589,13 @@ class PostProcessingAPI:
         return tuple(items)
 
     @api(reads=True)
-    def stitch_modes(self) -> tuple[str, ...]:
+    def stitch_modes(self) -> tuple[StitchMode, ...]:
         """The modes ``stitch(mode=)`` and ``Stitch(mode)`` take.
 
         Raises:
             Nothing.
         """
-        from modules.stitcher import Stitcher
-
-        return (Stitcher.QUALITY_MODE, Stitcher.FAST_PREVIEW_MODE)
+        return tuple(StitchMode)
 
     @api(reads=True)
     def projection_methods(self) -> tuple[str, ...]:
@@ -615,20 +613,21 @@ class PostProcessingAPI:
         self,
         folder: FilePath,
         *,
-        mode: str = Stitch.mode,
+        mode: StitchMode = Stitch.mode,
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Stitch each tiled scan in *folder* into one mosaic per group.
 
         Args:
-            mode: ``'quality'`` or ``'fast_preview'``.
+            mode: How the tiles are registered.
 
         Raises:
+            ArgumentRefusedError: ``'not_offered'``, *mode* is not a
+                ``StitchMode``, before the build is queued.
             LiveFolderPathRefusedError: ``'not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
-            PostProcessingRefusedError: reason ``invalid_setting``, *mode*
-                is not a stitching mode, before the build is queued; or a
-                folder it cannot build from (``ProtocolPostProcessor``): reason
+            PostProcessingRefusedError: a folder it cannot build from
+                (``ProtocolPostProcessor``): reason
                 ``protocol_data_unreadable``, ``no_images``,
                 ``unsupported_source_format``, ``output_outside_folder``,
                 ``collision``, ``excluded_inputs`` or ``no_data``.
@@ -986,16 +985,9 @@ class PostProcessingAPI:
                 self._builds[running] = dataclasses.replace(self._builds[running], name=name)
 
     def _stitch_build(self, settings: Stitch) -> Callable[..., dict]:
-        """The stitch of *settings*, its mode checked before anything is queued."""
+        """The stitch of *settings*, whose mode its record judged as it was built."""
         from modules.stitcher import Stitcher
 
-        modes = self.stitch_modes()
-        if settings.mode not in modes:
-            raise PostProcessingRefusedError(
-                operation=PostProcessingOperation.STITCH,
-                reason='invalid_setting',
-                message=f'{settings.mode!r} is not a stitching mode; use one of {", ".join(modes)}.',
-            )
         return functools.partial(
             Stitcher(has_turret=self._has_turret()).load_folder,
             tiling_configs_file_loc=self._tiling_configs_path(),
