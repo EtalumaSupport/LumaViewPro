@@ -3795,7 +3795,9 @@ class ArgumentRefusedError(Refusal, ValueError):
         super().__init__(
             words.format(
                 argument=argument,
-                value=value,
+                # A member of a closed set is named by its word, as a caller
+                # writes it; its repr is the class's, not the caller's.
+                value=str(value) if isinstance(value, StrEnum) else value,
                 offered=_offered_words(offered or ()),
                 low=low,
                 high=high,

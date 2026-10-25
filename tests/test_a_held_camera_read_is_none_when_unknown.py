@@ -117,6 +117,8 @@ def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
         camera.set_auto_exposure(CameraAutoMode.ONCE)
 
     assert (refused.value.reason, refused.value.offered) == ('not_offered', ('Off', 'Continuous'))
+    # The sentence names the mode by its word, as the caller would write it.
+    assert str(refused.value).endswith("'Once' is not one."), str(refused.value)
     assert camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
 
 
