@@ -20,7 +20,7 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import PostProcessingFailedError
+from modules.exceptions import PostProcessingFailedError, PostProcessingOperation
 from modules.protocol_post_record import ProtocolPostRecord
 from tests.test_a_derived_image_says_how_it_was_made import (  # noqa: F401 -- fixtures
     run_folder,
@@ -110,4 +110,6 @@ def test_a_deleted_composite_is_not_counted_among_the_inputs_left_out(session, r
 
     stitched = session.post_processing.stitch(run_folder)
 
-    assert [(item.kind, item.count) for item in stitched.excluded_inputs] == [('composite', 11)]
+    assert [(item.kind, item.count) for item in stitched.excluded_inputs] == [
+        (PostProcessingOperation.COMPOSITE, 11)
+    ]
