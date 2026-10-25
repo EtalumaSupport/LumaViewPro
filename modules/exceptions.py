@@ -3577,8 +3577,9 @@ class ArgumentRefusedError(Refusal, ValueError):
               settings file, so it is not an LVP installation root.
             - ``'binning_size_invalid'`` -- a binning label that is not a
               positive square ``NxN``.
-            - ``'fault_unknown'`` -- a simulated fault's board, home fault,
-              camera node or answer that is not one of ``offered``.
+            - ``'fault_unknown'`` -- a simulated fault's board, or a
+              device's hardware ID, that is not one of ``offered``: sets
+              this scope's boards and this machine's devices decide.
             - ``'fault_bound'`` -- a simulated fault's count, fraction or
               time outside what it takes (``kind``, in words).
             - ``'not_injectable_on_board'`` -- a simulated fault the board

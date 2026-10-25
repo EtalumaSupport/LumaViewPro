@@ -21,6 +21,7 @@ A fault is armed for the next command, not the one in flight.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -33,6 +34,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from modules.api_surface import api, api_fields
+from modules.closed_sets import refuse_unless_offered
 from modules.exceptions import ArgumentRefusedError
 from modules.finite_number import WAIT_S, refuse_unless_finite_number
 from modules.axes import Axis
@@ -41,8 +43,43 @@ from modules.lumascope_api.bring_up import Part
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
 
-# How a home fails, as the EL-0940 firmware's simulated hardware takes it.
-HOME_FAULTS = ('switch_never_trips', 'stall', 'absent')
+
+class HomeFault(enum.StrEnum):
+    """How a home fails, as the EL-0940 firmware's simulated hardware takes it."""
+
+    SWITCH_NEVER_TRIPS = 'switch_never_trips'
+    STALL = 'stall'
+    ABSENT = 'absent'
+
+
+# Built from the simulated camera's own tables, which the driver acts on
+# and so live below modules/: the API names the driver's words by these
+# sets. Which answers a node gives stays the driver's (``answers_for``,
+# ``read_answers_for``).
+CameraWriteNode = enum.StrEnum(
+    'CameraWriteNode',
+    [(node.upper(), node) for node in SimulatedCamera.WRITABLE_NODES],
+    module=__name__,
+)
+CameraWriteNode.__doc__ = """A camera setting whose write a simulated fault can refuse."""
+CameraWriteAnswer = enum.StrEnum(
+    'CameraWriteAnswer',
+    [(answer.upper(), answer) for answer in SimulatedCamera.REFUSED_WRITE_ANSWERS],
+    module=__name__,
+)
+CameraWriteAnswer.__doc__ = """What a refused camera write answers."""
+CameraReadNode = enum.StrEnum(
+    'CameraReadNode',
+    [(node.upper(), node) for node in SimulatedCamera.READABLE_NODES],
+    module=__name__,
+)
+CameraReadNode.__doc__ = """A camera setting whose read a simulated fault can fail."""
+CameraReadAnswer = enum.StrEnum(
+    'CameraReadAnswer',
+    [(answer.upper(), answer) for answer in SimulatedCamera.FAILED_READ_ANSWERS],
+    module=__name__,
+)
+CameraReadAnswer.__doc__ = """How a failed camera read fails."""
 
 
 @api_fields('member', 'arguments')
@@ -367,7 +404,7 @@ class SimulationAPI:
     # --- the stage ---
 
     @api(in_process=True)
-    def fail_home(self, axis: Axis, how: str) -> None:
+    def fail_home(self, axis: Axis, how: HomeFault) -> None:
         """``axis``'s home fails in the simulated hardware, until ``clear``.
 
         Args:
@@ -376,24 +413,20 @@ class SimulationAPI:
                 ``'stall'`` (the motor stalls) or ``'absent'`` (no motor).
 
         Raises:
-            ArgumentRefusedError: ``'not_offered'`` for ``axis``;
-                ``'needs_simulated_scope'``; ``'fault_unknown'`` for ``how``, or for a
+            ArgumentRefusedError: ``'not_offered'`` for ``axis`` or ``how``;
+                ``'needs_simulated_scope'``; ``'fault_unknown'`` for a
                 scope with no motor board; ``'not_injectable_on_board'`` on
                 the fast motor board, which runs no firmware to fail a home;
                 ``'argument_not_on_board'`` for a ``how`` the TMCM-6110
                 cannot show (it has ``'switch_never_trips'``).
         """
         self._refuse_unless_simulated('fail_home')
-        if how not in HOME_FAULTS:
-            raise ArgumentRefusedError(
-                'fault_unknown', argument='how', value=how, offered=HOME_FAULTS
-            )
         target = self._board('fail_home', Part.MOTOR)
         if isinstance(target, EmulatedBoard):
             target.inject(axis, how)
             undo = lambda: target.clear(axis, how)
         elif isinstance(target, SimulatedTmcm6110):
-            if how != 'switch_never_trips':
+            if how != HomeFault.SWITCH_NEVER_TRIPS:
                 raise ArgumentRefusedError(
                     'argument_not_on_board',
                     argument='how',
@@ -507,7 +540,9 @@ class SimulationAPI:
         self._record('remove_camera', _does_not_resume)
 
     @api(in_process=True)
-    def refuse_camera_write(self, node: str, answer: str, count: int = 1) -> None:
+    def refuse_camera_write(
+        self, node: CameraWriteNode, answer: CameraWriteAnswer, count: int = 1
+    ) -> None:
         """The camera's next ``count`` writes of ``node`` answer ``answer`` and move nothing.
 
         Args:
@@ -529,22 +564,20 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'fault_unknown'`` for a node, or an answer that node's
-                write does not give;
+                ``'not_offered'`` for a node, or an answer that node's
+                write does not give, offering those it gives;
                 ``'fault_bound'`` for a count below 1;
                 ``'not_injectable_on_board'`` on the FX2 camera.
         """
         target = self._camera_board('refuse_camera_write')
         if not isinstance(target, SimulatedCamera):
             raise self._not_injectable('refuse_camera_write', target)
-        for argument, value, offered in (
-            ('node', node, tuple(SimulatedCamera.WRITABLE_NODES)),
-            ('answer', answer, SimulatedCamera.answers_for(node)),
-        ):
-            if value not in offered:
-                raise ArgumentRefusedError(
-                    'fault_unknown', argument=argument, value=value, offered=offered
-                )
+        refuse_unless_offered(
+            CameraWriteAnswer,
+            answer,
+            'answer',
+            within=[CameraWriteAnswer(a) for a in SimulatedCamera.answers_for(node)],
+        )
         self._bound('count', count, 'a number of writes, 1 or more', count >= 1)
         target.refuse_write(node, answer, count)
         self._record(
@@ -556,14 +589,17 @@ class SimulationAPI:
         )
 
     @api(in_process=True)
-    def refuse_camera_read(self, node: str, answer: str, count: int = 1) -> None:
+    def refuse_camera_read(
+        self, node: CameraReadNode, answer: CameraReadAnswer, count: int = 1
+    ) -> None:
         """The camera's next ``count`` reads of ``node`` fail as ``answer`` says.
 
         Args:
             node: The setting read: ``'gain'``, ``'exposure'``,
                 ``'frame_size'``, ``'binning'``, ``'pixel_format'``,
-                ``'black_level'``, ``'frame_rate'`` or ``'minimum_exposure'``
-                (``camera.read_exposure_min_ms``).
+                ``'black_level'``, ``'frame_rate'``, ``'minimum_exposure'``
+                (``camera.read_exposure_min_ms``), ``'auto_gain'`` or
+                ``'auto_exposure'``.
             answer: How the read fails: ``'raise'``; ``'sentinel'``, the
                 driver's failed-read value (-1 for the gain, the exposure
                 and the binning, nothing for the frame size; not for the
@@ -574,21 +610,20 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'fault_unknown'`` for a node, or an answer that node's
-                read does not give; ``'fault_bound'`` for a count below 1;
+                ``'not_offered'`` for a node, or an answer that node's
+                read does not give, offering those it gives;
+                ``'fault_bound'`` for a count below 1;
                 ``'not_injectable_on_board'`` on the FX2 camera.
         """
         target = self._camera_board('refuse_camera_read')
         if not isinstance(target, SimulatedCamera):
             raise self._not_injectable('refuse_camera_read', target)
-        for argument, value, offered in (
-            ('node', node, tuple(SimulatedCamera.READABLE_NODES)),
-            ('answer', answer, SimulatedCamera.read_answers_for(node)),
-        ):
-            if value not in offered:
-                raise ArgumentRefusedError(
-                    'fault_unknown', argument=argument, value=value, offered=offered
-                )
+        refuse_unless_offered(
+            CameraReadAnswer,
+            answer,
+            'answer',
+            within=[CameraReadAnswer(a) for a in SimulatedCamera.read_answers_for(node)],
+        )
         self._bound('count', count, 'a number of reads, 1 or more', count >= 1)
         target.refuse_read(node, answer, count)
         self._record(

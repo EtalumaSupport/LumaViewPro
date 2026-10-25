@@ -172,6 +172,7 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'refuse_read'),
     (_SIMULATION, 'allow_read'),
     (_SIMULATION, 'READABLE_NODES'),
+    (_SIMULATION, 'FAILED_READ_ANSWERS'),
     (_SIMULATION, 'read_answers_for'),
 }
 
