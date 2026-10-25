@@ -25,6 +25,7 @@ from modules import config_helpers
 from tests.settings_fixtures import complete_settings
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingRefusedError
+from modules.image_mode import OutputFormat
 
 # pin-justified: kv is declarative source with no headless seam; the kv
 # text is the contract.
@@ -37,18 +38,15 @@ def _jpg_row_block() -> str:
     return _KV[start : start + 1600]
 
 
-def _sequenced_spinner_block() -> str:
-    start = _KV.index('id: sequenced_image_output_format_spinner')
-    return _KV[start : start + 400]
-
-
 # --- Part 1: UI offers JPG for sequenced + one shared quality control -------
 
 
 def test_sequenced_format_offers_jpg():
-    block = _sequenced_spinner_block()
-    assert "'JPG'" in block
-    assert 'values:' in block
+    # The sequenced spinner's values are every label of the panel's table,
+    # built at the load rather than repeated in the kv.
+    from ui.microscope_settings import OUTPUT_FORMAT_LABELS
+
+    assert OUTPUT_FORMAT_LABELS[OutputFormat.JPG] == 'JPG'
 
 
 def test_quality_row_shared_across_live_and_sequenced():

@@ -163,8 +163,8 @@ class TestJpgSkipsMetadata:
         src = _method_src('modules/image_save.py', None, 'save_image')
         # The JPG branch must compute the path directly; prepare_image_for_saving
         # (which calls generate_image_metadata) is the else branch only.
-        assert "if output_format == 'JPG':" in src
-        jpg_idx = src.find("if output_format == 'JPG':")
+        assert 'if output_format == image_mode.OutputFormat.JPG:' in src
+        jpg_idx = src.find('if output_format == image_mode.OutputFormat.JPG:')
         prepare_idx = src.find('prepare_image_for_saving', jpg_idx)
         save_path_idx = src.find('generate_image_save_path', jpg_idx)
         assert save_path_idx != -1, 'JPG branch must call generate_image_save_path.'
