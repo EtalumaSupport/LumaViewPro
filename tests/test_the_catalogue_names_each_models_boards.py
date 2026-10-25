@@ -5,10 +5,12 @@ The catalogue named no boards, so the simulator read a model's motor axes as
 its LED board: axes meant an EL-0940 scope, none an FX2 scope. That holds
 for every row today and is wrong for an FX2 scope with a motorized stage.
 Now every row names its ``LEDBoard`` and, exactly when it has motor axes,
-its ``MotorBoard``. The simulator is the one reader, so it is where the rule
-is checked: a row that breaks it, or names a board the simulator cannot
-stand in for, refuses the scope naming the file. Production only warns on a
-missing ``LEDBoard``, as on the row's other fields, and never gates on it.
+its ``MotorBoard``, each a member of its family (``LedBoardFamily``,
+``MotorBoardFamily``), which the catalogue's reader refuses outside it for
+every host. The simulator stands in for every member and is the one reader
+of the boards, so it is where the pairing is checked: a row that names a
+motor board without motor axes, or motor axes without one, refuses the
+simulated scope naming the file.
 """
 
 import json
@@ -45,14 +47,10 @@ def _scope(model, **kwargs):
     return build_scope(simulate=True, sim_model=model, warn_pre_release=False, **kwargs)
 
 
-def test_every_row_names_an_led_board_and_a_motor_board_exactly_when_it_has_axes():
+def test_every_row_names_a_motor_board_exactly_when_it_has_axes():
     def check(model):
-        entry = MODELS[model]
-        assert entry.led_board in ('EL-0940', 'FX2')
-        if layer_record.model_axes(MODELS, model):
-            assert entry.motor_board in ('EL-0940', 'TMCM-6110')
-        else:
-            assert entry.motor_board is None
+        has_axes = bool(layer_record.model_axes(MODELS, model))
+        assert (MODELS[model].motor_board is not None) == has_axes
 
     failed = failing_cases(sorted(MODELS), check)
     assert not failed, failed
@@ -110,17 +108,10 @@ def test_a_row_naming_an_fx2_with_motor_axes_refuses_a_simulated_camera_stall(tm
 @pytest.mark.parametrize(
     'model, mutate, words',
     [
-        ('LS620', _set('LEDBoard', 'LS-9000'), "names LEDBoard 'LS-9000'"),
-        ('LS850T', _drop('MotorBoard'), 'gives motor axes and names MotorBoard None'),
-        ('LS850', _set('MotorBoard', 'MB-9000'), "gives motor axes and names MotorBoard 'MB-9000'"),
+        ('LS850T', _drop('MotorBoard'), 'gives motor axes but names no MotorBoard'),
         ('LS620', _set('MotorBoard', 'EL-0940'), 'gives no motor axes but names MotorBoard'),
     ],
-    ids=[
-        'an-led-board-the-simulator-lacks',
-        'axes-without-a-motor-board',
-        'a-motor-board-the-simulator-lacks',
-        'a-motor-board-without-axes',
-    ],
+    ids=['axes-without-a-motor-board', 'a-motor-board-without-axes'],
 )
 def test_a_row_that_breaks_the_rule_refuses_the_simulated_scope_naming_the_file(
     tmp_path, model, mutate, words

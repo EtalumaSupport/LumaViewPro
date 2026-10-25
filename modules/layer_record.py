@@ -405,6 +405,24 @@ _REQUIRED_ROW_FIELDS = ('key_name', 'display_name', 'led_channel', 'excitation_n
 _ROW_FIELDS = frozenset(_REQUIRED_ROW_FIELDS) | {'display_color'}
 
 
+class LedBoardFamily(enum.StrEnum):
+    """The kind of board a model's LEDs are on, as its catalogue row names it.
+
+    An EL-0940 is an LED board of its own; an FX2 drives its scope's camera
+    and LEDs both.
+    """
+
+    EL_0940 = 'EL-0940'
+    FX2 = 'FX2'
+
+
+class MotorBoardFamily(enum.StrEnum):
+    """The kind of board a model's motor axes are on, as its catalogue row names it."""
+
+    EL_0940 = 'EL-0940'
+    TMCM_6110 = 'TMCM-6110'
+
+
 @api_fields(
     'id',
     'has_focus',
@@ -441,8 +459,8 @@ class ScopeModel:
     has_focus: bool
     has_xy_stage: bool
     has_turret: bool
-    led_board: str
-    motor_board: str | None
+    led_board: LedBoardFamily
+    motor_board: MotorBoardFamily | None
     channels: tuple[ChannelRecord, ...]
     filterset: str | None
     pixel_size_um: float | None
@@ -542,6 +560,9 @@ def _scope_model(
         if (key == 'LEDBoard' or key in entry) and not (isinstance(value, str) and value):
             raise refuse(f'a {key!r} that is not a name')
         text[key] = value
+    for key, family in (('LEDBoard', LedBoardFamily), ('MotorBoard', MotorBoardFamily)):
+        if text[key] is not None and member_of(family, text[key]) is None:
+            raise refuse(f'a {key!r} {text[key]!r} that is not one of {", ".join(family)}')
     optics = entry.get('Optics', {})
     if not isinstance(optics, dict) or set(optics) - set(_OPTICS_KEYS):
         raise refuse(f"an 'Optics' that holds other than {sorted(_OPTICS_KEYS)}")

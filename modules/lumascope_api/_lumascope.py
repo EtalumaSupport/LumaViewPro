@@ -86,6 +86,7 @@ from modules.lumascope_api.bring_up import (
 )
 from modules.frame_validity import FrameValidity, FrameValiditySource
 from modules.fx2_driver_step import repair_refusal
+from modules.layer_record import LedBoardFamily, MotorBoardFamily
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.activity_claim import ActivityClaim
@@ -144,11 +145,6 @@ def _register_ids_camera(platform: str):
 
 
 IDSCamera = _register_ids_camera(sys.platform)
-
-# The boards a catalogue row may name that the simulator can stand in for.
-# An FX2 drives its scope's camera and LEDs; an EL-0940 is a board of its own.
-_SIMULATED_LED_BOARDS = ('EL-0940', 'FX2')
-_SIMULATED_MOTOR_BOARDS = ('EL-0940', 'TMCM-6110')
 
 
 def _camera_timing(sim_tier: str) -> str:
@@ -471,7 +467,7 @@ class Lumascope:
     def _build_simulated_motor_board(
         model: str,
         axes: frozenset[str],
-        motor_board: str | None,
+        motor_board: MotorBoardFamily | None,
         sim_tier: str,
         motorconfig_defaults: dict,
     ) -> tuple[MotorBoardProtocol, object | None]:
@@ -497,7 +493,7 @@ class Lumascope:
         if motor_board is None:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard(), None
-        if motor_board == 'TMCM-6110':
+        if motor_board == MotorBoardFamily.TMCM_6110:
             from drivers.simulated_tmcm6110 import (
                 SCOPE_SPEEDUP,
                 SimulatedTmcm6110,
@@ -541,30 +537,28 @@ class Lumascope:
         )
         return board, backend.motor_board
 
-    def _simulated_boards(self, model: str, axes: frozenset[str]) -> tuple[str, str | None]:
+    def _simulated_boards(
+        self, model: str, axes: frozenset[str]
+    ) -> tuple[LedBoardFamily, MotorBoardFamily | None]:
         """The LED and motor boards a simulated ``model`` has, as its catalogue row names them.
 
         The row names an ``LEDBoard`` always and a ``MotorBoard`` exactly
-        when it has motor axes. Production never reads either -- the
-        bring-up finds the boards it has -- so this is the one place the
-        rule is checked: a row that breaks it, or names a board the
-        simulator cannot stand in for, would build a scope unlike the one
-        the row describes. ``axes`` are the row's, from ``model_axes``.
+        when it has motor axes; the catalogue's reader has refused a board
+        outside each family, and the simulator stands in for every member.
+        Production never reads either -- the bring-up finds the boards it
+        has -- so this is the one place the pairing is checked: a row that
+        breaks it would build a scope unlike the one the row describes.
+        ``axes`` are the row's, from ``model_axes``.
 
         Raises:
-            InstallationFileError: the row breaks the rule or names a board
-                the simulator has no stand-in for, naming the catalogue.
+            InstallationFileError: the row names a motor board without motor
+                axes or motor axes without one, naming the catalogue.
         """
         entry = self._scope_models[model]
         led_board = entry.led_board
         motor_board = entry.motor_board
-        if led_board not in _SIMULATED_LED_BOARDS:
-            problem = f'names LEDBoard {led_board!r}; the simulator has {_SIMULATED_LED_BOARDS}'
-        elif axes and motor_board not in _SIMULATED_MOTOR_BOARDS:
-            problem = (
-                f'gives motor axes and names MotorBoard {motor_board!r}; '
-                f'the simulator has {_SIMULATED_MOTOR_BOARDS}'
-            )
+        if axes and motor_board is None:
+            problem = 'gives motor axes but names no MotorBoard'
         elif not axes and motor_board is not None:
             problem = f'gives no motor axes but names MotorBoard {motor_board!r}'
         else:
@@ -723,7 +717,7 @@ class Lumascope:
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
-            if sim_led_board == 'FX2':
+            if sim_led_board == LedBoardFamily.FX2:
                 for argument, value, given in (
                     ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
                     ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
@@ -884,7 +878,7 @@ class Lumascope:
                 self.objectives[objective_id].focal_length_mm, 1, capabilities=self.capabilities
             )
 
-        if simulate and sim_led_board == 'FX2':
+        if simulate and sim_led_board == LedBoardFamily.FX2:
             from drivers.fx2driver import FX2LEDController
             from drivers.simulated_fx2 import SimulatedFX2
 
