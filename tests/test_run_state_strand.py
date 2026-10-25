@@ -138,7 +138,7 @@ class TestClaimRefusalLeavesNoState:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            while session.live_work.has(live_work.RUN_FILES):
+            while session.live_work.has(live_work.WorkKind.RUN_FILES):
                 assert time.monotonic() < deadline, 'first run never finished writing its files'
                 time.sleep(0.02)
 
@@ -162,7 +162,7 @@ class TestClaimRefusalLeavesNoState:
             assert excinfo.value.holder == 'recording'
             assert excinfo.value.holder_trigger is None
 
-            assert not session.live_work.has(live_work.PROTOCOL), (
+            assert not session.live_work.has(live_work.WorkKind.PROTOCOL), (
                 'a claim-refused run must not leave the session naming a run: '
                 'no run exists to ever clear it, so every reader of the '
                 'protocol-running state is wedged until app restart'

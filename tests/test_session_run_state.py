@@ -56,7 +56,7 @@ class TestDerivations:
         monkeypatch.setattr(
             session.manual_recording, '_engine', MagicMock(is_recording=False, is_draining=True)
         )
-        assert session.live_work.has(live_work.RECORDING), (
+        assert session.live_work.has(live_work.WorkKind.RECORDING), (
             'the draining recording let go of its claim'
         )
         assert session.controls_lock.controls_locked is False

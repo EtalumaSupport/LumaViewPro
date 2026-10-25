@@ -1059,7 +1059,8 @@ class ProtocolSettings(FloatLayout):
         # A start pressed now is the engine's to refuse; the button that
         # started the run shows the count.
         files = next(
-            (item for item in session.live_work.work if item.kind == live_work.RUN_FILES), None
+            (item for item in session.live_work.work if item.kind == live_work.WorkKind.RUN_FILES),
+            None,
         )
 
         for trigger, look in _PANEL_RUN_BUTTONS.items():

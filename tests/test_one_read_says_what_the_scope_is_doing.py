@@ -70,7 +70,7 @@ def test_a_home_in_progress_is_the_work_and_no_axis_has_a_position(sim_session):
 
     assert seen, 'the home never read a position'
     status = seen[0]
-    assert [item.kind for item in status.live_work.work] == [live_work.HOME]
+    assert [item.kind for item in status.live_work.work] == [live_work.WorkKind.HOME]
     assert {axis.state for axis in status.axes.values()} == {AxisState.HOMING}
     assert all(axis.position_um is None for axis in status.axes.values())
 

@@ -758,7 +758,7 @@ def draw_shared_run_displays(lock, work) -> None:
         live_histo_reverse()
     if any(work.has(kind) for kind in live_work.SCOPE_HOLDERS):
         return
-    if work.has(live_work.RUN_FILES):
+    if work.has(live_work.WorkKind.RUN_FILES):
         set_title_event_text(_DRAIN_TITLE)
     else:
         reset_title()

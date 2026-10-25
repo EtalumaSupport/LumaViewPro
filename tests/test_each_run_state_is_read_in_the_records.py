@@ -137,19 +137,24 @@ def _a_finished_runs_files_writing(session, monkeypatch):
 # from its claim's grant to its cleanup's end.
 STATES = [
     (_idle, ([], None, None, False)),
-    (_a_run_starting, ([live_work.PROTOCOL], None, 'The scan run is in progress.', False)),
-    (_a_run, ([live_work.PROTOCOL], None, 'The scan run is in progress.', False)),
-    (_a_run_unwinding, ([live_work.PROTOCOL], None, None, False)),
-    (_a_diagnostic, ([live_work.DIAGNOSTIC], None, 'A diagnostic is in progress.', False)),
+    (_a_run_starting, ([live_work.WorkKind.PROTOCOL], None, 'The scan run is in progress.', False)),
+    (_a_run, ([live_work.WorkKind.PROTOCOL], None, 'The scan run is in progress.', False)),
+    (_a_run_unwinding, ([live_work.WorkKind.PROTOCOL], None, None, False)),
+    (_a_diagnostic, ([live_work.WorkKind.DIAGNOSTIC], None, 'A diagnostic is in progress.', False)),
     (
         _a_run_lent_a_diagnostics_claim,
-        ([live_work.DIAGNOSTIC, live_work.PROTOCOL], None, 'A diagnostic is in progress.', False),
+        (
+            [live_work.WorkKind.DIAGNOSTIC, live_work.WorkKind.PROTOCOL],
+            None,
+            'A diagnostic is in progress.',
+            False,
+        ),
     ),
-    (_a_home, ([live_work.HOME], None, 'A home is in progress.', False)),
-    (_a_live_recording, ([live_work.RECORDING], None, None, True)),
+    (_a_home, ([live_work.WorkKind.HOME], None, 'A home is in progress.', False)),
+    (_a_live_recording, ([live_work.WorkKind.RECORDING], None, None, True)),
     (
         _a_finished_runs_files_writing,
-        ([live_work.RUN_FILES], 2, "A protocol's files are still being written.", False),
+        ([live_work.WorkKind.RUN_FILES], 2, "A protocol's files are still being written.", False),
     ),
 ]
 
@@ -171,7 +176,7 @@ RETIRED_READS = (
 
 def _records(session):
     work = session.live_work.work
-    files = [item.left for item in work if item.kind == live_work.RUN_FILES]
+    files = [item.left for item in work if item.kind == live_work.WorkKind.RUN_FILES]
     lock = session.controls_lock
     return (
         [item.kind for item in work],

@@ -67,7 +67,7 @@ def test_run_single_scan_returns_the_run_s_outcome(session_and_runner, tmp_path)
     outcome = runner.run_single_scan(_one_step(session), parent_dir=str(tmp_path))
 
     assert (outcome.status, outcome.reason) == ('completed', 'completed')
-    assert not session.live_work.has(live_work.PROTOCOL)
+    assert not session.live_work.has(live_work.WorkKind.PROTOCOL)
 
 
 def test_a_wait_that_runs_out_hands_back_the_run_still_going(session_and_runner, tmp_path):
@@ -83,6 +83,6 @@ def test_a_wait_that_runs_out_hands_back_the_run_still_going(session_and_runner,
     assert expired.value.reason == 'still_running'
     assert outcome_of(expired.value).kind == OutcomeKind.QUIET
     run = expired.value.operation
-    assert not run.done() and session.live_work.has(live_work.PROTOCOL)
+    assert not run.done() and session.live_work.has(live_work.WorkKind.PROTOCOL)
     run.stop()
     assert (run.result(timeout=_RUN_S).status, run.result().reason) == ('aborted', 'stopped')

@@ -220,7 +220,7 @@
     # has measured its text, and the box then grows from that left edge.
     HomingBanner:
         id: homing_banner_id
-        active: app.live_work.has(live_work.HOME)
+        active: app.live_work.has(live_work.WorkKind.HOME)
         opacity: 1 if self.active else 0
         pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 

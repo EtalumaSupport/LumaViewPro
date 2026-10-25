@@ -16,6 +16,7 @@ from modules.protocol_state_machine import (
     validate_transition,
 )
 from modules.run_events import RunEvents
+from modules.live_work import WorkKind
 from modules.protocol_image_writer import ProtocolImageWriter, RunWriteBatch, WRITE_STALL_FATAL_S
 from modules.protocol_cleanup import run_cleanup, send_files_written, send_run_ended
 from modules.protocol_step_runner import ProtocolStepRunner
@@ -859,7 +860,7 @@ class SequencedCaptureRunner:
         already-running and file-drain gates, which describe a run better.
         """
         holder = claim.blocking_holder
-        if holder is not None and holder.kind != 'protocol':
+        if holder is not None and holder.kind != WorkKind.PROTOCOL:
             return self._exclusive_activity(holder)
         return None
 
@@ -875,7 +876,7 @@ class SequencedCaptureRunner:
         trigger = holder.run_started_by if holder is not None else None
         # A recording holding the scope is its own condition, under the
         # reason a recording start already uses for it.
-        if kind == 'recording':
+        if kind == WorkKind.RECORDING:
             return self._refusal(
                 reason='recording_active',
                 message=(
@@ -1049,7 +1050,7 @@ class SequencedCaptureRunner:
         # A 'protocol' holder is a run between taking the claim and setting
         # its state, which _is_run_live does not see yet.
         holder = claim.blocking_holder
-        if self._is_run_live() or (holder is not None and holder.kind == 'protocol'):
+        if self._is_run_live() or (holder is not None and holder.kind == WorkKind.PROTOCOL):
             return self._already_running()
 
         batch = self._write_batch
@@ -1575,7 +1576,7 @@ class SequencedCaptureRunner:
             # and it is the one that already knows whether anything holds
             # the scope at all.
             try:
-                held = claim.try_claim('protocol', run=self._identity_of(plan))
+                held = claim.try_claim(WorkKind.PROTOCOL, run=self._identity_of(plan))
             except ControlSessionHeldError as held_by:
                 raise self._under_control(held_by.session) from None
             if held is None:

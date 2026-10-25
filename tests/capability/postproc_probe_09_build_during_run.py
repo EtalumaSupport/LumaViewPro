@@ -148,7 +148,7 @@ def _start_when_admitted(runner, protocol, parent, name):
 def _post_run_steps(session):
     from modules import live_work
 
-    lane = (live_work.POST_PROCESSING, live_work.POST_PROCESSING_QUEUED)
+    lane = (live_work.WorkKind.POST_PROCESSING, live_work.WorkKind.POST_PROCESSING_QUEUED)
     return [item.name for item in session.live_work.work if item.kind in lane]
 
 

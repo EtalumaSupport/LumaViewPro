@@ -39,7 +39,7 @@ def session(tmp_path):
 
 
 def _a_home_is_named(session) -> bool:
-    return session.live_work.has(live_work.HOME)
+    return session.live_work.has(live_work.WorkKind.HOME)
 
 
 def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
@@ -81,5 +81,5 @@ def test_the_banner_binds_the_home_in_the_live_work():
     kv = (pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'lumaviewpro.kv').read_text()
     banner = kv[kv.index('HomingBanner:') :]
     banner = banner[: banner.index('pos_hint')]
-    assert 'active: app.live_work.has(live_work.HOME)' in banner
+    assert 'active: app.live_work.has(live_work.WorkKind.HOME)' in banner
     assert '#:import live_work modules.live_work' in kv

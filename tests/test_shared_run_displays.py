@@ -50,7 +50,7 @@ def test_a_live_run_keeps_equalization_off_and_its_own_title(scene):
     scene.lock = ControlsLock(
         run_named='A protocol run is in progress.', control_named=None, recording=False
     )
-    scene.work = [WorkItem(live_work.PROTOCOL, 'A protocol run')]
+    scene.work = [WorkItem(live_work.WorkKind.PROTOCOL, 'A protocol run')]
     scene.display.use_live_image_histogram_equalization = True
 
     _draw(scene)
@@ -66,7 +66,7 @@ def test_a_drain_with_nothing_holding_the_scope_says_files_are_writing(scene):
     scene.lock = ControlsLock(
         run_named="A protocol's files are still being written.", control_named=None, recording=False
     )
-    scene.work = [WorkItem(live_work.RUN_FILES, "A run's images", left=3)]
+    scene.work = [WorkItem(live_work.WorkKind.RUN_FILES, "A run's images", left=3)]
     scene.display.use_live_image_histogram_equalization = True
 
     _draw(scene)
@@ -102,7 +102,7 @@ def test_the_holders_run_turns_equalization_off_as_any_run_does(scene):
         control_named='plate reader has remote control.',
         recording=False,
     )
-    scene.work = [WorkItem(live_work.PROTOCOL, 'A protocol run')]
+    scene.work = [WorkItem(live_work.WorkKind.PROTOCOL, 'A protocol run')]
     scene.display.use_live_image_histogram_equalization = True
 
     _draw(scene)

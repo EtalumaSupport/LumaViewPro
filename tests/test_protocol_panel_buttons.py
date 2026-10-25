@@ -124,7 +124,7 @@ class _Session(SimpleNamespace):
     @property
     def live_work(self):
         files = (
-            (WorkItem(live_work.RUN_FILES, "A run's images", left=self.files_left),)
+            (WorkItem(live_work.WorkKind.RUN_FILES, "A run's images", left=self.files_left),)
             if self.files_draining
             else ()
         )

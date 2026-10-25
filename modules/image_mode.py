@@ -160,7 +160,7 @@ class ImageCaptureConfig:
                 'capture_config_inconsistent',
                 f'ImageCaptureConfig pair (capture_depth={self.capture_depth}, '
                 f'save_encoding={self.save_encoding!r}) does not match '
-                f'image_mode {self.image_mode!r}; build via from_image_mode()',
+                f'image_mode {str(self.image_mode)!r}; build via from_image_mode()',
             )
         # Refused here rather than at the writer, for the same reason the pair
         # above is: the writer's fallback is a silently valid plain .tiff, so

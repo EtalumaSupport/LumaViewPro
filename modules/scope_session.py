@@ -85,7 +85,7 @@ from modules.exceptions import (
     SettingsNotSavedNotice,
 )
 from modules.kivy_utils import UiDispatcher
-from modules.live_work import LiveWork, WorkItem
+from modules.live_work import LiveWork, WorkItem, WorkKind
 from modules.lumascope_api import AxisPosition, TurretStatus
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
@@ -141,9 +141,9 @@ _guarded_write = guarded_write(lambda session: session.activity_claim)
 # The work a session counts while it runs, by its live-work kind: work that
 # holds no claim for all of its length, so no claim names it.
 _COUNTED_WORK_NAMES = {
-    live_work.SUPPORT_REPORT: 'A support report',
-    live_work.LOGS_ZIP: 'A logs zip',
-    live_work.PLUGIN_RUN: 'An engineering plugin run',
+    live_work.WorkKind.SUPPORT_REPORT: 'A support report',
+    live_work.WorkKind.LOGS_ZIP: 'A logs zip',
+    live_work.WorkKind.PLUGIN_RUN: 'An engineering plugin run',
 }
 
 # A protocol's Layer Settings column it is saved as, the ChannelSettings
@@ -812,7 +812,7 @@ class ScopeSession:
                 reported once instead. Still a ``RuntimeError``.
         """
         try:
-            held = self.activity_claim.try_claim('diagnostic')
+            held = self.activity_claim.try_claim(WorkKind.DIAGNOSTIC)
         except ControlSessionHeldError as held_by:
             raise DiagnosticRefusedError(
                 reason='control_session_held',
@@ -1062,16 +1062,16 @@ class ScopeSession:
             # beside the activity it runs inside.
             lent_run = self.activity_claim.run_holder
             if lent_run is not None and lent_run is not holder:
-                work.append(WorkItem(live_work.PROTOCOL, the_holder_named(lent_run)))
+                work.append(WorkItem(live_work.WorkKind.PROTOCOL, the_holder_named(lent_run)))
         elif runner.run_live:
-            work.append(WorkItem(live_work.PROTOCOL, 'A run, starting or ending'))
+            work.append(WorkItem(live_work.WorkKind.PROTOCOL, 'A run, starting or ending'))
         work.extend(self._finishing_work())
         work.extend(self.post_processing.work())
         for kind, count in self._counted_work_now().items():
             if count:
                 work.append(WorkItem(kind, _COUNTED_WORK_NAMES[kind], left=count))
         if self.manual_capture.in_flight:
-            work.append(WorkItem(live_work.STILL, 'A still being saved'))
+            work.append(WorkItem(live_work.WorkKind.STILL, 'A still being saved'))
         return LiveWork(
             work=tuple(work), closing=self.activity_claim.closing, closed=self._shut_down
         )
@@ -1088,7 +1088,7 @@ class ScopeSession:
         if recording.is_busy and not recording.is_recording:
             work.append(
                 WorkItem(
-                    live_work.RECORDING_FINISH,
+                    live_work.WorkKind.RECORDING_FINISH,
                     "A recording's file",
                     left=recording.pending_writes,
                     discardable=True,
@@ -1097,7 +1097,7 @@ class ScopeSession:
         if runner.video_drain_busy:
             work.append(
                 WorkItem(
-                    live_work.RUN_VIDEO_FINISH,
+                    live_work.WorkKind.RUN_VIDEO_FINISH,
                     "A run's video",
                     left=runner.video_pending_writes,
                     discardable=True,
@@ -1105,7 +1105,9 @@ class ScopeSession:
             )
         files = self._draining_batch()
         if files is not None:
-            work.append(WorkItem(live_work.RUN_FILES, "A run's images", left=files.pending))
+            work.append(
+                WorkItem(live_work.WorkKind.RUN_FILES, "A run's images", left=files.pending)
+            )
         return work
 
     @api
@@ -1184,7 +1186,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        with self._count_in_flight(live_work.PLUGIN_RUN):
+        with self._count_in_flight(live_work.WorkKind.PLUGIN_RUN):
             yield
 
     @api
@@ -1294,8 +1296,8 @@ class ScopeSession:
             still.append('an axis moving')
         if self.autofocus_thread.is_running:
             still.append('an autofocus sweep')
-        if self._counted_work_now()[live_work.PLUGIN_RUN]:
-            still.append(_COUNTED_WORK_NAMES[live_work.PLUGIN_RUN].lower())
+        if self._counted_work_now()[live_work.WorkKind.PLUGIN_RUN]:
+            still.append(_COUNTED_WORK_NAMES[live_work.WorkKind.PLUGIN_RUN].lower())
         return still
 
     @api(in_process=True, event=Status)
@@ -3471,7 +3473,7 @@ class ScopeSession:
         claim = self.activity_claim
         refusing = claim.enter_falsifying_change(current_taking())
         if isinstance(refusing, ControlSession) or (
-            refusing is not None and refusing.kind == 'recording'
+            refusing is not None and refusing.kind == WorkKind.RECORDING
         ):
             raise command_refused(refusing, member)
         try:
@@ -4471,7 +4473,7 @@ class ScopeSession:
         from modules.tech_support_report import SupportReportSaved, TechSupportReport
 
         report = TechSupportReport(session=self)
-        with self._count_in_flight(live_work.SUPPORT_REPORT):
+        with self._count_in_flight(live_work.WorkKind.SUPPORT_REPORT):
             return SupportReportSaved(
                 report.generate(
                     callback=on_progress,
@@ -4512,7 +4514,7 @@ class ScopeSession:
         from modules.tech_support_report import SupportReportSaved, TechSupportReport
 
         report = TechSupportReport(session=self)
-        with self._count_in_flight(live_work.LOGS_ZIP):
+        with self._count_in_flight(live_work.WorkKind.LOGS_ZIP):
             return SupportReportSaved(
                 report.generate_logs_only(callback=on_progress, output_dir=output_dir),
                 'logs zip',

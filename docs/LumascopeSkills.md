@@ -1260,7 +1260,8 @@ session.protocol_files_stuck_write  # the write in flight, named for a stall rep
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.live_work                # in-process; over the wire status.live_work. Everything the session is
                                  # still doing, one read: .work is a tuple of
-                                 # WorkItem(kind, name, left, progress_pct, discardable) -- what holds the scope, a run starting
+                                 # WorkItem(kind, name, left, progress_pct, discardable), kind a WorkKind
+                                 # (modules.live_work) -- what holds the scope, a run starting
                                  # or ending, a recording's file, a run's video, a run's images, its post-run
                                  # builds, post-processing builds running and queued, a support report or logs
                                  # zip, a still being saved; left counts frames, images or builds still to

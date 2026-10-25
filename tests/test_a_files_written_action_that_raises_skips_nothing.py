@@ -77,7 +77,7 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
             time.sleep(0.02)
 
         assert files == ['written'], 'files_written never came after run_ended raised'
-        assert not session.live_work.has(live_work.RUN_FILES)
+        assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
     assert reported, 'the raise was not reported'
 
 

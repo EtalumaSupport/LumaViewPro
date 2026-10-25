@@ -29,7 +29,7 @@ class TestALentRun:
         with session.diagnostic_claim() as held:
             run = held.lend().try_claim('protocol', run=run_identity(Caller.REST))
             try:
-                assert session.live_work.has(live_work.PROTOCOL)
+                assert session.live_work.has(live_work.WorkKind.PROTOCOL)
                 assert session.sequenced_capture_runner.run_started_by() == Caller.REST
                 assert session.activity_claim.owner == 'diagnostic', (
                     'the holder stays the diagnostic, which a refusal names'
@@ -37,14 +37,14 @@ class TestALentRun:
                 assert session.activity_claim.blocking_holder.kind == 'diagnostic'
             finally:
                 run.release()
-            assert not session.live_work.has(live_work.PROTOCOL)
+            assert not session.live_work.has(live_work.WorkKind.PROTOCOL)
             assert session.sequenced_capture_runner.run_started_by() is None
 
     def test_the_lend_and_the_return_are_each_announced(self):
         session = _make_session()
         heard = []
         session.add_run_state_listener(
-            lambda: heard.append(session.live_work.has(live_work.PROTOCOL))
+            lambda: heard.append(session.live_work.has(live_work.WorkKind.PROTOCOL))
         )
         heard.clear()
         with session.diagnostic_claim() as held:
@@ -59,10 +59,10 @@ class TestALentRun:
         run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             recording = run.lend().try_claim('recording')
-            assert session.live_work.has(live_work.PROTOCOL)
+            assert session.live_work.has(live_work.WorkKind.PROTOCOL)
             assert session.sequenced_capture_runner.run_started_by() == Caller.GUI
             recording.release()
-            assert session.live_work.has(live_work.PROTOCOL)
+            assert session.live_work.has(live_work.WorkKind.PROTOCOL)
         finally:
             run.release()
 
@@ -70,7 +70,7 @@ class TestALentRun:
         session = _make_session()
         with session.diagnostic_claim() as held:
             held.lend().try_claim('protocol', run=run_identity())
-        assert not session.live_work.has(live_work.PROTOCOL), (
+        assert not session.live_work.has(live_work.WorkKind.PROTOCOL), (
             'the diagnostic released its claim, and the run it lent still reads running'
         )
 

@@ -80,7 +80,7 @@ class TestRecoveringAStuckWriter:
             abandoned = session.recover_file_writer()
 
             assert abandoned == 1
-            assert not session.live_work.has(live_work.RUN_FILES)
+            assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
             deadline = time.monotonic() + WAIT_S
             while not files and time.monotonic() < deadline:
                 time.sleep(0.02)

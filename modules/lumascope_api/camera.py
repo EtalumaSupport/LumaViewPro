@@ -46,6 +46,7 @@ from modules.exceptions import (
     MissingPart,
 )
 from modules.activity_claim import ActivityHolder, current_taking, guarded_write
+from modules.live_work import WorkKind
 from modules.frame_validity import FrameValidity
 from modules.scope_capabilities import FrameSize
 from modules.notification_center import notifications
@@ -3572,7 +3573,7 @@ class CameraAPI:
             return
         claim = self._scope._activity_claim
         refusing = claim.enter_falsifying_change(current_taking()) if claim is not None else None
-        if isinstance(refusing, ActivityHolder) and refusing.kind == 'recording':
+        if isinstance(refusing, ActivityHolder) and refusing.kind == WorkKind.RECORDING:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, refusing.kind)
         # Any other holder took the scope after this capture was admitted.
         # An activity holding it lets no recording start, so the write is not

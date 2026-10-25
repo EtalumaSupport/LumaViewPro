@@ -562,7 +562,7 @@ class LumaViewProApp(TooltipMixin, App):
             'CONTROLS_LOCKED',
             f'{self.lock.controls_locked} by={self.lock.named} recording={self.lock.recording}',
         )
-        gui_logger.display('HOMING_BANNER', self.live_work.has(live_work.HOME))
+        gui_logger.display('HOMING_BANNER', self.live_work.has(live_work.WorkKind.HOME))
         self._draw_run_controls()
         # The objective question is withheld while an activity holds the
         # scope; this edge is the one that fires when the hold ends, so the

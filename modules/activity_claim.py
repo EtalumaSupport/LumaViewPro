@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 from modules.api_surface import api, api_fields
 from modules.caller import Caller, current_caller
+from modules.live_work import WorkKind
 from modules.exceptions import (
     UNDER_CONTROL_TITLE,
     ControlSessionRefusedError,
@@ -29,7 +30,7 @@ from modules.exceptions import (
 # made under its taking, the controls lock and the objective cannot change
 # under it. A recording is not here -- focusing, moving, LED, gain and
 # exposure stay open to anyone during one.
-SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic', 'home'})
+SCOPE_HOLDING_KINDS = frozenset({WorkKind.PROTOCOL, WorkKind.DIAGNOSTIC, WorkKind.HOME})
 
 _acting = threading.local()
 
@@ -37,7 +38,7 @@ _acting = threading.local()
 class FalsifyingChangeInFlightError(Refusal, Exception):
     """A recording was asked for while a write that would falsify it runs.
 
-    Raised by ``try_claim('recording')``. A recording writes nothing to a
+    Raised by ``try_claim(WorkKind.RECORDING)``. A recording writes nothing to a
     lane, so unlike a run it does not queue behind a turret or frame change
     already under way: started then, its first frames would record the
     change and its file would claim the settings it read before it. The
@@ -169,13 +170,16 @@ class ActivityHolder:
     whole answer. A run holder without its run cannot be built.
     """
 
-    kind: str
+    kind: WorkKind
     run: RunIdentity | None = None
 
     def __post_init__(self) -> None:
-        if (self.kind == 'protocol') != (self.run is not None):
+        # A plain string of the set is taken as its member; any other word
+        # is no activity, and fails here, before anything is taken.
+        object.__setattr__(self, 'kind', WorkKind(self.kind))
+        if (self.kind == WorkKind.PROTOCOL) != (self.run is not None):
             raise ValueError(
-                f'a {self.kind!r} holder with run={self.run!r}: a run names its run, '
+                f'a {str(self.kind)!r} holder with run={self.run!r}: a run names its run, '
                 'and nothing else does'
             )
 
@@ -337,7 +341,7 @@ class BorrowedClaim:
         """The control session that refuses work made under ``taking``, as ActivityClaim answers it."""
         return self._lender.claim.refusing_control(taking)
 
-    def try_claim(self, owner: str, run: RunIdentity | None = None) -> _Borrowing | None:
+    def try_claim(self, owner: WorkKind, run: RunIdentity | None = None) -> _Borrowing | None:
         """Act under the lender's taking; None once the lender no longer holds.
 
         A run that borrows is recorded on the claim as the run holding the
@@ -588,7 +592,7 @@ class ActivityClaim:
         return self._holder
 
     @property
-    def owner(self) -> str | None:
+    def owner(self) -> WorkKind | None:
         """The current holder's kind, or None when unheld."""
         holder = self._holder
         return holder.kind if holder is not None else None
@@ -601,7 +605,7 @@ class ActivityClaim:
         holder's lent claim, for as long as that borrowing holds.
         """
         holder = self._holder
-        if holder is not None and holder.kind == 'protocol':
+        if holder is not None and holder.kind == WorkKind.PROTOCOL:
             return holder
         lent = self._lent_run
         if lent is None:
@@ -759,7 +763,7 @@ class ActivityClaim:
         with self._lock:
             self._guarded -= 1
 
-    def try_claim(self, owner: str, run: RunIdentity | None = None) -> HeldClaim | None:
+    def try_claim(self, owner: WorkKind, run: RunIdentity | None = None) -> HeldClaim | None:
         """Atomically claim for ``owner``; None when already held.
 
         While a control session is held, only its holder takes the slot --
@@ -771,7 +775,7 @@ class ActivityClaim:
             owner: the kind of activity claiming -- a description for
                 display and refusal text, not a credential.
             run: which run is claiming. Required when ``owner`` is
-                ``'protocol'`` and refused otherwise: the holder cannot be
+                ``PROTOCOL`` and refused otherwise: the holder cannot be
                 built any other way.
 
         Returns:
@@ -783,10 +787,10 @@ class ActivityClaim:
                 (``begin_closing``) or has finished. Nothing was taken.
             ControlSessionHeldError: a control session is held and this
                 thread does not act for its holder. Nothing was taken.
-            FalsifyingChangeInFlightError: ``owner`` is ``'recording'`` and a
+            FalsifyingChangeInFlightError: ``owner`` is ``RECORDING`` and a
                 write that would falsify it is running.
-            ValueError: a run claimed without its identity, or another
-                activity claimed with one.
+            ValueError: ``owner`` is no ``WorkKind``; a run claimed without
+                its identity, or another activity claimed with one.
         """
         holder = ActivityHolder(kind=owner, run=run)
         taking = current_taking()
@@ -796,7 +800,7 @@ class ActivityClaim:
             session = self._control_refusing(taking)
             if session is not None:
                 raise ControlSessionHeldError(session)
-            if owner == 'recording' and self._falsifying:
+            if holder.kind == WorkKind.RECORDING and self._falsifying:
                 raise FalsifyingChangeInFlightError()
             if self._holder is not None:
                 return None
@@ -865,7 +869,7 @@ class ActivityClaim:
             return session
         if holder is None:
             return None
-        if holder.kind == 'recording':
+        if holder.kind == WorkKind.RECORDING:
             return holder if falsifies_recording else None
         if holder.kind not in SCOPE_HOLDING_KINDS:
             return None
@@ -896,7 +900,7 @@ class ActivityClaim:
     def _is_held_by(self, held: HeldClaim) -> bool:
         return self._held is held
 
-    def _lend(self, lender: Taking, owner: str, run: RunIdentity | None) -> _Borrowing | None:
+    def _lend(self, lender: Taking, owner: WorkKind, run: RunIdentity | None) -> _Borrowing | None:
         """A borrowing of *lender*'s taking; a run's is recorded and announced.
 
         Decided under the lock a release takes, so a run is never recorded
@@ -907,7 +911,7 @@ class ActivityClaim:
             if not lender.holds:
                 return None
             borrowing = _Borrowing(lender)
-            is_run = owner == 'protocol'
+            is_run = holder.kind == WorkKind.PROTOCOL
             if is_run:
                 self._lent_run = (borrowing, holder)
         if is_run:
@@ -927,7 +931,7 @@ class ActivityClaim:
     def _release(self, held: HeldClaim) -> None:
         with self._lock:
             if self._held is not held:
-                held_by = self._holder.kind if self._holder is not None else None
+                held_by = str(self._holder.kind) if self._holder is not None else None
                 raise RuntimeError(
                     f'ActivityClaim: a release by a taking that does not hold the claim '
                     f'(held by {held_by!r})'

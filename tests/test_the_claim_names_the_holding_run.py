@@ -18,6 +18,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 from modules.caller import Caller
+from modules.live_work import WorkKind
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.protocol_drives import run_identity
@@ -31,9 +32,19 @@ class TestTheClaimCarriesTheRun:
         assert claim.try_claim('protocol', run=run_identity(Caller.GUI))
 
         holder = claim.holder
-        assert holder.kind == 'protocol'
+        assert holder.kind == WorkKind.PROTOCOL
+        assert type(holder.kind) is WorkKind, 'a plain string of the set is taken as its member'
         assert holder.run_started_by == Caller.GUI
         assert claim.owner == 'protocol', 'the kind stays readable on its own'
+
+    def test_a_claim_taken_as_no_kind_of_work_fails_and_takes_nothing(self):
+        claim = ActivityClaim()
+
+        with pytest.raises(ValueError, match='WorkKind'):
+            claim.try_claim('nap')
+
+        assert claim.owner is None
+        assert claim.try_claim(WorkKind.RECORDING), 'the failed take left the claim held'
 
     def test_an_activity_that_is_not_a_run_names_no_starter(self):
         claim = ActivityClaim()

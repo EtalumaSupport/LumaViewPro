@@ -56,6 +56,7 @@ from modules.activity_claim import (
     the_holder_named,
 )
 from modules.exceptions import RecordingRefusedError
+from modules.live_work import WorkKind
 from modules.video_cadence import CadenceSelector, frame_budget
 
 
@@ -301,7 +302,7 @@ class VideoRecordingEngine:
                     message='A recording is already in progress. Stop it, then record again.',
                 )
             try:
-                held = self._claim.try_claim('recording')
+                held = self._claim.try_claim(WorkKind.RECORDING)
             except FalsifyingChangeInFlightError:
                 raise RecordingRefusedError(
                     reason='falsifying_change_in_flight',

@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import live_work
-from modules.exceptions import PostProcessingOperation
+from modules.exceptions import ArgumentRefusedError, PostProcessingOperation
 from modules.post_processing_api import BuildResult
 from modules.sequential_io_executor import IOTask
 
@@ -63,11 +63,19 @@ def test_an_idle_session_is_doing_nothing_and_says_closed_once_shut_down(sim_ses
 def test_what_holds_the_scope_is_named(sim_session):
     held = sim_session.activity_claim.try_claim('diagnostic')
     try:
-        item = _item(sim_session, live_work.DIAGNOSTIC)
+        item = _item(sim_session, live_work.WorkKind.DIAGNOSTIC)
         assert item.name == 'A diagnostic'
+        assert type(item.kind) is live_work.WorkKind
     finally:
         held.release()
     assert sim_session.live_work.work == ()
+
+
+def test_a_work_item_is_of_a_kind_of_the_set():
+    assert type(live_work.WorkItem('run_files', "A run's images").kind) is live_work.WorkKind
+    with pytest.raises(ArgumentRefusedError) as refused:
+        live_work.WorkItem('nap', 'A nap')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'WorkItem.kind')
 
 
 def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
@@ -84,25 +92,28 @@ def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
     finally:
         held.release()
 
-    assert [item.kind for item in work] == [live_work.DIAGNOSTIC, live_work.PROTOCOL]
+    assert [item.kind for item in work] == [
+        live_work.WorkKind.DIAGNOSTIC,
+        live_work.WorkKind.PROTOCOL,
+    ]
     assert work[1].name == 'The scan run'
-    assert after == [live_work.DIAGNOSTIC]
+    assert after == [live_work.WorkKind.DIAGNOSTIC]
 
 
 def test_a_run_unwinding_after_its_claim_is_still_work(sim_session, monkeypatch):
     from modules.protocol_state_machine import ProtocolState
 
     monkeypatch.setattr(sim_session.sequenced_capture_runner, '_state', ProtocolState.COMPLETING)
-    assert _kinds(sim_session) == [live_work.PROTOCOL]
+    assert _kinds(sim_session) == [live_work.WorkKind.PROTOCOL]
 
 
 def test_a_recordings_finish_counts_its_frames_down(sim_session):
     engine = MagicMock(is_recording=False, is_draining=True, pending_writes=5)
     sim_session.manual_recording._engine = engine
     try:
-        assert _item(sim_session, live_work.RECORDING_FINISH).left == 5
+        assert _item(sim_session, live_work.WorkKind.RECORDING_FINISH).left == 5
         engine.pending_writes = 2
-        assert _item(sim_session, live_work.RECORDING_FINISH).left == 2
+        assert _item(sim_session, live_work.WorkKind.RECORDING_FINISH).left == 2
     finally:
         sim_session.manual_recording._engine = None
 
@@ -111,7 +122,7 @@ def test_a_live_recording_is_its_claim_not_its_finish(sim_session):
     held = sim_session.activity_claim.try_claim('recording')
     sim_session.manual_recording._engine = MagicMock(is_recording=True, is_draining=False)
     try:
-        assert _kinds(sim_session) == [live_work.RECORDING]
+        assert _kinds(sim_session) == [live_work.WorkKind.RECORDING]
     finally:
         sim_session.manual_recording._engine = None
         held.release()
@@ -120,7 +131,7 @@ def test_a_live_recording_is_its_claim_not_its_finish(sim_session):
 def test_a_runs_video_finish_counts_its_frames(sim_session, monkeypatch):
     writer = MagicMock(video_busy=True, video_pending_writes=7)
     monkeypatch.setattr(sim_session.sequenced_capture_runner, '_image_writer', writer)
-    assert _item(sim_session, live_work.RUN_VIDEO_FINISH).left == 7
+    assert _item(sim_session, live_work.WorkKind.RUN_VIDEO_FINISH).left == 7
 
 
 def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
@@ -138,9 +149,9 @@ def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
     try:
         work = sim_session.live_work.work
         assert {item.kind: item.discardable for item in work} == {
-            live_work.DIAGNOSTIC: False,
-            live_work.RECORDING_FINISH: True,
-            live_work.RUN_VIDEO_FINISH: True,
+            live_work.WorkKind.DIAGNOSTIC: False,
+            live_work.WorkKind.RECORDING_FINISH: True,
+            live_work.WorkKind.RUN_VIDEO_FINISH: True,
         }
     finally:
         sim_session.manual_recording._engine = None
@@ -157,11 +168,11 @@ def test_a_finished_runs_images_count_down(sim_session):
     sim_session.sequenced_capture_runner._write_batch = batch
     batch.close()
     try:
-        assert _item(sim_session, live_work.RUN_FILES).left == 3
+        assert _item(sim_session, live_work.WorkKind.RUN_FILES).left == 3
     finally:
         gate.set()
     assert batch.wait_complete(SETTLE_S), 'the images never landed'
-    assert live_work.RUN_FILES not in _kinds(sim_session)
+    assert live_work.WorkKind.RUN_FILES not in _kinds(sim_session)
 
 
 def test_a_runs_hyperstack_is_post_processing_work_until_it_ends(sim_session, tmp_path):
@@ -180,7 +191,10 @@ def test_a_runs_hyperstack_is_post_processing_work_until_it_ends(sim_session, tm
         written=written,
     )
     assert started.wait(SETTLE_S), 'the lane never began the build'
-    assert _item(sim_session, live_work.POST_PROCESSING).name == f'run_hyperstack of {tmp_path}'
+    assert (
+        _item(sim_session, live_work.WorkKind.POST_PROCESSING).name
+        == f'run_hyperstack of {tmp_path}'
+    )
     gate.set()
     concurrent.futures.wait([build], SETTLE_S)
     assert build.done()
@@ -227,15 +241,15 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
     # read after it finds it waiting, whoever queued it.
     behind = sim_session.post_processing.lane.submit(IOTask(action=lambda: None), 'queued build')
 
-    running = _item(sim_session, live_work.POST_PROCESSING)
+    running = _item(sim_session, live_work.WorkKind.POST_PROCESSING)
     assert running.name == f'stitch of {folder_a}'
     assert running.progress_pct == 10
-    assert _item(sim_session, live_work.POST_PROCESSING_QUEUED).left == 1
+    assert _item(sim_session, live_work.WorkKind.POST_PROCESSING_QUEUED).left == 1
 
     go_on.set()
     # The build's own report has returned, so the lane has recorded it.
     assert said_sixty.wait(SETTLE_S), 'the build never reported 60'
-    assert _item(sim_session, live_work.POST_PROCESSING).progress_pct == 60
+    assert _item(sim_session, live_work.WorkKind.POST_PROCESSING).progress_pct == 60
     finish.set()
     first.join(SETTLE_S)
     behind.result(SETTLE_S)
@@ -257,8 +271,8 @@ def test_a_protocols_processors_on_the_lane_are_named_without_progress(sim_sessi
     waiter = lane.submit(IOTask(action=processors), 'processors')
     try:
         assert started.wait(SETTLE_S), 'the processors never started'
-        assert live_work.POST_PROCESSING in _kinds(sim_session)
-        item = _item(sim_session, live_work.POST_PROCESSING)
+        assert live_work.WorkKind.POST_PROCESSING in _kinds(sim_session)
+        item = _item(sim_session, live_work.WorkKind.POST_PROCESSING)
         assert item.name == "a protocol's post-processing"
         assert item.progress_pct is None
     finally:
@@ -281,7 +295,7 @@ def test_a_scripts_logs_zip_is_seen_on_its_own_thread(sim_session, monkeypatch, 
     script.start()
     assert started.wait(SETTLE_S)
     try:
-        assert _item(sim_session, live_work.LOGS_ZIP).left == 1
+        assert _item(sim_session, live_work.WorkKind.LOGS_ZIP).left == 1
     finally:
         gate.set()
     script.join(SETTLE_S)
@@ -291,15 +305,15 @@ def test_a_scripts_logs_zip_is_seen_on_its_own_thread(sim_session, monkeypatch, 
 def test_a_still_being_saved_is_work(sim_session):
     sim_session.manual_capture._in_flight.acquire()
     try:
-        assert _kinds(sim_session) == [live_work.STILL]
+        assert _kinds(sim_session) == [live_work.WorkKind.STILL]
     finally:
         sim_session.manual_capture._in_flight.release()
 
 
 def test_a_plugin_run_is_work_counted_until_each_ends(sim_session):
     with sim_session.plugin_run_in_flight():
-        assert _item(sim_session, live_work.PLUGIN_RUN).left == 1
+        assert _item(sim_session, live_work.WorkKind.PLUGIN_RUN).left == 1
         with sim_session.plugin_run_in_flight():
-            assert _item(sim_session, live_work.PLUGIN_RUN).left == 2
-        assert _item(sim_session, live_work.PLUGIN_RUN).left == 1
+            assert _item(sim_session, live_work.WorkKind.PLUGIN_RUN).left == 2
+        assert _item(sim_session, live_work.WorkKind.PLUGIN_RUN).left == 1
     assert sim_session.live_work.work == ()

@@ -154,6 +154,7 @@ from modules.lumascope_api._constants import (
 from modules.api_surface import api, api_fields
 from modules.closed_sets import refuse_unless_offered
 from modules.coord_transformations import AxisLimits, PlateLocation
+from modules.live_work import WorkKind
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -3180,12 +3181,12 @@ class MotionAPI:
         held = None
         if claim is not None and (activity is None or not activity.holds):
             try:
-                held = claim.try_claim('home')
+                held = claim.try_claim(WorkKind.HOME)
             except ControlSessionHeldError as held_by:
                 raise command_refused(held_by.session, 'home') from None
             if held is None:
                 holder = claim.holder
-                if holder is not None and holder.kind == 'home':
+                if holder is not None and holder.kind == WorkKind.HOME:
                     raise HardwareCommandRefusedError('home_in_flight', 'home')
                 raise HardwareCommandRefusedError(
                     'exclusive_activity_running', 'home', holder.kind if holder else None

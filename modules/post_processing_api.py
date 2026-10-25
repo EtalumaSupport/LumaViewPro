@@ -576,13 +576,13 @@ class PostProcessingAPI:
             items.append(
                 build
                 if build is not None
-                else WorkItem(live_work.POST_PROCESSING, "a protocol's post-processing")
+                else WorkItem(live_work.WorkKind.POST_PROCESSING, "a protocol's post-processing")
             )
         queued = self.lane.queue_size()
         if queued:
             items.append(
                 WorkItem(
-                    live_work.POST_PROCESSING_QUEUED,
+                    live_work.WorkKind.POST_PROCESSING_QUEUED,
                     'post-processing waiting to start',
                     left=queued,
                 )
@@ -1506,7 +1506,9 @@ class PostProcessingAPI:
             action=build, args=(folder, *args), kwargs={**kwargs, 'on_progress': on_progress}
         )
         with self._builds_lock:
-            self._builds[task] = WorkItem(live_work.POST_PROCESSING, f'{member} of {folder}')
+            self._builds[task] = WorkItem(
+                live_work.WorkKind.POST_PROCESSING, f'{member} of {folder}'
+            )
 
         def forget(*_settled) -> None:
             with self._builds_lock:
