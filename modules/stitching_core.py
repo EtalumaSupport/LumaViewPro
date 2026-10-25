@@ -20,7 +20,7 @@ import modules.common_utils as common_utils
 import modules.derived_output_encoding as derived_output_encoding
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
-from modules.stitch_mode import StitchMode
+from modules.stitch_mode import StitchAlgorithm, StitchMode
 from modules.stitch_algorithms import (
     crop_to_content,
     estimate_overlap_offset,
@@ -190,7 +190,7 @@ def _failure_reason(failures: list[dict[str, str]]) -> str:
 
 
 def _run_fallback_chain(
-    chain: list[tuple[str, Callable[[], dict]]],
+    chain: list[tuple[StitchAlgorithm, Callable[[], dict]]],
     context: dict | None = None,
 ) -> dict:
     failures: list[dict[str, str]] = []
@@ -354,7 +354,7 @@ def overlap_stitcher(
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
     estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
-    algorithm: str = 'quality_local_ncc',
+    algorithm: StitchAlgorithm = StitchAlgorithm.QUALITY_LOCAL_NCC,
     blend_mode: str = 'source_preserving',
     *,
     channel_colors: layer_record.ChannelColors,
@@ -463,7 +463,7 @@ def fft_phase_stitcher(
         pixel_size_um=pixel_size_um,
         output_file_loc=output_file_loc,
         estimator=estimate_phase_offset,
-        algorithm='fast_fft_phase',
+        algorithm=StitchAlgorithm.FAST_FFT_PHASE,
         blend_mode='source_preserving',
         channel_colors=channel_colors,
     )
@@ -565,7 +565,7 @@ def stage_position_stitcher(
         channel_colors=channel_colors,
         metadata={
             'center': center,
-            'algorithm': 'stage_position_stitcher',
+            'algorithm': StitchAlgorithm.STAGE_POSITION,
             'pixel_size_um': pixel_size_um,
             'placements': placements,
         },
@@ -677,7 +677,7 @@ def simple_position_stitcher(
         output_file_loc=output_file_loc,
         df=df,
         channel_colors=channel_colors,
-        metadata={'center': center, 'algorithm': 'simple_position_stitcher'},
+        metadata={'center': center, 'algorithm': StitchAlgorithm.SIMPLE_POSITION},
         significant_bits=image_utils.resolve_output_depth(input_depths),
         white_bits=image_utils.resolve_output_white(input_scales),
     )
@@ -715,18 +715,18 @@ def channel_aware_stitcher(
         'output_file_loc': output_file_loc,
         'channel_colors': channel_colors,
     }
-    chain: list[tuple[str, Callable[[], dict]]] = []
+    chain: list[tuple[StitchAlgorithm, Callable[[], dict]]] = []
     if overlap['has_overlap'] and mode == StitchMode.FAST_PREVIEW:
         chain.append(
             (
-                'fast_fft_phase',
+                StitchAlgorithm.FAST_FFT_PHASE,
                 lambda: fft_phase_stitcher(**shared, pixel_size_um=pixel_size_um),
             )
         )
     elif overlap['has_overlap']:
         chain.append(
             (
-                'quality_local_ncc',
+                StitchAlgorithm.QUALITY_LOCAL_NCC,
                 lambda: overlap_stitcher(**shared, pixel_size_um=pixel_size_um),
             )
         )
@@ -734,10 +734,10 @@ def channel_aware_stitcher(
     chain.extend(
         [
             (
-                'stage_position_stitcher',
+                StitchAlgorithm.STAGE_POSITION,
                 lambda: stage_position_stitcher(**shared, pixel_size_um=pixel_size_um),
             ),
-            ('simple_position_stitcher', lambda: simple_position_stitcher(**shared)),
+            (StitchAlgorithm.SIMPLE_POSITION, lambda: simple_position_stitcher(**shared)),
         ]
     )
     row0 = df.iloc[0]

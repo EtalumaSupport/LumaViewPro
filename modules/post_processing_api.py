@@ -49,7 +49,7 @@ from modules.exceptions import (
 )
 from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
-from modules.stitch_mode import StitchMode
+from modules.stitch_mode import StitchAlgorithm, StitchMode
 from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
@@ -74,8 +74,8 @@ class DegradedOutput:
     """
 
     path: pathlib.Path
-    algorithm: str
-    fallback_from: str
+    algorithm: StitchAlgorithm
+    fallback_from: StitchAlgorithm
     fallback_reason: str
 
 

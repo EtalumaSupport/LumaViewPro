@@ -17,8 +17,8 @@ import pytest
 
 import modules.sequential_io_executor as sie
 from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
-from modules.post_processing_api import CellCountResult, Stitch
-from modules.stitch_mode import StitchMode
+from modules.post_processing_api import CellCountResult, DegradedOutput, Stitch
+from modules.stitch_mode import StitchAlgorithm, StitchMode
 
 
 @pytest.fixture
@@ -170,6 +170,23 @@ def test_a_stitch_record_built_with_a_word_that_is_no_mode_is_refused():
         Stitch(mode='sideways')
     assert (refused.value.reason, refused.value.argument) == ('not_offered', 'Stitch.mode')
     assert Stitch(mode='fast_preview').mode is StitchMode.FAST_PREVIEW
+
+
+def test_a_degraded_output_names_its_algorithms_by_the_set(tmp_path):
+    built = DegradedOutput(
+        tmp_path / 'stitched.tiff', 'simple_position_stitcher', 'quality_local_ncc', 'reason'
+    )
+    assert (built.algorithm, built.fallback_from) == (
+        StitchAlgorithm.SIMPLE_POSITION,
+        StitchAlgorithm.QUALITY_LOCAL_NCC,
+    )
+    assert type(built.algorithm) is StitchAlgorithm
+    with pytest.raises(ArgumentRefusedError) as refused:
+        DegradedOutput(tmp_path / 'stitched.tiff', 'simple_position_stitcher', 'magic', 'reason')
+    assert (refused.value.reason, refused.value.argument) == (
+        'not_offered',
+        'DegradedOutput.fallback_from',
+    )
 
 
 def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatch, tmp_path):
