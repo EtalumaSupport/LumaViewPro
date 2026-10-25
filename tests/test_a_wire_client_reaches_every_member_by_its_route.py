@@ -222,7 +222,8 @@ def test_a_read_method_is_a_get_its_arguments_converted_from_the_query(client, s
     frame = client.get('/api/v1/scope/camera/frame_at_binning', params={'size': '2'})
     assert frame.status_code == 200, frame.text
     sources = client.get(
-        '/api/v1/scope/imaging/frames_until_valid', params=[('exclude_sources', 'a')] * 2
+        '/api/v1/scope/imaging/frames_until_valid',
+        params=[('exclude_sources', 'gain'), ('exclude_sources', 'exposure')],
     )
     assert sources.status_code == 200, sources.text
 
