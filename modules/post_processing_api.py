@@ -41,6 +41,7 @@ from modules import graph_analysis, live_work, path_utils
 from modules.activity_claim import ActivityHolder, the_holder_named
 from modules.cell_count_method import CellCountMethod
 from modules.finite_number import is_finite_number
+from modules.graph_analysis import Trendline
 from modules.image_mode import OutputFormat
 from modules.exceptions import (
     ExcludedInput,
@@ -260,7 +261,7 @@ class GraphOptions:
 
     x_axes: tuple[str, ...]
     y_axes: tuple[str, ...]
-    trendlines: tuple[str, ...]
+    trendlines: tuple[Trendline, ...]
 
 
 @api_fields('message', 'path')
@@ -1305,7 +1306,7 @@ class PostProcessingAPI:
         *,
         x: str | None,
         y: str | None,
-        trendline: str | None = None,
+        trendline: Trendline | None = None,
         x_label: str | None = None,
         y_label: str | None = None,
         title: str = '',
@@ -1323,6 +1324,8 @@ class PostProcessingAPI:
                 cannot be graphed; ``'axis_not_plottable'``, *x* or *y* is
                 not a column that axis can take; ``'fit_impossible'``, the
                 values cannot give the *trendline*.
+            ArgumentRefusedError: ``'not_offered'``, the *trendline* is not
+                one *x* and *y* take, offering those they take.
         """
         table = None if results is None else _results_table(results)
         return _figure(table, x, y, trendline, x_label, y_label, title)
@@ -1335,7 +1338,7 @@ class PostProcessingAPI:
         *,
         x: str | None,
         y: str | None,
-        trendline: str | None = None,
+        trendline: Trendline | None = None,
         x_label: str | None = None,
         y_label: str | None = None,
         title: str = '',
@@ -1361,6 +1364,9 @@ class PostProcessingAPI:
                 the file cannot be graphed; ``'axis_not_plottable'``, *x* or
                 *y* is not a column that axis can take; ``'fit_impossible'``,
                 the values cannot give the *trendline*. Nothing is written.
+            ArgumentRefusedError: ``'not_offered'``, the *trendline* is not
+                one *x* and *y* take, offering those they take. Nothing is
+                written.
             PostProcessingFailedError: the folder or the file could not be
                 written; the message names the file and the system's reason.
         """

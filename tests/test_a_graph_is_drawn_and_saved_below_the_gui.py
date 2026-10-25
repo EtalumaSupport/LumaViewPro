@@ -22,7 +22,8 @@ import pytest
 from matplotlib.dates import ConciseDateFormatter
 
 from modules import graph_analysis
-from modules.exceptions import PostProcessingRefusedError
+from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from modules.graph_analysis import Trendline
 from modules.post_processing import RESULTS_TIME_FORMAT
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -144,3 +145,16 @@ def test_the_trendlines_offered_are_those_the_axes_given_take(session, tmp_path)
     assert options(results, x='time').trendlines == by_time
     assert options(results, x='time', y='count').trendlines == by_time
     assert options(results, x='count').trendlines == every
+
+
+def test_the_trendlines_offered_are_members_and_a_kind_outside_the_set_is_refused(
+    session, tmp_path
+):
+    results = tmp_path / 'results.csv'
+    post = session.post_processing
+
+    assert all(type(kind) is Trendline for kind in post.graph_options(results).trendlines)
+    with pytest.raises(ArgumentRefusedError) as refused:
+        post.draw_graph(results, x='count', y='mean_area', trendline='Sideways')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'trendline')
+    assert refused.value.offered == tuple(Trendline)

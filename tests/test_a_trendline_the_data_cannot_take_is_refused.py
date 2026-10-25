@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 
 import ui.post_processing as panel_module
-from modules.exceptions import PostProcessingRefusedError
+from modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
 from modules.graph_analysis import fit_trendline, trendline_kinds
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -78,10 +78,13 @@ def test_a_time_x_takes_only_the_kinds_that_use_x_as_it_is():
     y = _series('area', [1, 2, 3])
     assert trendline_kinds(times, y) == ('Linear', 'Quadratic', 'Exponential')
     assert trendline_kinds(X, Y) == ('Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
-    with pytest.raises(
-        PostProcessingRefusedError, match='these columns take Linear, Quadratic, Exponential'
-    ):
+    with pytest.raises(ArgumentRefusedError) as refused:
         fit_trendline('Power', times, y)
+    assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
+        'not_offered',
+        'trendline',
+        ('Linear', 'Quadratic', 'Exponential'),
+    )
 
 
 def test_a_time_x_is_fitted_in_seconds_from_its_first_value_and_drawn_as_times():
