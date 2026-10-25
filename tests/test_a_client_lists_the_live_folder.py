@@ -19,7 +19,7 @@ import os
 import pytest
 
 from modules.exceptions import LiveFolderPathRefusedError
-from modules.scope_session import LiveFolderEntry, ScopeSession
+from modules.scope_session import EntryKind, LiveFolderEntry, ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
@@ -58,7 +58,8 @@ def test_the_top_level_names_exactly_what_is_on_disk(session, live):
 
 def test_a_deeper_level_is_named_from_the_top_and_its_names_list_further(session):
     (run,) = session.live_folder_listing('ProtocolData')
-    assert (run.name, run.kind) == ('ProtocolData/run1', 'folder')
+    assert (run.name, run.kind) == ('ProtocolData/run1', EntryKind.FOLDER)
+    assert type(run.kind) is EntryKind
 
     (image,) = session.live_folder_listing(run.name)
     assert (image.name, image.kind, image.size_bytes) == (

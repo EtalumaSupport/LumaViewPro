@@ -21,6 +21,7 @@ import contextlib
 import copy
 import dataclasses
 import datetime
+import enum
 import os
 import pathlib
 import stat
@@ -465,6 +466,13 @@ class ShownChannel:
     lit: bool
 
 
+class EntryKind(enum.StrEnum):
+    """What a live-folder listing's entry is."""
+
+    FILE = 'file'
+    FOLDER = 'folder'
+
+
 @api_fields('name', 'kind', 'size_bytes', 'modified')
 @dataclasses.dataclass(frozen=True)
 class LiveFolderEntry:
@@ -474,13 +482,13 @@ class LiveFolderEntry:
         name: Its full name under the live folder, ``/``-separated on every
             host: what a path parameter, a download and a further listing
             take.
-        kind: ``'file'`` or ``'folder'``.
+        kind: Whether it is a file or a folder.
         size_bytes: Its size in bytes, as the file system reports it.
         modified: When it was last modified, in local time with its offset.
     """
 
     name: str
-    kind: str
+    kind: EntryKind
     size_bytes: int
     modified: datetime.datetime
 
@@ -3904,7 +3912,7 @@ class ScopeSession:
             entries.append(
                 LiveFolderEntry(
                     name=child.relative_to(root).as_posix(),
-                    kind='folder' if stat.S_ISDIR(found.st_mode) else 'file',
+                    kind=EntryKind.FOLDER if stat.S_ISDIR(found.st_mode) else EntryKind.FILE,
                     size_bytes=found.st_size,
                     modified=datetime.datetime.fromtimestamp(found.st_mtime).astimezone(),
                 )

@@ -564,7 +564,7 @@ which arguments to pass through `live_folder_path` from the signature.
 holds, one level, sorted by name, as a tuple of `LiveFolderEntry(name,
 kind, size_bytes, modified)`: `name` the entry's full name under the live
 folder, `/`-separated on every host, which any path parameter and a
-further listing take as it is; `kind` `'file'` or `'folder'`; `size_bytes` in
+further listing take as it is; `kind` an `EntryKind` (`modules.scope_session`), `'file'` or `'folder'`; `size_bytes` in
 bytes; `modified` a timezone-aware local `datetime`. `'.'` lists the live
 folder itself. An entry gone by the time it is read (a file a run renames
 into place, a link to nothing) is not listed; a link that leads outside
