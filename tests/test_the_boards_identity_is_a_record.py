@@ -5,7 +5,9 @@
 were an empty string, ``'unknown'`` or ``'FX2-Classic'``: a model that could
 be read as a model, a serial number stamped into every saved image. They
 answer ``MotorBoardInfo`` and ``LedBoardInfo``, every unknown None, and the
-LED answer leaves whether a board is connected to ``led_connected``.
+LED answer leaves whether a board is connected to ``led_connected``. Each
+board's command set is a member of its own set, ``MotorCommandSet`` and
+``LedCommandSet``.
 """
 
 from __future__ import annotations
@@ -13,10 +15,10 @@ from __future__ import annotations
 import pytest
 
 from modules.lumascope_api.diagnostics import (
-    LED_COMMANDS_V2,
-    MOTOR_COMMANDS_TEXT,
     LedBoardInfo,
+    LedCommandSet,
     MotorBoardInfo,
+    MotorCommandSet,
 )
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -38,12 +40,13 @@ def test_a_connected_board_reports_its_identity(session):
         serial_number='SIM-001',
         firmware_version='2.0.1',
         firmware_date=None,
-        command_set=MOTOR_COMMANDS_TEXT,
+        command_set=MotorCommandSet.TEXT,
     )
     led = session.scope.diagnostics.get_led_info()
     assert led == LedBoardInfo(
-        firmware_version='2.0.1', firmware_date=None, command_set=LED_COMMANDS_V2
+        firmware_version='2.0.1', firmware_date=None, command_set=LedCommandSet.V2
     )
+    assert (type(motor.command_set), type(led.command_set)) == (MotorCommandSet, LedCommandSet)
 
 
 def test_the_identity_is_served_from_what_the_board_reported_at_connect(session):

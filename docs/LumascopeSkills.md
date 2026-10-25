@@ -2444,12 +2444,12 @@ Hardware diagnostic probes and identity getters live on the `scope.diagnostics` 
 ```python
 scope.diagnostics.get_motor_info()         # MotorBoardInfo, as the board reported at connect: model (its own
                                            #   report, 'LS850'), serial_number, firmware_version ('original' for
-                                           #   the original firmware), firmware_date, command_set: 'text' (the
+                                           #   the original firmware), firmware_date, command_set, a MotorCommandSet: 'text' (the
                                            #   EL-0940's INFO, FULLINFO, ACTUAL_R, ...) or None (no text commands,
                                            #   e.g. the LS720's TMCM-6110). Each field None when unknown, all of
                                            #   them with no board.
 scope.capabilities.model                   # the model the scope runs as: the board's, else the selection
-scope.diagnostics.get_led_info()           # LedBoardInfo: firmware_version, firmware_date, command_set:
+scope.diagnostics.get_led_info()           # LedBoardInfo: firmware_version, firmware_date, command_set, a LedCommandSet:
                                            #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
                                            #   'legacy' (INFO only: firmware before v2),
                                            #   None (no text commands, e.g. an FX2 scope). Each field None

@@ -22,8 +22,7 @@ from drivers.simulated_fx2 import SimulatedFX2
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.diagnostics import (
     ERROR_PREFIX,
-    LED_COMMANDS_LEGACY,
-    LED_COMMANDS_V2,
+    LedCommandSet,
     NO_REPLY,
     NO_RESPONSE,
     NOT_CONNECTED,
@@ -62,12 +61,12 @@ def test_the_channels_stand_ins_are_not_replies():
 
 
 def test_a_v2_board_carries_every_led_command(session):
-    assert session.scope.diagnostics.get_led_info().command_set == LED_COMMANDS_V2
+    assert session.scope.diagnostics.get_led_info().command_set == LedCommandSet.V2
 
 
 def test_a_pre_v2_board_keeps_its_info_and_says_what_it_cannot_do(session, monkeypatch):
     monkeypatch.setattr(session.scope._led_driver, 'firmware_version', '1.4')
-    assert session.scope.diagnostics.get_led_info().command_set == LED_COMMANDS_LEGACY
+    assert session.scope.diagnostics.get_led_info().command_set == LedCommandSet.LEGACY
 
     diag = FirmwareDiagnostics(scope=session.scope)
     info = diag.get_led_info()

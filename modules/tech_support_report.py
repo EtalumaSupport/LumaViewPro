@@ -69,7 +69,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api.bring_up import CAUSE_PHRASES
 from modules.lumascope_api.diagnostics import (
-    LED_COMMANDS_V2,
+    LedCommandSet,
     NOT_CONNECTED,
     is_board_reply,
 )
@@ -1059,7 +1059,7 @@ class FirmwareDiagnostics:
         command_set = self._scope.diagnostics.get_led_info().command_set
         if command_set is None:
             return {'not_applicable': 'Not supported on this LED board (no text command channel)'}
-        if needs_v2 and command_set != LED_COMMANDS_V2:
+        if needs_v2 and command_set != LedCommandSet.V2:
             return {'not_applicable': 'Not supported by this LED firmware (needs v2 or later)'}
         return None
 

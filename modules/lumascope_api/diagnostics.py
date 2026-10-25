@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import enum
 import pathlib
 import re
 import time
@@ -140,6 +141,29 @@ class CameraLink:
     inter_packet_delay: int | None
 
 
+class MotorCommandSet(enum.StrEnum):
+    """The motor board's text command set, as ``get_motor_info().command_set`` names it.
+
+    The EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A board
+    with no text command channel (the TMCM-6110, which speaks binary
+    datagrams), or no board connected, answers None.
+    """
+
+    TEXT = 'text'
+
+
+class LedCommandSet(enum.StrEnum):
+    """The LED board's text command set, as ``get_led_info().command_set`` names it.
+
+    INFO predates the v2 firmware; SELFTEST, I2CSCAN and the LEDREAD
+    current reads came with it. A board with no text command channel at
+    all (the FX2's LED peripheral) answers None.
+    """
+
+    LEGACY = 'legacy'
+    V2 = 'v2'
+
+
 @api_fields('model', 'serial_number', 'firmware_version', 'firmware_date', 'command_set')
 @dataclass(frozen=True)
 class MotorBoardInfo:
@@ -157,7 +181,7 @@ class MotorBoardInfo:
             (``'original'``) for a board that answered INFO with no version
             string.
         firmware_date: The date INFO carried.
-        command_set: ``MOTOR_COMMANDS_TEXT`` for a board with a text command
+        command_set: ``MotorCommandSet.TEXT`` for a board with a text command
             channel; None for one without (the TMCM-6110, which speaks binary
             datagrams) and for no board.
     """
@@ -166,7 +190,7 @@ class MotorBoardInfo:
     serial_number: str | None
     firmware_version: str | None
     firmware_date: str | None
-    command_set: str | None
+    command_set: MotorCommandSet | None
 
 
 @api_fields('firmware_version', 'firmware_date', 'command_set')
@@ -181,33 +205,20 @@ class LedBoardInfo:
     Attributes:
         firmware_version: As ``MotorBoardInfo.firmware_version``.
         firmware_date: As ``MotorBoardInfo.firmware_date``.
-        command_set: ``LED_COMMANDS_V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
-            ``LED_COMMANDS_LEGACY`` (INFO only: firmware older than v2), or
+        command_set: ``LedCommandSet.V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
+            ``LedCommandSet.LEGACY`` (INFO only: firmware older than v2), or
             None: no text command channel, as on an FX2 scope, or no board.
     """
 
     firmware_version: str | None
     firmware_date: str | None
-    command_set: str | None
+    command_set: LedCommandSet | None
 
 
 NOT_CONNECTED = 'Board not connected'
 NO_REPLY = 'None'  # a single-line read that timed out
 NO_RESPONSE = 'No response'  # a multi-line read that returned nothing
 ERROR_PREFIX = 'Error: '
-
-# The LED board's text command set, as ``get_led_info().command_set``
-# names it. INFO predates the v2 firmware; SELFTEST, I2CSCAN and the
-# LEDREAD current reads came with it. A board with no text command channel
-# at all (the FX2's LED peripheral) answers None.
-LED_COMMANDS_LEGACY = 'legacy'
-LED_COMMANDS_V2 = 'v2'
-
-# The motor board's text command set, as ``get_motor_info().command_set``
-# names it: the EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A
-# board with no text command channel (the TMCM-6110, which speaks binary
-# datagrams), or no board connected, answers None.
-MOTOR_COMMANDS_TEXT = 'text'
 
 # What ``firmware_version`` names for a board that answered INFO with no
 # version string: the original firmware, which predates version numbers and
@@ -1292,7 +1303,7 @@ class DiagnosticsAPI:
             model=driver.get_microscope_model(),
             serial_number=driver.get_serial_number(),
             **_firmware_identity(driver),
-            command_set=MOTOR_COMMANDS_TEXT if speaks_text else None,
+            command_set=MotorCommandSet.TEXT if speaks_text else None,
         )
 
     @api(reads=True)
@@ -1313,9 +1324,9 @@ class DiagnosticsAPI:
         if not hasattr(drv, 'exchange_multiline'):
             command_set = None
         elif drv.is_v2:
-            command_set = LED_COMMANDS_V2
+            command_set = LedCommandSet.V2
         else:
-            command_set = LED_COMMANDS_LEGACY
+            command_set = LedCommandSet.LEGACY
         return LedBoardInfo(**_firmware_identity(drv), command_set=command_set)
 
     @api(in_process=True, reads=True, engineering=True)

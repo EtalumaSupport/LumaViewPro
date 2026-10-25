@@ -15,7 +15,7 @@ import json
 import pytest
 
 from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.lumascope_api.diagnostics import MOTOR_COMMANDS_TEXT
+from modules.lumascope_api.diagnostics import MotorCommandSet
 from modules.scope_session import ScopeSession
 from modules.tech_support_report import NO_MOTOR_TEXT, TechSupportReport
 from tests.settings_fixtures import complete_settings
@@ -71,7 +71,7 @@ def _report(session, tmp_path):
 
 class TestTheMotorInfoNamesTheCommandSet:
     def test_a_text_board_names_its_set(self, session):
-        assert session.scope.diagnostics.get_motor_info().command_set == MOTOR_COMMANDS_TEXT
+        assert session.scope.diagnostics.get_motor_info().command_set == MotorCommandSet.TEXT
 
     def test_a_board_without_text_names_none(self, session, monkeypatch):
         monkeypatch.delattr(SimulatedMotorBoard, 'exchange_multiline')
