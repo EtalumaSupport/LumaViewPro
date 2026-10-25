@@ -98,6 +98,7 @@ from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
 from modules.coord_transformations import PlateLocation
+from modules.acquire_mode import AcquireMode
 from modules.axes import StageAxis
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
@@ -2263,7 +2264,7 @@ class ScopeSession:
         with self.settings_lock:
             for name in common_utils.get_layers():
                 layer = self.settings[name]
-                if layer['acquire'] not in ('image', 'video'):
+                if layer['acquire'] is None:
                     continue
                 stim = layer.get('stim_config')
                 layer_settings[name] = {
@@ -2279,8 +2280,8 @@ class ScopeSession:
 
     @api(sets='channel_acquire')
     @_guarded_write
-    def set_channel_acquire(self, channel: str, mode: 'str | None') -> None:
-        """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
+    def set_channel_acquire(self, channel: str, mode: AcquireMode | None) -> None:
+        """Set what a layer captures: an ``AcquireMode``, or None (nothing).
 
         The layers set to acquire are the ones ``new_protocol`` and
         ``add_step`` build steps for and a composite merges. A layer set to
@@ -2291,15 +2292,14 @@ class ScopeSession:
         nothing is always admitted.
 
         Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            SettingRefusedError: ``'out_of_range'``, ``mode`` is not
-                ``'image'``, ``'video'`` or None.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
+                channel; ``'not_offered'``, ``mode`` is not an
+                ``AcquireMode`` or None.
             ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``mode`` is not
                 None and this scope does not have ``channel``.
         """
         refuse_unknown_layer(channel)
-        settings_paths.refuse_outside_range(f'{channel}.acquire', mode)
         if mode is not None:
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'set_channel_acquire', then='be set to acquire'
@@ -2308,16 +2308,17 @@ class ScopeSession:
             self._write_layer_acquire(channel, mode)
 
     @api(reads=True)
-    def channel_acquire(self, channel: str) -> 'str | None':
-        """What ``channel`` captures: ``'image'``, ``'video'``, or None (nothing).
+    def channel_acquire(self, channel: str) -> AcquireMode | None:
+        """What ``channel`` captures: an ``AcquireMode``, or None (nothing).
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
         refuse_unknown_layer(channel)
-        return self.settings[channel]['acquire']
+        mode = self.settings[channel]['acquire']
+        return None if mode is None else AcquireMode(mode)
 
-    def _write_layer_acquire(self, layer: str, mode: 'str | None') -> None:
+    def _write_layer_acquire(self, layer: str, mode: AcquireMode | None) -> None:
         """Under ``settings_lock``: ``layer`` acquires ``mode``, and stops stimulating if it does."""
         self._store_setting(f'{layer}.acquire', mode)
         if mode is not None and self.settings[layer].get('stim_config') is not None:
@@ -2626,7 +2627,7 @@ class ScopeSession:
             # still unless it is stored as a video.
             for layer_config in layer_configs.values():
                 if layer_config['acquire'] is None:
-                    layer_config['acquire'] = 'image'
+                    layer_config['acquire'] = AcquireMode.IMAGE
             channel_order = list(channels)
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()

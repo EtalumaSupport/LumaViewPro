@@ -17,9 +17,14 @@ from typing import TYPE_CHECKING, ClassVar, Final
 
 import psutil
 
+from modules.acquire_mode import AcquireMode
 from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    import pandas as pd
+
     from modules.lumascope_api.illumination import IlluminationAPI
     from modules.scope_capabilities import FieldOfView, ScopeCapabilities
 
@@ -1509,7 +1514,12 @@ def _coerce_positive_float(value) -> float:
     return result if result == result and result > 0 else 0.0
 
 
-def estimate_step_write_mb(step, *, video_as_frames: bool = False, global_max_fps: float) -> float:
+def estimate_step_write_mb(
+    step: 'pd.Series | Mapping[str, object] | None',
+    *,
+    video_as_frames: bool = False,
+    global_max_fps: float,
+) -> float:
     """Estimate the disk a single protocol step will write, in MB.
 
     One owner for write-size estimation, shared by the pre-scan free-space check
@@ -1540,7 +1550,7 @@ def estimate_step_write_mb(step, *, video_as_frames: bool = False, global_max_fp
         Estimated megabytes the step will write to disk.
     """
     get = getattr(step, 'get', None)
-    if get is None or get('Acquire') != 'video':
+    if get is None or get('Acquire') != AcquireMode.VIDEO:
         return ESTIMATED_IMAGE_STEP_MB
     video_config = read_video_config(step)
     duration_s = _coerce_positive_float(video_config.get('duration'))

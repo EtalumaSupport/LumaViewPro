@@ -247,9 +247,9 @@ class ProtocolsAPI:
             ArgumentRefusedError: ``'protocol_source_ambiguous'``, not
                 exactly one source was given; ``'missing_key'``,
                 ``'wrong_kind'``, ``'not_a_number'``,
-                ``'zstack_reference_unknown'``, ``'acquire_mode_unknown'``
-                or ``'channel_unknown'``, a key of the configuration, named by
-                its path in ``argument``.
+                ``'zstack_reference_unknown'``, ``'not_offered'`` (a layer's
+                acquire mode) or ``'channel_unknown'``, a key of the
+                configuration, named by its path in ``argument``.
             CatalogueNameRefusedError: the configuration names a plate or an
                 objective the installation's catalogues do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --

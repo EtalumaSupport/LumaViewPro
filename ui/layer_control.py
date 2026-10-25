@@ -14,6 +14,7 @@ import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 import modules.image_mode as image_mode
 from modules import gui_logger
+from modules.acquire_mode import AcquireMode
 from modules.config_ui_getters import firmware_stim_supported
 from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
 
@@ -577,9 +578,9 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.update_acquire()')
 
         if self.ids['acquire_image'].active:
-            mode = 'image'
+            mode = AcquireMode.IMAGE
         elif self.ids['acquire_video'].active:
-            mode = 'video'
+            mode = AcquireMode.VIDEO
         else:
             mode = 'none'
         gui_logger.select(f'ACQUIRE_{self.layer}', mode)
@@ -764,9 +765,9 @@ class LayerControl(BoxLayout):
                 for sel in ('acquire_video', 'acquire_image', 'acquire_none'):
                     self.ids[sel].active = False
                 acquire = step['Acquire']
-                if acquire == 'video':
+                if acquire == AcquireMode.VIDEO:
                     self.ids['acquire_video'].active = True
-                elif acquire == 'image':
+                elif acquire == AcquireMode.IMAGE:
                     self.ids['acquire_image'].active = True
                 else:
                     self.ids['acquire_none'].active = True
@@ -864,9 +865,9 @@ class LayerControl(BoxLayout):
             self.ids['false_color'].active = layer_settings['false_color']
             show_on_slider(self.ids['sum_slider'], layer_settings.get('sum', 1))
 
-            if layer_settings['acquire'] == 'image':
+            if layer_settings['acquire'] == AcquireMode.IMAGE:
                 self.ids['acquire_image'].active = True
-            elif layer_settings['acquire'] == 'video':
+            elif layer_settings['acquire'] == AcquireMode.VIDEO:
                 self.ids['acquire_video'].active = True
             else:
                 self.ids['acquire_none'].active = True

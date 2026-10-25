@@ -3543,8 +3543,6 @@ class ArgumentRefusedError(Refusal, ValueError):
               protocol sources ``offered`` was given.
             - ``'zstack_reference_unknown'`` -- a z-stack reference that is
               not one of ``offered``.
-            - ``'acquire_mode_unknown'`` -- a layer's acquire mode that is
-              neither None nor one of ``offered``.
             - ``'not_a_setting'`` -- a dotted path that names no setting.
               The same fact a write is refused for as
               ``SettingRefusedError('not_a_setting')``; this type says a
@@ -3676,10 +3674,6 @@ class ArgumentRefusedError(Refusal, ValueError):
         'zstack_reference_unknown': (
             'Not a Z-Stack Reference',
             '{argument} must be one of {offered}; {value!r} is not one.',
-        ),
-        'acquire_mode_unknown': (
-            'Not an Acquire Mode',
-            '{argument} must be None or one of {offered}; {value!r} is neither.',
         ),
         'not_a_setting': (
             'Not a Setting',

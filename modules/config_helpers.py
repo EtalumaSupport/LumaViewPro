@@ -16,6 +16,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
+from modules.acquire_mode import AcquireMode
 from modules.api_surface import api
 from modules.coord_transformations import PlateLocation
 from modules.labware_loader import WellPlateLoader
@@ -1099,7 +1100,7 @@ def get_composite_channels(settings: dict) -> list:
     transmitted = [
         layer
         for layer in common_utils.get_transmitted_layers()
-        if settings[layer]['acquire'] == 'image'
+        if settings[layer]['acquire'] == AcquireMode.IMAGE
     ]
     others = [
         layer
@@ -1107,7 +1108,7 @@ def get_composite_channels(settings: dict) -> list:
             *common_utils.get_fluorescence_layers(),
             *common_utils.get_luminescence_layers(),
         )
-        if settings[layer]['acquire'] == 'image'
+        if settings[layer]['acquire'] == AcquireMode.IMAGE
     ]
     return transmitted[:1] + others
 
@@ -1284,7 +1285,7 @@ def get_standalone_capture_config_from_settings(
     # caller's intent decides autofocus rather than the layer's stored
     # flag. Assembling a config is not the place to honour a leftover
     # switch the caller said nothing about.
-    layer_config['acquire'] = 'image'
+    layer_config['acquire'] = AcquireMode.IMAGE
     layer_config['autofocus'] = autofocus
 
     step_position = {

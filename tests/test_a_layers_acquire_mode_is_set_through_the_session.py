@@ -7,14 +7,17 @@ toggle and its layer-hiding wrote the store directly, and no Session member
 wrote it, so a script or REST could not choose what a protocol acquires
 without writing the settings dict itself. ``ScopeSession.set_channel_acquire``
 is the one writer: it refuses a layer or a mode it does not know, and a
-layer set to acquire stops stimulating, as the GUI's toggle did.
+layer set to acquire stops stimulating, as the GUI's toggle did. The mode is
+an ``AcquireMode``: the door takes a member or its plain string, the store
+holds the plain string, and ``channel_acquire`` answers the member.
 """
 
 import ast
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, SettingRefusedError
+from modules.acquire_mode import AcquireMode
+from modules.exceptions import ArgumentRefusedError
 from tests.ast_seams import REPO_ROOT
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
@@ -56,16 +59,28 @@ class TestTheSessionSetsTheMode:
 
         assert 'Infrared' not in session.settings
 
-    # A list cannot be looked up in the vocabulary; it is refused, not a TypeError.
     @pytest.mark.parametrize('mode', ['still', 'none', '', 'Image'])
     def test_an_unknown_mode_is_refused_and_nothing_changes(self, session, mode):
         before = session.settings['BF']['acquire']
 
-        with pytest.raises(SettingRefusedError) as refused:
+        with pytest.raises(ArgumentRefusedError) as refused:
             session.set_channel_acquire('BF', mode)
 
-        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.acquire')
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'mode')
+        assert refused.value.offered == ('image', 'video')
         assert session.settings['BF']['acquire'] == before
+
+    def test_the_store_holds_the_plain_string_and_the_read_answers_the_member(self, session):
+        session.set_channel_acquire('BF', AcquireMode.VIDEO)
+
+        assert type(session.settings['BF']['acquire']) is str
+        assert session.settings['BF']['acquire'] == 'video'
+        assert session.channel_acquire('BF') is AcquireMode.VIDEO
+
+    def test_a_layer_set_to_nothing_reads_none(self, session):
+        session.set_channel_acquire('BF', None)
+
+        assert session.channel_acquire('BF') is None
 
 
 # Step navigation also writes a step's acquire into its layer, through

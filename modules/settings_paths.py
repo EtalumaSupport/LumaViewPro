@@ -25,6 +25,7 @@ from modules.exceptions import (
     SettingRefusedError,
     StoredSettingReplacedNotice,
 )
+from modules.acquire_mode import AcquireMode
 from modules.closed_sets import member_of
 from modules.image_mode import (
     VALID_LIVE_OUTPUT_FORMATS,
@@ -34,7 +35,7 @@ from modules.image_mode import (
 from modules.finite_number import is_finite_number
 from modules.layer_record import parse_display_color
 from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
-from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
+from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
 from modules.python_values import python_values
 from modules.tiling_config import TilingConfig
 
@@ -298,13 +299,8 @@ def _image_mode(path: str, value: str) -> None:
 
 def _acquire(path: str, value: str | None) -> None:
     # None is a layer that acquires nothing.
-    modes = Protocol.VALID_ACQUIRE_MODES
-    if value is not None and not (isinstance(value, str) and value in modes):
-        raise SettingRefusedError(
-            'out_of_range',
-            path,
-            f'it must be None or one of {", ".join(sorted(modes))}, not {value!r}',
-        )
+    if value is not None:
+        _refuse_unless_member(path, value, AcquireMode)
 
 
 # Which light path the objective was confirmed on: a turret's slots, or the

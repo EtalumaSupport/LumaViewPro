@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules import common_utils
+from modules.acquire_mode import AcquireMode
 from modules.exceptions import ConfigError
 from modules.objectives_loader import Objective, ObjectiveLoader
 
@@ -211,8 +212,8 @@ class ProtocolTimeEstimator:
             ag_time = AUTOGAIN_MAX_DURATION_S
 
         # Capture
-        acquire = step.get('Acquire', 'image')
-        if acquire == 'video':
+        acquire = step.get('Acquire', AcquireMode.IMAGE)
+        if acquire == AcquireMode.VIDEO:
             vc = common_utils.read_video_config(step)
             duration = float(vc.get('duration', 5.0))
             capture_time = duration + max(exposure_s, MIN_FRAME_TIME_S)

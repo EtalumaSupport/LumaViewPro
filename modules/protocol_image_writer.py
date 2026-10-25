@@ -25,6 +25,7 @@ import modules.image_utils as image_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from modules.acquire_mode import AcquireMode
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
@@ -1262,7 +1263,7 @@ class ProtocolImageWriter:
             )
 
         try:
-            is_video = step['Acquire'] == 'video'
+            is_video = step['Acquire'] == AcquireMode.VIDEO
 
             # #610 diagnostic: trace camera settings decision at each capture,
             # the values the camera holds beside the step's intent.

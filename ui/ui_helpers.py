@@ -15,6 +15,7 @@ from kivy.properties import StringProperty
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.scrollview import ScrollView
 from modules import gui_logger, live_work
+from modules.acquire_mode import AcquireMode
 from modules.caller import Caller, calling
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
@@ -774,9 +775,9 @@ def reset_acquire_ui():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         layer_obj._initializing = True
         try:
-            if ctx.settings[layer]['acquire'] == 'image':
+            if ctx.settings[layer]['acquire'] == AcquireMode.IMAGE:
                 layer_obj.ids['acquire_image'].active = True
-            elif ctx.settings[layer]['acquire'] == 'video':
+            elif ctx.settings[layer]['acquire'] == AcquireMode.VIDEO:
                 layer_obj.ids['acquire_video'].active = True
             else:
                 layer_obj.ids['acquire_none'].active = True

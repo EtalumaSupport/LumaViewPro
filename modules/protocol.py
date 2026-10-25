@@ -42,7 +42,9 @@ import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import Z_REFERENCES, ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
+from modules.acquire_mode import AcquireMode
 from modules.axes import StageAxis
+from modules.closed_sets import member_of, refuse_unless_offered
 from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
@@ -172,8 +174,8 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
     Raises:
         ArgumentRefusedError: ``'missing_key'``, ``'wrong_kind'``,
             ``'not_a_number'``, ``'zstack_reference_unknown'``,
-            ``'acquire_mode_unknown'``, ``'channel_unknown'``; each names the
-            key's path inside ``argument``.
+            ``'not_offered'`` (a layer's acquire mode), ``'channel_unknown'``;
+            each names the key's path inside ``argument``.
     """
     refuse_unless_kind(config, 'dict', argument)
 
@@ -226,13 +228,7 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
         acquire = required(layer_config, 'acquire', layer_path)
         if acquire is None:
             continue
-        if not isinstance(acquire, str) or acquire not in Protocol.VALID_ACQUIRE_MODES:
-            raise ArgumentRefusedError(
-                'acquire_mode_unknown',
-                argument=key_path(layer_path, 'acquire'),
-                value=acquire,
-                offered=tuple(sorted(Protocol.VALID_ACQUIRE_MODES)),
-            )
+        refuse_unless_offered(AcquireMode, acquire, key_path(layer_path, 'acquire'))
         for key, kind, nullable in _ACQUIRING_LAYER_KINDS:
             read(layer_config, key, kind, layer_path, nullable=nullable)
 
@@ -573,8 +569,8 @@ def _int_cell(value: object) -> int:
 
 
 def _acquire_cell(value: object) -> str:
-    if value not in ('image', 'video'):
-        raise ValueError("is not 'image' or 'video'")
+    if member_of(AcquireMode, value) is None:
+        raise ValueError(f'is not {" or ".join(repr(mode.value) for mode in AcquireMode)}')
     return value
 
 
@@ -745,7 +741,7 @@ class StepRecord:
         tile_group_id: The tile grid the step is one tile of; None for none.
         z_stack_group_id: The z-stack the step is one slice of; None for
             none.
-        acquire: ``'image'`` or ``'video'``.
+        acquire: What the step captures.
         video_config: What the step records as video; None where the step
             carries no video config.
         stim_config: Each channel's stimulation, by channel; None where the
@@ -776,7 +772,7 @@ class StepRecord:
     custom_step: bool
     tile_group_id: int | None
     z_stack_group_id: int | None
-    acquire: str
+    acquire: AcquireMode
     video_config: VideoConfig | None
     stim_config: dict[str, Stimulation] | None
     auto_named: bool
@@ -888,7 +884,7 @@ class ChannelSettings:
     the channel's control keeps what it holds.
 
     Attributes:
-        acquire: ``'image'`` or ``'video'``.
+        acquire: What the channel captures.
         illumination_ma: The LED current, in mA.
         gain_db: The camera gain, in dB.
         auto_gain: The camera's auto-gain is on.
@@ -899,7 +895,7 @@ class ChannelSettings:
             the steps.
     """
 
-    acquire: str
+    acquire: AcquireMode
     illumination_ma: float | None
     gain_db: float | None
     auto_gain: bool | None
@@ -983,10 +979,10 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
     columns = {key: column for column, key in _STEP_LAYER_VALUES}
     values = {key: step[column] for column, key in _STEP_LAYER_VALUES}
     video = step.get('Video Config')
-    if isinstance(video, dict) or step['Acquire'] == 'video':
+    if isinstance(video, dict) or step['Acquire'] == AcquireMode.VIDEO:
         video = video if isinstance(video, dict) else {}
         for part in _VIDEO_KEYS:
-            if part in video or step['Acquire'] == 'video':
+            if part in video or step['Acquire'] == AcquireMode.VIDEO:
                 values[f'video_config.{part}'] = video.get(part)
                 columns[f'video_config.{part}'] = f'Video Config {part}'
     refused = [
@@ -1505,8 +1501,11 @@ class Protocol:
             if not color:
                 continue
             first = group.iloc[0]
-            video = 'Acquire' in group.columns and (group['Acquire'] == 'video').any()
-            fields = {'acquire': 'video' if video else 'image', 'stim_enabled': None}
+            video = 'Acquire' in group.columns and (group['Acquire'] == AcquireMode.VIDEO).any()
+            fields = {
+                'acquire': AcquireMode.VIDEO if video else AcquireMode.IMAGE,
+                'stim_enabled': None,
+            }
             for column, field, read in _LAYER_SETTINGS_CELLS:
                 if field in fields:
                     continue
@@ -1622,7 +1621,7 @@ class Protocol:
                     enabled = [
                         (name, vals)
                         for name, vals in layer_settings.items()
-                        if vals.get('Acquire') in ('image', 'video')
+                        if member_of(AcquireMode, vals.get('Acquire')) is not None
                     ]
                     if enabled:
                         fp.write('\nLayer Settings\n')
@@ -1740,8 +1739,6 @@ class Protocol:
 
         return set(get_layers())
 
-    VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
-
     @staticmethod
     def layer_acquires(layer_config: dict) -> bool:
         """Whether a layer's settings make it a step: acquire is image or video.
@@ -1750,7 +1747,7 @@ class Protocol:
         guards both; a second spelling (``is not None``) once let a config
         with an empty-string acquire pass the add and build no step.
         """
-        return layer_config['acquire'] in Protocol.VALID_ACQUIRE_MODES
+        return member_of(AcquireMode, layer_config['acquire']) is not None
 
     @staticmethod
     def _capture_base_names(steps_df: pd.DataFrame) -> pd.Series:
@@ -1767,7 +1764,7 @@ class Protocol:
         return steps_df.apply(
             lambda row: common_utils.build_step_name(
                 common_utils.step_components(
-                    row, post=('video',) if row.get('Acquire') == 'video' else ()
+                    row, post=('video',) if row.get('Acquire') == AcquireMode.VIDEO else ()
                 )
             ),
             axis=1,
@@ -2171,7 +2168,7 @@ class Protocol:
         # with one mask and multiplied; only video rows have to be visited.
         # The mask matches the per-step estimator's own `!= 'video'` test --
         # NaN, missing and 'image' all compare False.
-        video_mask = (steps['Acquire'] == 'video').to_numpy()
+        video_mask = (steps['Acquire'] == AcquireMode.VIDEO).to_numpy()
         n_video = int(video_mask.sum())
         image_mb = common_utils.estimate_step_write_mb(
             None, video_as_frames=video_as_frames, global_max_fps=global_max_fps

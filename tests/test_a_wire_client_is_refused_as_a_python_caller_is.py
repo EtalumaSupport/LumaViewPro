@@ -228,8 +228,8 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
             'PUT',
             'channel_acquire',
             {'channel': 'BF', 'mode': 'bogus'},
-            'out_of_range',
-            {'path': 'BF.acquire', 'member': None},
+            'not_offered',
+            {'argument': 'mode', 'offered': ['image', 'video']},
         ),
         (
             'PUT',

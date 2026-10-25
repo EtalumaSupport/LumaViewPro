@@ -80,7 +80,7 @@ def test_a_key_left_out_is_refused_naming_its_path(session, config, path, argume
         (('frame_dimensions',), 'big', 'wrong_kind'),
         (('binning_size',), True, 'wrong_kind'),
         (('tiling_overlap_percent',), float('nan'), 'not_a_number'),
-        (('layer_configs', 'BF', 'acquire'), 'imagee', 'acquire_mode_unknown'),
+        (('layer_configs', 'BF', 'acquire'), 'imagee', 'not_offered'),
         (('layer_configs',), {'Purple': {'acquire': None}}, 'channel_unknown'),
     ],
 )
@@ -173,7 +173,7 @@ def test_an_overlap_of_50_percent_builds(session, config):
 @pytest.mark.parametrize('acquire', [{}, [], 3])
 def test_an_acquire_mode_of_another_kind_is_refused(session, config, acquire):
     config['layer_configs']['BF']['acquire'] = acquire
-    _refused(session, 'acquire_mode_unknown', input_config=config)
+    _refused(session, 'not_offered', input_config=config)
 
 
 @pytest.mark.parametrize(

@@ -18,7 +18,8 @@ steps, typed the same way.
 
 import pytest
 
-from modules.exceptions import ProtocolNotSavedError
+from modules.acquire_mode import AcquireMode
+from modules.exceptions import ArgumentRefusedError, ProtocolNotSavedError
 from modules.layer_record import release_catalogue
 from modules.protocol import ChannelSettings, ProtocolFormatError
 from tests.scope_fakes import home_sim_scope
@@ -192,6 +193,24 @@ class TestTheBlockIsTypedAtLoad:
             false_color=True,
             frames_summed=1,
             stim_enabled=False,
+        )
+
+    def test_a_loaded_acquire_is_an_acquire_mode(self, session, tmp_path):
+        tsv = _file_with_block(tmp_path, 'Red\tvideo\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n')
+
+        protocol = session.load_protocol(tsv)
+
+        assert protocol.channel_settings()['Red'].acquire is AcquireMode.VIDEO
+        assert type(protocol.step(0).acquire) is AcquireMode
+
+    def test_a_row_built_with_a_word_that_is_no_mode_is_refused(self):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ChannelSettings('still', None, None, None, None, None, None, None)
+
+        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
+            'not_offered',
+            'ChannelSettings.acquire',
+            ('image', 'video'),
         )
 
     def test_a_blank_cell_is_none(self, session, tmp_path):

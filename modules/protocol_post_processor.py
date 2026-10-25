@@ -12,6 +12,7 @@ import modules.image_utils as image_utils
 import modules.post_derivation as post_derivation
 import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
+from modules.acquire_mode import AcquireMode
 from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
 from modules.exceptions import (
@@ -113,7 +114,7 @@ def _recording_frames(df: pd.DataFrame) -> pd.Series:
     if missing.any():
         missing_raw = missing & ~_derived(df)
         if missing_raw.any():
-            frames = frames | (missing_raw & (df['Acquire'] == 'video'))
+            frames = frames | (missing_raw & (df['Acquire'] == AcquireMode.VIDEO))
     return frames
 
 
