@@ -33,6 +33,8 @@ fires the regression.
 
 from __future__ import annotations
 
+from modules.lumascope_api.bring_up import Part
+
 
 class TestRunLoopInnerClassifiesByConnection:
     """The outer ``_run_loop_inner`` exception handler must classify
@@ -56,7 +58,9 @@ class TestRunLoopInnerClassifiesByConnection:
         # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step_row.side_effect = RuntimeError('serial dropped mid-step')
-        runner._scope.unconnected_parts = MagicMock(return_value=() if connected else ('camera',))
+        runner._scope.unconnected_parts = MagicMock(
+            return_value=() if connected else (Part.CAMERA,)
+        )
         runner._run_loop_executor.run_loop(runner._last_run())
         captured = [
             (n.category, n.title, n.message)

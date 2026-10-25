@@ -27,7 +27,7 @@ import drivers.sim_wire.backend as sim_backend
 from drivers.exceptions import BoardNoReplyError
 from lib.lumascope_error import Fault
 from modules.exceptions import HardwareCommandRefusedError
-from modules.lumascope_api.bring_up import LED
+from modules.lumascope_api.bring_up import Part
 from modules.lumascope_api.illumination import (
     IlluminationAPI,
     LedState,
@@ -238,7 +238,7 @@ def test_a_bring_up_all_off_the_board_did_not_answer_leaves_every_led_unknown(mo
         warn_pre_release=False,
     )
     try:
-        led = next(p for p in session.scope.bring_up_record().parts if p.part == LED)
+        led = next(p for p in session.scope.bring_up_record().parts if p.part == Part.LED)
         assert (led.up, led.cause) == (True, 'safety_off_failed')
         assert _states(session.scope.illumination) == {LedState.UNKNOWN}
     finally:

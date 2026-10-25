@@ -55,8 +55,12 @@ import pathlib
 import threading
 import uuid
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from modules.api_surface import api, api_fields
+
+if TYPE_CHECKING:
+    from modules.lumascope_api.bring_up import Part
 
 
 class RunStatus(enum.StrEnum):
@@ -158,14 +162,14 @@ class RunEnding:
         return ENDING_TITLES[self.reason]
 
 
-def hardware_disconnected_ending(parts: tuple[str, ...]) -> RunEnding:
+def hardware_disconnected_ending(parts: tuple[Part, ...]) -> RunEnding:
     """The ending of a run whose hardware left it, in one set of words.
 
     Whichever site finds it -- the run loop's connection check, or a step
     whose camera was removed -- the run ends in these words, naming each
-    part gone (``Lumascope.unconnected_parts``' names).
+    part gone by its noun.
     """
-    gone = ' and '.join(parts)
+    gone = ' and '.join(part.noun for part in parts)
     return RunEnding(
         RunStatus.FAILED,
         'hardware_disconnected',

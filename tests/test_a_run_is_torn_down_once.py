@@ -13,6 +13,8 @@ import time
 
 import pytest
 
+from modules.lumascope_api.bring_up import Part
+
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     executor,
@@ -96,7 +98,7 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
     monkeypatch.setattr(
         executor._scope,
         'unconnected_parts',
-        lambda: ('camera',) if unplugged.is_set() else unconnected(),
+        lambda: (Part.CAMERA,) if unplugged.is_set() else unconnected(),
     )
     run = _start_run(executor, tmp_path, threading.Event())
 

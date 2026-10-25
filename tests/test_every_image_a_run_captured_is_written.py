@@ -20,6 +20,7 @@ import time
 
 import pytest
 
+from modules.lumascope_api.bring_up import Part
 from modules import live_work
 import modules.protocol_image_writer as protocol_image_writer
 import modules.protocol_run_loop as protocol_run_loop
@@ -150,7 +151,7 @@ class TestAnErrorAbort:
             monkeypatch.setattr(
                 session.scope,
                 'unconnected_parts',
-                lambda: ('camera',) if disconnected.is_set() else real_unconnected(),
+                lambda: (Part.CAMERA,) if disconnected.is_set() else real_unconnected(),
             )
             outcome = runner.start_single_scan(
                 protocol=_protocol(
@@ -202,7 +203,7 @@ class TestAnErrorAbort:
             monkeypatch.setattr(
                 session.scope,
                 'unconnected_parts',
-                lambda: ('camera',) if disconnected.is_set() else real_unconnected(),
+                lambda: (Part.CAMERA,) if disconnected.is_set() else real_unconnected(),
             )
             outcome = runner.start_single_scan(
                 protocol=_protocol(
@@ -458,7 +459,7 @@ class TestARunAfterAnErrorAbort:
             monkeypatch.setattr(
                 session.scope,
                 'unconnected_parts',
-                lambda: ('camera',) if disconnected.is_set() else real_unconnected(),
+                lambda: (Part.CAMERA,) if disconnected.is_set() else real_unconnected(),
             )
             first_files = _Heard()
             first = runner.start_single_scan(

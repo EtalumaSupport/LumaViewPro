@@ -17,7 +17,7 @@ import zipfile
 import pytest
 
 from drivers.registry import DriverFallback
-from modules.lumascope_api.bring_up import MOTOR
+from modules.lumascope_api.bring_up import Part
 from modules.plugins import PluginRegistry
 from modules.scope_session import ScopeSession
 from modules.tech_support_report import TechSupportReport
@@ -58,7 +58,7 @@ def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_cause(monkeypatch, t
         session.shutdown()
         session.scope.disconnect()
     motor = next(
-        part for part in _read(saved.path, 'bring_up.json')['parts'] if part['part'] == MOTOR
+        part for part in _read(saved.path, 'bring_up.json')['parts'] if part['part'] == Part.MOTOR
     )
     assert (motor['up'], motor['cause'], motor['cause_words']) == (
         False,

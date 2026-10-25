@@ -36,12 +36,10 @@ from modules.api_surface import api, api_fields
 from modules.exceptions import ArgumentRefusedError
 from modules.finite_number import WAIT_S, refuse_unless_finite_number
 from modules.axes import Axis
+from modules.lumascope_api.bring_up import Part
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
-
-MOTOR = 'motor'
-LED = 'led'
 
 # How a home fails, as the EL-0940 firmware's simulated hardware takes it.
 HOME_FAULTS = ('switch_never_trips', 'stall', 'absent')
@@ -109,7 +107,9 @@ class SimulationAPI:
     ) -> None:
         self._scope = scope
         self._boards = {
-            name: board for name, board in ((MOTOR, motor), (LED, led)) if board is not None
+            name: board
+            for name, board in ((Part.MOTOR, motor), (Part.LED, led))
+            if board is not None
         }
         self._camera = camera
         # What is injected, oldest first, each beside what takes it back.
@@ -121,7 +121,7 @@ class SimulationAPI:
         if not self._scope._simulated:
             raise ArgumentRefusedError('needs_simulated_scope', argument=member, value=None)
 
-    def _board(self, member: str, board: str) -> object:
+    def _board(self, member: str, board: Part) -> object:
         """The simulated board named ``board``, on a simulated scope.
 
         Raises:
@@ -165,11 +165,11 @@ class SimulationAPI:
     # --- the boards' replies and links ---
 
     @api(in_process=True)
-    def drop_replies(self, board: str, count: int | None = 1, command: str | None = None) -> None:
+    def drop_replies(self, board: Part, count: int | None = 1, command: str | None = None) -> None:
         """The board answers nothing to its next ``count`` commands.
 
         Args:
-            board: ``'motor'`` or ``'led'``.
+            board: ``MOTOR`` or ``LED``, a board this scope has.
             count: How many replies go missing, 1 or more; None for every
                 one until ``clear``, as a register the board stops reporting
                 is missing from every poll. Taken by the fast motor board
@@ -227,14 +227,14 @@ class SimulationAPI:
         raise self._not_injectable('drop_replies', target)
 
     @api(in_process=True)
-    def delay_reply(self, board: str, delay_s: float) -> None:
+    def delay_reply(self, board: Part, delay_s: float) -> None:
         """The board's next reply comes ``delay_s`` seconds late.
 
         A reply later than the driver waits for is no reply to it: the
         board did what it was told, and the host was not told so.
 
         Args:
-            board: ``'motor'`` or ``'led'``.
+            board: ``MOTOR`` or ``LED``, a board this scope has.
             delay_s: How late the reply comes, in seconds, above 0.
 
         Raises:
@@ -255,7 +255,7 @@ class SimulationAPI:
         self._record('delay_reply', target.disarm_reply, board=board, delay_s=delay_s)
 
     @api(in_process=True)
-    def silence(self, board: str) -> None:
+    def silence(self, board: Part) -> None:
         """The board answers no command from now on, until ``unsilence``.
 
         Raises:
@@ -279,7 +279,7 @@ class SimulationAPI:
         self._record('silence', undo, board=board)
 
     @api(in_process=True)
-    def unsilence(self, board: str) -> None:
+    def unsilence(self, board: Part) -> None:
         """The board answers again after ``silence``.
 
         Raises:
@@ -297,7 +297,7 @@ class SimulationAPI:
             raise self._not_injectable('unsilence', target)
 
     @api(in_process=True)
-    def unplug(self, board: str) -> None:
+    def unplug(self, board: Part) -> None:
         """The board's cable is pulled: its port fails from the next command.
 
         Raises:
@@ -320,7 +320,7 @@ class SimulationAPI:
         self._record('unplug', undo, board=board)
 
     @api(in_process=True)
-    def replug(self, board: str) -> None:
+    def replug(self, board: Part) -> None:
         """The board's cable goes back in: it is found again.
 
         Raises:
@@ -338,7 +338,7 @@ class SimulationAPI:
             raise self._not_injectable('replug', target)
 
     @api(in_process=True)
-    def reboot(self, board: str, booting_for_s: float = 0.0) -> None:
+    def reboot(self, board: Part, booting_for_s: float = 0.0) -> None:
         """The board's firmware restarts and forgets everything it knew.
 
         Its port fails at once, as USB re-enumerates, and the board is found
@@ -388,7 +388,7 @@ class SimulationAPI:
             raise ArgumentRefusedError(
                 'fault_unknown', argument='how', value=how, offered=HOME_FAULTS
             )
-        target = self._board('fail_home', MOTOR)
+        target = self._board('fail_home', Part.MOTOR)
         if isinstance(target, EmulatedBoard):
             target.inject(axis, how)
             undo = lambda: target.clear(axis, how)
@@ -434,7 +434,7 @@ class SimulationAPI:
         """
         self._refuse_unless_simulated('hold_axis')
         self._bound('at_fraction', at_fraction, 'between 0 and 1', 0 < at_fraction < 1)
-        target = self._board('hold_axis', MOTOR)
+        target = self._board('hold_axis', Part.MOTOR)
         if not isinstance(target, SimulatedMotorBoard):
             raise self._not_injectable('hold_axis', target)
         hold = target.hold_travel(axis, at_fraction)
@@ -451,7 +451,7 @@ class SimulationAPI:
                 ``'not_injectable_on_board'`` on every board but the
                 TMCM-6110, the only one with interlock inputs.
         """
-        target = self._board('interlock', MOTOR)
+        target = self._board('interlock', Part.MOTOR)
         if not isinstance(target, SimulatedTmcm6110):
             raise self._not_injectable('interlock', target)
         if lid_open is not None:
@@ -481,7 +481,7 @@ class SimulationAPI:
                 motor board: the firmware boards and the TMCM-6110 answer
                 with the model they were built as.
         """
-        target = self._board('answer_model', MOTOR)
+        target = self._board('answer_model', Part.MOTOR)
         if not isinstance(target, SimulatedMotorBoard):
             raise self._not_injectable('answer_model', target)
         self._record('answer_model', target.report_model(model), model=model)
@@ -723,7 +723,7 @@ class SimulationAPI:
                 write; ``'not_injectable_on_board'`` on any LED board but
                 the FX2.
         """
-        target = self._board('refuse_led_write', LED)
+        target = self._board('refuse_led_write', Part.LED)
         self._bound('count', count, 'a number of writes, 1 or more', count >= 1)
         if not isinstance(target, SimulatedFX2):
             raise self._not_injectable('refuse_led_write', target)

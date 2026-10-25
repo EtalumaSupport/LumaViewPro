@@ -3576,8 +3576,6 @@ class ArgumentRefusedError(Refusal, ValueError):
               older than the records it keeps.
             - ``'not_an_installation'`` -- a folder that holds neither
               settings file, so it is not an LVP installation root.
-            - ``'part_unknown'`` -- a part name that is not one of
-              ``offered``, the parts the record holds.
             - ``'binning_size_invalid'`` -- a binning label that is not a
               positive square ``NxN``.
             - ``'fault_unknown'`` -- a simulated fault's board, home fault,
@@ -3712,10 +3710,6 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Not an Installation',
             '{argument} is not an LVP installation root: {value!r} holds neither '
             'data/current.json nor data/settings.json.',
-        ),
-        'part_unknown': (
-            'Not a Part',
-            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'fault_unknown': (
             'Not a Simulated Fault',

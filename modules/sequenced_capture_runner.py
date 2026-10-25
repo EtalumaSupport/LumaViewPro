@@ -1118,7 +1118,7 @@ class SequencedCaptureRunner:
         # first, not a symptom of it -- with no LED board there is no current
         # cap to judge a step's illumination against.
         unconnected = self._scope.unconnected_parts()
-        named = [f'the {part}' for part in unconnected]
+        named = [f'the {part.noun}' for part in unconnected]
         if named:
             parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
             return self._refusal(

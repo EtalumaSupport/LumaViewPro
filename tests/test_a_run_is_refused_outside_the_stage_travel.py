@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 
+from modules.lumascope_api.bring_up import Part
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import ProtocolFormatError
 from tests.scope_fakes import bind_settings_like_a_session
@@ -97,7 +98,7 @@ def test_a_blank_x_never_reaches_the_travel_check():
 def test_a_disconnected_scope_is_told_it_is_disconnected_first(
     executor, scope, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(scope, 'unconnected_parts', lambda: ('camera',))
+    monkeypatch.setattr(scope, 'unconnected_parts', lambda: (Part.CAMERA,))
     protocol = _make_multi_step_protocol([{'name': 'too_high', 'z': _past_z(scope)}])
     assert _refusal(executor, protocol, tmp_path).reason == 'hardware_disconnected'
 

@@ -5693,12 +5693,12 @@ class ScopeSession:
         if not self.scope.motion_expected:
             logger.info('startup motion skipped: this scope model has no motor board')
             return skipped
-        from modules.lumascope_api.bring_up import MOTOR
+        from modules.lumascope_api.bring_up import Part
 
         # Bring-up has already reported the missing board once, in its own
         # report; homing it would only have the home refused as "not
         # connected" and show the same absence a second time.
-        if self.scope.bring_up_record().part(MOTOR).missing:
+        if self.scope.bring_up_record().part(Part.MOTOR).missing:
             logger.info('startup motion skipped: the motor board did not come up at bring-up')
             return skipped
 

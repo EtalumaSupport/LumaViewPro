@@ -35,11 +35,9 @@ from modules.exceptions import (
     PartialHardwareError,
 )
 from modules.lumascope_api.bring_up import (
-    CAMERA,
     CAUSE_PHRASES,
-    LED,
-    MOTOR,
     BringUpRecord,
+    Part,
     PartStatus,
     SettingsSetAside,
 )
@@ -103,7 +101,7 @@ class TestEachPartNamesItsCause:
         # one would raise where bring-up reports the camera that failed.
         missing = sorted(set(CameraNotAvailableError._WORDS) - set(CAUSE_PHRASES))
         assert missing == []
-        assert PartStatus(CAMERA, up=False, cause='camera_firmware_missing').describe() == (
+        assert PartStatus(Part.CAMERA, up=False, cause='camera_firmware_missing').describe() == (
             'Camera (firmware file missing)'
         )
 
@@ -117,7 +115,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            motor = s.bring_up_record().part(MOTOR)
+            motor = s.bring_up_record().part(Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -138,7 +136,7 @@ class TestEachPartNamesItsCause:
             microscope='LS620',
         )
         try:
-            motor = s.bring_up_record().part(MOTOR)
+            motor = s.bring_up_record().part(Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
             assert not motor.missing
             assert s.bring_up_record().missing == ()
@@ -157,7 +155,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            led = s.bring_up_record().part(LED)
+            led = s.bring_up_record().part(Part.LED)
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             by_reason = {n.reason: n for n in faults}
@@ -180,7 +178,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            camera = s.bring_up_record().part(CAMERA)
+            camera = s.bring_up_record().part(Part.CAMERA)
             assert (camera.up, camera.cause) == (False, 'camera_port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -233,20 +231,31 @@ class TestAPartIsAskedByName:
     def test_a_name_the_record_lacks_is_refused_offering_its_parts(self):
         record = BringUpRecord(
             parts=(
-                PartStatus(MOTOR, up=True),
-                PartStatus(LED, up=True),
-                PartStatus(CAMERA, up=True),
+                PartStatus(Part.MOTOR, up=True),
+                PartStatus(Part.LED, up=True),
+                PartStatus(Part.CAMERA, up=True),
             )
         )
-        assert record.part(LED).part == LED
+        assert record.part('led').part == Part.LED
+        assert type(record.part('led').part) is Part
 
         with pytest.raises(ArgumentRefusedError) as refused:
             record.part('MOTOR')
         assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
-            'part_unknown',
+            'not_offered',
             'name',
-            (MOTOR, LED, CAMERA),
+            ('motor', 'led', 'camera'),
         )
+
+    def test_a_part_the_record_has_no_status_for_is_refused_offering_the_ones_it_has(self):
+        # A diagnostic scope is brought up without its camera.
+        record = BringUpRecord(
+            parts=(PartStatus(Part.MOTOR, up=True), PartStatus(Part.LED, up=True))
+        )
+        with pytest.raises(ArgumentRefusedError) as refused:
+            record.part(Part.CAMERA)
+        assert (refused.value.reason, refused.value.offered) == ('not_offered', ('motor', 'led'))
+        assert str(refused.value).endswith("'camera' is not one.")
 
 
 class TestASimulatedManualScope:
@@ -257,7 +266,7 @@ class TestASimulatedManualScope:
             warn_pre_release=False,
         )
         try:
-            motor = s.bring_up_record().part(MOTOR)
+            motor = s.bring_up_record().part(Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, None)
             assert s.bring_up_record().missing == ()
             assert centre_posts == []
@@ -293,7 +302,7 @@ class TestAProblemOnAPartThatCameUp:
     ):
         s = _bring_up(monkeypatch, tmp_path, led=_SafetyOffFailedBoard(), microscope='LS850T')
         try:
-            led = s.bring_up_record().part(LED)
+            led = s.bring_up_record().part(Part.LED)
             assert (led.up, led.cause) == (True, 'safety_off_failed')
             assert led.detail == 'TimeoutError: no reply'
             assert not led.missing

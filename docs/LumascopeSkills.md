@@ -207,7 +207,7 @@ A session configures its scope for you: `ScopeSession.create` applies the runtim
 ### Connection
 
 ```python
-scope.unconnected_parts()                 # ('LED controller', 'motor controller', 'camera') -- those not up; () when all are
+scope.unconnected_parts()                 # (Part.LED, Part.MOTOR, Part.CAMERA) -- those not up; () when all are
 scope.motor_connected                     # motor board (property)
 scope.motion_expected                     # False on a manual scope (LS620, LS560): no motor board to connect
 scope.led_connected                       # LED board (property)
@@ -1363,10 +1363,10 @@ The subscription is process-wide: a listener hears every session in the process,
 
 ```python
 record = session.bring_up_record()         # modules.lumascope_api.bring_up.BringUpRecord
-for part in record.parts:                  # 'motor', 'led', 'camera', in that order
+for part in record.parts:                  # Part (modules.lumascope_api.bring_up): 'motor', 'led', 'camera', in that order
     print(part.part, part.up, part.expected, part.cause, part.detail)
 record.missing                             # the parts this scope's model has and lacks
-record.part('led').cause                   # ArgumentRefusedError (part_unknown) for a name not in parts; None, or why: 'not_detected', 'port_in_use', 'not_responding',
+record.part('led').cause                   # ArgumentRefusedError (not_offered) for a name not in parts; None, or why: 'not_detected', 'port_in_use', 'not_responding',
                                            # 'connect_failed', 'no_driver'; for the camera
                                            # 'camera_port_in_use', 'camera_not_detected', 'camera_driver_unavailable'
                                            # (none found, and a camera driver did not load on this installation; the

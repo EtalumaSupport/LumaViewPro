@@ -30,7 +30,6 @@ from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
     CaptureFailedError,
-    MissingPart,
     ObjectiveUnknownError,
     RunFailedError,
     RunFilesNotWrittenError,
@@ -38,6 +37,7 @@ from modules.exceptions import (
 )
 from modules.image_save import save_image
 from modules.layer_record import ChannelColors
+from modules.lumascope_api.bring_up import Part
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1053,7 +1053,7 @@ class ProtocolImageWriter:
                 f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
                 f'scan {scan_count + 1} -- the camera was removed'
             )
-            ending = hardware_disconnected_ending((MissingPart.CAMERA.name,))
+            ending = hardware_disconnected_ending((Part.CAMERA,))
             self._end_run_fatally(ending.reason, ending.message)
             return
         self._consecutive_capture_failures += 1
