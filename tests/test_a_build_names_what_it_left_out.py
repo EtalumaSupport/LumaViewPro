@@ -24,6 +24,7 @@ from modules import image_utils
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.layer_record import release_color
@@ -131,7 +132,9 @@ def test_a_stitch_names_the_composites_it_left_out_and_the_route_to_them(session
     stitched = session.post_processing.stitch(run_folder)
 
     assert stitched.new_count == 2
-    assert stitched.excluded_inputs == (ExcludedInput(kind='composite', count=4),)
+    assert stitched.excluded_inputs == (
+        ExcludedInput(kind=PostProcessingOperation.COMPOSITE, count=4),
+    )
     assert '4 composite file(s)' in stitched.message
     assert 'Composite builds them from the stitched channels' in stitched.message
 
@@ -161,7 +164,9 @@ def test_a_restitch_leaves_out_only_what_is_not_its_own(session, run_folder):
 
     restitched = session.post_processing.stitch(run_folder)
 
-    assert restitched.excluded_inputs == (ExcludedInput(kind='composite', count=4),)
+    assert restitched.excluded_inputs == (
+        ExcludedInput(kind=PostProcessingOperation.COMPOSITE, count=4),
+    )
 
 
 def test_a_folder_of_composites_alone_is_refused_with_the_route(session, run_folder):
@@ -191,7 +196,9 @@ def test_a_build_with_a_failed_group_still_names_what_it_left_out(session, run_f
     with pytest.raises(PostProcessingFailedError) as failed:
         session.post_processing.stitch(run_folder)
 
-    assert failed.value.excluded_inputs == (ExcludedInput(kind='composite', count=4),)
+    assert failed.value.excluded_inputs == (
+        ExcludedInput(kind=PostProcessingOperation.COMPOSITE, count=4),
+    )
     assert '4 composite file(s)' in str(failed.value)
 
 

@@ -2162,13 +2162,14 @@ class ExcludedInput:
     made.
 
     Attributes:
-        kind: What the files are: ``composite``, ``stitched``, ``zproject``,
-            ``video`` or ``hyperstack``. A recording's frames, which only a
-            video or a hyperstack takes, are never among them.
+        kind: The build that made the files: ``COMPOSITE``, ``STITCH``,
+            ``Z_PROJECTION``, ``VIDEO`` or ``HYPERSTACK``. A recording's
+            frames, which only a video or a hyperstack takes, are never
+            among them.
         count: How many.
     """
 
-    kind: str
+    kind: PostProcessingOperation
     count: int
 
 

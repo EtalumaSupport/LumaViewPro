@@ -531,8 +531,7 @@ class ProtocolPostProcessor(abc.ABC):
         pre_filter_df = df
         df = self._filter_ignored_types(df=df)
         own_flag = self._post_function.value
-        left_out_counts: dict[str, int] = {}
-        excluded_kinds: set = set()
+        left_out_counts: dict[PostFunction, int] = {}
         already_made = 0
         dropped_rows = pre_filter_df.loc[pre_filter_df.index.difference(df.index)]
         # A derived image gone from the folder is not a file in it: neither
@@ -559,14 +558,20 @@ class ProtocolPostProcessor(abc.ABC):
                 raise RuntimeError(
                     f'{self._name}: {dropped["Filepath"]} was dropped with no output kind'
                 )
-            excluded_kinds.add(PostFunction(kind))
-            word = kind.lower()
-            left_out_counts[word] = left_out_counts.get(word, 0) + 1
+            left_out = PostFunction(kind)
+            left_out_counts[left_out] = left_out_counts.get(left_out, 0) + 1
+        excluded_kinds = set(left_out_counts)
+        # The record names each kind by its operation; the words a person
+        # reads name it by its files, as the build flags do.
+        left_out_in_order = sorted(left_out_counts.items(), key=lambda item: item[0].value.lower())
         excluded_inputs = tuple(
-            ExcludedInput(kind=word, count=count) for word, count in sorted(left_out_counts.items())
+            ExcludedInput(kind=_OPERATION_LABELS[kind], count=count)
+            for kind, count in left_out_in_order
         )
-        excluded_text = ', '.join(f'{item.count} {item.kind} file(s)' for item in excluded_inputs)
-        derived_counts = dict(left_out_counts)
+        excluded_text = ', '.join(
+            f'{count} {kind.value.lower()} file(s)' for kind, count in left_out_in_order
+        )
+        derived_counts = {kind.value.lower(): count for kind, count in left_out_counts.items()}
         if already_made:
             derived_counts[own_flag.lower()] = already_made
         derived_text = ', '.join(
