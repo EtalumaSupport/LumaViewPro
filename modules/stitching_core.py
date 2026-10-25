@@ -12,7 +12,6 @@ import pathlib
 import time
 from collections.abc import Callable
 
-import cv2
 import numpy as np
 import pandas as pd
 
@@ -22,10 +21,8 @@ import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from modules.stitch_mode import StitchAlgorithm, StitchMode
 from modules.stitch_algorithms import (
-    crop_to_content,
     estimate_overlap_offset,
     estimate_phase_offset,
-    feature_stitch,
     stitch_registered_tiles,
 )
 
@@ -241,111 +238,6 @@ def _run_fallback_chain(
     last_result.setdefault('metadata', {})['fallback_failures'] = failures
     last_result['metadata']['fallback_reason'] = _failure_reason(failures)
     return last_result
-
-
-def _bgr_from_uint8(image_u8: np.ndarray) -> np.ndarray:
-    """Present a uint8 tile as 3-channel BGR for OpenCV's Stitcher."""
-    if image_u8.ndim == 2:
-        return cv2.cvtColor(image_u8, cv2.COLOR_GRAY2BGR)
-    if image_u8.ndim == 3 and image_u8.shape[2] == 3:
-        return cv2.cvtColor(image_u8, cv2.COLOR_RGB2BGR)
-    if image_u8.ndim == 3 and image_u8.shape[2] == 4:
-        return cv2.cvtColor(image_u8, cv2.COLOR_RGBA2BGR)
-    raise ValueError(f'Unsupported image shape for feature stitch: {image_u8.shape}')
-
-
-def _feature_stitch_bgr_tiles(images: list[np.ndarray]) -> list[np.ndarray]:
-    """Convert a tile GROUP to BGR uint8 for OpenCV's Stitcher, scaling every
-    deep-input tile against one shared intensity range.
-
-    Per-tile min/max normalization maps each tile's own extremes to 0..255, so
-    a dim tile and a bright tile of the same specimen get different transfer
-    functions and the shared seam shows a brightness step. Deep (12/16-bit)
-    tiles are scaled against a group-wide lo/hi so intensities stay comparable
-    across the montage; tiles already uint8 are display-ready and pass through
-    unscaled.
-    """
-    deep = [image for image in images if image.dtype != np.uint8]
-    if deep:
-        # Group-wide lo/hi via a running reduction over one tile at a time.
-        # Concatenating every tile's finite pixels into one pooled array held
-        # ~2-3x the whole montage as float32 at peak; a large montage could
-        # MemoryError. The running min/max holds a single tile.
-        lo, hi = None, None
-        for image in deep:
-            pixels = np.asarray(image, dtype=np.float32)
-            finite = pixels[np.isfinite(pixels)]
-            if finite.size:
-                tile_lo, tile_hi = float(finite.min()), float(finite.max())
-                lo = tile_lo if lo is None else min(lo, tile_lo)
-                hi = tile_hi if hi is None else max(hi, tile_hi)
-        if lo is None:
-            lo, hi = 0.0, 1.0
-        if hi <= lo:
-            hi = lo + 1.0
-
-    bgr_tiles = []
-    for image in images:
-        if image.dtype == np.uint8:
-            image_u8 = image
-        else:
-            image_f = np.asarray(image, dtype=np.float32)
-            image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(np.uint8)
-        bgr_tiles.append(_bgr_from_uint8(image_u8))
-    return bgr_tiles
-
-
-def bf_feature_stitcher(
-    path: pathlib.Path,
-    df: pd.DataFrame,
-    output_file_loc: pathlib.Path | None = None,
-    *,
-    channel_colors: layer_record.ChannelColors,
-) -> dict:
-    """Use OpenCV feature stitching for brightfield groups."""
-    center = _center_metadata(df)
-    try:
-        read_t0 = time.perf_counter()
-        raw_images = [_read_tile_with_depth(path, row['Filepath'])[0] for _, row in df.iterrows()]
-        feature_images = _feature_stitch_bgr_tiles(raw_images)
-        logger.info(
-            '[StitchPerf] bf_feature read+convert %.1fms tiles=%d',
-            (time.perf_counter() - read_t0) * 1000.0,
-            len(feature_images),
-        )
-        stitched_img = feature_stitch(feature_images)
-        if stitched_img is None:
-            return _failure('bf_feature_stitcher', 'BF feature stitching failed', center)
-        crop_t0 = time.perf_counter()
-        stitched_img = crop_to_content(stitched_img)
-        stitched_img = cv2.cvtColor(stitched_img, cv2.COLOR_BGR2RGB)
-        logger.info(
-            '[StitchPerf] bf_feature crop+convert %.1fms output_shape=%s dtype=%s',
-            (time.perf_counter() - crop_t0) * 1000.0,
-            stitched_img.shape,
-            stitched_img.dtype,
-        )
-    except Exception as exc:
-        return _failure(
-            'bf_feature_stitcher',
-            f'BF feature stitching failed: {type(exc).__name__}: {exc}',
-            center,
-        )
-
-    return _result(
-        image=stitched_img,
-        path=path,
-        output_file_loc=output_file_loc,
-        df=df,
-        channel_colors=channel_colors,
-        metadata={'center': center, 'algorithm': 'bf_feature_stitcher'},
-        # Couple the tag to the ACTUAL output: the OpenCV feature path emits
-        # 8-bit BGR regardless of input depth. Tagging this uint8 montage with a
-        # 16-bit input depth would render it ~256x dark on read-back.
-        significant_bits=stitched_img.dtype.itemsize * 8,
-        # Each montage is stretched to its own range, so it is shown at its depth.
-        white_bits=None,
-    )
 
 
 def overlap_stitcher(
@@ -695,8 +587,7 @@ def channel_aware_stitcher(
     """Route channels through the preferred algorithm and fallbacks.
 
     Fast Preview uses bounded FFT phase correlation. Quality uses bounded local
-    NCC. Both use recorded stage geometry and retain source pixels; OpenCV's
-    unconstrained panorama stitcher is deliberately not an automatic fallback.
+    NCC. Both use recorded stage geometry and retain source pixels.
     """
     mode = StitchMode(stitching_mode)
     sample, _, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])

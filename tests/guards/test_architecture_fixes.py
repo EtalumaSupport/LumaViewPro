@@ -9,7 +9,7 @@ Covers:
        - drivers/*.py must not import from modules/ or ui/
        - lib/*.py must not import from drivers/, modules/, or ui/
   2. config_getters -> config_ui_getters rename
-  3. stitch_algorithms.py cleanup (feature_stitch, color_transfer, crop_to_content)
+  3. stitch_algorithms.py replaces image_stitcher.py
   4. Dead code removal (position_stitcher removed from stitcher.py)
   5. Tiny file consolidation -- enums/classes merged into parent modules
 """
@@ -17,8 +17,6 @@ Covers:
 import glob
 import os
 from typing import ClassVar
-
-import numpy as np
 
 from tests import ratchets as _ratchets
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages
@@ -151,60 +149,13 @@ class TestConfigGettersRename:
 
 
 class TestStitchAlgorithmsModule:
-    """Verify stitch_algorithms.py exports the right functions."""
-
-    def test_imports_succeed(self):
-        from modules.stitch_algorithms import feature_stitch, color_transfer, crop_to_content
-
-        assert callable(feature_stitch)
-        assert callable(color_transfer)
-        assert callable(crop_to_content)
+    """stitch_algorithms.py replaced image_stitcher.py."""
 
     def test_old_module_gone(self):
         import os
 
         old_path = os.path.join(REPO_ROOT, 'modules', 'image_stitcher.py')
         assert not os.path.exists(old_path), 'Old image_stitcher.py still exists'
-
-    def test_feature_stitch_rejects_single_image(self):
-        from modules.stitch_algorithms import feature_stitch
-
-        img = np.full((100, 100, 3), 128, dtype=np.uint8)
-        result = feature_stitch([img])
-        assert result is None
-
-    def test_feature_stitch_rejects_empty_list(self):
-        from modules.stitch_algorithms import feature_stitch
-
-        result = feature_stitch([])
-        assert result is None
-
-    def test_color_transfer_preserves_shape(self):
-        from modules.stitch_algorithms import color_transfer
-
-        source = np.full((60, 80, 3), 200, dtype=np.uint8)
-        target = np.full((40, 50, 3), 100, dtype=np.uint8)
-        result = color_transfer(source, target)
-        assert result.shape == target.shape
-        assert result.dtype == np.uint8
-
-    def test_color_transfer_shifts_brightness(self):
-        from modules.stitch_algorithms import color_transfer
-
-        bright = np.full((50, 50, 3), 220, dtype=np.uint8)
-        dark = np.full((50, 50, 3), 50, dtype=np.uint8)
-        result = color_transfer(bright, dark)
-        assert result.mean() > dark.mean()
-
-    def test_crop_to_content_removes_border(self):
-        from modules.stitch_algorithms import crop_to_content
-
-        img = np.zeros((200, 300, 3), dtype=np.uint8)
-        img[40:160, 60:240] = 128
-        result = crop_to_content(img)
-        assert result.shape[0] < img.shape[0]
-        assert result.shape[1] < img.shape[1]
-        assert result.mean() > 0
 
 
 # ---------------------------------------------------------------------------

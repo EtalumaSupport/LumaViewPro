@@ -14,145 +14,17 @@ import tifffile
 
 
 # ---------------------------------------------------------------------------
-# stitch_algorithms.py -- feature-based stitching, color transfer, border crop
+# stitch_algorithms.py -- overlap registration
 # ---------------------------------------------------------------------------
 
 from modules import post_derivation
 from modules.stitch_mode import StitchMode
 from modules.stitch_algorithms import (
-    _image_stats,
     align_tile_positions,
-    color_transfer,
     estimate_overlap_offset,
     estimate_phase_offset,
-    _grab_contours,
-    crop_to_content,
     stitch_registered_tiles,
 )
-
-
-class TestImageStats:
-    """Test _image_stats -- computes L*a*b* channel statistics."""
-
-    def test_uniform_image(self):
-        # Uniform gray -> known LAB values
-        img = np.full((100, 100, 3), 128, dtype=np.uint8)
-        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-        stats = _image_stats(lab)
-        assert len(stats) == 6  # (lMean, lStd, aMean, aStd, bMean, bStd)
-        _l_mean, l_std, _a_mean, a_std, _b_mean, b_std = stats
-        assert l_std == 0.0  # uniform -> zero std
-        assert a_std == 0.0
-        assert b_std == 0.0
-
-    def test_random_image_has_nonzero_std(self):
-        rng = np.random.RandomState(42)
-        img = rng.randint(0, 256, (50, 50, 3), dtype=np.uint8)
-        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-        stats = _image_stats(lab)
-        _l_mean, l_std, _a_mean, a_std, _b_mean, b_std = stats
-        assert l_std > 0
-        assert a_std > 0
-        assert b_std > 0
-
-
-class TestColorTransfer:
-    """Test color_transfer -- LAB color distribution transfer (Reinhard et al.)."""
-
-    def test_output_shape_matches_target(self):
-        source = np.full((50, 50, 3), 200, dtype=np.uint8)
-        target = np.full((80, 60, 3), 100, dtype=np.uint8)
-        result = color_transfer(source, target)
-        assert result.shape == target.shape
-        assert result.dtype == np.uint8
-
-    def test_identical_images_unchanged(self):
-        # Uniform images have zero std -- division guard returns identity-like result
-        img = np.full((50, 50, 3), 128, dtype=np.uint8)
-        result = color_transfer(img.copy(), img.copy())
-        assert result.shape == img.shape
-        assert result.dtype == np.uint8
-        # With zero-std guard, uniform -> uniform (LAB round-trip may shift slightly)
-        assert np.allclose(result, result[0, 0], atol=1)  # all pixels same
-
-    def test_varied_identical_images(self):
-        # Non-uniform identical images -> result ~= input
-        rng = np.random.RandomState(7)
-        img = rng.randint(80, 180, (50, 50, 3), dtype=np.uint8)
-        result = color_transfer(img.copy(), img.copy())
-        assert np.allclose(result, img, atol=5)
-
-    def test_different_colors_shifts_target(self):
-        # Bright source, dark target -> result should be brighter than original target
-        source = np.full((50, 50, 3), 220, dtype=np.uint8)
-        target = np.full((50, 50, 3), 50, dtype=np.uint8)
-        result = color_transfer(source, target)
-        # Result's mean brightness should be closer to source than original target
-        assert result.mean() > target.mean()
-
-    def test_handles_color_images(self):
-        rng = np.random.RandomState(123)
-        source = rng.randint(50, 200, (30, 30, 3), dtype=np.uint8)
-        target = rng.randint(50, 200, (30, 30, 3), dtype=np.uint8)
-        result = color_transfer(source, target)
-        assert result.shape == target.shape
-        # Values should be valid uint8
-        assert result.min() >= 0
-        assert result.max() <= 255
-
-
-class TestGrabContours:
-    """Test _grab_contours -- OpenCV 4.x contour extraction."""
-
-    def test_two_element_tuple(self):
-        # OpenCV 4.x returns (contours, hierarchy)
-        contours = [np.array([[0, 0], [1, 0], [1, 1]])]
-        hierarchy = np.array([[[0, 0, 0, 0]]])
-        result = _grab_contours((contours, hierarchy))
-        assert result is contours
-
-    def test_three_element_tuple(self):
-        # OpenCV 3.x returned (image, contours, hierarchy)
-        img = np.zeros((10, 10), dtype=np.uint8)
-        contours = [np.array([[0, 0], [1, 0], [1, 1]])]
-        hierarchy = np.array([[[0, 0, 0, 0]]])
-        result = _grab_contours((img, contours, hierarchy))
-        assert result is contours
-
-    def test_with_real_findcontours(self):
-        # Create a simple image with a white rectangle
-        img = np.zeros((100, 100), dtype=np.uint8)
-        cv2.rectangle(img, (20, 20), (80, 80), 255, -1)
-        raw = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contours = _grab_contours(raw)
-        assert len(contours) == 1
-        # Bounding rect should roughly match the rectangle
-        x, _y, w, _h = cv2.boundingRect(contours[0])
-        assert 15 <= x <= 25
-        assert 55 <= w <= 65
-
-
-class TestCropToContent:
-    """Test crop_to_content -- crops stitched image to content area."""
-
-    def test_crops_black_border(self):
-        # Create an image with content in the center and black border
-        img = np.zeros((200, 300, 3), dtype=np.uint8)
-        img[40:160, 60:240] = 128  # gray content area
-        result = crop_to_content(img)
-        # Result should be smaller than input (border removed)
-        assert result.shape[0] < img.shape[0]
-        assert result.shape[1] < img.shape[1]
-        # Content should be preserved
-        assert result.mean() > 0
-
-    def test_full_content_image(self):
-        # No border -> result ~= input size (only the 10px border padding matters)
-        img = np.full((100, 100, 3), 200, dtype=np.uint8)
-        result = crop_to_content(img)
-        # Should be close to original dimensions (+/-20 from the added border)
-        assert abs(result.shape[0] - 100) <= 22
-        assert abs(result.shape[1] - 100) <= 22
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +33,6 @@ class TestCropToContent:
 
 from modules.stitching_core import (
     _center_metadata,
-    _feature_stitch_bgr_tiles,
     channel_aware_stitcher,
     fft_phase_stitcher,
     infer_stage_overlap,
@@ -173,25 +44,6 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
-
-
-class TestFeatureStitchSharedRange:
-    """_feature_stitch_bgr_tiles normalizes deep tiles against a group-wide range."""
-
-    def test_deep_tiles_scaled_against_shared_group_range(self):
-        # A dim and a bright uint16 tile of the same group map against ONE shared
-        # lo/hi so the seam stays continuous; uint8 tiles pass through unscaled.
-        # This locks the group-wide behavior across the running-min/max refactor.
-        dim = np.full((3, 3), 200, dtype=np.uint16)
-        mid = np.full((3, 3), 2100, dtype=np.uint16)
-        bright = np.full((3, 3), 4000, dtype=np.uint16)
-        passthrough = np.full((3, 3), 128, dtype=np.uint8)
-        bgr = _feature_stitch_bgr_tiles([dim, mid, bright, passthrough])
-        # group lo=200 hi=4000: dim -> 0, bright -> 255, mid -> ~127
-        assert int(bgr[0].max()) == 0
-        assert int(bgr[2].max()) == 255
-        assert abs(int(bgr[1].max()) - 127) <= 1
-        assert int(bgr[3].max()) == 128
 
 
 class TestStitchLoudDegradeOnMissingPixelSize:
@@ -492,8 +344,8 @@ class TestSimplePositionStitcher:
                 record_metadata={
                     'center': {'x': 0.5, 'y': 0.0},
                     'algorithm': 'simple_position_stitcher',
-                    'fallback_from': 'bf_feature_stitcher',
-                    'fallback_reason': 'bf_feature_stitcher: BF feature stitching failed',
+                    'fallback_from': 'quality_local_ncc',
+                    'fallback_reason': 'quality_local_ncc: registration failed',
                 },
             )
 
@@ -510,8 +362,8 @@ class TestSimplePositionStitcher:
             {
                 'filepath': 'Stitched/stitched.tiff',
                 'algorithm': 'simple_position_stitcher',
-                'fallback_from': 'bf_feature_stitcher',
-                'fallback_reason': 'bf_feature_stitcher: BF feature stitching failed',
+                'fallback_from': 'quality_local_ncc',
+                'fallback_reason': 'quality_local_ncc: registration failed',
             }
         ]
 
@@ -548,7 +400,7 @@ class TestSimplePositionStitcher:
         )
         assert 'stitching_mode' in ui_source
 
-    def test_bf_quality_route_never_uses_unconstrained_feature_stitcher(
+    def test_a_bf_quality_stitch_falls_back_from_registration_to_placement(
         self,
         tmp_path,
         monkeypatch,
@@ -600,10 +452,6 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
-        )
-        monkeypatch.setattr(
-            'modules.stitching_core.bf_feature_stitcher',
-            lambda *_args, **_kwargs: pytest.fail('BF feature stitch must not be automatic'),
         )
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
@@ -738,10 +586,6 @@ class TestSimplePositionStitcher:
                 },
             }
 
-        def bf_should_not_run(*args, **kwargs):
-            raise AssertionError('fluorescence should not use BF feature stitching')
-
-        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', bf_should_not_run)
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
             'modules.stitching_core.stage_position_stitcher',
@@ -910,62 +754,6 @@ class TestGroupAlgorithmPixelSize:
             )
 
         assert captured['pixel_size_um'] == tile_pixel_size_um
-
-
-class TestBfFeatureOutputContract:
-    """bf_feature_stitcher emits 8-bit BGR output regardless of input depth, and
-    normalizes deep (12/16-bit) tiles against one shared intensity range so the
-    montage seam does not show a per-tile brightness step.
-    """
-
-    def test_shares_intensity_range_across_deep_tiles(self, tmp_path, monkeypatch):
-        import modules.stitching_core as stitching_core
-
-        # Same specimen, two tiles: one peaks at 100, the other at 200.
-        dim = np.zeros((4, 4), dtype=np.uint16)
-        dim[0, 0] = 100
-        bright = np.zeros((4, 4), dtype=np.uint16)
-        bright[0, 0] = 200
-        tifffile.imwrite(str(tmp_path / 'dim.tiff'), dim)
-        tifffile.imwrite(str(tmp_path / 'bright.tiff'), bright)
-        df = pd.DataFrame(
-            [
-                {'Filepath': 'dim.tiff', 'X': 0.0, 'Y': 0.0},
-                {'Filepath': 'bright.tiff', 'X': 1.0, 'Y': 0.0},
-            ]
-        )
-
-        captured = {}
-
-        def spy(images):
-            captured['tiles'] = images
-            return np.full((4, 8, 3), 50, dtype=np.uint8)
-
-        monkeypatch.setattr(stitching_core, 'feature_stitch', spy)
-        stitching_core.bf_feature_stitcher(tmp_path, df, channel_colors=release_colors())
-
-        dim_bgr, bright_bgr = captured['tiles']
-        # Shared hi=200: the dim tile's 100 maps to 127 (100/200*255), NOT its
-        # own per-tile max of 255; the bright tile's 200 maps to 255.
-        assert dim_bgr[0, 0, 0] == 127
-        assert bright_bgr[0, 0, 0] == 255
-
-    def test_output_depth_couples_to_uint8_output(self, tmp_path, monkeypatch):
-        import modules.stitching_core as stitching_core
-
-        for i in range(2):
-            tifffile.imwrite(str(tmp_path / f't{i}.tiff'), np.full((8, 8), 30000, dtype=np.uint16))
-        df = pd.DataFrame([{'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0} for i in range(2)])
-        monkeypatch.setattr(
-            stitching_core,
-            'feature_stitch',
-            lambda images: np.full((8, 16, 3), 120, dtype=np.uint8),
-        )
-        result = stitching_core.bf_feature_stitcher(tmp_path, df, channel_colors=release_colors())
-
-        assert result['status'] is True
-        # 16-bit inputs, but the OpenCV feature path emits uint8 -> depth is 8.
-        assert result['significant_bits'] == 8
 
 
 class TestStitchOutputAlgorithmStamp:
@@ -1483,7 +1271,6 @@ class TestStageConstrainedStitchModes:
             'modules.stitching_core._read_tile_with_depth',
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
-        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', should_not_run)
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', should_not_run)
         monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
 
