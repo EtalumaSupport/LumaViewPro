@@ -967,7 +967,7 @@ Unlike `start_autofocus`, the slices are the product: the run saves its images (
 | `scan_ended` | `(scan_index, scans_remaining, period_s)` | as each scan ends, a stopped one included: how many remain after it |
 | `step_started` | `(step_index)` | as each step begins, step 0 included, with the index read at the step |
 | `frame_captured` | `(image, frames_summed, frame_significant_bits)` | for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only. A frame whose write is refused is not announced |
-| `video_progress` | `(progress)`, a `VideoProgress` | as a video step records (`phase='recording'`, `elapsed_s` of `total_s`) and writes (`'writing'`, `progress_pct`), then `'ended'` once after either; a step that ends before it records sends none |
+| `video_progress` | `(progress)`, a `VideoProgress` | as a video step records (`phase`, a `VideoPhase` (`modules.run_events`), `'recording'`, `elapsed_s` of `total_s`) and writes (`'writing'`, `progress_pct`), then `'ended'` once after either; a step that ends before it records sends none |
 | `run_ended` | `(outcome, run_dir, protocol)` | once the run has let go of the scope and its outcome has settled; `run_dir` is None for a run that saved nothing |
 | `files_written` | `(run_dir, files)` | once the run's last image write has landed |
 

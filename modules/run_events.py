@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import enum
 import pathlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -30,18 +31,26 @@ if TYPE_CHECKING:
     from modules.run_outcome import RunOutcome
 
 
+class VideoPhase(enum.StrEnum):
+    """Which part of a video step a ``VideoProgress`` reports."""
+
+    RECORDING = 'recording'
+    WRITING = 'writing'
+    ENDED = 'ended'
+
+
 @api_fields('phase', 'elapsed_s', 'total_s', 'progress_pct')
 @dataclasses.dataclass(frozen=True)
 class VideoProgress:
     """Where a video step is, as its ``video_progress`` event says.
 
-    ``phase`` is ``'recording'`` (``elapsed_s`` of ``total_s``), ``'writing'``
-    (``progress_pct`` of the recorded frames written) or ``'ended'``, which follows
+    ``phase`` is ``RECORDING`` (``elapsed_s`` of ``total_s``), ``WRITING``
+    (``progress_pct`` of the recorded frames written) or ``ENDED``, which follows
     once any recording or writing phase on every path that had one; a step
-    that ends before it records sends no phase and no ``'ended'``.
+    that ends before it records sends no phase and no ``ENDED``.
     """
 
-    phase: str
+    phase: VideoPhase
     elapsed_s: float | None = None
     total_s: float | None = None
     progress_pct: float | None = None

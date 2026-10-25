@@ -56,7 +56,7 @@ from modules.exceptions import (
     VideoFramesDroppedError,
     VideoWriterFailedError,
 )
-from modules.run_events import RunEvents, VideoProgress, deliver
+from modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
 from modules.notification_center import notifications
 from modules.recording_frames import (
     CameraTickRebaser,
@@ -534,7 +534,7 @@ class ProtocolVideoStep:
             if now - last_progress_ts >= _PROGRESS_INTERVAL_S:
                 last_progress_ts = now
                 self._send_progress(
-                    VideoProgress('recording', elapsed_s=elapsed, total_s=duration_s)
+                    VideoProgress(VideoPhase.RECORDING, elapsed_s=elapsed, total_s=duration_s)
                 )
             time.sleep(_WAIT_TICK_S)
         return outcome, end_reason
@@ -682,7 +682,7 @@ class ProtocolVideoStep:
         total = max(1, engine.frames_selected)
         while not engine.wait_for_drain(timeout=1.0):
             done = total - engine.pending_writes
-            self._send_progress(VideoProgress('writing', progress_pct=done / total * 100))
+            self._send_progress(VideoProgress(VideoPhase.WRITING, progress_pct=done / total * 100))
 
         result = None
         writer_dropped = 0
@@ -790,4 +790,4 @@ class ProtocolVideoStep:
         """Send 'ended' once, when a recording or writing phase was sent."""
         if self._progress_sent:
             self._progress_sent = False
-            deliver(self._events, 'video_progress', VideoProgress('ended'))
+            deliver(self._events, 'video_progress', VideoProgress(VideoPhase.ENDED))

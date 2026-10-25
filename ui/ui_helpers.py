@@ -18,6 +18,7 @@ from modules import gui_logger, live_work
 from modules.acquire_mode import AcquireMode
 from modules.caller import Caller, calling
 from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.run_events import VideoPhase
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -685,12 +686,12 @@ def show_video_progress(progress) -> None:
     the text this wrote; anything another writer has put there since stays.
     """
     global _video_progress_text
-    if progress.phase == 'ended':
+    if progress.phase == VideoPhase.ENDED:
         if get_title_event_text() == _video_progress_text:
             set_title_event_text(None)
         _video_progress_text = None
         return
-    if progress.phase == 'recording':
+    if progress.phase == VideoPhase.RECORDING:
         # The step's length is which video this is; its elapsed seconds are progress.
         text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
         stage = f'Recording Video... / {int(progress.total_s)}s'
