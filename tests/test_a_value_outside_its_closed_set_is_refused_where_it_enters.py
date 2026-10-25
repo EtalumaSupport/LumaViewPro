@@ -18,12 +18,15 @@ import dataclasses
 import pytest
 from fastapi.testclient import TestClient
 
+from modules import wire_encoding
 from modules.api_surface import api, api_fields
+from modules.axes import StageAxis
 from modules.exceptions import ArgumentRefusedError, ArgumentTypeRefusedError
 from modules.lumascope_api.camera import CameraAutoMode
 from modules.lumascope_api.illumination import LedReading, LedSnapshot, LedState
 from modules.scope_session import ScopeSession
 from rest.app import build_app
+from rest.routes import routes
 from tests.settings_fixtures import complete_settings
 
 OFFERED = ('Off', 'Once', 'Continuous')
@@ -204,3 +207,50 @@ def test_the_openapi_description_offers_the_sets_values_for_a_parameter(client):
     body = put['requestBody']['content']['application/json']['schema']
     model = document['components']['schemas'][body['$ref'].rsplit('/', 1)[-1]]
     assert model['properties']['mode']['enum'] == list(OFFERED)
+
+
+def _closed_sets_in(alternatives) -> set[type]:
+    """The closed sets a parameter takes: alone, optional, or as an array's or object's items."""
+    found = set()
+    for alternative in alternatives:
+        if alternative.form == wire_encoding.ENUM:
+            found.add(alternative.cls)
+        found |= _closed_sets_in(alternative.items)
+    return found
+
+
+def _enums_in(schema: object) -> list[list[str]]:
+    """Every ``enum`` a JSON schema fragment declares, however deeply nested."""
+    if isinstance(schema, dict):
+        own = [schema['enum']] if 'enum' in schema else []
+        return own + [e for value in schema.values() for e in _enums_in(value)]
+    if isinstance(schema, list):
+        return [e for value in schema for e in _enums_in(value)]
+    return []
+
+
+def test_every_route_taking_a_closed_set_describes_the_sets_values():
+    """Each parameter a wire client sends that takes a closed set is described
+    with exactly that set's values, so a client reads the words it may send
+    from the API's description; the door that judges them is the one
+    ``test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered``
+    pins."""
+    session_routes = routes(
+        ScopeSession,
+        handed_out=wire_encoding.handed_out(
+            ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
+        ),
+    )
+    seen, undescribed = set(), []
+    for route in session_routes:
+        if route.body is None:
+            continue
+        properties = route.body.model_json_schema().get('properties', {})
+        for parameter in route.member.parameters:
+            for cls in _closed_sets_in(parameter.alternatives):
+                seen.add(cls)
+                values = [str(member) for member in cls]
+                if values not in _enums_in(properties.get(parameter.name)):
+                    undescribed.append(f'{route.member.name} {parameter.name}: {cls.__name__}')
+    assert {CameraAutoMode, StageAxis} <= seen, 'the walk did not reach the closed-set parameters'
+    assert not undescribed, f'described without their set: {undescribed}'
