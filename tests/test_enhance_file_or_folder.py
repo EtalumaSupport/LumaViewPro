@@ -135,4 +135,4 @@ def test_the_mode_router_keeps_a_stitcher_for_every_mode():
     assert 'fft_phase_stitcher' in router
     assert 'overlap_stitcher' in router
     assert 'stage_position_stitcher' in router
-    assert 'quality_local_ncc' in router
+    assert 'StitchAlgorithm.QUALITY_LOCAL_NCC' in router
