@@ -3777,7 +3777,7 @@ class Protocol:
             return pd.Series(list(values), dtype=dtype, index=protocol_df.index)
 
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
-            protocol_df['Acquire'] = 'image'
+            protocol_df['Acquire'] = AcquireMode.IMAGE.value
             # Each row gets its own independent dict
             protocol_df['Video Config'] = _typed_column(
                 (copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in protocol_df.index), object
