@@ -171,7 +171,7 @@ session = ScopeSession.create(settings, simulate=True)   # settings['microscope'
 scope = session.scope
 
 identity = scope.channel_identity          # immutable snapshot
-identity.source                          # 'motorconfig' | 'scopes' | 'unresolved'
+identity.source                          # IdentitySource (modules.layer_record): 'motorconfig' | 'scopes' | 'unresolved'
 identity.model                           # the model it resolved as: the board's report, else the selected model; None if neither
 identity.filterset                       # the unit's filterset identity string
 for channel in identity.channels:

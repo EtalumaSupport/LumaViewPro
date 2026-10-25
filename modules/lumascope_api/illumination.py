@@ -30,7 +30,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
-from modules.layer_record import refuse_unknown_layer
+from modules.layer_record import IdentitySource, refuse_unknown_layer
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import api, api_fields
 
@@ -562,7 +562,7 @@ class IlluminationAPI:
                 raise HardwareCommandRefusedError(part.reason, member, missing=part)
             return mapped
         self.refuse_controller_not_connected(member)
-        if identity.source != 'unresolved' and self.ch2color(channel) is None:
+        if identity.source != IdentitySource.UNRESOLVED and self.ch2color(channel) is None:
             part = MissingPart.led(channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         return channel

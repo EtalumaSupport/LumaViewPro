@@ -22,6 +22,7 @@ here would take down a scope whose camera and stage are fine.
 
 from __future__ import annotations
 
+import enum
 import os
 import re
 import types
@@ -182,15 +183,23 @@ class ChannelRecord:
     label: str
 
 
+class IdentitySource(enum.StrEnum):
+    """Which rung of the identity resolver answered."""
+
+    MOTORCONFIG = 'motorconfig'
+    SCOPES = 'scopes'
+    UNRESOLVED = 'unresolved'
+
+
 @api_fields('channels', 'filterset', 'model', 'source')
 @dataclass(frozen=True)
 class ChannelIdentity:
     """The resolved per-unit identity snapshot.
 
-    `source` records which rung answered: 'motorconfig' (the unit's own
-    block -- authoritative and complete when present), 'scopes' (the
+    `source` records which rung answered: ``MOTORCONFIG`` (the unit's own
+    block -- authoritative and complete when present), ``SCOPES`` (the
     model's rows -- what a pre-block unit of this model has), or
-    'unresolved' (no block and no resolvable model; empty, and loud at
+    ``UNRESOLVED`` (no block and no resolvable model; empty, and loud at
     the point of LED use rather than silently wrong here).
 
     `model` is the scope model the resolver settled on, whichever rung
@@ -204,7 +213,7 @@ class ChannelIdentity:
 
     channels: tuple[ChannelRecord, ...]
     filterset: str
-    source: str
+    source: IdentitySource
     model: str | None
 
     @api(in_process=True, reads=True)
@@ -251,7 +260,9 @@ class ChannelIdentity:
         )
 
 
-UNRESOLVED = ChannelIdentity(channels=(), filterset='', source='unresolved', model=None)
+UNRESOLVED = ChannelIdentity(
+    channels=(), filterset='', source=IdentitySource.UNRESOLVED, model=None
+)
 
 # The release catalogue is loaded once per process: it ships with the
 # release (the file is version-paired), so nothing invalidates it at
@@ -860,9 +871,14 @@ def resolve_layer_identity(
     def _from_model(model: str) -> ChannelIdentity:
         entry = models.get(model)
         if entry is None:
-            return ChannelIdentity(channels=(), filterset='', source='unresolved', model=model)
+            return ChannelIdentity(
+                channels=(), filterset='', source=IdentitySource.UNRESOLVED, model=model
+            )
         return ChannelIdentity(
-            channels=entry.channels, filterset=entry.filterset or '', source='scopes', model=model
+            channels=entry.channels,
+            filterset=entry.filterset or '',
+            source=IdentitySource.SCOPES,
+            model=model,
         )
 
     if override_model is not None:
@@ -871,7 +887,7 @@ def resolve_layer_identity(
             f'{override_model!r} for this session'
         )
         identity = _from_model(override_model)
-        if identity.source == 'unresolved':
+        if identity.source == IdentitySource.UNRESOLVED:
             logger.error(
                 f'[LAYER_RECORD] override model {override_model!r} has no scopes '
                 f'entry; identity is unresolved'
@@ -891,7 +907,7 @@ def resolve_layer_identity(
         if not isinstance(filterset, str):
             filterset = ''
         return ChannelIdentity(
-            channels=layers, filterset=filterset, source='motorconfig', model=model
+            channels=layers, filterset=filterset, source=IdentitySource.MOTORCONFIG, model=model
         )
     if 'Layers' in board or 'Filterset' in board:
         report(ChannelBlockSupersededNotice(model))
@@ -906,6 +922,6 @@ def resolve_layer_identity(
     if not model:
         return UNRESOLVED
     identity = _from_model(model)
-    if identity.source == 'unresolved':
+    if identity.source == IdentitySource.UNRESOLVED:
         logger.error(f'[LAYER_RECORD] model {model!r} has no scopes entry; identity is unresolved')
     return identity

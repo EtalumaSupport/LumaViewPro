@@ -22,6 +22,7 @@ from modules.layer_record import (
     ChannelIdentity,
     ChannelRecord,
     GREY,
+    IdentitySource,
     format_display_color,
     load_layer_catalogue,
     output_color,
@@ -269,7 +270,8 @@ class TestPrecedence:
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
         block = {'Channels': channels(LS560_ROWS), 'Filterset': 'Custom-X'}
         identity = resolve(path, board_block=block, motor_model='LS850T')
-        assert identity.source == 'motorconfig'
+        assert identity.source == IdentitySource.MOTORCONFIG
+        assert type(identity.source) is IdentitySource
         assert identity.filterset == 'Custom-X'
         assert [r.key_name for r in identity.channels] == ['BF', 'Green']
         assert identity.find('Red') is None
