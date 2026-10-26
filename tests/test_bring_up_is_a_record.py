@@ -44,7 +44,7 @@ from modules.lumascope_api.bring_up import (
 from modules.notification_center import OutcomeKind
 from modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
 class _SafetyOffFailedBoard(NullLEDBoard):
@@ -86,8 +86,11 @@ def _bring_up(monkeypatch, tmp_path, *, motor=None, led=None, camera=None, **set
         return real_camera_create('sim', **kw)
 
     monkeypatch.setattr(lumascope_module.camera_registry, 'create', _camera)
+    # On an installation of its own: a real scope takes its lock.
     return ScopeSession.create(
-        complete_settings(live_folder=str(tmp_path), **settings), warn_pre_release=False
+        complete_settings(live_folder=str(tmp_path), **settings),
+        source_path=str(installation_of_its_own()),
+        warn_pre_release=False,
     )
 
 

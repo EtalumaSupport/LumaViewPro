@@ -22,7 +22,7 @@ import modules.lumascope_api.illumination as illumination_module
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from modules.scope_session import ScopeSession
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 from tests.stock_channels import LED0
 
 _DRIVER = pathlib.Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
@@ -70,6 +70,7 @@ def test_the_session_hands_the_setting_to_the_led_driver(monkeypatch, tmp_path, 
 
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path), fx2_debug_wire_enabled=enabled),
+        source_path=str(installation_of_its_own()),
         warn_pre_release=False,
     )
     try:

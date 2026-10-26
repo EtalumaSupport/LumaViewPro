@@ -3,6 +3,7 @@
 
 import copy
 import dataclasses
+import functools
 import pathlib
 import sys
 import threading
@@ -87,6 +88,7 @@ from modules.lumascope_api.bring_up import (
 from modules.frame_validity import FrameValidity, FrameValiditySource
 from modules.fx2_driver_step import repair_refusal
 from modules.layer_record import LedBoardFamily, MotorBoardFamily
+from modules.lvp_lock import take_scope_lock
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.activity_claim import ActivityClaim
@@ -204,6 +206,28 @@ AxisState = _api_constants.AxisState
 # ---------------------------------------------------------------------------
 # What a part's failure to come up means, for the bring-up record
 # ---------------------------------------------------------------------------
+
+
+def _torn_down_if_it_raises(construct: Callable) -> Callable:
+    """``construct``, a scope's constructor, undone when it raises.
+
+    A real scope takes the installation's instance lock in ``_init_minimal``,
+    which also starts the scope's lanes; its drivers open and its motion
+    monitor starts after. A raise after that would leave a scope no caller
+    holds alive under its monitor thread, its ports open and the lock taken,
+    so every later real scope in the process would be refused. The raise
+    goes on to the caller once ``_abandon_construction`` has run.
+    """
+
+    @functools.wraps(construct)
+    def guarded(self: 'Lumascope', *args, **kwargs) -> None:
+        try:
+            construct(self, *args, **kwargs)
+        except BaseException:
+            self._abandon_construction()
+            raise
+
+    return guarded
 
 
 def _camera_failure_cause(exc: BaseException) -> str:
@@ -395,7 +419,17 @@ class Lumascope:
         assignments and left ~12 attributes unset, which made diagnostic
         instances second-class. Centralizing here makes the slot list
         the single point of truth.
+
+        A real scope takes its installation's instance lock first, before
+        a lane starts or a driver opens a port, so a scope refused here has
+        opened nothing. It is the one step both constructors run, so no real
+        scope is built without it; a simulated scope takes none.
+
+        Raises:
+            ScopeInUseError: another process, or another real scope in this
+                one, holds the lock.
         """
+        self._instance_lock = None if simulated else take_scope_lock(self.source_path)
         # One disconnect() at a time. Re-entrant: the exit hook holds it
         # while it calls disconnect().
         self._disconnect_lock = threading.RLock()
@@ -590,6 +624,7 @@ class Lumascope:
         logger.info(f'[SCOPE API ] Using the LED FIRMWARE in simulation (model={model})')
         return board, backend.led_board
 
+    @_torn_down_if_it_raises
     def __init__(
         self,
         simulate: bool = False,
@@ -690,6 +725,10 @@ class Lumascope:
                 ``'needs_simulated_camera'``, ``sim_camera_stall`` or a
                 ``sim_focal_spread_um`` given for a scope whose camera is not
                 the simulated camera.
+            ScopeInUseError: ``'scope_in_use'``, a real scope asked for while
+                another LumaViewPro, REST server or script drives the
+                microscope, or while another real scope in this process is
+                open. Nothing was opened.
         """
         for argument, value, given in (
             ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
@@ -698,7 +737,9 @@ class Lumascope:
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
         if warn_pre_release:
-            _fire_pre_release_warning()
+            # One frame deeper than the helper's default: the constructor
+            # runs inside _torn_down_if_it_raises.
+            _fire_pre_release_warning(stacklevel=4)
         self._fx2_debug_wire = fx2_debug_wire
 
         # Read before anything is started, so a missing or unusable
@@ -1712,7 +1753,61 @@ class Lumascope:
                 reports it where it stops.
         """
         with self._disconnect_lock:
-            self._disconnect()
+            try:
+                self._disconnect()
+            finally:
+                # After the teardown, whatever it raised: it has swapped
+                # every driver for its Null variant, so no part of this
+                # scope still drives the microscope. A host recomposing
+                # after a failed teardown is not refused by this scope.
+                if self._instance_lock is not None:
+                    self._instance_lock.close()
+
+    def _abandon_construction(self) -> None:
+        """Undo a constructor that raised: stop what it started, close what it opened, give back the lock.
+
+        ``disconnect`` turns the scope off through its sub-APIs, which a
+        constructor that raised may not have built yet; nothing was lit or
+        moved while it ran, so this stops the lanes and the motion monitor
+        and closes each driver it opened. A raise before ``_init_minimal``
+        took the lock has nothing to undo. A step whose teardown fails is
+        logged and the rest still run: the constructor's own raise is the
+        one the caller handles.
+        """
+        built = vars(self)
+        if '_instance_lock' not in built:
+            return
+        # The lanes are waited for, unlike disconnect's: nothing is lit to
+        # turn off first, and the constructor ran on the caller's thread, so
+        # they are idle and their threads end within the bounded join.
+        steps = [
+            lane.shutdown
+            for lane in (built.get('_io_executor'), built.get('_camera_executor'))
+            if lane is not None
+        ]
+        if 'motion' in built:
+            steps.append(self.motion._disconnect)
+        steps += [
+            driver.disconnect
+            for driver in (
+                built.get('_led_driver'),
+                built.get('_motion_driver'),
+                built.get('_camera_driver'),
+            )
+            if not isinstance(driver, (NullLEDBoard, NullMotionBoard))
+            and hasattr(driver, 'disconnect')
+        ]
+        try:
+            for step in steps:
+                try:
+                    step()
+                except Exception:
+                    logger.exception(
+                        f'[SCOPE API ] {step.__qualname__} failed after the scope was not built'
+                    )
+        finally:
+            if self._instance_lock is not None:
+                self._instance_lock.close()
 
     def _disconnect(self) -> None:
         """disconnect()'s teardown, run under its lock."""
@@ -2021,59 +2116,71 @@ class Lumascope:
 
         Returns:
             Lumascope: Instance with led/motion connected, camera=None.
+
+        Raises:
+            InstallationFileError: an installation file it reads is missing
+                or unusable. Nothing was opened.
+            ScopeInUseError: ``'scope_in_use'``, as ``Lumascope()``.
+                Nothing was opened.
         """
         instance = cls.__new__(cls)
+        instance._init_diagnostic(source_path)
+        return instance
+
+    @_torn_down_if_it_raises
+    def _init_diagnostic(self, source_path: 'str | os.PathLike | None') -> None:
+        """``create_diagnostic``'s construction, on the instance it made without ``__init__``."""
         # The same read __init__ makes, first, before anything is started:
         # one construction path for the installation's files on every
         # scope, and a missing one stops the diagnostic with nothing to
         # tear down.
-        motorconfig_defaults = instance._read_catalogues(get_source_root(source_path))
+        motorconfig_defaults = self._read_catalogues(get_source_root(source_path))
         # Shared state-slot init (audit #35) -- same call __init__ makes.
-        instance._init_minimal(simulated=False)
+        self._init_minimal(simulated=False)
 
         # Connect boards through the registries, as __init__ does -- motion
         # driver first so MotionAPI._driver resolves correctly at
         # construction time. The diagnostic has no settings to say what the
         # model expects, so it is held to every board, and it reports
         # nothing: its record is on the scope for whoever asks.
-        instance._led_driver, led_fallback = led_registry.create_with_fallback('auto')
-        instance._motion_driver, motor_fallback = motor_registry.create_with_fallback(
+        self._led_driver, led_fallback = led_registry.create_with_fallback('auto')
+        self._motion_driver, motor_fallback = motor_registry.create_with_fallback(
             'auto', motorconfig_defaults=motorconfig_defaults
         )
-        instance._bring_up_parts = {
-            Part.MOTOR: _board_status(Part.MOTOR, instance._motion_driver, motor_fallback),
-            Part.LED: _board_status(Part.LED, instance._led_driver, led_fallback),
+        self._bring_up_parts = {
+            Part.MOTOR: _board_status(Part.MOTOR, self._motion_driver, motor_fallback),
+            Part.LED: _board_status(Part.LED, self._led_driver, led_fallback),
         }
-        instance._bring_up_substitutions = []
-        instance._camera_failure = None
+        self._bring_up_substitutions = []
+        self._camera_failure = None
 
         # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
 
-        instance.motion = MotionAPI(instance, instance._motion_driver)
-        present_axes = instance._motion_driver.detect_present_axes()
-        instance.motion._init_axes(present_axes, instance._motion_driver.detect_homed_axes())
-        instance.motion._start_monitor()
+        self.motion = MotionAPI(self, self._motion_driver)
+        present_axes = self._motion_driver.detect_present_axes()
+        self.motion._init_axes(present_axes, self._motion_driver.detect_homed_axes())
+        self.motion._start_monitor()
 
-        instance._frame_buffer = None
+        self._frame_buffer = None
 
         # Diagnostic instances have no settings to name a configured
         # model, so identity resolves from the motor-reported model alone
         # -- empty (and loud on LED use) when the hardware reports none.
         # That is the honest answer for a support tool: it must never
         # invent an identity for a unit it is diagnosing.
-        instance._configured_model = None
-        instance._fx2_debug_wire = False
-        instance.channel_identity = instance._resolve_layer_identity()
+        self._configured_model = None
+        self._fx2_debug_wire = False
+        self.channel_identity = self._resolve_layer_identity()
 
         # Build capabilities -- diagnostic instances still need this so
         # any code that reads scope.capabilities.* works.
-        instance.capabilities = ScopeCapabilities.from_drivers(
-            motion=instance._motion_driver,
-            led=instance._led_driver,
+        self.capabilities = ScopeCapabilities.from_drivers(
+            motion=self._motion_driver,
+            led=self._led_driver,
             camera=None,
-            channel_identity=instance.channel_identity,
-            scope_models=instance._scope_models,
+            channel_identity=self.channel_identity,
+            scope_models=self._scope_models,
             timing_record=None,
         )
 
@@ -2090,24 +2197,23 @@ class Lumascope:
         from modules.lumascope_api.runtime_state import RuntimeState
         from modules.lumascope_api.simulation import SimulationAPI
 
-        instance.illumination = IlluminationAPI(instance, instance._led_driver)
-        instance.camera = CameraAPI(instance, instance.frame_validity)
-        instance.imaging = ImagingAPI(instance, instance.camera, instance.frame_validity)
-        instance.diagnostics = DiagnosticsAPI(instance)
-        instance.protocols = ProtocolsAPI(instance)
-        instance.runtime_state = RuntimeState(instance)
-        instance._simulation = SimulationAPI(instance)
+        self.illumination = IlluminationAPI(self, self._led_driver)
+        self.camera = CameraAPI(self, self.frame_validity)
+        self.imaging = ImagingAPI(self, self.camera, self.frame_validity)
+        self.diagnostics = DiagnosticsAPI(self)
+        self.protocols = ProtocolsAPI(self)
+        self.runtime_state = RuntimeState(self)
+        self._simulation = SimulationAPI(self)
 
         # No hardware when neither board came up, read from the record as
         # __init__ reads it; the diagnostic probes no camera.
-        instance._no_hardware = not any(status.up for status in instance._bring_up_parts.values())
+        self._no_hardware = not any(status.up for status in self._bring_up_parts.values())
 
         logger.info(
             '[SCOPE API ] Diagnostic scope created '
-            f'(LED={instance.led_connected}, '
-            f'Motor={instance.motor_connected})'
+            f'(LED={self.led_connected}, '
+            f'Motor={self.motor_connected})'
         )
-        return instance
 
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

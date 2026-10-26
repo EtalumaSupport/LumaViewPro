@@ -15,8 +15,10 @@ see too.
 """
 
 import copy
+import json
 import logging
 import pathlib
+import shutil
 import tempfile
 
 from modules import settings_init, settings_paths
@@ -34,6 +36,24 @@ LIVE_FOLDER_ROOT: pathlib.Path | None = None
 def shipped_template() -> dict:
     """The shipped template as the application reads it."""
     return settings_init.load_template(_LOGGER, str(_TEMPLATE))
+
+
+def installation_of_its_own() -> pathlib.Path:
+    """A folder holding a copy of the repo's ``data/``, for a real scope a test builds.
+
+    A real scope takes its installation's instance lock (``lvp_lock_port``),
+    so one built on the repo's own folder meets a LumaViewPro running on
+    this machine, and another worker's real scope. The copy's
+    ``current.json`` names port 0, which binds an ephemeral port of its own:
+    it meets neither, and leaves no gap between finding a free port and
+    binding it. A developer's own ``current.json`` is left out of the copy.
+    """
+    root = pathlib.Path(tempfile.mkdtemp(prefix='installation_', dir=LIVE_FOLDER_ROOT))
+    shutil.copytree(
+        _REPO_ROOT / 'data', root / 'data', ignore=shutil.ignore_patterns('current.json')
+    )
+    (root / 'data' / 'current.json').write_text(json.dumps({'lvp_lock_port': 0}))
+    return root
 
 
 def _fresh_live_folder() -> str:

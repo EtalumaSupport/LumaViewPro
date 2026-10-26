@@ -581,7 +581,10 @@ def diagnostic_scope():
             lambda name='auto', **kw: (NullMotionBoard(), absent),
         ),
     ):
-        instance = _lumascope.Lumascope.create_diagnostic()
+        from tests.settings_fixtures import installation_of_its_own
+
+        # On an installation of its own: a real scope takes its lock.
+        instance = _lumascope.Lumascope.create_diagnostic(source_path=installation_of_its_own())
     try:
         yield instance
     finally:

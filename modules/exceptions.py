@@ -928,6 +928,31 @@ class InstallationFileError(Fault, Exception):
         self.file_path = file_path
 
 
+class ScopeInUseError(Refusal, Exception):
+    """A real scope was asked for while another is driving the microscope.
+
+    Raised by a real scope's construction, before any of its hardware is
+    opened, when another process holds the installation's instance lock --
+    a LumaViewPro, a REST server or a script -- or another real scope in
+    this process holds it: a process drives one real scope. Nothing was
+    opened. Unlike ``BringUpError``'s port notices, which report one part
+    that did not come up beside the rest, this refuses the whole scope.
+
+    Attributes:
+        reason: ``'scope_in_use'``.
+    """
+
+    cause = RefusalCause.STATE
+    reason = 'scope_in_use'
+    title = 'Microscope In Use'
+
+    def __init__(self):
+        super().__init__(
+            'The microscope was not opened, because another LumaViewPro, REST server '
+            'or script is driving it on this computer. Close that one and try again.'
+        )
+
+
 class BringUpError(Fault, Exception):
     """A part of the scope did not come up as it should have; the rest of the scope runs.
 

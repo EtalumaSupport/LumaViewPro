@@ -1563,6 +1563,10 @@ class ScopeSession:
                 value in ``settings`` the writer refuses: a dict handed to a
                 session is a write of every key at once, held to the same
                 ranges.
+            ScopeInUseError: ``'scope_in_use'``, a session with
+                ``simulate=False`` asked for while another LumaViewPro, REST
+                server or script drives the microscope, or while another
+                real scope in this process is open. Nothing was opened.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root

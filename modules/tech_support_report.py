@@ -950,10 +950,17 @@ class FirmwareDiagnostics:
         say) leaves ``self._scope`` None and the cause in
         ``build_failure``, so the report can say in its own files why no
         hardware step ran instead of reporting every board as unplugged.
+
+        A retry closes the scope it built before it builds the next: a
+        process drives one real scope, so a second built beside the first
+        is refused.
         """
         try:
             from modules.lumascope_api import Lumascope
 
+            if self._scope is not None:
+                previous, self._scope = self._scope, None
+                previous.disconnect()
             self._scope = Lumascope.create_diagnostic()
             self.build_failure = None
         except Exception as e:

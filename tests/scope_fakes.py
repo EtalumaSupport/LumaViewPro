@@ -82,10 +82,17 @@ def build_scope(**kwargs):
     brought up, so its camera would otherwise stream its whole sensor, a
     size the instrument does not run at and several times the frame to
     render.
+
+    A real scope a test names no folder for is built on an installation of
+    its own (``installation_of_its_own``): it takes its installation's
+    instance lock, which on the repo's folder would meet a LumaViewPro
+    running beside the suite.
     """
     from modules.lumascope_api import Lumascope
-    from tests.settings_fixtures import complete_settings
+    from tests.settings_fixtures import complete_settings, installation_of_its_own
 
+    if not kwargs.get('simulate') and kwargs.get('source_path') is None:
+        kwargs['source_path'] = installation_of_its_own()
     # A simulated scope no test names a model for is the LS850T, the
     # model every bare test scope has been built on; a scope with no
     # session's settings would otherwise take the template's model, and
