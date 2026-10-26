@@ -862,9 +862,11 @@ def _record(
     Channels block: the LED address, the excitation, the name, and an
     optional colour. A fluorescence channel is labelled by its excitation,
     so it must carry one and needs no name; any other channel is labelled by
-    its name. A row's colour is held to the one stored form and full
-    brightness (`parse_display_color`); without one the channel takes the
-    catalogue's.
+    its name. A fluorescence key named for its excitation (``Ex<nm>``) states
+    that excitation a second time, so a row whose ``excitation_nm`` is
+    another describes no channel. A row's colour is held to the one stored
+    form and full brightness (`parse_display_color`); without one the
+    channel takes the catalogue's.
     """
     raw_channel = row.get('led_channel')
     if raw_channel is None:
@@ -892,6 +894,8 @@ def _record(
     if release.modality == Modality.FLUORESCENCE:
         if excitation is None:
             return 'has no excitation_nm'
+        if key_name.startswith('Ex') and key_name != f'Ex{excitation:g}':
+            return f'has excitation_nm {excitation:g}, not the excitation its key names'
         label = f'{excitation:g} nm'
     elif display is None:
         return 'has no display_name'

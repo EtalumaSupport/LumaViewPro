@@ -39,6 +39,7 @@ from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.layer_record import release_colors
 from tests.case_walk import failing_cases
+from tests.installation_fixtures import NON_STOCK_CHANNELS
 
 # The shipped catalogue's records, as scopes.json states them.
 CATALOGUE = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder']
@@ -504,6 +505,19 @@ class TestRowParsing:
             'ChannelRecord.modality',
         )
 
+    def test_a_model_row_whose_excitation_key_names_another_excitation_refuses_the_catalogue(
+        self,
+    ):
+        # A key named for its excitation states the excitation twice; a model
+        # row whose two disagree is the release's defect, refused whole.
+        entry = {**MODEL_KEYS, 'Layers': [row('Ex550', None, 1, 561)]}
+        data = {'LayerOrder': CATALOGUE + list(NON_STOCK_CHANNELS), 'Models': {'M': entry}}
+        catalogue = load_layer_catalogue(data, 'scopes.json')
+        with pytest.raises(InstallationFileError) as refused:
+            read_scope_models(data, 'scopes.json', catalogue, old_names=())
+        assert "model 'M'" in str(refused.value)
+        assert 'excitation_nm 561' in str(refused.value) and 'Ex550' in str(refused.value)
+
     def test_single_channel_and_excitation_normalise(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': [row('Green', 'Green', 1, 488)]}})
         green = resolve(path, motor_model='M').find('Green')
@@ -561,6 +575,23 @@ class TestTheBoardsChannelBlock:
         assert [r.key_name for r in identity.channels] == ['BF']
         assert [n.reason for n in REPORTED] == ['channel_rows_skipped']
         assert set(REPORTED[0].skipped) == {'Skylight', 'Green', 'Red', 'PC'}
+
+    def test_a_row_whose_excitation_key_names_another_excitation_is_left_out_and_reported(
+        self, tmp_path
+    ):
+        catalogue = CATALOGUE + list(NON_STOCK_CHANNELS)
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}}, catalogue)
+        block = {
+            'Channels': {
+                'Ex550': {'led_channel': 1, 'excitation_nm': 561},
+                'Ex640': {'led_channel': 2, 'excitation_nm': 640},
+            }
+        }
+        identity = resolve(path, board_block=block, motor_model='LS850T')
+        assert [r.key_name for r in identity.channels] == ['Ex640']
+        assert [n.reason for n in REPORTED] == ['channel_rows_skipped']
+        assert list(REPORTED[0].skipped) == ['Ex550']
+        assert 'excitation_nm 561' in REPORTED[0].skipped['Ex550']
 
     def test_two_channels_on_one_led_address_leave_the_unit_no_channels(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
