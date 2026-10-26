@@ -152,10 +152,6 @@ def nav_env(monkeypatch):
     # The move runs at once, so what it would drive is seen.
     monkeypatch.setattr('ui.ui_helpers.submit_move', MagicMock(side_effect=inline_submit_move))
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
-    monkeypatch.setattr(
-        'modules.config_ui_getters.get_selected_labware',
-        lambda: ('labware', MagicMock()),
-    )
     return SimpleNamespace(
         ctx=ctx,
         carried=carried,

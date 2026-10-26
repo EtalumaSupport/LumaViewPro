@@ -491,11 +491,9 @@ def _ui_except_counts():
 # call site disappears when, and only when, the GUI stops answering.
 _UI_ANSWERER_CALL_PIN = {
     'lumaviewpro.py': 1,
-    'ui/advanced_settings.py': 2,
-    'ui/image_settings.py': 5,
-    'ui/layer_control.py': 1,
-    'ui/microscope_settings.py': 3,
-    'ui/stage.py': 4,
+    'ui/advanced_settings.py': 1,
+    'ui/image_settings.py': 4,
+    'ui/microscope_settings.py': 2,
     'ui/ui_helpers.py': 1,
 }
 
@@ -692,7 +690,6 @@ _GUI_ORCHESTRATION_PIN = {
 }
 
 _MODULES_CONTEXT_READ_PIN = {
-    'modules/config_ui_getters.py': 1,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 0,

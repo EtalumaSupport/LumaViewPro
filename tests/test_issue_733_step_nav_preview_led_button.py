@@ -131,10 +131,6 @@ def stepnav_env(monkeypatch):
     monkeypatch.setattr('ui.ui_helpers.submit_move', submit_move)
     # Run scheduled UI callbacks inline so the closures under test execute.
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
-    monkeypatch.setattr(
-        'modules.config_ui_getters.get_selected_labware',
-        lambda: ('labware', MagicMock()),
-    )
     return SimpleNamespace(ctx=ctx, layer_obj=layer_obj, submit_move=submit_move)
 
 

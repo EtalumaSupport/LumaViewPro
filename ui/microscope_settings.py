@@ -18,9 +18,6 @@ from modules.config_helpers import (
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
 )
-from modules.config_ui_getters import (
-    firmware_stim_supported,
-)
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
@@ -527,7 +524,9 @@ class MicroscopeSettings(BoxLayout):
         display input here and are never written.
         """
         settings = _app_ctx.ctx.settings
-        stimulation_enabled = firmware_stim_supported() and settings['stimulation_enabled']
+        stimulation_enabled = (
+            _app_ctx.ctx.scope.capabilities.has_firmware_stim and settings['stimulation_enabled']
+        )
 
         # Update all layer controls
         for layer in common_utils.get_layers():

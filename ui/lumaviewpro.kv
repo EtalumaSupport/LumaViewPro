@@ -1247,7 +1247,7 @@
 				# (logs showed "SELECT LABWARE 96 well microplate" twice). Text is
 				# driven by settings['protocol']['labware']; #634 fix removed the
 				# 'New' KV default that bypassed the empty-text -> settings fallback
-				# in get_selected_labware() and crashed first-run before
+				# in the labware read and crashed first-run before
 				# select_labware() could populate the spinner.
 				log_name: 'LABWARE'
 				text_follows_pick: True

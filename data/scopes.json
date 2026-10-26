@@ -1,14 +1,14 @@
 {
     "LayerOrder": [
-        {"key": "BF", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 50, "display_color": "#ffffff", "step_order": 0, "sim_light_per_ma_s": 89.1},
-        {"key": "PC", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 1, "sim_light_per_ma_s": 3.57},
-        {"key": "DF", "modality": "transmitted", "background": "dark", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 2, "sim_light_per_ma_s": 0.594},
-        {"key": "Ex405", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#0000ff", "step_order": 4, "sim_light_per_ma_s": 0.0126},
-        {"key": "Ex488", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 3, "sim_light_per_ma_s": 0.0126},
-        {"key": "Ex550", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 7, "sim_light_per_ma_s": 0.0126},
-        {"key": "Ex589", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 5, "sim_light_per_ma_s": 0.0126},
-        {"key": "Ex640", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 8, "sim_light_per_ma_s": 0.0126},
-        {"key": "Lumi", "modality": "luminescence", "background": "dark", "manual_max_exposure_ms": null, "display_color": "#0000ff", "step_order": 6, "sim_light_per_ma_s": null}
+        {"key": "BF", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 50, "manual_max_illumination_ma": 50, "display_color": "#ffffff", "step_order": 0, "sim_light_per_ma_s": 89.1},
+        {"key": "PC", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 200, "manual_max_illumination_ma": 50, "display_color": "#ffffff", "step_order": 1, "sim_light_per_ma_s": 3.57},
+        {"key": "DF", "modality": "transmitted", "background": "dark", "manual_max_exposure_ms": 200, "manual_max_illumination_ma": 50, "display_color": "#ffffff", "step_order": 2, "sim_light_per_ma_s": 0.594},
+        {"key": "Ex405", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "manual_max_illumination_ma": null, "display_color": "#0000ff", "step_order": 4, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex488", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "manual_max_illumination_ma": null, "display_color": "#00ff00", "step_order": 3, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex550", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "manual_max_illumination_ma": null, "display_color": "#00ff00", "step_order": 7, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex589", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "manual_max_illumination_ma": null, "display_color": "#ff0000", "step_order": 5, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex640", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "manual_max_illumination_ma": null, "display_color": "#ff0000", "step_order": 8, "sim_light_per_ma_s": 0.0126},
+        {"key": "Lumi", "modality": "luminescence", "background": "dark", "manual_max_exposure_ms": null, "manual_max_illumination_ma": null, "display_color": "#0000ff", "step_order": 6, "sim_light_per_ma_s": null}
     ],
     "OldChannelNames": {
         "Blue": {"led_address": 0, "stock_key": "Ex405"},

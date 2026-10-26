@@ -203,6 +203,7 @@ class TestCatalogueRecords:
             'modality': {'modality': 'phase'},
             'background': {'background': 'grey'},
             'manual_max_exposure_ms': {'manual_max_exposure_ms': 0},
+            'manual_max_illumination_ma': {'manual_max_illumination_ma': 50.5},
             'display_color': {'display_color': [1, 0, 1]},
             'step_order': {'step_order': 1.5},
         }

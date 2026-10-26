@@ -886,23 +886,29 @@ def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 
-# Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
-# are far brighter per mA than the fluorescence channels, so the slider
-# stops well under the board's ceiling; the text entry reaches past it for
-# the rare sample that needs it (Eric, 2026-09-12: "slider at 50, but you can
-# type up to 500 still"), up to what the connected board can be asked for,
-# which the settings writer refuses to exceed.
-TRANSMITTED_MAX_ILLUMINATION_MA = 50
+# The manual illumination ceilings are each layer's catalogue record's
+# (`manual_max_illumination_ma` in scopes.json). The transmitted LEDs
+# (BF / PC / DF) are far brighter per mA than the fluorescence channels, so
+# their slider stops well under the board's ceiling; the text entry reaches
+# past it for the rare sample that needs it (Eric, 2026-09-12: "slider at 50,
+# but you can type up to 500 still"), up to what the connected board can be
+# asked for, which the settings writer refuses to exceed.
 
 
 def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
     """The illumination-slider upper bound for one layer: the connected LED
-    driver's cap, narrowed to the transmitted-layer policy for BF / PC / DF.
+    driver's cap, narrowed to the layer's manual ceiling where it has one.
+
+    Raises:
+        ArgumentRefusedError: ``layer`` is not a layer of this release.
     """
+    from modules.layer_record import release_layer
+
     cap = int(capabilities.led_max_ma)
-    if layer in common_utils.get_transmitted_layers():
-        return min(TRANSMITTED_MAX_ILLUMINATION_MA, cap)
-    return cap
+    ceiling = release_layer(layer).manual_max_illumination_ma
+    if ceiling is None:
+        return cap
+    return min(ceiling, cap)
 
 
 # The manual exposure ceilings are each layer's catalogue record's

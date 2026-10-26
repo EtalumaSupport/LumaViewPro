@@ -23,7 +23,6 @@ import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
-from modules.config_ui_getters import firmware_stim_supported
 from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
 
 
@@ -53,8 +52,8 @@ class AdvancedSettings(Popup):
     xy_stage_supported = BooleanProperty(False)
 
     # Mirrors the LED firmware's stim capability so the row hides when the
-    # firmware cannot drive stimulation. Set on open from
-    # firmware_stim_supported(); default hidden so the row never flashes
+    # firmware cannot drive stimulation. Set on open from the scope's
+    # has_firmware_stim capability; default hidden so the row never flashes
     # before the capability is read.
     stim_supported = BooleanProperty(False)
 
@@ -118,7 +117,7 @@ class AdvancedSettings(Popup):
         self.load_scopes()
         self.ids['scope_spinner'].text = settings['microscope']
 
-        self.stim_supported = firmware_stim_supported()
+        self.stim_supported = _app_ctx.ctx.scope.capabilities.has_firmware_stim
         self.ids['stimulation_settings_btn'].state = (
             'down' if settings['stimulation_enabled'] else 'normal'
         )

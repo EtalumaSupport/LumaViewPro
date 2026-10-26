@@ -1,57 +1,47 @@
-"""Regression: the Auto Gain/Exp control is hidden on cameras without hardware AG/AE.
+"""Regression: the Auto Gain/Exp control is hidden on cameras without hardware auto-gain.
 
-The "Auto Gain/Exp" checkbox drives the camera's HARDWARE auto-gain/exposure
-(``imaging.set_auto_gain`` -> ``driver.auto_gain``); ``set_auto_gain`` itself
-already guards its settle path on ``profile.has_auto_gain``. On a camera whose
-profile reports neither hardware AG nor AE (IDS U3-34Lx, FX2 LS620) the checkbox
-is a no-op, so it must not be shown.
+The "Auto Gain/Exp" checkbox drives the camera's HARDWARE auto-gain
+(``imaging.set_auto_gain`` -> ``driver.auto_gain``), which ``CameraAPI``
+refuses on a camera without it (IDS U3-34Lx, FX2 LS620); auto-gain and
+auto-exposure come together on every shipped camera. So the control is
+shown only where the scope answers ``capabilities.camera_supports_auto_gain``.
 
-The fix:
-  - ``config_ui_getters.camera_autogain_supported()`` is the single gate: True
-    when the live camera reports hardware auto-gain OR auto-exposure (the one
-    control drives both). It resolves through ``_live_capabilities()``, which
-    reads ``ctx.lumaview.scope`` -- the reference a scope swap rebuilds --
-    not the build-time ``ctx.scope`` registry field. The sibling
-    ``firmware_stim_supported()`` shares that accessor, so the stale-scope bug
-    can't live on in one gate but not the other. Fails safe to True (show) when
-    no capability surface exists yet.
-  - ``LayerControl.camera_autogain_support`` is an orthogonal runtime gate (like
-    ``show_camera_controls``), AND-ed with the per-layer static
-    ``autogain_support`` in the kv so Lumi stays hidden regardless. Set on every
-    layer by the capability-sync grouping ``ImageSettings._init_ui`` runs on
-    connect (a scope swap re-runs the same grouping).
+  - ``ImageSettings.set_layer_autogain_support`` asks the scope and sets
+    ``LayerControl.camera_autogain_support`` on every layer, an orthogonal
+    runtime gate AND-ed in the kv with the per-layer static
+    ``autogain_support``, so Lumi stays hidden regardless. It runs in the
+    capability-sync grouping ``ImageSettings._init_ui`` runs on connect.
   - The effective enable is the API's answer, read NON-DESTRUCTIVELY at the
     consumption point (``LayerControl.effective_auto_gain`` reads
     ``imaging.applied_auto_gain_for``), used by ``apply_settings`` for the
-    slider-disable / camera enable. The
-    persisted ``auto_gain`` is never mutated, so a capable camera's saved
-    preference survives a swap to an AG-less body and back.
-
-The UI modules touch Kivy widgets and cannot be imported under the test mocks
-(see test_ids_native_roi_sync_binning), so the wiring is pinned structurally
-with AST guards; the gate logic + capability mapping are exercised directly.
+    slider-disable / camera enable. The persisted ``auto_gain`` is never
+    mutated, so a capable camera's saved preference survives a swap to an
+    AG-less body and back.
 """
 
 import ast
 import pathlib
+from types import SimpleNamespace
 
 from unittest.mock import MagicMock
 
+import pytest
+
 import modules.app_context as _app_ctx
+import modules.common_utils as common_utils
 from drivers.camera import Camera
-from modules.config_ui_getters import camera_autogain_supported
 from drivers.camera_profiles import lookup_profile
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 from tests.scope_fakes import build_scope
 from tests.stock_channels import LED0, LED1, LED2
+from ui.image_settings import ImageSettings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
 MS_PATH = REPO_ROOT / 'ui' / 'microscope_settings.py'
 KV_PATH = REPO_ROOT / 'ui' / 'lumaviewpro.kv'
-CONFIG_GETTERS_PATH = REPO_ROOT / 'modules' / 'config_ui_getters.py'
 
 
 def _method_node(path: pathlib.Path, name: str) -> ast.FunctionDef:
@@ -70,47 +60,31 @@ def _calls_named(method: ast.FunctionDef, attr: str) -> list[ast.Call]:
     ]
 
 
-def _ctx_reporting(auto_gain=False, auto_exposure=False):
-    """A ctx whose LIVE scope (ctx.lumaview.scope) reports the given caps."""
-    ctx = MagicMock()
-    caps = ctx.lumaview.scope.capabilities
-    caps.camera_supports_auto_gain = auto_gain
-    caps.camera_supports_auto_exposure = auto_exposure
-    return ctx
+class TestTheControlFollowsTheScopesAnswer:
+    """set_layer_autogain_support shows the control on every layer exactly where the scope's camera has auto-gain."""
 
+    @pytest.mark.parametrize(('model', 'shown'), [('LS850T', True), ('LS620', False)])
+    def test_each_layer_shows_the_control_where_the_camera_has_auto_gain(
+        self, monkeypatch, model, shown
+    ):
+        scope = build_scope(simulate=True, sim_model=model, register_atexit=False)
+        try:
+            controls = {
+                layer: SimpleNamespace(camera_autogain_support=None)
+                for layer in common_utils.get_layers()
+            }
+            panel = ImageSettings.__new__(ImageSettings)
+            panel._drawers = {
+                layer: SimpleNamespace(ids={'control': control})
+                for layer, control in controls.items()
+            }
+            monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope))
 
-class TestAutogainGetter:
-    """camera_autogain_supported() -- the single visibility gate."""
+            panel.set_layer_autogain_support()
 
-    def test_true_when_hardware_auto_gain(self, monkeypatch):
-        monkeypatch.setattr(_app_ctx, 'ctx', _ctx_reporting(auto_gain=True))
-        assert camera_autogain_supported() is True
-
-    def test_true_when_only_auto_exposure(self, monkeypatch):
-        # The single control drives BOTH; either capability keeps it visible.
-        monkeypatch.setattr(_app_ctx, 'ctx', _ctx_reporting(auto_exposure=True))
-        assert camera_autogain_supported() is True
-
-    def test_false_when_neither(self, monkeypatch):
-        # IDS / LS620 shape: no hardware AG and no hardware AE -> hide.
-        monkeypatch.setattr(_app_ctx, 'ctx', _ctx_reporting())
-        assert camera_autogain_supported() is False
-
-    def test_reads_live_scope_not_stale_registry(self, monkeypatch):
-        # The gate must read ctx.lumaview.scope (a scope swap rebuilds it first),
-        # not the ctx.scope registry field refreshed after it. A stale ctx.scope
-        # reporting True must NOT keep the control visible on an AG-less camera.
-        ctx = _ctx_reporting()  # live scope: no AG/AE
-        ctx.scope.capabilities.camera_supports_auto_gain = True  # stale registry
-        ctx.scope.capabilities.camera_supports_auto_exposure = True
-        monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-        assert camera_autogain_supported() is False
-
-    def test_fails_safe_to_shown_when_no_capabilities(self, monkeypatch):
-        ctx = MagicMock()
-        ctx.lumaview.scope.capabilities = None
-        monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-        assert camera_autogain_supported() is True
+            assert {c.camera_autogain_support for c in controls.values()} == {shown}
+        finally:
+            scope.disconnect()
 
 
 class TestCapabilityMapping:
@@ -184,24 +158,6 @@ class TestUiWiring:
             'The Auto Gain/Exp visibility must AND in root.camera_autogain_support.'
         )
 
-    def test_set_layer_autogain_support_uses_the_single_gate(self):
-        method = _method_node(IMAGE_SETTINGS_PATH, 'set_layer_autogain_support')
-        name_calls = [
-            n
-            for n in ast.walk(method)
-            if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == 'camera_autogain_supported'
-        ]
-        assert name_calls, (
-            'set_layer_autogain_support must resolve visibility via the single '
-            'camera_autogain_supported() gate.'
-        )
-        body = ast.dump(method)
-        assert 'camera_autogain_support' in body, (
-            'set_layer_autogain_support must set layer_obj.camera_autogain_support.'
-        )
-
     def test_set_layer_autogain_support_does_not_mutate_persisted_setting(self):
         # Non-destructive: the gate must NOT write back settings[layer]['auto_gain']
         # (the writeback destroyed a capable camera's saved preference on swap-back).
@@ -243,19 +199,6 @@ class TestUiWiring:
             'show_as_shown must derive the box (and so the slider-disable) from '
             'effective_auto_gain(), not the raw stored auto_gain.'
         )
-
-    def test_both_gates_share_live_capabilities_accessor(self):
-        # Cluster fix: firmware_stim_supported and camera_autogain_supported must
-        # both resolve through _live_capabilities() (ctx.lumaview.scope), so the
-        # stale-ctx.scope twin bug can't reappear in one gate but not the other.
-        for fn in ('firmware_stim_supported', 'camera_autogain_supported'):
-            method = _method_node(CONFIG_GETTERS_PATH, fn)
-            assert _calls_named(method, '_live_capabilities') or any(
-                isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Name)
-                and n.func.id == '_live_capabilities'
-                for n in ast.walk(method)
-            ), f'{fn} must resolve capabilities via _live_capabilities().'
 
     def test_init_ui_applies_autogain_support_on_connect(self):
         # _init_ui applies the gate via the sync_camera_capability_ranges

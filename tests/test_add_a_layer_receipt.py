@@ -33,6 +33,7 @@ ADDED_LAYERS = read_installation_file(resolve_data_file('scopes.json'))['LayerOr
         'modality': 'fluorescence',
         'background': 'dark',
         'manual_max_exposure_ms': 1000,
+        'manual_max_illumination_ma': None,
         'display_color': '#ff00ff',
         'step_order': 9,
         'sim_light_per_ma_s': 0.0126,

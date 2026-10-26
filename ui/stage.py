@@ -8,7 +8,6 @@ from kivy.uix.widget import Widget
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.config_ui_getters import get_selected_labware
 from ui.step_navigation import go_to_step
 from modules.coord_transformations import PlateLocation
 from ui.ui_helpers import find_nearest_step, move_to_plate, run_unasked, xy_gestures_offered
@@ -161,7 +160,7 @@ class Stage(Widget):
             mouse_y = mouse_y - self.y
 
             # Create current labware instance
-            _, labware = get_selected_labware()
+            labware = _app_ctx.ctx.scope.runtime_state.get_labware()
 
             # Get labware dimensions
             dim_max = labware.get_dimensions()
@@ -232,7 +231,8 @@ class Stage(Widget):
         Create FBO for static labware rendering (wells, outlines, stage area).
         This significantly optimizes performance by pre-rendering static elements.
         """
-        labware_name, labware = get_selected_labware()
+        labware = _app_ctx.ctx.scope.runtime_state.get_labware()
+        labware_name = labware.name
 
         if labware_name in self._labware_fbos:
             logger.debug(f'[Stage     ] Using cached labware FBO for {labware_name}')
@@ -368,7 +368,8 @@ class Stage(Widget):
         Create FBO for protocol step locations rendering.
         This optimizes performance by pre-rendering step markers.
         """
-        labware_name, labware = get_selected_labware()
+        labware = _app_ctx.ctx.scope.runtime_state.get_labware()
+        labware_name = labware.name
 
         # Check if we need to regenerate the FBO
         if self._protocol_step_locations_df is None or not self._protocol_step_locations_show:
@@ -491,7 +492,8 @@ class Stage(Widget):
                 return
 
         # Create current labware instance
-        labware_name, labware = get_selected_labware()
+        labware = scope.runtime_state.get_labware()
+        labware_name = labware.name
 
         # Check if labware changed - trigger full redraw
         if labware_name != self._cached_labware_name:

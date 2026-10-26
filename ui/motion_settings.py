@@ -399,7 +399,7 @@ class XYStageControl(BoxLayout):
     #     x_pos = lumaview.scope.get_current_position('X')  # Get current x position in um
     #     y_pos = lumaview.scope.get_current_position('Y')  # Get current x position in um
 
-    #     _, labware = get_selected_labware()
+    #     labware = lumaview.scope.runtime_state.get_labware()
     #     x_plate_offset = labware.plate['offset']['x']*1000
     #     y_plate_offset = labware.plate['offset']['y']*1000
 

@@ -12,11 +12,8 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules import gui_logger
-from modules.config_ui_getters import (
-    camera_autogain_supported,
-    get_layer_exposure_slider_max,
-    get_layer_illumination_slider_max,
-)
+from modules.config_helpers import layer_max_illumination_ma_for_ui
+from modules.config_ui_getters import get_layer_exposure_slider_max
 from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
@@ -211,10 +208,10 @@ class ImageSettings(BoxLayout):
 
     def set_layer_exposure_ranges(self):
         """Size each layer's exposure slider from the connected camera's cap,
-        through the getter that also applies the transmitted-layer policy.
+        narrowed to the layer's catalogue ceiling.
 
-        The one owner of exp_slider.max. The policy numbers live beside the
-        illumination policy below the GUI rather than as literals here, so the
+        The one owner of exp_slider.max. The ceilings are catalogue data,
+        beside the illumination ceilings, rather than literals here, so the
         bound a non-GUI caller is held to and the bound the slider shows come
         from the same place.
         """
@@ -253,33 +250,32 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['gain_slider'].max = ctx.max_gain
 
     def set_layer_illumination_ranges(self):
-        """Size each layer's illumination slider from the connected LED
-        driver's cap, through the getter that also applies the transmitted-
-        layer policy. The one owner of ill_slider.max; the .kv value is the
-        placeholder until the scope is built. A scope with no LED board has
-        no cap to size from, and its illumination controls are hidden
-        (set_layer_led_controller_support).
+        """Size each layer's illumination slider from the scope's LED
+        driver cap, narrowed to the layer's catalogue ceiling. The one owner
+        of ill_slider.max; the .kv value is the placeholder until this runs.
+        A scope with no LED board has no cap to size from,
+        and its illumination controls are hidden
+        (set_layer_led_controller_support), so those layers are skipped.
         """
+        capabilities = _app_ctx.ctx.scope.capabilities
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             if not layer_obj.led_controller_support:
                 continue
-            bound = get_layer_illumination_slider_max(layer)
-            if bound is None:
-                continue
-            layer_obj.ids['ill_slider'].max = bound
+            layer_obj.ids['ill_slider'].max = layer_max_illumination_ma_for_ui(capabilities, layer)
 
     def set_layer_autogain_support(self):
-        """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
+        """Gate the Auto Gain/Exp control on the camera's hardware auto-gain.
 
-        The checkbox drives hardware auto-gain/exposure (camera.set_auto_gain
-        -> driver.auto_gain), so on a camera without either (IDS U3-34Lx, FX2
-        LS620) the control is a no-op and is hidden. Parallel to
+        The checkbox drives hardware auto-gain (camera.set_auto_gain ->
+        driver.auto_gain), which CameraAPI refuses on a camera without it
+        (IDS U3-34Lx, FX2 LS620), so there the control is hidden. Auto-gain
+        and auto-exposure come together on every shipped camera. Parallel to
         set_layer_gain_ranges: runs at every capability-sync point (connect /
         scope-change). The per-layer static rule (Lumi has no autogain) is
         preserved -- this only drives the orthogonal camera_autogain_support
-        gate, AND-ed with autogain_support in the kv. Capability resolution +
-        fail-safe live in camera_autogain_supported() (the single gate).
+        gate, AND-ed with autogain_support in the kv. The answer is the
+        scope's capability, camera_supports_auto_gain.
 
         Only the visibility gate is set here; the persisted per-layer auto_gain
         is NOT mutated. The enable actually in force is the API's answer
@@ -287,7 +283,7 @@ class ImageSettings(BoxLayout):
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """
-        supported = camera_autogain_supported()
+        supported = _app_ctx.ctx.scope.capabilities.camera_supports_auto_gain
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.camera_autogain_support = supported

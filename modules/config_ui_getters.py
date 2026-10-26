@@ -1,72 +1,24 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-UI-dependent configuration getter functions.
+Slider bounds the GUI asks for, handed the live state it holds.
 
-These functions read Kivy widget state and return configuration
-dicts / tuples. They require a running GUI and cannot be used in
-headless or REST API mode.
+The GUI asks the scope its capability and labware questions directly
+(``ctx.scope.capabilities``, ``ctx.scope.runtime_state``); what remains
+here takes its inputs as arguments and reaches for nothing.
 
 For GUI-independent equivalents, see config_helpers.py.
 """
 
 import logging
 
-import modules.app_context as _app_ctx
 import modules.config_helpers as config_helpers
-import modules.labware as labware
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
-# ---------------------------------------------------------------------------
-# Capability gates
-# ---------------------------------------------------------------------------
-
-
-def _live_scope():
-    """The LIVE scope object, or None if one has not been built yet.
-
-    ``ctx.lumaview.scope`` is the reference a scope swap rebuilds first; the
-    ``ctx.scope`` registry field is a copy, refreshed after it. Every gate that
-    resolves off the attached scope goes through here, so a swap is reflected
-    everywhere at once and the gates cannot drift apart -- and so this module
-    reaches for the app context in exactly one place.
-    """
-    lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
-    return getattr(lumaview, 'scope', None)
-
-
-def _live_capabilities():
-    """The capability surface of the LIVE scope, or None if not built yet."""
-    return getattr(_live_scope(), 'capabilities', None)
-
-
-def firmware_stim_supported() -> bool:
-    """True only when the connected LED firmware supports stimulation.
-
-    The single gate for all stimulation UI: when this is False, stim controls
-    stay hidden no matter what the user's stimulation_enabled setting says.
-    Fails safe to False (hide) when the scope or its capability surface is not
-    yet available, so stim never appears on firmware that cannot drive it.
-    """
-    caps = _live_capabilities()
-    return bool(caps.has_firmware_stim) if caps is not None else False
-
-
-def get_layer_illumination_slider_max(layer: str) -> int | None:
-    """The illumination-slider upper bound for ``layer`` from the live scope's
-    LED driver, narrowed to the transmitted-layer policy; None before the
-    scope is built (the .kv placeholder stands until then).
-    """
-    caps = _live_capabilities()
-    if caps is None:
-        return None
-    return config_helpers.layer_max_illumination_ma_for_ui(caps, layer)
-
-
 def get_layer_exposure_slider_max(camera_max_ms: float, layer: str) -> float:
     """The exposure-slider upper bound for ``layer``: the connected camera's
-    cap, narrowed to the manual transmitted policy.
+    cap, narrowed to the layer's manual ceiling where it has one.
 
     Takes the cap rather than reading it off the app context -- the caller
     already holds the value the settings load resolved through
@@ -74,40 +26,3 @@ def get_layer_exposure_slider_max(camera_max_ms: float, layer: str) -> float:
     direction this layer is not allowed to depend in.
     """
     return config_helpers.layer_max_exposure_ms_for_ui(camera_max_ms, layer)
-
-
-def camera_autogain_supported() -> bool:
-    """True when the connected camera has hardware auto-gain or auto-exposure.
-
-    The single gate for the "Auto Gain/Exp" control, which drives BOTH
-    auto-gain and auto-exposure -- so it stays visible if the hardware offers
-    either, and hides only when the camera offers neither (IDS U3-34Lx, FX2
-    LS620). Fails safe to True (show) when no capability surface exists yet, so
-    a not-yet-built scope keeps the prior always-shown behavior rather than
-    hiding on unknown.
-    """
-    caps = _live_capabilities()
-    if caps is None:
-        return True
-    return bool(caps.camera_supports_auto_gain or caps.camera_supports_auto_exposure)
-
-
-# ---------------------------------------------------------------------------
-# Position / labware
-# ---------------------------------------------------------------------------
-
-
-def get_selected_labware() -> tuple[str, labware.Labware]:
-    """The currently-selected labware, read from SETTINGS.
-
-    Settings is the single labware store: the spinner writes through on
-    every selection (select_labware persists the choice), so a
-    spinner-first read here would only re-open the divergence -- a
-    settings write that bypassed the spinner (protocol load) used to
-    make the GUI and headless paths answer differently.
-
-    Returns (labware_id, wellplate_obj). A stored plate the catalogue
-    does not have raises ConfigError; no other plate is substituted.
-    """
-    plate = _live_scope().runtime_state.get_labware()
-    return plate.name, plate

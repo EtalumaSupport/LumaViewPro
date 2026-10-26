@@ -43,10 +43,13 @@ def stage_and_motion(monkeypatch):
         'ctx',
         SimpleNamespace(
             settings={},
-            scope=SimpleNamespace(motion=motion, capabilities=SimpleNamespace(has_xy_stage=True)),
+            scope=SimpleNamespace(
+                motion=motion,
+                capabilities=SimpleNamespace(has_xy_stage=True),
+                runtime_state=SimpleNamespace(get_labware=_refuse_to_draw),
+            ),
         ),
     )
-    monkeypatch.setattr(stage_module, 'get_selected_labware', _refuse_to_draw)
     stage = Stage.__new__(Stage)
     stage._protocol_step_redraw = False
     # The crosshair was last drawn at the centre.
@@ -71,6 +74,8 @@ def test_after_the_position_was_unknown_the_same_position_is_drawn(stage_and_mot
 
 
 class _Plate:
+    name = 'plate'
+
     def __init__(self):
         self.spacing_x_mm = 9
         self.spacing_y_mm = 9
@@ -89,7 +94,7 @@ def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     stage, motion = stage_and_motion
     motion.get_target_position = lambda axis: None
     motion.get_current_position = lambda axis: None
-    monkeypatch.setattr(stage_module, 'get_selected_labware', lambda: ('plate', _Plate()))
+    monkeypatch.setattr(_app_ctx.ctx.scope.runtime_state, 'get_labware', lambda: _Plate())
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))
     stage._cached_labware_name = 'plate'
     stage.width = stage.height = 100

@@ -35,6 +35,7 @@ def _fluorescence_record(key: str, color: str, step_order: int) -> dict:
         'modality': 'fluorescence',
         'background': 'dark',
         'manual_max_exposure_ms': 1000,
+        'manual_max_illumination_ma': None,
         'display_color': color,
         'step_order': step_order,
         'sim_light_per_ma_s': 0.0126,

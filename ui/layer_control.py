@@ -15,7 +15,6 @@ import modules.layer_record as layer_record
 import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.acquire_mode import AcquireMode
-from modules.config_ui_getters import firmware_stim_supported
 from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
@@ -269,7 +268,7 @@ class LayerControl(BoxLayout):
         if (
             self.layer in common_utils.get_fluorescence_layers()
             and settings['stimulation_enabled']
-            and firmware_stim_supported()
+            and ctx.scope.capabilities.has_firmware_stim
         ):
             self.stimulation_support = True
             self.show_stim_controls = True

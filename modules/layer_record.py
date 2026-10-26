@@ -112,6 +112,10 @@ class CatalogueLayer:
     against.
     `manual_max_exposure_ms` is the exposure slider's ceiling, None where the
     layer has none (luminescence integrates as long as the sensor allows).
+    `manual_max_illumination_ma` is the illumination slider's ceiling, None
+    where the slider goes to the LED driver's cap. It is the slider's range,
+    not the light's limit: the text entry reaches past it, up to what the
+    connected board can be asked for.
     `display_color` is the release's colour for the layer, ``'#rrggbb'``.
     `step_order` is where the layer's steps are inserted in a new protocol,
     which is not its display order.
@@ -129,6 +133,7 @@ class CatalogueLayer:
     modality: Modality
     background: Background
     manual_max_exposure_ms: float | None
+    manual_max_illumination_ma: int | None
     display_color: str
     step_order: int
     sim_light_per_ma_s: float | None
@@ -837,6 +842,13 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
     ceiling = entry['manual_max_exposure_ms']
     if ceiling is not None and not (_is_number(ceiling) and ceiling > 0):
         raise refuse('whose manual_max_exposure_ms is not a positive number or null')
+    illumination_ceiling = entry['manual_max_illumination_ma']
+    if illumination_ceiling is not None and not (
+        isinstance(illumination_ceiling, int)
+        and not isinstance(illumination_ceiling, bool)
+        and illumination_ceiling > 0
+    ):
+        raise refuse('whose manual_max_illumination_ma is not a positive integer or null')
     try:
         parse_display_color(entry['display_color'])
     except ValueError as e:
@@ -852,6 +864,7 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
         modality=modality,
         background=background,
         manual_max_exposure_ms=None if ceiling is None else float(ceiling),
+        manual_max_illumination_ma=illumination_ceiling,
         display_color=entry['display_color'],
         step_order=step_order,
         sim_light_per_ma_s=None if light is None else float(light),

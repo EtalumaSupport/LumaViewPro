@@ -84,6 +84,27 @@ class TestGetProtocolTimeParams:
         assert result['period'] == datetime.timedelta(minutes=5)
         assert result['duration'] == datetime.timedelta(hours=2)
 
+    def test_an_unparseable_stored_period_is_refused_naming_it(self):
+        # The stored schedule is read in one place, the settings lane, and a
+        # value it cannot use is refused there -- never replaced by a default
+        # schedule the user did not choose.
+        from modules.protocol import ProtocolScheduleRefusedError
+
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': 'not-a-number', 'duration': '1'}}
+            )
+        assert 'period' in str(err.value)
+
+    def test_an_unparseable_stored_duration_is_refused_naming_it(self):
+        from modules.protocol import ProtocolScheduleRefusedError
+
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': '1', 'duration': 'not-a-number'}}
+            )
+        assert 'duration' in str(err.value)
+
 
 class TestGetImageCaptureConfig:
     def test_reads_config(self):

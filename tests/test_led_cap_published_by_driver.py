@@ -194,7 +194,7 @@ def _fake_caps(cap):
     return SimpleNamespace(led_max_ma=cap)
 
 
-def test_slider_bound_is_the_cap_narrowed_by_transmitted_policy():
+def test_slider_bound_is_the_cap_narrowed_by_the_catalogue_ceiling():
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'BF') == 50
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'PC') == 50
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), LED0) == 840
@@ -233,7 +233,7 @@ def test_the_capability_grouping_owns_the_slider_bound():
     setter = find_def('ui/image_settings.py', 'set_layer_illumination_ranges', 'ImageSettings')
     assert setter is not None
     assert _ill_slider_max_writes_in(setter) == 1
-    assert 'get_layer_illumination_slider_max' in _calls_in(setter)
+    assert 'layer_max_illumination_ma_for_ui' in _calls_in(setter)
 
 
 def test_nothing_else_in_the_panel_writes_the_slider_bound():

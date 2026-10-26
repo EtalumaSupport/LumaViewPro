@@ -24,7 +24,6 @@ from types import SimpleNamespace
 import pytest
 
 import modules.app_context as _app_ctx
-import ui.stage as stage_module
 from modules.kivy_utils import UiDispatcher
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
@@ -64,7 +63,7 @@ def window(tmp_path, monkeypatch):
     stage._prev_x_target = stage._prev_y_target = None
     stage._prev_x_current = stage._prev_y_current = None
     stage.draw_labware = lambda *a, **k: stage.draw_labware_io_calculations()
-    monkeypatch.setattr(stage_module, 'get_selected_labware', _refuse_to_draw)
+    monkeypatch.setattr(session.scope.runtime_state, 'get_labware', _refuse_to_draw)
     ctx = SimpleNamespace(
         lumaview=SimpleNamespace(scope=session.scope),
         scope=session.scope,
