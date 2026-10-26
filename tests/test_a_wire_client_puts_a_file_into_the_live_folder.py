@@ -42,6 +42,18 @@ def client(session):
         yield client
 
 
+def test_a_files_bytes_are_taken_whatever_type_the_client_names(client, live):
+    """The upload takes bytes; the JSON rule is the JSON routes'. curl's own
+    defaults name other types, and the route declares octet-stream."""
+    for name, media in (('plate.bin', 'application/octet-stream'), ('plate.png', 'image/png')):
+        answer = client.put(
+            f'/api/v1/files/{name}', content=b'\x89PNG', headers={'Content-Type': media}
+        )
+
+        assert answer.status_code == 201, (media, answer.text)
+        assert (live / name).read_bytes() == b'\x89PNG'
+
+
 def test_a_file_is_written_under_its_name_with_its_folders_made(client, live):
     answer = client.put('/api/v1/files/Uploads/plate 1/layout.csv', content=b'A1,B1\n')
 

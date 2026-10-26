@@ -2765,7 +2765,7 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `422` | A refusal of the request as sent (`cause` `'request'`): change it before sending it again. Also `invalid_request`, a body that does not fit the member. |
 | `500` | A fault: the call failed. Also `still_running`: the scope's own bound on the call ran out, and the call may still finish. |
 | `404` | `not_found`: no such route, handle, job or file. |
-| `405` / `415` | `method_not_allowed`; `unsupported_media_type` (a body that is not JSON). |
+| `405` / `415` | `method_not_allowed`; `unsupported_media_type` (a body that is not JSON, sent to a route that reads JSON: a member call. The file upload takes any type, and a route that reads no body ignores one). |
 | `503` | `overloaded`, with `Retry-After`; `server_closing`, while the server closes, with no `Retry-After`: it will not answer again; `no_frame_yet`, a live view the camera sent no frame for, with `Retry-After`. |
 
 ### The event stream

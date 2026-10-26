@@ -334,6 +334,15 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
             415,
             'unsupported_media_type',
         ),
+        (
+            lambda c: c.post(
+                '/api/v1/scope/illumination/led_on',
+                content=b'{"channel": 5',
+                headers={'content-type': 'text/plain'},
+            ),
+            415,
+            'unsupported_media_type',
+        ),
     ],
     ids=[
         'no route',
@@ -343,6 +352,7 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
         'a body that is not text',
         'a missing argument',
         'not JSON',
+        'not JSON before a body that does not parse',
     ],
 )
 def test_the_servers_own_answers_carry_their_own_reasons(client, reported, ask, status, reason):

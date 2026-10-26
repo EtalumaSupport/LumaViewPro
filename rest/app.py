@@ -30,6 +30,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 import fastapi
+import fastapi.routing
 import pydantic
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -168,6 +169,8 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         lifespan=served,
         responses=problems.OPENAPI_RESPONSES,
     )
+    # Before any route is added: every route is built of this class.
+    app.router.route_class = _JsonBodyRoute
 
     async def versions() -> dict[str, list[str]]:
         """The API versions this server answers, each at ``/api/<version>/``."""
@@ -181,7 +184,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         response_model=None,
         responses={200: {'model': Versions, 'description': 'The versions.'}},
     )
-    app.middleware('http')(_identify_and_admit)
+    app.middleware('http')(_identify_and_log)
     app.add_exception_handler(ServerRefusedError, _refused)
     app.add_exception_handler(RequestValidationError, _body_does_not_fit)
     app.add_exception_handler(StarletteHTTPException, _routing_refused)
@@ -566,10 +569,38 @@ def _add_handle_routes(
         )
 
 
-async def _identify_and_admit(
+class _JsonBodyRoute(fastapi.routing.APIRoute):
+    """A route that reads a JSON body refuses a body of another type.
+
+    Keyed on the route reading a body parameter, so every JSON route carries
+    the rule as it is built, and a route that takes its body as bytes (the
+    file upload) does not. Refused before the body is read, so it answers
+    ahead of the body's own ``invalid_request``.
+    """
+
+    def get_route_handler(self) -> Callable[[fastapi.Request], Awaitable[fastapi.Response]]:
+        handle = super().get_route_handler()
+        if not self.dependant.body_params:
+            return handle
+
+        async def json_only(request: fastapi.Request) -> fastapi.Response:
+            media = request.headers.get('content-type', '').split(';')[0].strip().lower()
+            has_body = request.headers.get('content-length', '0') != '0' or (
+                'transfer-encoding' in request.headers
+            )
+            if has_body and media and media != 'application/json' and not media.endswith('+json'):
+                raise problems.unsupported_media_type(
+                    f'A body is JSON (application/json), not {media}.'
+                )
+            return await handle(request)
+
+        return json_only
+
+
+async def _identify_and_log(
     request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]]
 ) -> fastapi.Response:
-    """Give the request its id, refuse a body that is not JSON before any route reads it, and log it.
+    """Give the request its id, and log it.
 
     Every answer carries the id as ``X-Request-ID`` (a problem also as its
     ``instance``), and the REST log has one line per request under it. A
@@ -579,17 +610,7 @@ async def _identify_and_admit(
     request.state.request_id = request_id
     request.state.requested = problems.now()
     started = time.perf_counter()
-    media = request.headers.get('content-type', '').split(';')[0].strip().lower()
-    has_body = request.headers.get('content-length', '0') != '0' or (
-        'transfer-encoding' in request.headers
-    )
-    if has_body and media and media != 'application/json' and not media.endswith('+json'):
-        response = problems.refused_by_server(
-            problems.unsupported_media_type(f'A body is JSON (application/json), not {media}.'),
-            request_id,
-        ).response()
-    else:
-        response = await call_next(request)
+    response = await call_next(request)
     response.headers['X-Request-ID'] = request_id
     _request_log.info(
         f'[{request_id}] {request.method} {request.url.path} -> {response.status_code} '
