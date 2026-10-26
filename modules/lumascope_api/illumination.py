@@ -1231,7 +1231,7 @@ class IlluminationAPI:
     def _identity_name(self, address: int) -> str | None:
         """The layer the unit's identity names for *address*, else None."""
         for record in self._scope.channel_identity.channels:
-            if address in record.led_channel:
+            if address in record.led_addresses:
                 return record.key_name
         return None
 
@@ -1746,9 +1746,9 @@ class IlluminationAPI:
         """
         refuse_unknown_layer(color, argument='color')
         record = self._scope.channel_identity.find(color)
-        if record is None or not record.led_channel:
+        if record is None or not record.led_addresses:
             return None
-        return record.led_channel[0]
+        return record.led_addresses[0]
 
     # --- Listeners ---
     @api(in_process=True, event=LedReading)

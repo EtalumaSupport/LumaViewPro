@@ -253,7 +253,7 @@ def test_a_scope_that_came_up_without_its_board_has_no_led_cap_or_channels(make_
         timing_record=None,
     )
 
-    assert (caps.led_max_ma, caps.led_channels) == (None, None)
+    assert (caps.led_max_ma, caps.led_addresses) == (None, None)
     assert caps.led_colors == ('BF', 'Blue', 'Green', 'Red')
 
 
@@ -266,7 +266,7 @@ def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
     monkeypatch.setattr(
         scope,
         'capabilities',
-        dataclasses.replace(scope.capabilities, led_max_ma=None, led_channels=None),
+        dataclasses.replace(scope.capabilities, led_max_ma=None, led_addresses=None),
     )
     runner = session.create_protocol_runner()
 

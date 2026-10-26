@@ -80,7 +80,7 @@ class ScopeInitConfig:
         if channel_identity is None:
             expects_led = True
         else:
-            expects_led = any(layer.led_channel for layer in channel_identity.channels)
+            expects_led = any(layer.led_addresses for layer in channel_identity.channels)
         return cls(
             turreted=turreted,
             binning_size=binning_size,

@@ -275,7 +275,7 @@ class CameraShutter(enum.StrEnum):
     'has_turret',
     'has_xy_stage',
     'is_color_native',
-    'led_channels',
+    'led_addresses',
     'led_colors',
     'led_max_ma',
     'lens_focal_length_mm',
@@ -327,8 +327,8 @@ class ScopeCapabilities:
     sensor property); never a hardcoded default."""
 
     # ---- LED ----
-    led_channels: tuple[int, ...] | None
-    """LED channel indices the installed board addresses -- from
+    led_addresses: tuple[int, ...] | None
+    """The LED addresses the installed board drives -- from
     `led.available_channels()`. RP2040 = (0, ..., 7), FX2/LVC =
     (0,1,2,3). None when the scope came up without its LED board."""
 
@@ -455,6 +455,16 @@ class ScopeCapabilities:
     pulse train inside the LED firmware with sub-microsecond pulse-edge
     accuracy. Caller gates with `caps.has_firmware_stim`."""
 
+    @property
+    def led_channels(self) -> tuple[int, ...] | None:
+        """``led_addresses`` by its old name, unpublished.
+
+        Read by the engineering plugin releases before the one that reads
+        ``led_addresses``; it goes when ``MINIMUM_PLUGIN_VERSIONS`` rises
+        past them.
+        """
+        return self.led_addresses
+
     @classmethod
     def from_drivers(
         cls,
@@ -502,10 +512,10 @@ class ScopeCapabilities:
         pixel_size_um = _resolve_pixel_size_um(motorconfig, optics, camera)
         lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, optics)
 
-        # LED. A scope that came up without its board has no channels and
+        # LED. A scope that came up without its board has no addresses and
         # no current cap, not the null board's stand-in table and 0 mA.
         led_present = not isinstance(led, NullLEDBoard)
-        led_channels = (
+        led_addresses = (
             _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
             if led_present
             else None
@@ -514,8 +524,8 @@ class ScopeCapabilities:
         # the driver: the driver knows which board channels it can drive,
         # while which layer names exist (and what they drive) is unit
         # data. A scope with no resolved identity honestly reports no
-        # colour names -- the channels stay visible via led_channels.
-        led_colors = tuple(r.key_name for r in channel_identity.channels if r.led_channel)
+        # colour names -- the addresses stay visible via led_addresses.
+        led_colors = tuple(r.key_name for r in channel_identity.channels if r.led_addresses)
         has_firmware_stim = _probe(
             'led.supports_firmware_stim',
             lambda: bool(led.supports_firmware_stim()),
@@ -655,7 +665,7 @@ class ScopeCapabilities:
             model=model,
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
-            led_channels=led_channels,
+            led_addresses=led_addresses,
             led_colors=led_colors,
             led_max_ma=led_max_ma,
             has_firmware_stim=has_firmware_stim,

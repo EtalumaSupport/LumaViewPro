@@ -759,7 +759,7 @@ class TestScopeCapabilities:
         assert caps.has_focus is True
         assert caps.has_xy_stage is True
         assert caps.has_turret is True
-        assert caps.led_channels == (0, 1, 2, 3, 4, 5, 6, 7)
+        assert caps.led_addresses == (0, 1, 2, 3, 4, 5, 6, 7)
         assert caps.led_max_ma == scope._led_driver.max_ma()
 
     def test_the_cameras_datasheet_facts_are_capabilities(self):
@@ -880,7 +880,7 @@ class TestScopeCapabilities:
             scope_models={},
             timing_record=None,
         )
-        assert caps.led_channels is None
+        assert caps.led_addresses is None
         assert caps.led_max_ma is None
 
     def test_four_channel_led_capabilities(self):
@@ -913,7 +913,7 @@ class TestScopeCapabilities:
             scope_models=load_scope_models(),
             timing_record=None,
         )
-        assert caps.led_channels == (0, 1, 2, 3)
+        assert caps.led_addresses == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}
 
     def test_capabilities_is_frozen(self):

@@ -412,7 +412,7 @@ class TestFX2LEDThinTranslator:
 
 class TestFX2LEDChannelDiscovery:
     """Post-B3 channel discovery -- `available_channels()` drives API validation
-    and `ScopeCapabilities.led_channels`.
+    and `ScopeCapabilities.led_addresses`.
     """
 
     def test_returns_four_integer_channels(self, fake_fx2_conn):

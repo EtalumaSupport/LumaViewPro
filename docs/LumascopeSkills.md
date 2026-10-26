@@ -183,7 +183,7 @@ for channel in identity.channels:
     channel.background                   # Background: 'bright' | 'dark': what an overlay is drawn against
     channel.display_color                # the unit's colour for the layer, '#rrggbb': its board block row's, else the
                                          # release's; the colour used is session.channel_colors(), which applies the override
-    channel.led_channel                  # tuple of board addresses; () = drives no LED
+    channel.led_addresses                # tuple of board addresses; () = drives no LED
     channel.excitation_nm                # excitation wavelength; None for broadband/LED-less
 
 identity.find('BF')                      # record by stable key name, or None
@@ -1558,6 +1558,7 @@ still states the major version.
 | level 34 | A quantity's unit is the last part of its name: the camera's limits are `capabilities.camera_limits.gain_min_db`, `gain_max_db`, `analog_gain_max_db`, `exposure_min_ms` and `exposure_max_ms`; `scope.camera.read_frame_rate_fps()` and `read_exposure_min_ms()`; `run_grab_lifecycle_benchmark(inter_cycle_delay_s=...)` takes the delay in seconds, 0 to 60, and its result names it `inter_cycle_delay_s`. The old names are gone, with no alias. |
 | level 35 | The image mode is an `ImageMode` (`modules.image_mode`: `EIGHT_BIT`, `SCIENTIFIC`, `SCALED`, `FALSE_COLOR_RGB`): `scope.camera.set_image_mode` takes a member or its plain string and refuses any other value `not_offered` (`ArgumentRefusedError`) before anything is applied; `scope.camera.image_mode` answers a member. The `IMAGE_MODE_*` names are the members until the plugin release that names the members, then go. |
 | level 36 | An LED is lit by its board address on the engineering members `scope.illumination.led_on_by_address(address, illumination_ma)` and `led_off_by_address(address)`; an address off the board is refused `led_address_unknown` (`argument` `address`), and one no channel of the model drives `axis_absent` with `MissingPart.led_address(address)`. `led_on` / `led_off` still take an address until the plugin release that lights through these, then take a channel's name only. |
+| level 37 | An LED's board addresses are `led_addresses`: `scope.capabilities.led_addresses` (the installed board's, None without one) and a `ChannelRecord`'s `led_addresses` (the addresses the channel drives, `()` for none). A model's and a board's file still name a row's addresses `led_channel`. The old names read until the plugin release that reads the new ones, then go. |
 
 ### Configuration queries
 
@@ -1913,7 +1914,7 @@ scope.motion.remove_turret_listener(on_turret)
 
 ## scope.illumination
 
-Channels available depend on the scope — the layers it lights are the records in `scope.channel_identity.channels` whose `led_channel` is not empty.
+Channels available depend on the scope — the layers it lights are the records in `scope.channel_identity.channels` whose `led_addresses` is not empty.
 
 **A channel is named, never numbered.** `'BF'`, `'PC'`, `'DF'`, `'Blue'`,
 `'Green'`, `'Red'` — the name is the portable identity. The number behind it is
@@ -2563,7 +2564,7 @@ caps.has_turret                 # True if the turret axis is present
 caps.model                      # e.g. 'LS850T'; the layer identity's model, '' if none
 
 # LED
-caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..7) for RP2040; None when the scope came up without its LED board
+caps.led_addresses              # e.g. (0, 1, 2, 3) for FX2 scopes; (0..7) for RP2040; None when the scope came up without its LED board
 caps.led_colors                 # the model's layers that drive an LED, from its layer identity
 caps.led_max_ma                 # per-channel current cap; None when the scope came up without its LED board
 caps.has_firmware_stim          # firmware-timed stim support on the LED board
@@ -3497,7 +3498,7 @@ Reached through `session.scope.capabilities`.
 - `has_turret`
 - `has_xy_stage`
 - `is_color_native`
-- `led_channels`
+- `led_addresses`
 - `led_colors`
 - `led_max_ma`
 - `lens_focal_length_mm`
@@ -4175,7 +4176,7 @@ Reached through returned by `scope.channel_identity.find` and `channels`.
 - `id`
 - `key_name`
 - `label`
-- `led_channel`
+- `led_addresses`
 - `modality`
 
 ### LedBoardInfo

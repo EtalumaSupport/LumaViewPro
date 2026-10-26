@@ -142,7 +142,7 @@ class CatalogueLayer:
     'id',
     'key_name',
     'label',
-    'led_channel',
+    'led_addresses',
     'modality',
 )
 @dataclass(frozen=True)
@@ -162,10 +162,12 @@ class ChannelRecord:
     fluorescence channel a board's Channels block names by its excitation
     alone.
 
-    `led_channel` is the LED board address(es) this layer drives, empty
+    `led_addresses` is the LED board address(es) this layer drives, empty
     for a layer with no LED (luminescence). A tuple rather than a single
     value because a future channel (quantitative phase) drives several
     switches as one layer; today every shipped row carries zero or one.
+    A row in a model's file names them ``led_channel``, read into this
+    field by the one row reader.
 
     `excitation_nm` is the excitation wavelength -- named for what it
     holds, because the layer NAME is the emission colour the operator
@@ -185,12 +187,22 @@ class ChannelRecord:
     id: int
     key_name: str
     display_name: str | None
-    led_channel: tuple[int, ...]
+    led_addresses: tuple[int, ...]
     excitation_nm: float | None
     modality: Modality
     background: Background
     display_color: str
     label: str
+
+    @property
+    def led_channel(self) -> tuple[int, ...]:
+        """``led_addresses`` by its old name, unpublished.
+
+        Read by the engineering plugin releases before the one that reads
+        ``led_addresses``; it goes when ``MINIMUM_PLUGIN_VERSIONS`` rises
+        past them.
+        """
+        return self.led_addresses
 
 
 class IdentitySource(enum.StrEnum):
@@ -763,7 +775,7 @@ def _record(
         id=position,
         key_name=key_name,
         display_name=display,
-        led_channel=channel,
+        led_addresses=channel,
         excitation_nm=excitation,
         modality=release.modality,
         background=release.background,
@@ -776,7 +788,7 @@ def _shared_address(records: list[ChannelRecord]) -> str | None:
     """Why ``records`` cannot all be one unit's: two of them on one LED address."""
     holders: dict[int, str] = {}
     for record in records:
-        for address in record.led_channel:
+        for address in record.led_addresses:
             if address in holders:
                 return f'{holders[address]} and {record.key_name} both name LED address {address}'
             holders[address] = record.key_name

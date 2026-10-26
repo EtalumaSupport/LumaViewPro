@@ -465,7 +465,7 @@ class TestRowParsing:
         identity = resolve(path, motor_model='M')
         lumi = identity.find('Lumi')
         assert lumi is not None
-        assert lumi.led_channel == ()
+        assert lumi.led_addresses == ()
         assert lumi.excitation_nm is None
 
     def test_a_fluorescence_layer_is_labelled_by_its_excitation(self, tmp_path):
@@ -492,7 +492,7 @@ class TestRowParsing:
                 id=0,
                 key_name='BF',
                 display_name='BF',
-                led_channel=(3,),
+                led_addresses=(3,),
                 excitation_nm=None,
                 modality='phase',
                 background='bright',
@@ -507,7 +507,7 @@ class TestRowParsing:
     def test_single_channel_and_excitation_normalise(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': [row('Green', 'Green', 1, 488)]}})
         green = resolve(path, motor_model='M').find('Green')
-        assert green.led_channel == (1,)
+        assert green.led_addresses == (1,)
         assert green.excitation_nm == pytest.approx(488.0)
         assert isinstance(green.excitation_nm, float)
 
@@ -527,7 +527,7 @@ class TestTheBoardsChannelBlock:
         identity = resolve(path, board_block=block, motor_model='LS850T')
         assert (identity.source, identity.filterset) == ('motorconfig', 'Custom-445')
         assert [
-            (r.key_name, r.label, r.display_name, r.led_channel) for r in identity.channels
+            (r.key_name, r.label, r.display_name, r.led_addresses) for r in identity.channels
         ] == [
             ('BF', 'Brightfield', 'Brightfield', (3,)),
             ('Blue', '445 nm', None, (6,)),
@@ -623,7 +623,7 @@ class TestSnapshotSemantics:
             id=0,
             key_name='BF',
             display_name='BF',
-            led_channel=(3,),
+            led_addresses=(3,),
             excitation_nm=None,
             modality='transmitted',
             background='bright',

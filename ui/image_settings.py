@@ -154,7 +154,7 @@ class ImageSettings(BoxLayout):
             drawer.chrome_rgba = (*_lightened(color), 1.0)
             drawer.title = record.label
             control = drawer.ids['control']
-            control.illumination_support = bool(record.led_channel)
+            control.illumination_support = bool(record.led_addresses)
             # Luminescence is long and dim: its exposure sums frames, and
             # the camera's auto gain is not offered for it.
             luminescence = record.modality == layer_record.Modality.LUMINESCENCE
@@ -298,7 +298,7 @@ class ImageSettings(BoxLayout):
         channels. Display of the API's answer, set where the capabilities
         are synced.
         """
-        present = _app_ctx.ctx.scope.capabilities.led_channels is not None
+        present = _app_ctx.ctx.scope.capabilities.led_addresses is not None
         for layer in common_utils.get_layers():
             self.layer_lookup(layer=layer).led_controller_support = present
 

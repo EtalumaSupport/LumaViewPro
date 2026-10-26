@@ -108,7 +108,7 @@ class TestMidWindowInvalidationHonored:
         assert out is not None
         info = live_scope.imaging.last_capture_info
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run, not returned'
-        bf_address = live_scope.channel_identity.find('BF').led_channel[0]
+        bf_address = live_scope.channel_identity.find('BF').led_addresses[0]
         assert info['frame_record'].illumination_ma == {bf_address: 100.0}, (
             'the re-run must read the NEW commanded state; '
             f'recorded {info["frame_record"].illumination_ma}'

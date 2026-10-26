@@ -408,7 +408,7 @@ def generate_image_metadata(
     # layers have no excitation, 'Composite' has no record, an unresolved
     # identity has no filterset -- a null or stand-in written here would
     # read downstream as a measured property of the capture. The board
-    # address (led_channel) deliberately stays out of metadata: it changes
+    # address (led_addresses) deliberately stays out of metadata: it changes
     # with a rewire, board swap, or motorconfig regeneration, so recording
     # it would version the files to the wiring.
     identity = scope.channel_identity
@@ -443,8 +443,8 @@ def generate_image_metadata(
         **(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
             if record is not None
-            and record.led_channel
-            and (_ma := frame_record.illumination_ma.get(record.led_channel[0])) is not None
+            and record.led_addresses
+            and (_ma := frame_record.illumination_ma.get(record.led_addresses[0])) is not None
             else {}
         ),
         'frames_summed': frame_record.frames_summed,

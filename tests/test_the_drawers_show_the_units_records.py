@@ -137,7 +137,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         assert drawer.color_rgba == (*color, 1.0)
         # The chrome is the colour moved toward white, so no plane is darker.
         assert all(c >= w for c, w in zip(drawer.chrome_rgba, (*color, 1.0), strict=True))
-        assert control.illumination_support == bool(record.led_channel)
+        assert control.illumination_support == bool(record.led_addresses)
         assert control.exposure_summing_support == (record.modality == 'luminescence')
         assert control.autogain_support == (record.modality != 'luminescence')
     present = {r.key_name for r in identity.channels}
