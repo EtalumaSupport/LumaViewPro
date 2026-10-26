@@ -3167,7 +3167,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `engineering_mode`
 - `get_current_plate_position`
 - `get_setting`
-- `get_settings_snapshot`
+- `get_settings_snapshot` (in-process)
 - `get_zstack_params` (in-process)
 - `go_to_bookmark`
 - `go_to_step`

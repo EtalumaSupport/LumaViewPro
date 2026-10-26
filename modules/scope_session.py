@@ -3684,13 +3684,14 @@ class ScopeSession:
             global_max_fps=run_settings['video_max_fps'],
         )
 
-    @api(reads=True)
+    @api(in_process=True, reads=True)
     def get_settings_snapshot(self) -> dict:
         """A deep copy of the settings dict, taken under the lock.
 
         A worker thread takes one of these at task entry and reads from it
         for the rest of the task, rather than reading a dict another
-        thread may be part-way through rewriting.
+        thread may be part-way through rewriting. In-process: a wire client
+        reads a setting by its path, through ``get_setting``.
 
         ``objective_id`` is the active objective, as ``get_setting`` answers
         it: on a turret scope, the slot's in the light path, or None while
