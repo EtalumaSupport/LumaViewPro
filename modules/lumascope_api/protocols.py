@@ -171,11 +171,11 @@ class ProtocolsAPI:
                 the same file. Refused for the same reason the plate is: a
                 caller must not be handed a protocol it can edit, navigate
                 and save but never perform. ``'channel_unknown'``, a step
-                names a channel no release has (``refuse_absent_layers``). ``'values_out_of_range'``, its
-                Layer Settings block holds a value no layer setting takes,
-                each named: applying them would be refused. A file with no
-                block (v5) has its rows inferred from its steps, whose
-                values are told, not refused.
+                names a channel no release has (``refuse_absent_layers``).
+                ``'values_out_of_range'``, its Layer Settings block holds a
+                value no layer setting takes, each named: applying them
+                would be refused. A file with no block (v5) has its rows
+                inferred from its steps, whose values are told, not refused.
         """
         from modules.protocol import Protocol
 
@@ -1041,6 +1041,45 @@ class ProtocolsAPI:
             message=(
                 f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
                 f'Delete those steps, or open the protocol on a scope that has the layer.'
+            ),
+        )
+
+    def refuse_absent_stimulation(self, protocol: Protocol) -> None:
+        """Refuse a protocol with a step stimulating a channel this scope does not have.
+
+        Asked where a run is about to start. Only an enabled stimulation is
+        judged: every step this session builds carries a disabled entry for
+        every channel of the release, and one loaded from a file keeps those
+        it was saved with.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this refusal through a run's start.
+
+        Raises:
+            ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
+                the channels and the steps. Logged and notified once.
+            ProtocolFormatError: a step's stimulation entry is not a config
+                (``Protocol.step_records``).
+        """
+        identity = self._scope.channel_identity
+        present = {record.key_name for record in identity.channels}
+        absent = {}
+        for step in protocol.step_records():
+            for channel, stimulation in (step.stim_config or {}).items():
+                if channel not in present and stimulation.enabled:
+                    absent.setdefault(channel, []).append(step.name)
+        if not absent:
+            return
+        names = sorted({name for steps in absent.values() for name in steps})
+        channels = ', '.join(sorted(absent))
+        self._refuse(
+            reason='layer_not_on_scope',
+            message=(
+                f'This scope ({identity.model}) has no {channels} to stimulate, so '
+                f'{len(names)} step(s) cannot be run: '
+                f'{common_utils.first_few(names, separator=", ")}. '
+                f'Turn that stimulation off in those steps, or run the protocol on a scope '
+                f'that has the layer.'
             ),
         )
 

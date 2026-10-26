@@ -9,7 +9,8 @@ unit is known, so each old name is renamed to the unit's key for its LED
 ``Ex589``, on a unit whose LEDs 0 / 1 / 2 are 488 / 550 / 640 its own
 ``Ex488`` / ``Ex550`` / ``Ex640``, and on a unit with no LED there the stock
 key, which the scope's refusals then name. A name nothing knows is refused
-as unknown, not as missing hardware.
+as unknown, not as missing hardware. The run refuses an enabled
+stimulation on a channel the unit lacks.
 
 Each test runs on a release in excitation keys
 (``excitation_key_installation``).
@@ -21,6 +22,7 @@ import csv
 import io
 import json
 import pathlib
+import threading
 import types
 
 import pytest
@@ -28,10 +30,12 @@ import pytest
 from modules.exceptions import ProtocolRunRefusedError
 from modules.path_utils import read_installation_file
 from modules.protocol import Protocol, ProtocolFormatError
+from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import SHIPPED_DATA, excitation_key_installation, non_stock_block
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
 from tests.test_going_to_a_step_is_the_sessions_move import _protocol, _step
 
 # The old names, the stock keys they read as, in LED order.
@@ -227,3 +231,65 @@ def test_a_file_naming_one_channel_twice_is_refused(tmp_path, monkeypatch):
         session.shutdown()
 
     assert 'Blue' in str(refused.value) and 'Ex405' in str(refused.value)
+
+
+def _run(session, protocol, tmp_path) -> threading.Event:
+    done = threading.Event()
+    session.create_protocol_runner().start_single_scan(
+        protocol=protocol,
+        sequence_name='stimulation',
+        parent_dir=str(tmp_path / 'runs'),
+        events=RunEvents(files_written=lambda run_dir, files: done.set()),
+    )
+    return done
+
+
+def test_an_enabled_stimulation_on_a_channel_the_unit_lacks_refuses_the_run(tmp_path, monkeypatch):
+    """A stock unit lacks ``Ex550``: a step stimulating it loads, and is
+    refused when the run is prepared, as a layer the scope lacks; the same
+    step with that stimulation disabled runs."""
+    session = _session(tmp_path / 'unit', monkeypatch, microscope='LS850')
+    try:
+        stimulating = session.load_protocol(
+            str(
+                _old_file(
+                    session, tmp_path / 'on.tsv', ('Ex405',), rename={}, stimulated=('Ex550',)
+                )
+            )
+        )
+        disabled = session.load_protocol(
+            str(_old_file(session, tmp_path / 'off.tsv', ('Ex405',), rename={}))
+        )
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            _run(session, stimulating, tmp_path)
+        ran = _run(session, disabled, tmp_path).wait(COMPLETION_TIMEOUT)
+    finally:
+        session.shutdown()
+
+    assert (refused.value.reason, 'Ex550' in str(refused.value)) == ('layer_not_on_scope', True)
+    assert ran, 'the run with the stimulation disabled never wrote its files'
+
+
+def test_a_stimulation_entry_that_is_not_a_config_refuses_the_run_naming_it(tmp_path, monkeypatch):
+    """A hand-edited Stim_Config entry holding a bare number is no
+    stimulation the run can judge: the run is refused, naming the step and
+    the entry, before anything starts."""
+    session = _session(tmp_path / 'unit', monkeypatch, microscope='LS850')
+    try:
+        protocol = session.load_protocol(
+            str(
+                _old_file(
+                    session,
+                    tmp_path / 'bare.tsv',
+                    ('Ex405',),
+                    rename={},
+                    added_stimulation={'Ex550': 5},
+                )
+            )
+        )
+        with pytest.raises(ProtocolFormatError) as refused:
+            _run(session, protocol, tmp_path)
+    finally:
+        session.shutdown()
+
+    assert 'Ex550' in str(refused.value) and 'not a config' in str(refused.value)
