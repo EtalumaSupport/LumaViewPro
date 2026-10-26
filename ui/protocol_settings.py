@@ -355,7 +355,15 @@ class ProtocolSettings(FloatLayout):
         # of it is the protocol's (capture_prefix), so the field shows the text.
         gui_logger.text_input('CAPTURE_ROOT', text)
         if hasattr(self, '_protocol') and (self._protocol is not None):
-            _app_ctx.ctx.session.set_protocol_capture_root(self._protocol, text)
+            run_reported(
+                lambda: _app_ctx.ctx.session.set_protocol_capture_root(self._protocol, text),
+                self._show_capture_root,
+                'CAPTURE_ROOT',
+            )
+
+    def _show_capture_root(self) -> None:
+        """Show the capture root the protocol holds."""
+        self.ids['capture_root'].text = self._protocol.capture_root()
 
     # Labware Selection
     def select_labware(self):

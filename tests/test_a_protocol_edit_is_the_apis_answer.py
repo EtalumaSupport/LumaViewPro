@@ -353,3 +353,37 @@ class TestTheStartupLoad:
         assert centre_posts == [], 'nobody asked for the startup load'
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
         assert ctx.settings['protocol']['filepath'] == str(saved), 'the panel writes no path'
+
+
+class TestCaptureRoot:
+    """The capture root's field is an edit the API may refuse, shown once like any other."""
+
+    @pytest.fixture
+    def held(self, tmp_path, monkeypatch):
+        """A simulated session whose control a REST client holds, as the GUI's session."""
+        from modules.caller import Caller, calling
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+        try:
+            with calling(Caller.REST):
+                session.take_control('plate reader')
+            monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
+            yield session
+        finally:
+            session.shutdown()
+
+    def test_a_root_refused_under_another_clients_control_is_shown_once_and_the_field_keeps_the_protocols(
+        self, held, centre_posts
+    ):
+        protocol = held.create_empty_protocol()
+        kept = protocol.capture_root()
+        panel = _Panel(protocol)
+        panel.ids['capture_root'].text = 'typed'
+
+        panel.update_capture_root('typed')
+
+        assert [n.title for n in centre_posts] == ['Under Remote Control']
+        assert protocol.capture_root() == kept
+        assert panel.ids['capture_root'].text == kept, 'the field shows the root the protocol kept'

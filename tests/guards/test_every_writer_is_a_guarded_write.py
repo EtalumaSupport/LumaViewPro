@@ -130,3 +130,48 @@ def test_every_member_that_writes_is_guarded_or_says_why_not():
     )
     stale = set(_NOT_GUARDED) - set(unguarded)
     assert not stale, f'named as unguarded writers, and no longer are: {stale}'
+
+
+def _takes_a_protocol(fn: ast.FunctionDef) -> bool:
+    args = fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+    return any(
+        a.annotation is not None and ast.unparse(a.annotation).strip('\'"') == 'Protocol'
+        for a in args
+    )
+
+
+def _api_marks(fn: ast.FunctionDef) -> list[ast.expr] | None:
+    """The ``@api`` decorator's keywords, or None when the member is not ``@api``."""
+    for d in fn.decorator_list:
+        if isinstance(d, ast.Name) and d.id == 'api':
+            return []
+        if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == 'api':
+            return d.keywords
+    return None
+
+
+def test_every_session_member_given_a_protocol_reads_it_or_is_a_guarded_write():
+    """An edit of a protocol is a write past a control session unless it is guarded.
+
+    A protocol's edits write no store the walk above follows -- they change
+    the object a caller holds -- so the rule is by what the member is
+    given: every ``@api`` Session member that takes a ``Protocol`` is marked
+    a read or is guarded, whatever its edit is named.
+    """
+    tree = parse_module('modules/scope_session.py')
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ScopeSession')
+    unguarded = []
+    for fn in cls.body:
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not _takes_a_protocol(fn):
+            continue
+        marks = _api_marks(fn)
+        if marks is None:
+            continue
+        reads = any(
+            k.arg == 'reads' and isinstance(k.value, ast.Constant) and k.value.value for k in marks
+        )
+        if not reads and not _is_guarded(fn):
+            unguarded.append(fn.name)
+    assert not unguarded, (
+        f'protocol edits past a control session, each to be guarded or marked a read: {unguarded}'
+    )

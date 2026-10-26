@@ -779,3 +779,45 @@ class TestTheRestDoor:
         )
         assert refused.status_code == 409
         assert refused.json()['reason'] == 'control_session_ended'
+
+    @staticmethod
+    def _protocol_edits(protocol):
+        return [
+            ('/api/v1/add_step', {'protocol': protocol, 'channels': ['BF']}),
+            (
+                '/api/v1/set_protocol_schedule',
+                {'protocol': protocol, 'period_s': 0, 'duration_s': 0},
+            ),
+            ('/api/v1/set_protocol_capture_root', {'protocol': protocol, 'root': 'plate'}),
+        ]
+
+    def test_a_protocol_is_edited_and_its_handle_forgotten_by_the_holder_alone(self, client):
+        protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+        session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
+        forget = f'/api/v1/handles/Protocol/{protocol}'
+
+        for path, body in self._protocol_edits(protocol):
+            refused = client.post(path, json=body)
+            assert refused.status_code == 409, (path, refused.text)
+            assert refused.json()['reason'] == 'control_session_held', path
+        refused = client.delete(forget)
+        assert refused.status_code == 409, refused.text
+        assert refused.json()['reason'] == 'control_session_held'
+        steps = client.get(f'/api/v1/handles/Protocol/{protocol}/num_steps')
+        assert steps.json() == 0, 'a refused add adds no step'
+        root = client.get(f'/api/v1/handles/Protocol/{protocol}/capture_root')
+        assert root.json() != 'plate', 'a refused root is not kept'
+
+        holder = {'Control-Session': session_id}
+        for path, body in self._protocol_edits(protocol):
+            written = client.post(path, json=body, headers=holder)
+            assert written.status_code == 200, (path, written.text)
+        assert client.delete(forget, headers=holder).status_code == 204
+
+    def test_with_no_session_held_anyone_edits_a_protocol_and_forgets_its_handle(self, client):
+        protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+
+        for path, body in self._protocol_edits(protocol):
+            written = client.post(path, json=body)
+            assert written.status_code == 200, (path, written.text)
+        assert client.delete(f'/api/v1/handles/Protocol/{protocol}').status_code == 204

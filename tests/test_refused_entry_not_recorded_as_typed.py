@@ -122,12 +122,15 @@ def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
         widget = _Widget('my/run:1')
 
-        class _Panel:
-            ids: ClassVar[dict] = {'capture_root': widget}
-            _protocol = session.create_empty_protocol()
+        class _Panel(ProtocolSettings):
+            """The real class, with only the widget tree stubbed."""
 
-        panel = _Panel()
-        ProtocolSettings.update_capture_root(panel, widget.text)
+            def __init__(self, protocol):
+                self.ids = {'capture_root': widget}
+                self._protocol = protocol
+
+        panel = _Panel(session.create_empty_protocol())
+        panel.update_capture_root(widget.text)
 
         typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
         assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'

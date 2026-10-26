@@ -195,7 +195,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     closing = Closing(stream, jobs, live)
     app.state.closing = closing
     app.state.live = live
-    _add_handle_routes(app, registry, handed_out)
+    _add_handle_routes(app, session, registry, handed_out)
     _add_job_routes(app, jobs, closing)
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
@@ -501,7 +501,10 @@ def _max_width(request: fastapi.Request) -> int | None:
 
 
 def _add_handle_routes(
-    app: fastapi.FastAPI, registry: HandleRegistry, handed_out: frozenset[type]
+    app: fastapi.FastAPI,
+    session: ScopeSession,
+    registry: HandleRegistry,
+    handed_out: frozenset[type],
 ) -> None:
     async def held() -> list[dict[str, str]]:
         """Every handle held, oldest first: a client that lost an answer finds its handle here."""
@@ -517,18 +520,33 @@ def _add_handle_routes(
     )
     for cls in sorted(handed_out, key=lambda c: c.__name__):
 
-        async def forget(handle_id: str, cls: type = cls) -> fastapi.Response:
-            registry.forget(handle_id, cls)
+        async def forget(
+            request: fastapi.Request, handle_id: str, cls: type = cls
+        ) -> fastapi.Response:
+            # A write, as every other is: in the control session the request
+            # names, and refused while another holds one before the id goes.
+            control_id = request.headers.get(CONTROL_SESSION_HEADER)
+
+            def work() -> None:
+                with _acting_in(session, control_id):
+                    session.as_a_guarded_write(lambda: registry.forget(handle_id, cls))
+
+            reply = _answered(work, request.state.request_id)
+            if reply.is_problem:
+                return reply.response()
             return fastapi.Response(status_code=204)
 
         forget.__signature__ = inspect.Signature(
             [
                 inspect.Parameter(
+                    'request', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=fastapi.Request
+                ),
+                inspect.Parameter(
                     'handle_id',
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
                     annotation=str,
                     default=fastapi.Path(...),
-                )
+                ),
             ]
         )
         app.add_api_route(
@@ -541,7 +559,8 @@ def _add_handle_routes(
             summary=f"Forget a {cls.__name__} handle's id, never its object.",
             description=(
                 "A run goes on, and its stop is its own member. The session's protocol "
-                "runner is every client's, and its id is kept (409)."
+                "runner is every client's, and its id is kept (409). While a control "
+                'session is held, only its holder forgets an id (409 control_session_held).'
             ),
             tags=['handles'],
         )

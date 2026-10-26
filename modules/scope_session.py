@@ -986,6 +986,23 @@ class ScopeSession:
         with acting(controller):
             yield controller.session
 
+    @_guarded_write
+    def as_a_guarded_write[R](self, write: Callable[[], R]) -> R:
+        """Run ``write`` as one of this session's guarded writes; returns what it returns.
+
+        For a host's own write that no Session member makes: the REST
+        server letting go of a handle a caller was given. It is refused
+        while a control session is held by someone else, as every Session
+        write is, and before ``write`` runs.
+
+        It is not part of the L2 API surface.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_held'``. ``write``
+                did not run.
+        """
+        return write()
+
     @api
     @property
     def control(self) -> ControlSession | None:
@@ -2624,6 +2641,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def add_step(
         self,
         protocol: 'Protocol',
@@ -2708,6 +2726,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def update_step(
         self,
         protocol: 'Protocol',
@@ -3000,6 +3019,7 @@ class ScopeSession:
         return updated
 
     @api
+    @_guarded_write
     def delete_step(self, protocol: 'Protocol', step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``, as the Delete button does.
 
@@ -3010,6 +3030,7 @@ class ScopeSession:
         self.scope.protocols.delete_step(protocol, step_index)
 
     @api
+    @_guarded_write
     def rename_step(self, protocol: 'Protocol', step_index: int, name: str) -> str:
         """Give step ``step_index`` of ``protocol`` the label ``name``; returns its new name.
 
@@ -3021,6 +3042,7 @@ class ScopeSession:
         return self.scope.protocols.rename_step(protocol, step_index, name)
 
     @api
+    @_guarded_write
     def set_protocol_labware(self, protocol: 'Protocol', labware_id: str) -> str:
         """Put ``protocol`` on the plate ``labware_id``; returns the key it took.
 
@@ -3034,6 +3056,7 @@ class ScopeSession:
         return self.scope.protocols.set_labware(protocol, labware_id)
 
     @api
+    @_guarded_write
     def set_protocol_schedule(
         self,
         protocol: 'Protocol',
@@ -3057,6 +3080,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def set_protocol_capture_root(self, protocol: 'Protocol', root: str) -> None:
         """Give ``protocol`` the capture root that prefixes its runs' file names.
 
@@ -3069,6 +3093,7 @@ class ScopeSession:
         protocol.modify_capture_root(capture_root=root)
 
     @api
+    @_guarded_write
     def set_step_autofocus(
         self, protocol: 'Protocol', *, enabled: bool, step_index: int | None = None
     ) -> None:
@@ -3084,6 +3109,7 @@ class ScopeSession:
             protocol.modify_autofocus(step_index=step_index, enabled=enabled)
 
     @api
+    @_guarded_write
     def point_steps_at_turret_slot(
         self, protocol: 'Protocol', objective_id: str, slot: int
     ) -> tuple[int, ...]:
@@ -3101,6 +3127,7 @@ class ScopeSession:
         return self.scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)
 
     @api
+    @_guarded_write
     def apply_tiling(self, protocol: 'Protocol', tiling: str) -> None:
         """Expand every step of ``protocol`` into the tile grid ``tiling``, as Apply does.
 
@@ -3127,6 +3154,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def apply_zstacking(
         self,
         protocol: 'Protocol',
