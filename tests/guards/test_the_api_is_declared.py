@@ -46,6 +46,14 @@ guard holds four things over every class defined under ``modules/``:
    catalogue key, a reason word, words a person reads, a camera's, board's
    or OS's own word, ...), so a fixed list of words written later as a
    ``str`` fails here until it is a ``StrEnum`` or its reason is given.
+9. **An LED is lit by its channel's name.** No marked member outside
+   ``engineering=True`` takes an LED board address: an ``int`` parameter of
+   an ``IlluminationAPI`` member or one named for an address, or a record
+   that holds an ``address`` (``LedReading``, and a record holding one), so
+   an address-taking LED member written later fails here until it is an
+   engineering member. ``LED_ADDRESS_TAKERS`` names the one exception and
+   its reason. An answer keeps the address, a listener's callback's
+   arguments among them.
 
 Annotations are read as strings and resolved by class name over the loaded
 classes, never through ``typing.get_type_hints``, which raises on the
@@ -872,4 +880,83 @@ def test_every_fixed_word_is_a_closed_set(
     assert not offenders, (
         'A published str takes or answers a word: make its fixed list a StrEnum, or, when '
         'its words are open, enter it in OPEN_STRINGS with the reason:\n  ' + '\n  '.join(offenders)
+    )
+
+
+# The members outside engineering that take an LED address, each with its reason.
+LED_ADDRESS_TAKERS = {
+    'IlluminationAPI.restore_led_state parameter snapshot': (
+        "the snapshot is the API's own answer (save_led_state) handed back; restoring it "
+        'by address keeps a lit address the identity cannot name'
+    ),
+}
+_LED_OWNER = 'IlluminationAPI'
+
+
+def _holds_an_address(universe: dict[str, type]) -> set[str]:
+    """The published records with an ``address`` field, and every record holding one."""
+    from modules.api_surface import fields_of
+
+    holders = {
+        cname
+        for cname, cls in universe.items()
+        if 'address' in fields_of(cls) and _field_annotation(cls, 'address') == 'int'
+    }
+    grown = True
+    while grown:
+        grown = False
+        for cname, cls in universe.items():
+            if cname in holders:
+                continue
+            for field in fields_of(cls):
+                text = _field_annotation(cls, field)
+                if text is not None and _named(text)[1] & holders:
+                    holders.add(cname)
+                    grown = True
+                    break
+    return holders
+
+
+def _is_a_callback(text: str) -> bool:
+    """A callback parameter: what it is called with is an answer, the API's to give."""
+    node = ast.parse(text, mode='eval').body
+    base = node.value if isinstance(node, ast.Subscript) else None
+    return getattr(base, 'id', getattr(base, 'attr', None)) == 'Callable'
+
+
+def _is_an_address(owner: str, parameter: str, names: set[str], holders: set[str]) -> bool:
+    if names & holders:
+        return True
+    if 'int' not in names:
+        return False
+    return owner == _LED_OWNER or parameter == 'address' or parameter.endswith('_address')
+
+
+def test_an_led_is_lit_by_its_channels_name(
+    universe: dict[str, type], marked: dict[str, str]
+) -> None:
+    from modules.api_surface import is_engineering
+
+    holders = _holds_an_address(universe)
+    assert {'LedReading', 'LedSnapshot'} <= holders, f'the walk lost the LED records: {holders}'
+    takers, engineering = set(), set()
+    for name in sorted(marked):
+        cname, member = name.split('.', 1)
+        value = vars(universe[cname]).get(member)
+        for edge, text in _edges(universe[cname], member):
+            if not edge.startswith('parameter ') or text is None or _is_a_callback(text):
+                continue
+            parameter = edge.removeprefix('parameter ')
+            if not _is_an_address(cname, parameter, _named(text)[1], holders):
+                continue
+            (engineering if is_engineering(value) else takers).add(f'{name} {edge}')
+    assert 'IlluminationAPI.led_on_by_address parameter address' in engineering, (
+        f'the walk did not reach the engineering members: {sorted(engineering)}'
+    )
+    stale = sorted(set(LED_ADDRESS_TAKERS) - takers)
+    assert not stale, f'these no longer take an LED address, so delete them: {stale}'
+    offenders = sorted(takers - set(LED_ADDRESS_TAKERS))
+    assert not offenders, (
+        "A member outside engineering takes an LED address: take the channel's name, or mark "
+        'it engineering=True (C11):\n  ' + '\n  '.join(offenders)
     )
