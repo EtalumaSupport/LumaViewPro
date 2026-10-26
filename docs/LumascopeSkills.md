@@ -4734,7 +4734,7 @@ Taken by `session.post_processing.build`.
 
 ## Changelog
 
-Post-freeze record of every change to the L2-callable surface (methods documented above). Entries land in the SAME commit as the underlying change. Pre-`4.0.0` (the freeze trigger) is fluid by design and not recorded here; consult `LVP_4.0.0_CHANGELOG.md` for pre-freeze prose history.
+Post-freeze record of every change to the L2-callable surface (methods documented above). Entries land in the SAME commit as the underlying change. Pre-`4.0.0` (the freeze trigger) is fluid by design and not recorded here.
 
 Entry format:
 
