@@ -227,35 +227,20 @@ class DriverRegistry:
           will reject every command until a power cycle; selected anyway,
           the operator gets one failure per command for the session.
 
-        A check the driver does not implement passes.
+        A check the driver does not implement passes. Each check reads the
+        driver's own flags, so one that raises is a defect in the driver,
+        not a verdict on the hardware: it propagates, and the caller files
+        the candidate as one that raised.
         """
         if getattr(instance, 'found', True) is False:
             return 'found', 'found=False'
-        if hasattr(instance, 'is_connected'):
-            try:
-                connected = instance.is_connected()
-            except Exception as e:
-                connected = False
-                logger.debug(
-                    f'[registry] {type(instance).__name__} is_connected() raised '
-                    f'({type(e).__name__}: {e}); treating as not-connected'
-                )
-            if not connected:
-                return 'connected', 'constructed but is_connected()=False (port held / open failed)'
-        if hasattr(instance, 'is_responsive'):
-            try:
-                responsive = instance.is_responsive()
-            except Exception as e:
-                responsive = False
-                logger.debug(
-                    f'[registry] {type(instance).__name__} is_responsive() raised '
-                    f'({type(e).__name__}: {e}); treating as not-responsive'
-                )
-            if not responsive:
-                return (
-                    'responsive',
-                    'connected but not responding (zero bytes to the connect sequence)',
-                )
+        if hasattr(instance, 'is_connected') and not instance.is_connected():
+            return 'connected', 'constructed but is_connected()=False (port held / open failed)'
+        if hasattr(instance, 'is_responsive') and not instance.is_responsive():
+            return (
+                'responsive',
+                'connected but not responding (zero bytes to the connect sequence)',
+            )
         return None
 
     def get(self, name: str) -> type[Any]:
@@ -336,7 +321,13 @@ class DriverRegistry:
             # API layer indistinguishable from a live one.
             cls = self.get(name)
             instance = cls(**kwargs)
-            failure = self._liveness_failure(instance)
+            try:
+                failure = self._liveness_failure(instance)
+            except Exception:
+                # A check that raised is the driver's own fault and goes up
+                # as itself; the board it opened is released first.
+                _disconnect_quietly(instance)
+                raise
             if failure is not None:
                 _, why = failure
                 _disconnect_quietly(instance)
@@ -369,6 +360,9 @@ class DriverRegistry:
         not_connected_names: list[str] = []
         not_responsive_names: list[str] = []
         for entry in real_candidates:
+            # Per candidate: an instance left from an earlier one would be
+            # released twice below, or released when found=False said not to.
+            instance = None
             try:
                 instance = entry.cls(**kwargs)
                 failure = self._liveness_failure(instance)
@@ -401,6 +395,10 @@ class DriverRegistry:
                 logger.info(f'[registry] {self._kind}: using {entry.cls.__name__}')
                 return instance, None
             except Exception as e:
+                # Set when the constructor returned and a liveness check
+                # raised: the candidate holds a port and threads to release.
+                if instance is not None:
+                    _disconnect_quietly(instance)
                 last_error = e
                 logger.debug(
                     f'[registry] {self._kind}: {entry.cls.__name__} failed '

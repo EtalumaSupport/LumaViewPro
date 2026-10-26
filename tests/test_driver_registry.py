@@ -386,34 +386,6 @@ class TestDriverRegistryUnit:
         instance = reg.create('auto')
         assert isinstance(instance, Null)
 
-    def test_auto_treats_is_connected_raise_as_not_connected(self):
-        """If is_connected() itself raises, treat as not-connected
-        rather than letting the exception abort the auto-create loop.
-        """
-        reg = DriverRegistry('fake')
-
-        @reg.register('flaky', priority=100)
-        class Flaky:
-            def __init__(self, **kw):
-                self.found = True
-
-            def is_connected(self) -> bool:
-                raise RuntimeError('driver state corrupted')
-
-            def disconnect(self):
-                pass
-
-        @reg.register('works', priority=50)
-        class Works:
-            def __init__(self, **kw):
-                self.found = True
-
-            def is_connected(self) -> bool:
-                return True
-
-        instance = reg.create('auto')
-        assert isinstance(instance, Works)
-
     def test_selected_driver_is_named_at_info(self, caplog):
         """A driver that WINS says so at INFO.
 
@@ -742,3 +714,134 @@ class TestAKindWithNoNullDriverThatFindsNothing:
         assert caught.value.fallback.cause == 'not_detected'
         assert caught.value.fallback.declined == ('gamma: pyusb is not installed',)
         assert 'gamma' not in reg.registered_names()
+
+
+def _a_driver_whose_check_raises(check: str, released: list[str]) -> type:
+    """A constructed driver whose ``check`` raises, recording its releases.
+
+    A stand-in by design: every shipped driver's checks read its own flags
+    and cannot raise, so only a driver defect reaches this path.
+    """
+
+    class Flaky:
+        def __init__(self, **kw):
+            self.found = True
+
+        def disconnect(self):
+            released.append('Flaky')
+
+    def raises(self):
+        raise RuntimeError('driver state corrupted')
+
+    setattr(Flaky, check, raises)
+    return Flaky
+
+
+# parametrize-justified: is_connected and is_responsive are two reads, each
+# with its own catch removed; a raise from either must be filed as a raise.
+@pytest.mark.parametrize('check', ['is_connected', 'is_responsive'])
+class TestALivenessCheckThatRaises:
+    """A liveness check reads the driver's own flags, so one that raises is a
+    driver defect: the candidate is filed as one that raised, never as a held
+    port or a board that needs a power cycle, and the board it opened is
+    released."""
+
+    def test_the_candidate_is_released_and_the_next_one_is_used(self, check):
+        reg = DriverRegistry('fake')
+        released: list[str] = []
+        reg.register('flaky', priority=100)(_a_driver_whose_check_raises(check, released))
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                pass
+
+        instance = reg.create('auto')
+
+        assert isinstance(instance, Works)
+        assert released == ['Flaky']
+
+    def test_it_is_the_fallback_s_raise_not_a_hardware_verdict(self, check):
+        reg = DriverRegistry('fake')
+        released: list[str] = []
+        reg.register('flaky', priority=100)(_a_driver_whose_check_raises(check, released))
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        _instance, fallback = reg.create_with_fallback('auto')
+
+        assert fallback == DriverFallback(
+            'connect_failed', ('Flaky',), 'RuntimeError: driver state corrupted'
+        )
+
+    def test_with_no_null_driver_the_raise_is_raised_itself(self, check):
+        reg = DriverRegistry('fake')
+        released: list[str] = []
+        reg.register('flaky', priority=100)(_a_driver_whose_check_raises(check, released))
+
+        with pytest.raises(RuntimeError, match='driver state corrupted'):
+            reg.create('auto')
+
+        assert released == ['Flaky']
+
+    def test_by_name_the_raise_goes_up_after_the_release(self, check):
+        reg = DriverRegistry('fake')
+        released: list[str] = []
+        reg.register('flaky', priority=100)(_a_driver_whose_check_raises(check, released))
+
+        with pytest.raises(RuntimeError, match='driver state corrupted'):
+            reg.create('flaky')
+
+        assert released == ['Flaky']
+
+
+def _a_registry_rejecting_then_raising(first: str, released: list[str]) -> DriverRegistry:
+    """Two rejected candidates in the order ``first`` names, then one whose
+    constructor raises, with a null to fall back to."""
+    reg = DriverRegistry('fake')
+
+    class Held:
+        def __init__(self, **kw):
+            self.found = True
+
+        def is_connected(self):
+            return False
+
+        def disconnect(self):
+            released.append('Held')
+
+    class Unfound:
+        def __init__(self, **kw):
+            self.found = False
+
+        def disconnect(self):
+            released.append('Unfound')
+
+    rejected = {'Held': Held, 'Unfound': Unfound}
+    second = 'Unfound' if first == 'Held' else 'Held'
+    reg.register(first.lower(), priority=100)(rejected[first])
+    reg.register(second.lower(), priority=90)(rejected[second])
+
+    @reg.register('broken', priority=80)
+    class Broken:
+        def __init__(self, **kw):
+            raise RuntimeError('no hardware')
+
+    @reg.register('null', priority=0)
+    class Null:
+        pass
+
+    return reg
+
+
+def test_a_rejected_candidate_is_released_once_and_an_unfound_one_never():
+    """The release of a candidate that raised is that candidate's alone: a
+    held board rejected just before it is not released again, and a
+    found=False one, which the loop deliberately leaves alone, is not
+    released at all, whichever of the two came last."""
+    for first in ('Unfound', 'Held'):
+        released: list[str] = []
+        _a_registry_rejecting_then_raising(first, released).create('auto')
+        assert released == ['Held'], first
