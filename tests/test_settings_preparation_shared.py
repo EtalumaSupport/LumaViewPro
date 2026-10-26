@@ -15,13 +15,18 @@ import shutil
 
 import pytest
 
+import modules.common_utils as common_utils
 import modules.settings_init as settings_init
 from modules.exceptions import InstallationFileError
+from modules.layer_record import release_old_names
 from modules.zstack_config import ZStackReference
 from tests.installation_fixtures import copy_installation_files
-from tests.stock_channels import LED1
+from tests.stock_channels import LED1, STOCK_FLUORESCENCE
 
 logger = logging.getLogger('test_settings_preparation')
+
+# The name an older release stored each stock channel under.
+_OLD_NAME = {old.stock_key: old.name for old in release_old_names()}
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIPPED_TEMPLATE = os.path.join(REPO_ROOT, 'data', 'settings.json')
@@ -40,6 +45,12 @@ def _data_dir(tmp_path):
 def _legacy_current(data_dir):
     """A current.json written by an older release, in that release's spellings."""
     current = settings_init.load_template(logger, SHIPPED_TEMPLATE)
+    # Its fluorescence blocks under the old names, and none for a channel the
+    # catalogue added since.
+    for old in release_old_names():
+        current[old.name] = current.pop(old.stock_key)
+    for key in set(common_utils.get_fluorescence_layers()) - set(STOCK_FLUORESCENCE):
+        current.pop(key)
 
     current['image_output_format']['sequenced'] = 'ImageJ Hyperstack'
     current['disable_protocol_accordions'] = True
@@ -48,7 +59,7 @@ def _legacy_current(data_dir):
     # absent entirely, the way a file older than the video feature has it
     current['BF'].pop('video_config', None)
     current['BF']['acquire'] = 'stack'
-    current[LED1]['video_config'] = {'duration': 12, 'fps': 0}
+    current[_OLD_NAME[LED1]]['video_config'] = {'duration': 12, 'fps': 0}
     # a plate the catalogue renamed after this file was written
     current['protocol']['labware'] = 'Center Dish'
     # A key the running version ships and this older file predates.
@@ -81,6 +92,8 @@ def test_legacy_file_is_fully_prepared(tmp_path):
     # a rate the recorder would divide by, repaired without losing the
     # duration beside it -- the merge cannot do this, nothing is missing
     assert prepared[LED1]['video_config'] == {'duration': 12, 'fps': 30}
+    # the old channel names, each block read as its LED's key
+    assert not set(_OLD_NAME.values()) & set(prepared)
     # a retired plate name, folded to its catalogue key so the one store
     # every reader trusts never carries a spelling the catalogue lacks
     assert prepared['protocol']['labware'] == 'Center Plate'
