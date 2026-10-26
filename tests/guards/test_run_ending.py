@@ -321,8 +321,11 @@ class TestAStartFailureCarriesItsCause:
             _cleanup=lambda ending, run: cleaned.append(ending),
             LOGGER_NAME='TEST',
         )
-        stub._unwind_undispatched_run = lambda ending, run: (
-            scr.SequencedCaptureRunner._unwind_undispatched_run(stub, ending, run)
+        stub._unwind_run_not_begun = lambda ending, run: (
+            scr.SequencedCaptureRunner._unwind_run_not_begun(stub, ending, run)
+        )
+        stub.end_run_not_begun = lambda ending, run: scr.SequencedCaptureRunner.end_run_not_begun(
+            stub, ending, run
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
@@ -343,8 +346,11 @@ class TestAStartFailureCarriesItsCause:
         stub = SimpleNamespace(
             _run_dir=None,
             _ending=EndingLatch(),
-            _unwind_undispatched_run=lambda ending, run: None,
+            _unwind_run_not_begun=lambda ending, run: None,
             LOGGER_NAME='TEST',
+        )
+        stub.end_run_not_begun = lambda ending, run: scr.SequencedCaptureRunner.end_run_not_begun(
+            stub, ending, run
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,

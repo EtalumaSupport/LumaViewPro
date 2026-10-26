@@ -1,9 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A run's teardown has exactly three callers, one per owner of the run.
 
-The run loop's finally unwinds a dispatched run; start() unwinds a run
-whose loop was never dispatched (its setup failed, or a Stop arrived
-during it); force_reset unwinds, at shutdown, a run whose loop ended
+The run loop's finally unwinds a dispatched run; the unwind of a run
+that took no step unwinds one whose loop was never dispatched (its setup
+failed, or a Stop arrived during it), called by start(), and one whose
+loop could not take the camera, called by the loop's finally in place of
+its own; force_reset unwinds, at shutdown, a run whose loop ended
 without unwinding it. No two can reach the same run, which is why
 _cleanup carries no lock and no "is this still my run" check.
 
@@ -20,7 +22,7 @@ from tests.ast_seams import production_modules, walk_defs
 
 THE_OWNERS = {
     ('modules/protocol_run_loop.py', 'ProtocolRunLoop.run_loop'),
-    ('modules/sequenced_capture_runner.py', 'SequencedCaptureRunner._unwind_undispatched_run'),
+    ('modules/sequenced_capture_runner.py', 'SequencedCaptureRunner._unwind_run_not_begun'),
     ('modules/sequenced_capture_runner.py', 'SequencedCaptureRunner.force_reset'),
 }
 

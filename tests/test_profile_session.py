@@ -78,7 +78,7 @@ sys.stdin.readline()
 def _linked_folder(tmp_path):
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'lib', 'version.txt'):
+    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt'):
         (folder / item).symlink_to(REPO / item)
     return folder
 

@@ -106,18 +106,6 @@ def test_no_active_camera_has_no_range(sim_scope):
         assert sim_scope.camera.get_black_level_range() is None
 
 
-def test_a_failed_read_fails_the_capture_and_records_no_frame(sim_scope):
-    imaging = sim_scope.imaging
-    driver = sim_scope._camera_driver
-    with (
-        patch.object(
-            driver, 'get_black_level', side_effect=CameraReadFailedError('BlackLevel read failed')
-        ),
-        pytest.raises(HardwareError, match='BlackLevel read failed'),
-    ):
-        imaging.capture_and_wait(accept_dark=True, timeout_s=2.0)
-
-
 @pytest.fixture(scope='module')
 def fx2_session():
     session = ScopeSession.create(

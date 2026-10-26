@@ -22,7 +22,9 @@ from modules.protocol_cleanup import run_cleanup, send_files_written, send_run_e
 from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
 
+from drivers.exceptions import CameraReadFailedError
 from modules.lumascope_api import AxisState, Lumascope
+from modules.lumascope_api.bring_up import Part
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
@@ -74,6 +76,7 @@ from modules.run_outcome import (
     PendingRunOutcome,
     RunEnding,
     RunStatus,
+    hardware_disconnected_at_start_ending,
 )
 
 from modules.scheduler import Scheduler
@@ -1505,16 +1508,18 @@ class SequencedCaptureRunner:
         run is stopping -- a Stop during the wait -- so a stopped run
         never writes the camera or takes a snapshot nothing will restore;
         the loop's own tail ends the stopped run, and cleanup finds no
-        snapshot. An
-        ending when the lane's in-flight task is stuck past the threshold
-        that already calls the file lane wedged.
+        snapshot. A ``FAILED_AT_START`` ending when the run cannot begin:
+        the lane's in-flight task is stuck past the threshold that already
+        calls the file lane wedged, or the camera's snapshot cannot be read
+        (``camera_read_failed``, or ``hardware_disconnected`` for a camera
+        gone from the bus).
         """
         while self.camera_executor.is_busy():
             if self._aborted.is_set() or not self._is_run_live():
                 return None
             if self.camera_executor.in_flight_task_stalled(WRITE_STALL_FATAL_S):
                 return RunEnding(
-                    RunStatus.FAILED,
+                    RunStatus.FAILED_AT_START,
                     'camera_lane_stalled',
                     'A camera command did not finish, so the run did not start. '
                     'Restart LumaViewPro if the camera stays busy.',
@@ -1522,8 +1527,22 @@ class SequencedCaptureRunner:
             time.sleep(_CAMERA_LANE_POLL_S)
         if not self._is_run_live():
             return None
+        # The camera's snapshot before the LEDs': a run whose camera cannot
+        # be read holds no LED snapshot either, so its cleanup leaves the
+        # LEDs as it found them.
+        try:
+            self._saved_camera_state = self._scope.camera.save_camera_state('protocol')
+        except CameraReadFailedError as unread:
+            logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot could not be read: {unread}')
+            if self._scope.camera.camera_removed:
+                return hardware_disconnected_at_start_ending((Part.CAMERA,))
+            return RunEnding(
+                RunStatus.FAILED_AT_START,
+                'camera_read_failed',
+                "The camera's settings could not be read, so the run did not start. "
+                "Check the camera's USB cable, then start the run again.",
+            )
         self._original_led_states = self._scope.illumination.get_led_states()
-        self._saved_camera_state = self._scope.camera.save_camera_state('protocol')
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the
         # same write.
@@ -1806,7 +1825,7 @@ class SequencedCaptureRunner:
             self._fail_run_at_start(exc, handle)
         else:
             if stopped is not None:
-                self._unwind_undispatched_run(stopped, handle)
+                self._unwind_run_not_begun(stopped, handle)
 
         # Reached on the failed-at-start and stopped-before-dispatch paths too, where the unwind has
         # already resolved the outcome: the caller waits and is told at once.
@@ -1850,26 +1869,32 @@ class SequencedCaptureRunner:
             ) from ex
 
     def _fail_run_at_start(self, exc: Exception, run: EngineRun) -> None:
-        """Unwind a run that failed during start()'s setup phase.
-
-        Routes the failure through the normal run cleanup so the terminal
-        run_ended callback fires (status 'failed_at_start') and the
-        executors leave protocol-mode.
-        """
+        """Unwind a run that failed during start()'s setup phase."""
         logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
         if isinstance(exc, RunStartError):
             ending = RunEnding(RunStatus.FAILED_AT_START, exc.reason, exc.message)
         else:
-            # Anything else reaching here is not an L1 sentence -- a serial
-            # fault from the camera-state save, say. The user gets the one
-            # thing that is true and actionable; the log has the rest.
+            # Anything else reaching here is not an L1 sentence. The user
+            # gets the one thing that is true and actionable; the log has
+            # the rest.
             ending = RunEnding(
                 RunStatus.FAILED_AT_START,
                 'start_failed',
                 'The run could not start. See the log for details.',
             )
+        self.end_run_not_begun(ending, run)
+
+    def end_run_not_begun(self, ending: RunEnding, run: EngineRun) -> None:
+        """End a committed run that could not begin, in its ``FAILED_AT_START`` ending.
+
+        The one unwind for it, from whichever thread finds it: start(),
+        for a setup that failed, and the run loop, for a camera the run
+        could not take (``_take_camera``). Routes the failure through the
+        normal run cleanup so the terminal run_ended callback fires and
+        the executors leave protocol-mode, then tells it.
+        """
         self._ending.set_if_unset(ending)
-        self._unwind_undispatched_run(ending, run)
+        self._unwind_run_not_begun(ending, run)
         # Notify AFTER cleanup: on an unattended run start() opened a muting
         # run scope, which drops this non-fatal error until cleanup closes it.
         from modules.notification_center import notifications
@@ -1880,13 +1905,14 @@ class SequencedCaptureRunner:
             category='Protocol',
         )
 
-    def _unwind_undispatched_run(self, ending: RunEnding, run: EngineRun) -> None:
-        """Unwind a run whose loop was never dispatched, on start()'s thread.
+    def _unwind_run_not_begun(self, ending: RunEnding, run: EngineRun) -> None:
+        """Unwind a run that took no step: its empty folder goes, then its cleanup.
 
-        Two ways to get here: the setup failed, or a Stop was accepted
-        while it ran. Either way no loop exists to unwind the run, so
-        start() does it, after the setup has finished or failed -- never
-        in the middle of it.
+        Three ways to get here. On start()'s thread, whose loop was never
+        dispatched: the setup failed, or a Stop was accepted while it ran;
+        start() unwinds it after the setup has finished or failed -- never
+        in the middle of it. On the run loop's thread: the run could not
+        take the camera, and the loop's own teardown is this one.
         """
         run_dir = self._run_dir
         if run_dir is not None:

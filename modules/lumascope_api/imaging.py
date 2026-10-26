@@ -856,7 +856,10 @@ class ImagingAPI:
                 ``setting`` changed (under the credit rule that bound is
                 ``timeout_s``; under the clock rule one grab window past the
                 instant a frame must start after); ``'chunk_rejected'``,
-                frames counted but none at the ``setting`` asked.
+                frames counted but none at the ``setting`` asked;
+                ``'record_read_failed'``, a frame came but the camera did not
+                answer a read its record needs, chained from the
+                ``CameraReadFailedError``.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, absent at the call or removed during the capture;
                 ``'camera_not_streaming'``, connected but not grabbing.
@@ -1137,9 +1140,12 @@ class ImagingAPI:
         removed = failed is not None and failed.removed
         try:
             if failed is None:
-                # The record's gain, exposure and black level reads raise on a
-                # failed read and fail the capture; one that failed because the
-                # camera left between the grab and the read is that removal.
+                # A frame is kept only with its record: a gain, exposure or
+                # black level read the camera does not answer fails the
+                # capture, in the capture failure's words, so every caller
+                # that handles a failed capture handles this one; one that
+                # failed because the camera left between the grab and the
+                # read is that removal.
                 # The frame is judged against the mapping its record carries,
                 # the one its cycle took before the drain.
                 judgments = self.frame_validity.judgments(grabbed.earliest, mapping)
@@ -1154,10 +1160,13 @@ class ImagingAPI:
                         dark=grabbed.dark,
                     )
                 except CameraReadFailedError as unread:
-                    if not self._camera.camera_removed:
-                        raise
-                    removed = True
                     _record_capture_info()
+                    if not self._camera.camera_removed:
+                        logger.warning(
+                            f'[SCOPE API ] capture_and_wait: record read failed -- {unread}'
+                        )
+                        raise CaptureFailedError('record_read_failed') from unread
+                    removed = True
                     raise _camera_not_connected('capture_and_wait') from unread
             if failed is None:
                 _api_log.info(_capture_line(grabbed, extra['frame_record']))
@@ -1324,6 +1333,10 @@ class ImagingAPI:
                 capture and every frame of its sum together is longer: NaN
                 would make the body's drain deadline never pass, and a wait
                 longer than the host can hold would raise out of it.
+            CaptureFailedError: ``'record_read_failed'``, a frame came but the
+                camera did not answer a read of the gain, exposure or black
+                level its record needs, so it was not kept; chained from the
+                ``CameraReadFailedError``. Its other reasons are the body's.
         """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)

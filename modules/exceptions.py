@@ -1554,7 +1554,8 @@ class CaptureFailedError(Fault, CaptureError):
     """A capture or a recording was attempted and produced nothing.
 
     Raised by ``capture_and_wait`` and ``get_image`` for a capture that got
-    no frame; a camera that is not there is refused instead
+    no frame, and by ``capture_and_wait`` for one whose frame's record could
+    not be read; a camera that is not there is refused instead
     (``HardwareCommandRefusedError``, ``'not_connected'``).
 
     Attributes:
@@ -1570,6 +1571,10 @@ class CaptureFailedError(Fault, CaptureError):
             - ``'no_fresh_frame'`` -- frames came, but none within the
               capture's bound counted for the ``source`` change: each was
               exposed, by its source's rule, before that change reached it.
+            - ``'record_read_failed'`` -- a frame came, but the camera did
+              not answer a read its record needs (the gain, exposure or
+              black level), so it was not kept; chained from the
+              ``CameraReadFailedError``.
             - ``'recording_not_started'`` -- the camera did not take the
               recording's frame listener.
             - ``'unknown_save_encoding'`` -- a frame was handed an encoding
@@ -1626,6 +1631,12 @@ class CaptureFailedError(Fault, CaptureError):
             'No frame the camera delivered in time was exposed after {change}, '
             'so nothing was captured. Try again; if it repeats, check that the '
             'live view is moving.',
+        ),
+        'record_read_failed': (
+            'Capture Failed',
+            'The camera did not answer a read of a setting the frame is saved '
+            'with (its gain, exposure or black level), so nothing was captured. '
+            "Try again; if it repeats, check the camera's USB cable.",
         ),
         'recording_not_started': (
             'Recording Not Started',

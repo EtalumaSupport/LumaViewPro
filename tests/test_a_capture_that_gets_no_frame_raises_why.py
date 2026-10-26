@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
 from modules.notification_center import Severity, notifications
 
@@ -111,6 +112,25 @@ class TestARemovedCamera:
 
         assert refused.value.reason == 'not_connected'
         assert posted == []
+
+
+class TestARecordReadTheCameraDoesNotAnswer:
+    def test_it_fails_the_capture_chained_from_the_read(self, sim_scope):
+        sim_scope.simulation.refuse_camera_read('black_level', 'raise')
+
+        with pytest.raises(CaptureFailedError) as failed:
+            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+
+        assert failed.value.reason == 'record_read_failed'
+        assert isinstance(failed.value.__cause__, CameraReadFailedError)
+
+    def test_from_a_camera_gone_from_the_bus_it_is_the_not_connected_refusal(self, sim_scope):
+        sim_scope.simulation.refuse_camera_read('black_level', 'removed')
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+
+        assert refused.value.reason == 'not_connected'
 
 
 def test_a_camera_that_is_not_streaming_is_refused_as_that(sim_scope):

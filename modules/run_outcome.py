@@ -57,6 +57,7 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from drivers.exceptions import CameraReadFailedError
 from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
@@ -107,6 +108,7 @@ ENDING_TITLES: dict[str, str] = {
     'capture_location_unusable': 'Run failed to start',
     'run_dir_init_failed': 'Run failed to start',
     'camera_lane_stalled': 'Camera Busy',
+    'camera_read_failed': CameraReadFailedError.title,
     'run_loop_crashed': 'Protocol Crashed',
     'hardware_disconnected': 'Protocol Aborted',
     'consecutive_scan_failures': 'Protocol Aborted',
@@ -175,6 +177,21 @@ def hardware_disconnected_ending(parts: tuple[Part, ...]) -> RunEnding:
         'hardware_disconnected',
         f'The {gone} disconnected during the run. Check the USB cable and power '
         'connections, save the protocol, then restart LumaViewPro and the protocol.',
+    )
+
+
+def hardware_disconnected_at_start_ending(parts: tuple[Part, ...]) -> RunEnding:
+    """The ending of a run whose hardware left before it began.
+
+    The run start's counterpart of ``hardware_disconnected_ending``: the
+    same reason and the same nouns, for a run that never took a step.
+    """
+    gone = ' and '.join(part.noun for part in parts)
+    return RunEnding(
+        RunStatus.FAILED_AT_START,
+        'hardware_disconnected',
+        f'The {gone} disconnected, so the run did not start. Check the USB cable and '
+        'power connections, then restart LumaViewPro and the protocol.',
     )
 
 

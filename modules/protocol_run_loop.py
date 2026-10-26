@@ -61,7 +61,8 @@ class ProtocolRunLoop:
         ``run`` is the run this loop was dispatched for. The loop body only
         decides how the run ended and returns that; the one teardown is
         here, in the finally, so it runs on every way out of the body --
-        a return, an exception, or anything that skips the except below.
+        a return, an exception, or anything that skips the except below. A
+        run that could not begin is unwound as one whose setup failed is.
         """
         ending = None
         try:
@@ -76,15 +77,18 @@ class ProtocolRunLoop:
             # is shown, and a fault already shown stays the one shown.
             self._p.abort_run_fatal(ending.reason, ending.message)
         finally:
-            self._p._cleanup(
-                ending
-                or RunEnding(
-                    RunStatus.FAILED,
-                    'run_loop_crashed',
-                    'The run loop stopped without saying how the run ended.',
-                ),
-                run,
-            )
+            if ending is not None and ending.status == RunStatus.FAILED_AT_START:
+                self._p.end_run_not_begun(ending, run)
+            else:
+                self._p._cleanup(
+                    ending
+                    or RunEnding(
+                        RunStatus.FAILED,
+                        'run_loop_crashed',
+                        'The run loop stopped without saying how the run ended.',
+                    ),
+                    run,
+                )
 
     def _inter_scan_wait_follows(self) -> bool:
         """Whether the run is about to enter an inter-scan period wait.
@@ -170,12 +174,11 @@ class ProtocolRunLoop:
         # The camera becomes the run's only once the lane has finished what
         # it already held. A Stop during that wait returns with no ending
         # and falls through to the while, which ends the run stopped with
-        # nothing to restore; a stuck lane is a fatal ending, shaped like
-        # the disconnect below.
-        stalled = p._take_camera()
-        if stalled is not None:
-            p.end_run_fatally(stalled.reason, stalled.message)
-            return stalled
+        # nothing to restore; a camera the run could not take is a run that
+        # did not begin, unwound by run_loop.
+        not_begun = p._take_camera()
+        if not_begun is not None:
+            return not_begun
 
         while p._is_run_live() and not p._aborted.is_set():
             try:

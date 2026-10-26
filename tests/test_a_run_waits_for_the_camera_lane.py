@@ -195,8 +195,11 @@ class TestAHeldLane:
         assert scope.camera.read_gain_db() == gain_before, 'cleanup wrote the camera'
         assert scope.illumination.get_led_states() == leds_before, 'cleanup changed an LED'
 
-    def test_a_stuck_lane_ends_the_run_failed_and_names_the_lane(self, lane_session):
+    def test_a_stuck_lane_ends_the_run_failed_at_start_and_leaves_the_leds_be(self, lane_session):
         session, runner, tmp_path = lane_session
+        scope = session.scope
+        scope.illumination.led_on('BF', 20.0)
+        leds_before = scope.illumination.get_led_states()
         completions = []
         hold = _LaneHold(session)
         try:
@@ -214,9 +217,12 @@ class TestAHeldLane:
         finally:
             hold.release()
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
-        assert result is not None and result.status == 'failed', result
+        assert result is not None and result.status == 'failed_at_start', result
         assert result.reason == 'camera_lane_stalled'
         assert len(completions) == 1, completions
+        assert scope.illumination.get_led_states() == leds_before, (
+            'a run that did not begin changed an LED'
+        )
 
 
 class TestARunThatAlreadyEnded:

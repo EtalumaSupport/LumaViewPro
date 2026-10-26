@@ -28,8 +28,8 @@ from unittest.mock import patch
 import lvp_logger
 import pytest
 import modules.config_helpers as config_helpers
-from drivers.exceptions import CameraReadFailedError, HardwareError
-from modules.exceptions import ExposureAtMinimumNotice
+from drivers.exceptions import CameraReadFailedError
+from modules.exceptions import CaptureFailedError, ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.camera import CameraAPI
@@ -246,8 +246,10 @@ def test_auto_gain_capture_failed_readback_fails_the_capture():
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     cam.chunks_absent = True
     cam.fail_readback = True
-    with pytest.raises(CameraReadFailedError, match='exposure'):
+    with pytest.raises(CaptureFailedError) as failed:
         imaging._capture_and_wait_impl(timeout_s=1.0)
+    assert failed.value.reason == 'record_read_failed'
+    assert 'exposure' in str(failed.value.__cause__)
     assert imaging.frame_validity.target('exposure') is None
     assert imaging.frame_validity.target('gain') is None
     assert any('[AG CONVERGE] locked: state=FAILED' in m for m in _logged('warning'))
@@ -277,9 +279,11 @@ def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
         patch.object(
             cam, 'get_black_level', side_effect=CameraReadFailedError('BlackLevel read failed')
         ),
-        pytest.raises(HardwareError, match='BlackLevel read failed'),
+        pytest.raises(CaptureFailedError) as failed,
     ):
         imaging._capture_and_wait_impl(timeout_s=1.0)
+    assert failed.value.reason == 'record_read_failed'
+    assert 'BlackLevel read failed' in str(failed.value.__cause__)
     assert cam._auto_gain_enabled is True
 
 
@@ -311,8 +315,9 @@ def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts)
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     cam.chunks_absent = True
     cam.fail_readback = True
-    with pytest.raises(CameraReadFailedError):
+    with pytest.raises(CaptureFailedError) as failed:
         imaging._capture_and_wait_impl(timeout_s=1.0)
+    assert failed.value.reason == 'record_read_failed'
     assert [(n.kind, n.reason) for n in centre_posts] == [
         (OutcomeKind.FAULT, 'auto_gain_not_settled')
     ]
@@ -557,10 +562,15 @@ def test_run_start_owns_a_standing_live_arm():
         'modules/sequenced_capture_runner.py', '_take_camera', class_name='SequencedCaptureRunner'
     )
     assert takeover is not None
+    # In source order: ast.walk is breadth-first, so a call inside a try
+    # would be listed after a later one outside it.
     attrs = [
         n.func.attr
-        for n in ast.walk(takeover)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        for n in sorted(
+            (n for n in ast.walk(takeover) if isinstance(n, ast.Call)),
+            key=lambda n: (n.lineno, n.col_offset),
+        )
+        if isinstance(n.func, ast.Attribute)
     ]
     order = (
         'save_camera_state',

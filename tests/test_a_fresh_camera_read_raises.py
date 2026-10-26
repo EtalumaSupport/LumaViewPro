@@ -6,7 +6,8 @@ camera did not answer raises ``CameraReadFailedError`` naming the setting;
 it never answers the last value as if it were new. None means only that
 there is no camera, or that this camera has no such setting. A saved frame
 says what the instrument did, so a capture whose gain or exposure cannot be
-read from its frame or from the camera fails, and saves nothing.
+read from its frame or from the camera fails (``CaptureFailedError``,
+``'record_read_failed'``, chained from the read), and saves nothing.
 
 Run on the simulated LS850, its reads failed through
 ``scope.simulation.refuse_camera_read``.
@@ -20,6 +21,7 @@ import os
 import pytest
 
 from drivers.exceptions import CameraReadFailedError
+from modules.exceptions import CaptureFailedError
 from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -98,8 +100,10 @@ def test_a_chunkless_still_whose_exposure_read_fails_saves_nothing(session, monk
     )
     session.scope.simulation.refuse_camera_read('exposure', 'raise', count=10)
 
-    with pytest.raises(CameraReadFailedError) as failed:
+    with pytest.raises(CaptureFailedError) as failed:
         session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
-    assert 'exposure' in str(failed.value)
+    assert failed.value.reason == 'record_read_failed'
+    assert isinstance(failed.value.__cause__, CameraReadFailedError)
+    assert 'exposure' in str(failed.value.__cause__)
     assert [name for _dir, _dirs, files in os.walk(tmp_path) for name in files] == []
