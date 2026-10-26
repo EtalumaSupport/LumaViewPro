@@ -32,6 +32,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api.illumination import (
     LedReading,
+    LedSnapshot,
     LedState,
     LedTransition,
     LedTransitionCtx,
@@ -114,6 +115,24 @@ def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
     assert (refusal.reason, refusal.missing) == ('axis_absent', part)
     assert sent == []
     assert led_reading(scope, 2) == LedReading(2, None, LedState.DARK, None)
+
+
+def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
+    make_session, monkeypatch
+):
+    """A light refused on the LED lane names the member called, not the lane's ``led_on``."""
+    scope = make_session('LS560').scope
+    sent = _spy_led_writes(monkeypatch, scope)
+    snapshot = LedSnapshot('handed back', (LedReading(2, None, LedState.LIT, 10.0),))
+
+    refusal = _refused(lambda: scope.illumination.restore_led_state(snapshot))
+
+    assert (refusal.reason, refusal.member, refusal.missing) == (
+        'axis_absent',
+        'restore_led_state',
+        MissingPart.led(2),
+    )
+    assert sent == []
 
 
 def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):

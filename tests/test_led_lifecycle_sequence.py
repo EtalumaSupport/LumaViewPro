@@ -538,7 +538,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
-    ill._led_on_impl(channel=ill.color2ch('Green'), illumination_ma=250.0, _lease=lease)
+    ill._led_on_impl(ill.color2ch('Green'), 250.0, member='led_on', _lease=lease)
 
     # Out-of-turn live writes (no lease) while the run holds the lease. Both
     # are refused by the LEASE check (_lease_violation) -- the lease is the
@@ -702,7 +702,9 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     )
     # Next-color step light (the protocol's STEP_LIGHT for a Red step): the
     # exclusive-Red diff the run drives on the held lease.
-    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), lease=lease, block=False)
+    ill._emit_led_diff(
+        frozenset({(ill.color2ch('Red'), 350.0)}), lease=lease, block=False, member='LedLease.apply'
+    )
 
     assert sub.on_events() == [('Green', 250.0), ('Red', 350.0)], sub.render()
     assert sub.lit_transitions('Green') == [True, False], sub.render()
@@ -992,7 +994,12 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
         f'the test is gone, not the diff\n{sub.render()}'
     )
 
-    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), lease=None, block=False)
+    ill._emit_led_diff(
+        frozenset({(ill.color2ch('Red'), 350.0)}),
+        lease=None,
+        block=False,
+        member='apply_transition',
+    )
 
     assert sub.final_lit() == {'Red'}, sub.render()
     # Red was already at its target current, so the diff must emit nothing for
@@ -1016,6 +1023,7 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
         frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),
         lease=None,
         block=False,
+        member='apply_transition',
     )
 
     assert sub.final_lit() == {'Green', 'Red'}, sub.render()

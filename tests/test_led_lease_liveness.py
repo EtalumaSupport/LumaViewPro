@@ -129,7 +129,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     ended_run.release(leave_on=False)
     holder = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert holder is not None
-    ill._led_on_impl(channel=ill.color2ch('Blue'), illumination_ma=120.0, _lease=holder)
+    ill._led_on_impl(ill.color2ch('Blue'), 120.0, member='led_on', _lease=holder)
 
     runner = _af_runner(scope)
     iterations = []

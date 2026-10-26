@@ -343,7 +343,7 @@ class LedLease:
         returning, so a confirm-before-grab transition cannot proceed dark; the
         caller derives it from the transition, never defaults it.
         """
-        self._api._emit_led_diff(target, lease=self, block=block)
+        self._api._emit_led_diff(target, lease=self, block=block, member='LedLease.apply')
 
 
 def _lit_channel_pairs(
@@ -513,76 +513,78 @@ class IlluminationAPI:
         if isinstance(channel, str):
             refuse_unknown_layer(channel, argument='channel')
         else:
-            self._refuse_not_a_board_channel(channel)
+            self._refuse_not_a_board_channel(channel, 'channel')
 
-    def _refuse_not_a_board_channel(self, channel: int) -> None:
+    def _refuse_not_a_board_channel(self, channel: int, argument: str) -> None:
         """Refuse a number that is not on the attached board's table.
 
         Raises:
-            ArgumentRefusedError: ``'led_channel_unknown'``, offering the
-                board's channels.
+            ArgumentRefusedError: ``'led_channel_unknown'``, naming
+                ``argument`` and offering the board's channels.
         """
         board_channels = tuple(self._driver.available_channels())
         if channel not in board_channels:
             raise ArgumentRefusedError(
-                'led_channel_unknown', argument='channel', value=channel, offered=board_channels
+                'led_channel_unknown', argument=argument, value=channel, offered=board_channels
             )
 
-    def _on_channel(self, channel: int | str, member: str) -> int:
-        """The board channel an on-command lights, or the refusal that says why not.
+    def _refuse_unless_lightable(self, address: int, member: str) -> None:
+        """Refuse a light of ``address`` that this scope cannot make.
 
-        Asked of a channel the door has judged (``_refuse_not_a_channel``),
-        in one order: the board, then the model. A scope with no LED
-        controller connected refuses (``not_connected``). Then an LED this
-        model does not have is ``axis_absent``, named as the command named
-        it: a layer of the model that drives no LED (Lumi), a layer the
-        model lacks (an LS560's Red), a layer whose LED the attached board
-        cannot address, or a number no layer of the model drives (an
-        LS560's 2). A model this release does not know (identity
-        unresolved) has no layers to judge a number by, so its numbers are
-        the board's.
+        Asked on the lane by every path that lights an address, in one
+        order: the board, then the model. A scope with no LED controller
+        connected refuses (``not_connected``); an address off the attached
+        board's table is ``led_channel_unknown``; an address no channel of
+        this model drives (an LS560's 2) is ``axis_absent``. A model this
+        release does not know (identity unresolved) has no channels to
+        judge an address by, so its addresses are the board's.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, naming the missing part.
+            ArgumentRefusedError: ``'led_channel_unknown'``, offering the
+                board's channels.
+        """
+        self.refuse_controller_not_connected(member)
+        self._refuse_not_a_board_channel(address, 'address')
+        identity = self._scope.channel_identity
+        if identity.source != IdentitySource.UNRESOLVED and self._identity_name(address) is None:
+            part = MissingPart.led(address)
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    def _drivable_address(self, channel: str) -> int | None:
+        """The board address of ``channel``'s LED; None when this scope cannot light it.
+
+        The fusion of identity and drivability: identity says what the
+        channel IS, the driver says what the board can DRIVE. None for a
+        channel of the model that drives no LED (Lumi), a channel the model
+        lacks (an LS560's Red), and a channel whose record names an address
+        the attached board lacks -- lighting that address anyway would light
+        whatever occupies it on this board.
+        """
+        address = self.color2ch(color=channel)
+        if address is None or address not in self._driver.available_channels():
+            return None
+        return address
+
+    def _address_to_light(self, channel: str, member: str) -> int:
+        """The board address a light of ``channel`` writes, or the refusal that says why not.
+
+        Asked on the lane of a name the door has judged
+        (``_refuse_not_a_channel``), in the address lane's order: the
+        board, then the model, so an LED this model does not have is
+        ``axis_absent`` named as the command named it.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, naming the missing part.
         """
-        identity = self._scope.channel_identity
-        if isinstance(channel, str):
-            self.refuse_controller_not_connected(member)
-            mapped = self.color2ch(color=channel)
-            if mapped is None:
-                part = MissingPart.led(channel)
-                raise HardwareCommandRefusedError(part.reason, member, missing=part)
-            # The fusion of identity and drivability: identity says what
-            # the layer IS, the driver says what the board can DRIVE. A
-            # layer whose record names a channel the attached board lacks
-            # must fail by name here -- driving it anyway would light
-            # whatever occupies that address on this board.
-            if mapped not in self._driver.available_channels():
-                part = MissingPart.led(channel)
-                raise HardwareCommandRefusedError(part.reason, member, missing=part)
-            return mapped
         self.refuse_controller_not_connected(member)
-        if identity.source != IdentitySource.UNRESOLVED and self.ch2color(channel) is None:
+        address = self._drivable_address(channel)
+        if address is None:
             part = MissingPart.led(channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
-        return channel
-
-    def _off_channel(self, channel: int | str) -> int | None:
-        """The board channel an off-command darkens; None when it names no LED.
-
-        Asked of a channel the door has judged (``_refuse_not_a_channel``).
-        A layer the model has no LED for -- a layer the model lacks, a layer
-        that drives no LED -- is definitionally dark, so the off is complete
-        with no command.
-        """
-        if isinstance(channel, str):
-            mapped = self.color2ch(color=channel)
-            if mapped is None or mapped not in self._driver.available_channels():
-                _api_log.debug(f"led_off no-op: scope has no '{channel}' LED")
-                return None
-            return mapped
-        return channel
+        return address
 
     def refuse_controller_not_connected(self, member: str) -> None:
         """Refuse when no LED controller is connected.
@@ -686,24 +688,26 @@ class IlluminationAPI:
     # --- Sync control ---
     def _led_on_impl(
         self,
-        channel,
+        address: int,
         illumination_ma,
         block: bool = False,
         *,
+        member: str,
         _lease: LedLease | None = None,
     ) -> float:
-        """Turn on an LED channel at the specified current.
+        """Turn on an LED address at the specified current.
 
         The board lights at the nearest current its step can deliver, and a
         request above zero but below one step at one step; that commanded
         current, not the request, is what is skipped on, sent, stored and
-        returned. 0 mA leaves the channel on at 0 mA, which the driver sends
+        returned. 0 mA leaves the address on at 0 mA, which the driver sends
         as the board's off.
 
         Args:
-            channel: An LED address or a layer name.
+            address: The LED board address.
             illumination_ma: Illumination current in milliamps.
             block: If True, wait for confirmation from the LED board.
+            member: The member whose call this is, named by its refusals.
             _lease: The lease making this write, from its own diff; None for
                 a caller holding no lease. Refused while a different lease is
                 the active holder.
@@ -715,23 +719,22 @@ class IlluminationAPI:
             ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
                 not a finite number; ``'illumination_out_of_range'``, it is
                 outside 0 to the attached board's maximum (``limits``).
+                ``'led_channel_unknown'``, ``address`` is not on the attached
+                board's table.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
-                controller connected; ``'axis_absent'`` for an LED this
-                model does not have; ``'exclusive_activity_running'`` while
+                controller connected; ``'axis_absent'`` for an address this
+                model does not drive; ``'exclusive_activity_running'`` while
                 a lease other than ``_lease`` holds the LEDs. Nothing was
                 sent.
-            BoardNoReplyError: the board did not answer; the channel is
+            BoardNoReplyError: the board did not answer; the address is
                 unknown (``_write``).
-
-        The channel is judged at the door (``led_on``); the internal callers
-        pass the board's own channels.
         """
-        channel, commanded_ma = self._judge_light(channel, illumination_ma)
+        commanded_ma = self._judge_light(address, illumination_ma, member)
 
         # Skip redundant command if the address is already lit at the same
         # current; an unknown address carries no current, so it is written.
         with self._led_state_lock:
-            cached_entry = self._led_state.get(channel)
+            cached_entry = self._led_state.get(address)
         current_ma = None if cached_entry is None else cached_entry.illumination_ma
         # _led_state cache-equality trace for the slider > ~150 mA
         # silent-fail bench investigation. Gated by the scope's
@@ -748,7 +751,7 @@ class IlluminationAPI:
                 '[FX2 LED diag] led_on cache-check ch=%s '
                 'new_mA=%r (type=%s) cached_mA=%r (type=%s) '
                 'delta=%r enabled=%s cache_entry=%r',
-                channel,
+                address,
                 illumination_ma,
                 type(illumination_ma).__name__,
                 current_ma,
@@ -764,25 +767,25 @@ class IlluminationAPI:
         # is refused so a live UI change cannot disturb a protocol's or
         # autofocus's channels. Emergency / shutdown paths use force_off /
         # leds_off, which bypass this on purpose.
-        self._refuse_unless_lease_holds(_lease, 'led_on')
+        self._refuse_unless_lease_holds(_lease, member)
 
         began_ns = self._write(
-            (channel,), lambda: self._driver.led_on(channel, commanded_ma, block=block), _lease
+            (address,), lambda: self._driver.led_on(address, commanded_ma, block=block), _lease
         )
         requested = (
             f' (requested {illumination_ma})' if abs(commanded_ma - illumination_ma) >= 0.01 else ''
         )
         _api_log.info(
-            f'led_on ch={channel} illumination_ma={commanded_ma:g}{requested}'
+            f'led_on ch={address} illumination_ma={commanded_ma:g}{requested}'
             f'{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
 
         # Update the API-level state store and which lease lit the address.
         # Unconditional -- a write with no lease (a UI click) is recorded too.
         with self._led_state_lock:
-            self._led_state[channel] = _Held(LedState.LIT, commanded_ma)
-            self._lit_by[channel] = _lease
-            reading = self._reading(channel)
+            self._led_state[address] = _Held(LedState.LIT, commanded_ma)
+            self._lit_by[address] = _lease
+            reading = self._reading(address)
         # The change is recorded once the store holds it: a frame counts for
         # it by when it began against the record, and the light it is made
         # under is the store's (the simulated sensor reads it).
@@ -790,19 +793,20 @@ class IlluminationAPI:
         self._fire_led_listeners(reading)
         return commanded_ma
 
-    def _judge_light(self, channel: int | str, illumination_ma: float) -> tuple[int, float]:
-        """The address a light writes and the current it commands, or the refusal.
+    def _judge_light(self, address: int, illumination_ma: float, member: str) -> float:
+        """The current a light of ``address`` commands, or the refusal.
 
         Judged on every path that lights an LED, not at the door: a
-        snapshot or a diff's target hands this a caller's currents.
+        snapshot or a diff's target hands this a caller's addresses and
+        currents.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'`` or
-                ``'illumination_out_of_range'``, as ``_led_on_impl`` says.
+            ArgumentRefusedError: ``'led_channel_unknown'``, ``'not_a_number'``
+                or ``'illumination_out_of_range'``, as ``_led_on_impl`` says.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, as ``_led_on_impl`` says.
         """
-        channel = self._on_channel(channel, 'led_on')
+        self._refuse_unless_lightable(address, member)
         refuse_unless_finite_number(illumination_ma, 'illumination_ma')
         led_max_ma = self._scope.capabilities.led_max_ma
         if illumination_ma < 0 or illumination_ma > led_max_ma:
@@ -812,59 +816,56 @@ class IlluminationAPI:
                 value=illumination_ma,
                 limits=(0, led_max_ma),
             )
-        return channel, self._driver.commanded_ma(illumination_ma)
+        return self._driver.commanded_ma(illumination_ma)
 
-    def _led_off_impl(self, channel, *, _lease: LedLease | None = None) -> None:
-        """Turn off an LED channel.
+    def _led_off_impl(self, address: int, *, member: str, _lease: LedLease | None = None) -> None:
+        """Turn off an LED address.
 
         Args:
-            channel: An LED address or a layer name.
+            address: The LED board address.
+            member: The member whose call this is, named by its refusals.
             _lease: The lease making this write, from its own diff; None for
                 a caller holding no lease. Refused while a different lease is
                 the active holder.
 
         An off whose end state already holds is satisfied with no write and
-        no log: a channel the API holds dark, an LED the model does not
-        have, any off with no LED controller and nothing believed lit. Only
-        an off of a channel believed lit asks for the controller.
+        no log: an address the API holds dark, any off with no LED
+        controller and nothing believed lit. Only an off of an address
+        believed lit asks for the controller.
 
         Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, a channel
+            HardwareCommandRefusedError: ``'not_connected'``, an address
                 believed lit and no LED controller connected to darken it;
-                ``'exclusive_activity_running'``, a channel believed lit
+                ``'exclusive_activity_running'``, an address believed lit
                 while a lease other than ``_lease`` holds the LEDs.
-            BoardNoReplyError: the board did not answer; the channel is
+            BoardNoReplyError: the board did not answer; the address is
                 unknown (``_write``).
         """
-        channel = self._off_channel(channel)
-        if channel is None:
-            return
-
         # Skip if the address is already dark. Reads from the API-level
         # _led_state store, which is correct for both LEDBoard and FX2.
         # Prior behavior delegated to the driver's get_led_state, which
         # for FX2 always returned False -- making led_off a complete
         # no-op.
-        if not self._believed_lit(channel):
+        if not self._believed_lit(address):
             return
-        self.refuse_controller_not_connected('led_off')
+        self.refuse_controller_not_connected(member)
 
         # Refused for the same reason as led_on (see above): an off from the
-        # live UI while a run holds the channel is the shape behind the
+        # live UI while a run holds the address is the shape behind the
         # autofocus-LED-killed reports, so it is rejected here.
-        self._refuse_unless_lease_holds(_lease, 'led_off')
+        self._refuse_unless_lease_holds(_lease, member)
 
-        began_ns = self._write((channel,), lambda: self._driver.led_off(channel), _lease)
+        began_ns = self._write((address,), lambda: self._driver.led_off(address), _lease)
         _api_log.info(
-            f'led_off ch={channel}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
+            f'led_off ch={address}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
 
         # Clear from the API-level state store, then record the change (see
         # _led_on_impl).
         with self._led_state_lock:
-            self._led_state.pop(channel, None)
-            self._lit_by.pop(channel, None)
-            reading = self._reading(channel)
+            self._led_state.pop(address, None)
+            self._lit_by.pop(address, None)
+            reading = self._reading(address)
         self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         self._fire_led_listeners(reading)
 
@@ -1034,9 +1035,11 @@ class IlluminationAPI:
     ) -> float:
         """Turn on an LED channel at the specified current, and wait for it.
 
-        Returns the current commanded on the board's step. See
-        ``_led_on_impl`` for the argument contract, the return and the errors
-        it raises; this adds only the dispatch described on ``_dispatch_led``.
+        Returns the current commanded on the board's step. ``channel`` is a
+        channel's name, lit at its LED's address, or the address itself. See
+        ``_led_on_impl`` for the return and the errors it raises; this adds
+        only the name's resolution and the dispatch described on
+        ``_dispatch_led``.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'`` or
@@ -1049,17 +1052,28 @@ class IlluminationAPI:
                 unknown (``_write``).
         """
         self._refuse_not_a_channel(channel)
+        if isinstance(channel, str):
+            return self._dispatch_led(
+                self._led_on_by_name_impl, 'led_on', args=(channel, illumination_ma)
+            )
         return self._dispatch_led(
             self._led_on_impl,
             'led_on',
             args=(channel, illumination_ma),
+            kwargs={'member': 'led_on'},
         )
+
+    def _led_on_by_name_impl(self, channel: str, illumination_ma: float) -> float:
+        """``led_on``'s body for a name: its address, then the address lane."""
+        address = self._address_to_light(channel, 'led_on')
+        return self._led_on_impl(address, illumination_ma, member='led_on')
 
     @api
     def led_off(self, channel: int | str) -> None:
         """Turn off an LED channel, and wait for it.
 
-        See ``_led_off_impl`` for the argument contract.
+        ``channel`` is a channel's name, darkened at its LED's address, or
+        the address itself. See ``_led_off_impl`` for the off's contract.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'`` or
@@ -1072,7 +1086,24 @@ class IlluminationAPI:
                 unknown (``_write``).
         """
         self._refuse_not_a_channel(channel)
-        return self._dispatch_led(self._led_off_impl, 'led_off', args=(channel,))
+        if isinstance(channel, str):
+            return self._dispatch_led(self._led_off_by_name_impl, 'led_off', args=(channel,))
+        return self._dispatch_led(
+            self._led_off_impl, 'led_off', args=(channel,), kwargs={'member': 'led_off'}
+        )
+
+    def _led_off_by_name_impl(self, channel: str) -> None:
+        """``led_off``'s body for a name: its address, then the address lane.
+
+        A channel the model has no LED for -- one the model lacks, one that
+        drives no LED -- is definitionally dark, so the off is complete with
+        no command.
+        """
+        address = self._drivable_address(channel)
+        if address is None:
+            _api_log.debug(f"led_off no-op: scope has no '{channel}' LED")
+            return
+        self._led_off_impl(address, member='led_off')
 
     @api
     def leds_off(self) -> None:
@@ -1263,7 +1294,12 @@ class IlluminationAPI:
 
     def _restore_led_state_impl(self, snapshot: LedSnapshot) -> None:
         _api_log.info(f'restore_led_state tag={snapshot.tag}')
-        self._emit_led_diff(snapshot_lit_pairs(snapshot.readings), lease=None, block=False)
+        self._emit_led_diff(
+            snapshot_lit_pairs(snapshot.readings),
+            lease=None,
+            block=False,
+            member='restore_led_state',
+        )
 
     def _leds_off_lit_by(self, lease: LedLease) -> None:
         """Turn off only the LED channels *lease* lit.
@@ -1515,7 +1551,12 @@ class IlluminationAPI:
             return self._led_lease_stack[-1].purpose if self._led_lease_stack else None
 
     def _emit_led_diff(
-        self, target: frozenset[tuple[int, float]], *, lease: LedLease | None, block: bool
+        self,
+        target: frozenset[tuple[int, float]],
+        *,
+        lease: LedLease | None,
+        block: bool,
+        member: str,
     ) -> None:
         """Turn off lit channels not in the target, then assert the target.
 
@@ -1532,22 +1573,23 @@ class IlluminationAPI:
         returning -- set for a transition whose LED must be on before the
         camera grabs; the off does not block (clearing a channel never gates a
         grab). ``restore_led_state`` drives this diff over a saved snapshot.
+        ``member`` is the member whose call this is, named by its refusals.
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 ``'not_connected'`` or ``'axis_absent'``, before anything
                 is written.
-            ArgumentRefusedError: ``'not_a_number'`` or
-                ``'illumination_out_of_range'`` for a target light, before
-                anything is written.
+            ArgumentRefusedError: ``'led_channel_unknown'``,
+                ``'not_a_number'`` or ``'illumination_out_of_range'`` for a
+                target light, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
         """
         # The whole target is judged before anything is turned off, so a
         # refused light leaves every LED as it was.
-        self._refuse_unless_lease_holds(lease, 'led_on')
+        self._refuse_unless_lease_holds(lease, member)
         for ch, illumination_ma in target:
-            self._judge_light(ch, illumination_ma)
+            self._judge_light(ch, illumination_ma, member)
         target_channels = {ch for ch, _ in target}
         # Snapshot under the lock, then release before emitting: the off/on
         # primitives re-acquire _led_state_lock (not reentrant) and _led_off_impl
@@ -1556,11 +1598,9 @@ class IlluminationAPI:
             held = list(self._led_state)
         for ch in held:
             if ch not in target_channels:
-                self._led_off_impl(channel=ch, _lease=lease)
+                self._led_off_impl(ch, member=member, _lease=lease)
         for ch, illumination_ma in target:
-            self._led_on_impl(
-                channel=ch, illumination_ma=illumination_ma, block=block, _lease=lease
-            )
+            self._led_on_impl(ch, illumination_ma, block=block, member=member, _lease=lease)
 
     def _apply_transition_impl(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an unleased LED transition through the authority.
@@ -1582,6 +1622,7 @@ class IlluminationAPI:
             LedLease.target_leds(transition, ctx),
             lease=None,
             block=transition in _CONFIRM_ON_TRANSITIONS,
+            member='apply_transition',
         )
 
     def force_off(self) -> bool:
@@ -1633,7 +1674,7 @@ class IlluminationAPI:
             ArgumentRefusedError: ``'led_channel_unknown'``, *channel* is
                 not on the attached board's table.
         """
-        self._refuse_not_a_board_channel(channel)
+        self._refuse_not_a_board_channel(channel, 'channel')
         return self._identity_name(channel)
 
     @api(reads=True)
@@ -1643,7 +1684,7 @@ class IlluminationAPI:
         Answers from the unit's resolved layer identity by stable
         `key_name`. None means the layer is unknown to this unit's
         identity OR drives no LED (luminescence): on-paths turn that
-        into a named refusal at `_on_channel`, off-paths no-op.
+        into a named refusal at `_address_to_light`, off-paths no-op.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, *color* is not a layer.

@@ -79,7 +79,7 @@ def _run_cleanup_inner(stub, ending=None):
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
     # Lit before the lease exists, so no lease is recorded as having lit it:
     # the exact case a lit-by-lease-scoped darken misses.
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
+    scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
@@ -98,7 +98,7 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
 
 
 def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
+    scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
@@ -119,7 +119,7 @@ def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
     # Behavior-preservation guard: passes before and after the fix. The
     # early-return path (run already unwound) never owned the run's LEDs;
     # darkening here would kill a prior cleanup's restored end-state.
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
+    scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope)
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
