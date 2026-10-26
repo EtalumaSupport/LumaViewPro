@@ -5,10 +5,10 @@
 The plugin platform documented in this file is **Phase A** of the 4.x
 plugin contract. The `ctx.plugins.post_processing` namespace shape is
 stable. `ctx.plugins.ui` is registerable now but the only mount point
-is `left_sidebar.accordion`. `ctx.plugins.live_processing` and
-`ctx.plugins.rest` are name-reserved but raise on registration in
-Phase A -- read **Lifecycle and namespaces** below before designing
-around them.
+is `left_sidebar.accordion`. `ctx.plugins.live_processing` is
+registerable now: a per-frame listener on the live camera stream.
+`ctx.plugins.rest` is name-reserved and raises on registration --
+read **Lifecycle and namespaces** below before designing around it.
 
 If you are shipping a plugin against this contract before 4.x freezes,
 contact Etaluma support so we can consult you before structural
@@ -35,8 +35,8 @@ Four namespaces are defined for 4.x:
 |---|---|---|
 | `ui` | Adds widgets at named mount points | live; one mount point (`left_sidebar.accordion`) |
 | `post_processing` | Operates on saved capture folders | live; intern's primary surface |
-| `live_processing` | Per-frame listeners during capture | reserved; raises until Wave 7 Phase 4 |
-| `rest` | HTTP sub-routers mounted under `/plugins/<name>/` | reserved; raises until REST design lands |
+| `live_processing` | Per-frame listeners on the live camera stream | live; see **Live frame listeners** below |
+| `rest` | HTTP sub-routers mounted under `/plugins/<name>/` | reserved; raises on registration |
 
 This tutorial covers `post_processing` end-to-end. UI / live / REST
 shapes are documented elsewhere as those surfaces land. One rule of the
@@ -345,14 +345,38 @@ scope takes the next run while it works. From there it may call the
 session's post-processing members; a blocking call to a camera, motion
 or file member raises.
 
-### Reserved namespaces
+### Live frame listeners
 
-Calling `ctx.plugins.live_processing.register(...)` or
-`ctx.plugins.rest.register(...)` in Phase A raises
-`PluginRegistrationError` with a message that names the wave / phase
-that will unlock the surface. Don't catch and ignore the raise; let
-your plugin fail to load and rework the design against
-`post_processing` until the target surface ships.
+`ctx.plugins.live_processing.register(spec, handler)` adds `handler`
+as a listener on every frame the camera delivers, live view and runs
+alike. The registry forwards to `scope.imaging.add_frame_listener`
+under your plugin's name, so the log names your plugin when the
+handler runs over its budget or raises.
+`ctx.plugins.live_processing.unregister(spec.name)` removes it.
+
+```python
+def register(ctx):
+    def on_frame(frame):
+        # Runs on the camera's thread: return quickly, and never write
+        # to frame.image (draw on frame.image.copy()).
+        ...
+
+    ctx.plugins.live_processing.register(spec, on_frame)
+```
+
+The handler is called `handler(frame)` with the camera's `Frame`
+record. The record's fields, the read-only frame, the per-frame time
+budget and the auto-removal of a handler that overruns it or keeps
+raising are in `LumascopeSkills.md`, **Live frame listeners**. With no
+camera connected, registration raises and nothing is registered.
+
+### The reserved namespace
+
+Calling `ctx.plugins.rest.register(...)` raises
+`PluginRegistrationError` (`rest_namespace_reserved`). Don't catch and
+ignore the raise; let your plugin fail to load, and serve what it needs
+through `post_processing`, `live_processing` or `ui` until the
+namespace ships.
 
 ---
 
@@ -426,11 +450,10 @@ run-complete dialog without normalization.
   your processor can read about (post-processors operate on saved
   files, not live hardware, but understanding what produced the
   files helps) -- see `LumascopeSkills.md` in this directory.
-- For per-frame listeners (running during capture, not after) wait
-  for `ctx.plugins.live_processing` to ship; its registration shape
-  is locked.
-- For HTTP endpoints under `/plugins/<name>/` wait for the REST
-  design session to land; the namespace name is reserved.
+- For per-frame listeners (running on the live stream, not after a
+  run), see **Live frame listeners** above and in `LumascopeSkills.md`.
+- HTTP endpoints under `/plugins/<name>/` are not yet available; the
+  namespace name is reserved.
 - The full design rationale -- why four namespaces, why
   entry-points discovery, why no sandbox in 4.x -- is documented
   elsewhere and will be linked when it lands in this repo.
