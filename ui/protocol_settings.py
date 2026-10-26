@@ -727,7 +727,7 @@ class ProtocolSettings(FloatLayout):
         # no-op at the Session).
         if self.ids['labware_spinner'].text != labware:
             self.ids['labware_spinner'].text = labware
-        self.ids['capture_root'].text = self._protocol.capture_root()
+        self._show_capture_root()
 
         reset_acquire_ui()
         reset_stim_ui()
