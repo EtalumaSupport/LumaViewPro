@@ -53,6 +53,7 @@ from tests.camera_fakes import delivered_frame
 from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
 from modules.scope_capabilities import FrameSize
+from tests.scope_fakes import stock_unit
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -143,7 +144,9 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, centr
     tsv = tmp_path / 'renamed_dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert proto.num_steps() == 2, 'the file must load so the user can rename the steps'
     captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
@@ -174,7 +177,9 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
     rows = _step_row('custom0007_BF', '', '', -1, -1, 46.5, 34.6, 4972.9)
     tsv = tmp_path / 'custom7.tsv'
     tsv.write_text(_build_tsv(rows))
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert proto.step_row(step_index=0)['Label'] == 'custom0007'
 
     returned_name = proto.insert_step(
@@ -605,7 +610,9 @@ def test_loader_infers_tiling_from_tile_column(tmp_path):
     tsv = tmp_path / 'tiled.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert proto.tiling() == '2x2'
 
 
@@ -622,7 +629,9 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
     tsv = tmp_path / 'tile_shaped_names.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     # Anything but the no-tiling label means a tiling was faked from the names.
     assert proto.tiling() == '1x1'
     # The user text itself survives as the labels.
@@ -705,7 +714,9 @@ def test_load_sanitizes_labels_loudly(tmp_path, monkeypatch):
     tsv = tmp_path / 'dotted_label.tsv'
     tsv.write_text(_V8_HEADER + _v8_row('A.1_BF', 'A.1', 'B2'))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     step = proto.step_row(step_index=0)
     assert step['Label'] == 'A1', 'the stripped-character form is what the writer saves'
     assert step['Name'] == 'A1_BF'
@@ -721,7 +732,9 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, centre_posts)
         + _v8_row('A.1_BF', 'A.1', 'B2', tile_group=0, x=1.0)
         + _v8_row('A1_BF', 'A1', 'B3', tile_group=1, x=2.0)
     )
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert list(proto.steps()['Label']) == ['A1', 'A1']
     notified = [n.message for n in centre_posts]
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
@@ -747,7 +760,9 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts
     rows += _step_row('A1_BF', 'A1', '', -1, 1, 46.5, 34.6, 5001.7)
     tsv = tmp_path / 'objective_disambiguated.tsv'
     tsv.write_text(_build_tsv(rows))
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert proto.num_steps() == 2
     assert centre_posts == [], centre_posts
 

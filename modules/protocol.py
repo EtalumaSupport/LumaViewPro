@@ -13,6 +13,7 @@ import pathlib
 import re
 import contextlib
 import copy
+import enum
 from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
@@ -48,6 +49,7 @@ from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
+    from modules.layer_record import ChannelIdentity
     from modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
     from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
@@ -1089,6 +1091,40 @@ class ProtocolSizeAdvisory:
     num_steps: int
     projected_mb: float
     message: str
+
+
+class StoredNames(enum.Enum):
+    """What ``Protocol.from_file`` takes in place of a unit: the file's names, kept.
+
+    For post-processing's read of a run's protocol, where no unit is known:
+    the run's folders and files are named as its protocol names its
+    channels, so nothing is renamed; and the protocol is never run or
+    edited, so it is not judged as one that will be.
+    """
+
+    KEPT = 'kept'
+
+
+def _in_unit_keys(named: dict, unit: 'ChannelIdentity', what: str, file_path: object) -> dict:
+    """``named`` keyed by ``unit``'s key for each name (``ChannelIdentity.unit_key``).
+
+    Raises:
+        ProtocolFormatError: two of its names are one channel on ``unit`` --
+            an old name and its key, written beside each other by hand --
+            so neither value can be taken as the channel's.
+    """
+    renamed: dict = {}
+    taken: dict = {}
+    for name, value in named.items():
+        key = unit.unit_key(name)
+        if key in renamed:
+            raise ProtocolFormatError(
+                f'{what} names both {taken[key]} and {name}, which are one channel ({key}) '
+                'on this scope.',
+                file=file_path,
+            )
+        renamed[key], taken[key] = value, name
+    return renamed
 
 
 @api_fields('CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
@@ -3393,8 +3429,8 @@ class Protocol:
         file_path: pathlib.Path,
         tiling_configs_file_loc: pathlib.Path | None,
         *,
+        unit: 'ChannelIdentity | StoredNames',
         wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
-        runnable: bool = True,
     ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
@@ -3403,17 +3439,25 @@ class Protocol:
         (the installation's catalogue) is given, on a Labware row naming a
         plate that catalogue does not have
 
-        ``runnable`` is False for a reader that never runs or edits the
+        ``unit`` is the identity of the scope the protocol is read to run on,
+        and each channel name the file holds -- a step's Color, its
+        Stim_Config keys, a Layer Settings row -- is read as that unit's key
+        for it (``ChannelIdentity.unit_key``): an old name meant an LED, and
+        on this unit that LED's channel may be another key. Such a protocol
+        is runnable: a period or duration no protocol can run raises
+        ProtocolScheduleRefusedError, naming the file, and a step cell or a
+        Layer Settings cell that is not of its column's type raises
+        ProtocolFormatError, naming the file, the step or layer, and the
+        column.
+
+        ``StoredNames.KEPT`` is for a reader that never runs or edits the
         protocol -- post-processing a finished run reads its record and never
-        its period -- so a file saved before the period had a floor, or with
-        a blank step cell a run would refuse, stays readable there; a step
-        cell that is neither blank nor its column's type refuses the file
-        either way. Every other reader leaves it True: a period or duration no
-        protocol can run raises ProtocolScheduleRefusedError, naming the
-        file, and a step cell or a Layer Settings cell that is not of its
-        column's type raises ProtocolFormatError, naming the file, the step
-        or layer, and the column.
+        its period -- so its names are kept as the run's files carry them,
+        and a file saved before the period had a floor, or with a blank step
+        cell a run would refuse, stays readable there; a step cell that is
+        neither blank nor its column's type refuses the file either way.
         """
+        runnable = unit is not StoredNames.KEPT
 
         # A bound on how much memory one file may ask for, not a judgement
         # about the file. The whole file is read into memory here, several
@@ -3814,6 +3858,31 @@ class Protocol:
                 object,
             )
 
+        # Renamed once the Stim_Config cells are dicts and before the label
+        # recovery and the Name re-render read the channels, so both see the
+        # unit's keys.
+        if runnable:
+            protocol_df['Color'] = protocol_df['Color'].map(unit.unit_key)
+            protocol_df['Stim_Config'] = _typed_column(
+                (
+                    _in_unit_keys(
+                        row['Stim_Config'],
+                        unit,
+                        f'step {position + 1} ({row["Name"]}) Stim_Config',
+                        file_path,
+                    )
+                    for position, (_, row) in enumerate(protocol_df.iterrows())
+                ),
+                object,
+            )
+            if 'layer_settings' in config:
+                config['layer_settings'] = {
+                    key: {**row, 'Layer': key}
+                    for key, row in _in_unit_keys(
+                        config['layer_settings'], unit, 'its Layer Settings block', file_path
+                    ).items()
+                }
+
         if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
 
@@ -3918,7 +3987,3 @@ class Protocol:
                 )
 
         return protocol
-
-
-if __name__ == '__main__':
-    protocol = Protocol.from_file(file_path=pathlib.Path('modules/protocol_test6.tsv'))

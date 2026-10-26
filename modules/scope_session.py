@@ -2170,7 +2170,8 @@ class ScopeSession:
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
                 ``'layer_not_on_scope'``: the file holds a step this scope
-                cannot perform; ``'values_out_of_range'``, its Layer
+                cannot perform; ``'channel_unknown'``, a step names a
+                channel no release has; ``'values_out_of_range'``, its Layer
                 Settings hold a value no layer setting takes; each as
                 ``ProtocolsAPI.load_protocol``.
             ConfigError: As ``select_labware``; the scope stays on the
@@ -4008,8 +4009,9 @@ class ScopeSession:
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
                 ``'layer_not_on_scope'``: the file holds a step this scope
-                cannot perform, or Layer Settings no layer setting takes
-                (``'values_out_of_range'``), as ``load_protocol``.
+                cannot perform, a step naming a channel no release has
+                (``'channel_unknown'``), or Layer Settings no layer setting
+                takes (``'values_out_of_range'``), as ``load_protocol``.
             ConfigError: As ``load_protocol`` and ``apply_channel_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``load_protocol`` and ``apply_channel_settings``.

@@ -39,6 +39,7 @@ from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
+from tests.scope_fakes import stock_unit
 
 _PLATE = '96 well microplate'
 _OTHER_PLATE = 'Four-Slide Holder'
@@ -444,7 +445,7 @@ class TestTheStepIntoItsLayer:
                 cells = [cells[i] for i in keep]
             lines.append('\t'.join(cells))
         saved.write_text('\n'.join(lines) + '\n')
-        protocol = Protocol.from_file(saved, REPO_ROOT / 'data' / 'tiling.json')
+        protocol = Protocol.from_file(saved, REPO_ROOT / 'data' / 'tiling.json', unit=stock_unit())
         stimulating = [
             layer
             for layer, values in no_motor_session.settings.items()

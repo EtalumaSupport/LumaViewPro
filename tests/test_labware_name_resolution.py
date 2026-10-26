@@ -21,6 +21,7 @@ from modules.protocol import Protocol, ProtocolFormatError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.case_walk import failing_cases
+from tests.scope_fakes import stock_unit
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -120,6 +121,7 @@ class TestTheReader:
             proto = Protocol.from_file(
                 file_path=_protocol_file(tmp_path, old_name),
                 tiling_configs_file_loc=TILING_CONFIGS,
+                unit=stock_unit(),
             )
             assert proto.labware_id() == key
 
@@ -134,6 +136,7 @@ class TestTheReader:
                 file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
                 tiling_configs_file_loc=TILING_CONFIGS,
                 wellplate_loader=CATALOGUE,
+                unit=stock_unit(),
             )
 
     def test_without_the_catalogue_an_unknown_plate_loads(self, tmp_path):
@@ -143,6 +146,7 @@ class TestTheReader:
         proto = Protocol.from_file(
             file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
             tiling_configs_file_loc=TILING_CONFIGS,
+            unit=stock_unit(),
         )
         assert proto.labware_id() == UNKNOWN_PLATE
 
@@ -150,6 +154,7 @@ class TestTheReader:
         proto = Protocol.from_file(
             file_path=_protocol_file(tmp_path, 'Center Dish'),
             tiling_configs_file_loc=TILING_CONFIGS,
+            unit=stock_unit(),
         )
         saved = tmp_path / 'resaved.tsv'
         proto.to_file(file_path=saved)

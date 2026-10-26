@@ -35,6 +35,7 @@ import pandas as pd
 
 from modules.config_helpers import find_nearest_step
 from modules.protocol import Protocol
+from tests.scope_fakes import stock_unit
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
@@ -139,9 +140,13 @@ class TestProtocolHandsOutPythonScalars:
         protocol = _protocol_from_declared_schema([_step_row()])
         filepath = tmp_path / 'p.tsv'
         assert protocol.to_file(filepath) is None
-        reloaded = Protocol.from_file(file_path=filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        reloaded = Protocol.from_file(
+            file_path=filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+        )
         offenders = _numpy_valued(reloaded.step_row(0))
-        assert not offenders, f'Protocol.from_file(...).step_row() handed out numpy: {offenders}.'
+        assert not offenders, (
+            f'Protocol.from_file(..., unit=stock_unit()).step_row() handed out numpy: {offenders}.'
+        )
 
     def test_step_keeps_its_series_behaviour(self):
         """Coercion must not cost the callers what they already rely on."""

@@ -36,6 +36,7 @@ from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
+from tests.scope_fakes import stock_unit
 
 
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
@@ -201,6 +202,7 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
     proto = Protocol.from_file(
         file_path=tsv,
         tiling_configs_file_loc=TILING_CONFIGS,
+        unit=stock_unit(),
     )
     assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
     captured = [n.message for n in centre_posts]
@@ -226,6 +228,7 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     proto = Protocol.from_file(
         file_path=tsv,
         tiling_configs_file_loc=TILING_CONFIGS,
+        unit=stock_unit(),
     )
     assert proto.num_steps() == 3
 
@@ -251,6 +254,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     proto = Protocol.from_file(
         file_path=tsv,
         tiling_configs_file_loc=TILING_CONFIGS,
+        unit=stock_unit(),
     )
     assert proto.num_steps() == 4, (
         'Cross-TGID duplicates must NOT be rejected (the legitimate tiled-'
@@ -287,6 +291,7 @@ def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
     Protocol.from_file(
         file_path=tsv,
         tiling_configs_file_loc=TILING_CONFIGS,
+        unit=stock_unit(),
     )
     assert centre_posts == [], (
         f'No notification should fire for a well-formed protocol. Captured: {centre_posts}'
@@ -306,6 +311,7 @@ def test_load_accepts_unique_steps(tmp_path):
     proto = Protocol.from_file(
         file_path=tsv,
         tiling_configs_file_loc=TILING_CONFIGS,
+        unit=stock_unit(),
     )
     assert proto.num_steps() == 2
 

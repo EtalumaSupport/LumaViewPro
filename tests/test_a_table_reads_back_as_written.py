@@ -24,6 +24,8 @@ from modules.protocol import Protocol, ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
 from tests.test_post_processing_stays_inside_its_folder import _project, _run_folder
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from modules.protocol import StoredNames
+from tests.scope_fakes import stock_unit
 
 NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']
 
@@ -58,7 +60,7 @@ def test_a_step_renamed_to_a_missing_value_word_reloads_with_that_name(tmp_path,
     path = tmp_path / 'protocol.tsv'
     protocol.to_file(path)
 
-    step = Protocol.from_file(path, TILING_CONFIGS).step_row(step_index=0)
+    step = Protocol.from_file(path, TILING_CONFIGS, unit=stock_unit()).step_row(step_index=0)
 
     assert (step['Label'], step['Name']) == (name, f'{name}_BF_Z0')
 
@@ -70,17 +72,17 @@ def _saved_with_well_cell(tmp_path, text):
     return path
 
 
-@pytest.mark.parametrize('runnable', [True, False])
+@pytest.mark.parametrize('to_run', [True, False], ids=['to-run', 'stored-names'])
 @pytest.mark.parametrize(
     ('cell', 'words'), [('A\x001', 'NUL'), ('"A1', 'not a well-formed table')], ids=['nul', 'quote']
 )
 def test_a_protocol_whose_step_cell_no_writer_produces_is_refused_naming_it(
-    tmp_path, runnable, cell, words
+    tmp_path, to_run, cell, words
 ):
     path = _saved_with_well_cell(tmp_path, cell)
 
     with pytest.raises(ProtocolFormatError, match=words) as refused:
-        Protocol.from_file(path, TILING_CONFIGS, runnable=runnable)
+        Protocol.from_file(path, TILING_CONFIGS, unit=stock_unit() if to_run else StoredNames.KEPT)
 
     assert refused.value.file == path
 

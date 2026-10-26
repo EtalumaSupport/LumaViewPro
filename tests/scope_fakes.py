@@ -605,6 +605,26 @@ def identity_with_layers(keys, *, model=None, filterset=''):
     )
 
 
+def stock_unit():
+    """A stock LS850's identity, resolved from the release's model rows.
+
+    The unit a test reads a protocol to run on when the test is not about
+    the unit: each channel name the file holds is read as this unit's key
+    for it (``Protocol.from_file``'s ``unit``).
+    """
+    from modules import layer_record
+
+    return layer_record.resolve_layer_identity(
+        board_block=None,
+        board_config_read_ok=True,
+        motor_model='LS850',
+        configured_model=None,
+        models=layer_record.load_scope_models(),
+        catalogue=layer_record.release_layers(),
+        report=refuse_a_report,
+    )
+
+
 def refuse_a_report(notice):
     """An identity reporter for a resolve that has nothing to report."""
     raise AssertionError(f'the identity resolve reported {notice!r}')

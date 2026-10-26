@@ -28,6 +28,7 @@ import pandas as pd
 import modules.protocol as protocol_module
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
+from tests.scope_fakes import stock_unit
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -36,7 +37,9 @@ STEPPED_EXAMPLE = REPO / 'data' / 'example_protocol.tsv'
 
 
 def _load(path: pathlib.Path) -> Protocol:
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    return Protocol.from_file(
+        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
 
 
 def test_the_shipped_default_loads_as_an_empty_protocol_carrying_the_files_own_facts():

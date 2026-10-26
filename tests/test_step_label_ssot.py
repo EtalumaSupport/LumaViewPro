@@ -37,6 +37,7 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from modules.coord_transformations import PlateLocation
+from tests.scope_fakes import stock_unit
 
 # A stitched output's derivation, as a Quality stitch of raw tiles records it.
 _STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()
@@ -130,7 +131,9 @@ _V7_TSV = (
 def test_v7_load_recovers_labels_and_saves_at_the_current_version(tmp_path):
     src = tmp_path / 'proto_v7.tsv'
     src.write_text(_V7_TSV)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     steps = proto.steps()
 
     # The renamed step's user text is recovered verbatim into Label; auto
@@ -153,7 +156,9 @@ def test_v7_load_recovers_labels_and_saves_at_the_current_version(tmp_path):
     lines = dst.read_text().splitlines()
     assert lines[1] == f'Version\t{Protocol.CURRENT_VERSION}', lines[1]
 
-    proto2 = Protocol.from_file(file_path=dst, tiling_configs_file_loc=TILING_CONFIGS)
+    proto2 = Protocol.from_file(
+        file_path=dst, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert list(proto2.steps()['Name']) == list(steps['Name'])
     assert list(proto2.steps()['Label']) == list(steps['Label'])
 
@@ -181,7 +186,9 @@ _V5_TSV = (
 def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
     src = tmp_path / 'proto_v5.tsv'
     src.write_text(_V5_TSV)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     steps = proto.steps()
 
     # Pure auto names reload byte-identically and are flagged auto=True (the
@@ -285,7 +292,9 @@ def test_token_shaped_label_survives_protocol_roundtrip(tmp_path):
     )
     path = tmp_path / 'p.tsv'
     assert proto.to_file(file_path=path) is None
-    reloaded = Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    reloaded = Protocol.from_file(
+        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     step = reloaded.step_row(step_index=0)
     assert step['Label'] == 'Assay_Turret3'
     assert step['Name'] == 'Assay_Turret3_BF'
@@ -457,13 +466,15 @@ def test_a_blank_zslice_refuses_the_file(tmp_path):
     src = tmp_path / 'v6_zfloat.tsv'
     src.write_text(_V6_ZFLOAT)
     with pytest.raises(ProtocolFormatError, match='Z-Slice'):
-        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit())
 
 
 def test_zslice_reads_as_a_whole_number_and_names_render_from_it(tmp_path):
     src = tmp_path / 'v6_zint.tsv'
     src.write_text(_V6_ZFLOAT.replace('A3\t\t\t', 'A3\t\t-1\t'))
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     steps = proto.steps()
     # The Z3 row must still compose-and-compare as machine (Label '') and
     # re-render byte-identically -- a float 3.0 would have rendered 'Z3.0',
@@ -499,7 +510,9 @@ _V2_CHANNEL = (
 def test_legacy_channel_column_loads_and_normalizes_to_color(tmp_path):
     src = tmp_path / 'v2_channel.tsv'
     src.write_text(_V2_CHANNEL)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     steps = proto.steps()
     assert list(steps['Name']) == ['A2_BF']
     assert 'Color' in steps.columns
@@ -513,7 +526,7 @@ def test_missing_well_column_raises_format_error(tmp_path):
     src = tmp_path / 'v2_no_well.tsv'
     src.write_text(_V2_CHANNEL.replace('\tWell', '').replace('4x\tA2\t', '4x\t'))
     with pytest.raises(ProtocolFormatError, match='Well'):
-        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit())
 
 
 # ---------------------------------------------------------------------------
@@ -525,13 +538,17 @@ def test_missing_well_column_raises_format_error(tmp_path):
 def test_numeric_looking_label_survives_protocol_roundtrip(tmp_path):
     src = tmp_path / 'v7.tsv'
     src.write_text(_V7_TSV)
-    proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+    proto = Protocol.from_file(
+        file_path=src, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     proto.modify_name(step_index=0, step_name='0600')
     assert proto.step_row(step_index=0)['Label'] == '0600'
 
     dst = tmp_path / 'v8.tsv'
     assert proto.to_file(file_path=dst) is None
-    proto2 = Protocol.from_file(file_path=dst, tiling_configs_file_loc=TILING_CONFIGS)
+    proto2 = Protocol.from_file(
+        file_path=dst, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
     assert proto2.step_row(step_index=0)['Label'] == '0600'
     assert proto2.step_row(step_index=0)['Name'] == '0600_BF'
 

@@ -19,10 +19,13 @@ from modules.exceptions import ProtocolNotLoadedError, Refusal
 from modules.notification_center import NotificationCenter, Severity
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.test_protocol_roundtrip import TILING_CONFIGS
+from tests.scope_fakes import stock_unit
 
 
 def _load(path):
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    return Protocol.from_file(
+        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
 
 
 def _report(error):

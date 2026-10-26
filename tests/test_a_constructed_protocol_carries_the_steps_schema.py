@@ -26,6 +26,7 @@ from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
 from tests.test_protocol_execution import _make_single_step_protocol
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
+from tests.scope_fakes import stock_unit
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -41,7 +42,7 @@ def test_a_column_less_frame_from_a_caller_is_queryable():
 
 def test_a_zero_row_parse_is_stored_with_the_canonical_schema():
     steps = Protocol.from_file(
-        file_path=SHIPPED_DEFAULT, tiling_configs_file_loc=TILING_CONFIGS
+        file_path=SHIPPED_DEFAULT, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
     ).steps()
     canonical = Protocol._create_empty_steps_df()
 

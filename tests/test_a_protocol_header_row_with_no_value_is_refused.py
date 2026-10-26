@@ -13,6 +13,7 @@ import pytest
 
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.test_protocol_roundtrip import TILING_CONFIGS
+from tests.scope_fakes import stock_unit
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SHIPPED_DEFAULT = REPO / 'data' / 'new_default_protocol.tsv'
@@ -24,7 +25,9 @@ def _load_with_row(tmp_path, name, replacement):
     lines[index] = replacement
     path = tmp_path / 'cut.tsv'
     path.write_text('\n'.join(lines) + '\n')
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
+    return Protocol.from_file(
+        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+    )
 
 
 def test_the_shipped_default_loads(tmp_path):

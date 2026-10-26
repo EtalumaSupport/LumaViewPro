@@ -24,6 +24,7 @@ import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import ProtocolFormatError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import make_session  # noqa: F401
+from modules.protocol import StoredNames
 
 
 def _saved_steps(session, path, count):
@@ -88,7 +89,7 @@ def test_post_processing_reads_a_blank_position_as_no_position(make_session, tmp
     path = _blank_xy_file(make_session, tmp_path)
 
     record = Protocol.from_file(
-        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, runnable=False
+        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=StoredNames.KEPT
     )
 
     assert (record.step_row(step_index=0)['X'], record.step_row(step_index=0)['Y']) == (None, None)

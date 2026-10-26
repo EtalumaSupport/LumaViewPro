@@ -654,6 +654,10 @@ RUNNER_REFUSAL_COVERAGE = {
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
     'layer_not_on_scope': _FUNNEL_LOOP,
+    'channel_unknown': (
+        'tests/test_an_old_protocol_runs_the_leds_it_was_made_with.py::'
+        'test_on_a_unit_without_the_led_an_old_name_is_its_stock_key'
+    ),
     'objectives_require_turret': (
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),

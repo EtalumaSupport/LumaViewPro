@@ -33,6 +33,8 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
+from tests.scope_fakes import stock_unit
+from modules.protocol import StoredNames
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING = REPO / 'data' / 'tiling.json'
@@ -113,7 +115,7 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING)
+            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING, unit=stock_unit())
 
         assert str(path) in str(refused.value)
 
@@ -125,7 +127,7 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING)
+            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING, unit=stock_unit())
 
         assert str(path) in str(refused.value)
 
@@ -190,13 +192,14 @@ class TestAReaderThatNeverRunsTheProtocol:
             Protocol.from_file(
                 file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
                 tiling_configs_file_loc=TILING,
+                unit=stock_unit(),
             )
 
     def test_a_reader_that_does_not_judge_keeps_the_schedule_as_the_file_has_it(self, tmp_path):
         protocol = Protocol.from_file(
             file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
             tiling_configs_file_loc=TILING,
-            runnable=False,
+            unit=StoredNames.KEPT,
         )
 
         assert protocol.period_s() == 0.005 * 60

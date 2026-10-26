@@ -133,7 +133,7 @@ class TestLedOnValidation:
 
 
 class TestProtocolFileLimits:
-    """Verify Protocol.from_file() enforces size and step count limits."""
+    """Verify Protocol.from_file(, unit=stock_unit()) enforces size and step count limits."""
 
     def test_rejects_oversized_file(self, tmp_path):
         """A file > 10 MB should be rejected before parsing."""
@@ -146,6 +146,7 @@ class TestProtocolFileLimits:
             Protocol.from_file(
                 file_path=big_file,
                 tiling_configs_file_loc=None,
+                unit=stock_unit(),
             )
 
     def test_accepts_file_under_limit(self, tmp_path):
@@ -160,6 +161,7 @@ class TestProtocolFileLimits:
             Protocol.from_file(
                 file_path=small_file,
                 tiling_configs_file_loc=None,
+                unit=stock_unit(),
             )
         assert 'exhausting memory' not in str(exc_info.value)
 
@@ -2946,6 +2948,7 @@ from tests.scope_fakes import build_scope, give_camera_capabilities, give_stub_l
 from tests.installation_fixtures import copy_installation_files
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.scope_fakes import stock_unit
 
 
 def _function_source(source: str, func_name: str) -> str:

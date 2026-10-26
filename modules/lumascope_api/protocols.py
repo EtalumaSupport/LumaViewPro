@@ -146,7 +146,9 @@ class ProtocolsAPI:
         """Load a Protocol from disk.
 
         Wraps ``Protocol.from_file(...)`` and resolves
-        ``data/tiling.json`` from the scope's data folder.
+        ``data/tiling.json`` from the scope's data folder. The file's channel
+        names are read as this scope's keys for them, so a file saved in an
+        earlier release's names lights the LEDs it was made with.
 
         Args:
             file_path: Path to the protocol file.
@@ -168,7 +170,8 @@ class ProtocolsAPI:
                 scope does not have, with the reason a run would give for
                 the same file. Refused for the same reason the plate is: a
                 caller must not be handed a protocol it can edit, navigate
-                and save but never perform. ``'values_out_of_range'``, its
+                and save but never perform. ``'channel_unknown'``, a step
+                names a channel no release has (``refuse_absent_layers``). ``'values_out_of_range'``, its
                 Layer Settings block holds a value no layer setting takes,
                 each named: applying them would be refused. A file with no
                 block (v5) has its rows inferred from its steps, whose
@@ -179,6 +182,7 @@ class ProtocolsAPI:
         protocol = Protocol.from_file(
             file_path=path_utils.existing_file(file_path),
             tiling_configs_file_loc=self.tiling_configs_path(),
+            unit=self._scope.channel_identity,
             wellplate_loader=self._scope.wellplate_loader,
         )
         # After the parse, so a file that is not a protocol at all is
@@ -1000,13 +1004,28 @@ class ProtocolsAPI:
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this refusal through ``ScopeSession.load_protocol`` and a run's start.
 
+        A step naming a channel no release has is refused as that first: it
+        is a typo or a hand edit, and no scope has its layer.
+
         Raises:
-            ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
+            ProtocolRunRefusedError: reason ``channel_unknown``, naming the
+                channels and the steps; else ``layer_not_on_scope``, naming
                 the layers and the steps. Logged and notified once.
         """
         identity = self._scope.channel_identity
         present = {record.key_name for record in identity.channels}
         steps = protocol.steps()
+        unknown = steps.loc[~steps['Color'].isin(common_utils.get_layers())]
+        if not unknown.empty:
+            self._refuse(
+                reason='channel_unknown',
+                message=(
+                    f'{len(unknown)} step(s) name a channel LumaViewPro does not know '
+                    f'({", ".join(sorted(set(unknown["Color"])))}), so they cannot be run: '
+                    f'{common_utils.first_few(list(unknown["Name"]), separator=", ")}. '
+                    f'Delete those steps, or correct the file.'
+                ),
+            )
         absent = steps.loc[~steps['Color'].isin(present)]
         if absent.empty:
             return

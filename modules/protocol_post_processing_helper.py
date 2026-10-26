@@ -9,7 +9,7 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
-from modules.protocol import Protocol
+from modules.protocol import Protocol, StoredNames
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules import post_derivation
 from modules.protocol_post_record import ProtocolPostRecord
@@ -353,13 +353,13 @@ class ProtocolPostProcessingHelper:
         """)
 
         try:
-            # The run's record, read for its steps and never run or edited:
-            # a period saved before the floor, or a step cell a run would
-            # refuse, does not refuse it here.
+            # The run's record, read for its steps in the names its files
+            # carry and never run or edited: a period saved before the floor,
+            # or a step cell a run would refuse, does not refuse it here.
             protocol = Protocol.from_file(
                 file_path=protocol_tsvs['protocol'],
                 tiling_configs_file_loc=tiling_configs_file_loc,
-                runnable=False,
+                unit=StoredNames.KEPT,
             )
         except Exception as e:
             msg = f'Unable to load protocol file: {e}'

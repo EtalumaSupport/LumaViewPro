@@ -15,7 +15,7 @@ Usage
     session = ScopeSession.create(settings=settings)
     runner = ProtocolRunner(session)
 
-    protocol = Protocol.from_file("my_protocol.csv")
+    protocol = session.load_protocol("my_protocol.tsv")
     run = runner.start_single_scan(protocol, sequence_name="test_scan")
     result = run.result(timeout=300)     # run.stop() stops it
     print(result.status, result.reason, result.message)

@@ -23,7 +23,8 @@ import pathlib
 
 import pytest
 
-from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError
+from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError, StoredNames
+from tests.scope_fakes import stock_unit
 from tests.ast_seams import parse_module, walk_defs
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
 from tests.case_walk import failing_cases
@@ -48,8 +49,13 @@ def _with_cell(path: pathlib.Path, step: int, column: str, text: str) -> pathlib
     return path
 
 
-def _load(path, **kwargs):
-    return Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS, **kwargs)
+def _load(path, unit=None):
+    """``path`` read to run on a stock unit, or as ``unit`` says."""
+    return Protocol.from_file(
+        file_path=path,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        unit=stock_unit() if unit is None else unit,
+    )
 
 
 TWO_STEPS = [
@@ -214,7 +220,7 @@ def test_post_processing_refuses_a_runs_record_with_a_cell_its_column_cannot_hol
     path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Auto_Focus', 'maybe')
 
     with pytest.raises(ProtocolFormatError) as refused:
-        _load(path, runnable=False)
+        _load(path, StoredNames.KEPT)
 
     words = str(refused.value)
     assert str(path) in words
@@ -225,14 +231,14 @@ def test_post_processing_refuses_a_runs_record_with_a_cell_its_column_cannot_hol
 def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_path):
     path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Z-Slice', '')
 
-    protocol = _load(path, runnable=False)
+    protocol = _load(path, StoredNames.KEPT)
 
     assert protocol.steps()['Z-Slice'].tolist() == [-1, 0]
     assert protocol.steps()['Auto_Focus'].tolist() == [True, False]
     assert protocol.step_row(step_index=0)['X'] == 10.0
 
 
-def test_the_post_processing_reader_is_not_runnable():
+def test_the_post_processing_reader_keeps_the_stored_names_and_is_not_runnable():
     node = next(
         node
         for _, node in walk_defs(parse_module('modules/protocol_post_processing_helper.py').body)
@@ -242,9 +248,7 @@ def test_the_post_processing_reader_is_not_runnable():
         and node.func.attr == 'from_file'
         and getattr(node.func.value, 'id', None) == 'Protocol'
     )
-    assert {(k.arg, getattr(k.value, 'value', None)) for k in node.keywords} >= {
-        ('runnable', False)
-    }
+    assert {(k.arg, ast.unparse(k.value)) for k in node.keywords} >= {('unit', 'StoredNames.KEPT')}
 
 
 def test_a_runs_copy_reads_its_cells_as_its_source_does():
