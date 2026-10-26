@@ -221,7 +221,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     assert illumination.get_led_states() is None
     assert illumination.save_led_state('after') is None
     assert ('BF', LedState.DARK) in heard
-    assert common_utils.resolve_channel_identity(illumination, LED1) == LED1
+    assert common_utils.read_light(illumination, LED1).channel == LED1
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))

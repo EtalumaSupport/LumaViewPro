@@ -413,6 +413,14 @@ def generate_image_metadata(
     # it would version the files to the wiring.
     identity = scope.channel_identity
     record = identity.find(channel)
+    # Every LED lit for the grab, by the layer it lights, in address order,
+    # so a frame two LEDs lit says both. A lit address no layer names is
+    # left out, as every board address is.
+    illumination_by_channel_ma = {
+        key: round(ma, common_utils.max_decimal_precision('illumination'))
+        for address, ma in sorted(frame_record.illumination_ma.items())
+        if (key := identity.key_at(address)) is not None
+    }
 
     metadata = {
         'camera_make': 'Etaluma',
@@ -445,6 +453,11 @@ def generate_image_metadata(
             if record is not None
             and record.led_addresses
             and (_ma := frame_record.illumination_ma.get(record.led_addresses[0])) is not None
+            else {}
+        ),
+        **(
+            {'illumination_by_channel_ma': illumination_by_channel_ma}
+            if illumination_by_channel_ma
             else {}
         ),
         'frames_summed': frame_record.frames_summed,

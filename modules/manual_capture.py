@@ -257,8 +257,8 @@ class ManualCaptureController:
         finally:
             self._in_flight.release()
 
-    def _grab_named(self, scope, capture_config) -> tuple[str, str, Any]:
-        """The frame, the channel it was taken under, and the shown layer then.
+    def _grab_named(self, scope, capture_config) -> tuple[str, Any]:
+        """The frame and the channel it was taken under.
 
         The channel is the light -- the lit LED, else the shown layer -- the
         rule a manual recording uses too, read on the lane, and the camera
@@ -276,8 +276,7 @@ class ManualCaptureController:
         """
         started = time.monotonic()
         first_capture = None
-        shown_layer = self._shown_layer()
-        channel = common_utils.resolve_channel_identity(scope.illumination, shown_layer)
+        channel = common_utils.read_light(scope.illumination, self._shown_layer()).channel
         while True:
             # The summing row is the imaged channel's, from the store the camera
             # is made to hold; the delay is a settle between summed frames.
@@ -301,10 +300,9 @@ class ManualCaptureController:
             )
             if first_capture is None:
                 first_capture = scope.imaging.last_capture_info
-            shown_layer = self._shown_layer()
-            light = common_utils.resolve_channel_identity(scope.illumination, shown_layer)
+            light = common_utils.read_light(scope.illumination, self._shown_layer()).channel
             if light == channel:
-                return channel, shown_layer, array
+                return channel, array
             if time.monotonic() - started > first_capture['deadline_s']:
                 raise CaptureFailedError('deadline_expired')
             logger.info(
@@ -331,7 +329,7 @@ class ManualCaptureController:
         # Read beside the grab: the file records the objective the frame was
         # taken with, and an unknown one refuses before anything is captured.
         objective_id, _ = scope.runtime_state.resolve_current_objective()
-        channel, shown_layer, array = self._grab_named(scope, capture_config)
+        channel, array = self._grab_named(scope, capture_config)
         save_folder = manual_folder
         if settings['separate_folder_per_channel']:
             save_folder = manual_folder / channel
@@ -361,11 +359,7 @@ class ManualCaptureController:
         # Where the stage was, read beside the grab with the reader a
         # recording uses for every frame: an axis without its reference
         # answers no position, and the file then states none for it.
-        fact = frame_fact(
-            scope,
-            channel_tiebreak=shown_layer,
-            to_plate=scope.runtime_state.plate_transform(),
-        )
+        fact = frame_fact(scope, to_plate=scope.runtime_state.plate_transform())
 
         # The well at the position the file records, read beside the grab.
         well_label = fact.well_label(labware)

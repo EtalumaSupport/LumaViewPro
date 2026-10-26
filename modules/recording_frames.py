@@ -227,15 +227,15 @@ class FrameFact(NamedTuple):
     did not know them: X and Y as a pair in plate millimetres, Z alone in
     micrometres. ``moving`` says an axis was MOVING or HOMING when the
     frame was delivered -- delivery follows exposure and readout, so this
-    is the state at delivery, not during the exposure. ``channel`` is the
-    channel that lit the frame, resolved the way a still's is.
+    is the state at delivery, not during the exposure. What lit a recorded
+    frame is read beside it (``arrival_facts``); a still's own record says
+    what lit it.
     """
 
     plate_x_mm: float | None
     plate_y_mm: float | None
     z_um: float | None
     moving: bool
-    channel: str
 
     def well_label(self, labware: 'Labware') -> str | None:
         """The well this frame's position lies in on ``labware``, the plate
@@ -254,7 +254,6 @@ class FrameFact(NamedTuple):
 def frame_fact(
     scope: 'Lumascope',
     *,
-    channel_tiebreak: str,
     to_plate: Callable[[float, float], 'PlatePosition'] | None,
 ) -> FrameFact:
     """The fact for the frame arriving now; called on the camera callback.
@@ -269,9 +268,6 @@ def frame_fact(
 
     Args:
         scope: The scope the recording runs against.
-        channel_tiebreak: The channel to record when no LED is lit -- the
-            one the recording started on, or the still's shown layer -- so
-            luminescence frames are named.
         to_plate: The plate transform bound when the recording started
             (``runtime_state.plate_transform()``), or None when the caller
             states no plate position; X and Y are then unknown.
@@ -298,7 +294,30 @@ def frame_fact(
         plate_y_mm=plate_y_mm,
         z_um=z.position_um if z is not None else None,
         moving=moving,
-        channel=common_utils.resolve_channel_identity(scope.illumination, channel_tiebreak),
+    )
+
+
+def arrival_facts(
+    scope: 'Lumascope',
+    *,
+    channel_tiebreak: str,
+    to_plate: Callable[[float, float], 'PlatePosition'] | None,
+) -> tuple[FrameFact, common_utils.Light]:
+    """What a recorded frame states, read as it arrives: where it was taken, and what lit it.
+
+    The light is one read of the LEDs, so the channel a frame is named for
+    and the currents it records cannot disagree. Called on the camera
+    callback, under ``frame_fact``'s rule that nothing here raises.
+
+    Args:
+        scope: The scope the recording runs against.
+        channel_tiebreak: The channel to record when no LED is lit -- the
+            one the recording started on -- so luminescence frames are named.
+        to_plate: As for ``frame_fact``.
+    """
+    return (
+        frame_fact(scope, to_plate=to_plate),
+        common_utils.read_light(scope.illumination, channel_tiebreak),
     )
 
 
@@ -309,15 +328,17 @@ def tiff_frame_metadata(
     tick_freq_hz: float | None,
     pixel_size_um: float | None,
     fact: FrameFact,
+    light: common_utils.Light,
 ) -> tuple[dict, str]:
     """Per-frame TIFF metadata plus a path-safe timestamp string.
 
     The timestamp travels in metadata, not pixels -- Create Video draws
     it at build time when the overlay is enabled. Camera chunk identity
     (hardware ticks, FrameID) is recorded when the frame carried it. The
-    frame's own fact -- where it was taken, whether the stage was moving,
-    which channel lit it -- is recorded with the still capture's position
-    keys, so the file says what it is with or without a hyperstack.
+    frame's own fact -- where it was taken, whether the stage was moving --
+    is recorded with the still capture's position keys, and what lit it
+    with every lit layer's current, so the file says what it is with or
+    without a hyperstack.
 
     Args:
         timestamp_s: Frame time, epoch seconds.
@@ -334,6 +355,7 @@ def tiff_frame_metadata(
             Required for the same reason, and refused as None: a frame
             file with no fact would claim nothing about where it was
             taken, silently.
+        light: What lit the frame, read with its fact (``arrival_facts``).
 
     Returns:
         ``(metadata, ts_filename)`` -- the metadata dict for the TIFF
@@ -352,7 +374,17 @@ def tiff_frame_metadata(
         'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
         'timestamp_iso': ts.isoformat(timespec='microseconds'),
         'frame_num': frame_number,
-        'channel': fact.channel,
+        'channel': light.channel,
+        **(
+            {
+                'illumination_by_channel_ma': {
+                    key: round(ma, common_utils.max_decimal_precision('illumination'))
+                    for key, ma in light.illumination_by_channel_ma.items()
+                }
+            }
+            if light.illumination_by_channel_ma
+            else {}
+        ),
         'stage_moving': fact.moving,
         **image_save.position_metadata_fields(fact.plate_x_mm, fact.plate_y_mm, fact.z_um),
         # The writer reads this as a required key. A real value makes the file

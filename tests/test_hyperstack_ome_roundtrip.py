@@ -21,12 +21,14 @@ import tifffile as tf
 from modules import image_utils, recording_frames
 from modules.stack_builder import StackBuilder
 from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
+from modules.common_utils import Light
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1, LED2
 
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
+_LIGHT = Light('BF', {})
 
 
 def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.5):
@@ -43,6 +45,7 @@ def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=_FACT,
+            light=_LIGHT,
         )
         image_utils.write_tiff(
             data=np.full((4, 4), n, dtype=np.uint8),

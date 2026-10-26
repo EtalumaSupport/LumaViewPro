@@ -750,15 +750,20 @@ A take is refused with `ControlSessionRefusedError` while anything of anyone els
 `session.manual_capture.capture()` captures one still and saves it, the same
 file the GUI's Capture button makes. The caller names only whether the
 shown layer is displayed in false colour and the overlays it wants; the
-channel (the lit LED, else the shown channel's layer, `session.shown_channel`;
-see "The shown channel"), the folder (`live_folder/Manual`, per channel when
+channel (the lit LED -- an LED on above 0 mA, since the board takes 0 mA as
+off, and the first in address order when more than one is lit -- else the
+shown channel's layer, `session.shown_channel`; see "The shown channel"), the folder (`live_folder/Manual`, per channel when
 `separate_folder_per_channel`),
 the name, summing, format and encoding come from the session's settings. The
 channel is read as the frame is taken, and the camera holds that layer's
 stored exposure, gain and auto-gain for the frame, whatever came before: a
 run, a go-to, a written setting, an LED lit through `scope.illumination`.
 When the light changes while the frame is taken, the still is taken again on
-the new light's layer, within the first capture's budget. After a raw camera
+the new light's layer, within the first capture's budget, so the name and the
+light the frame was taken under agree. The file states every LED lit for the
+frame: ``IlluminationByChannel``, each lit layer's current by its key, with
+``IlluminationByChannelUnit`` (``mA``); ``Illumination`` stays the named
+channel's alone, as files from earlier releases carry it. After a raw camera
 write (`scope.camera.set_gain_db`, `set_exposure_ms` and the other raw
 doors) the written values stand, and the frame's record says so:
 `frame_record.held_channel` (the channel whose stored settings the camera held,
@@ -864,13 +869,15 @@ many frames the sum holds. An OME-TIFF keeps the exposure and the position in
 its OME ``Plane``, and every other acquisition fact of the frame in the image's
 ``MapAnnotation`` with namespace ``etaluma.com/lvp``, one key each, the value
 JSON text: ``FramesSummed``, ``Gain`` and ``GainUnit``, ``Illumination`` and
-``IlluminationUnit``, ``BlackLevel``, ``Binning``, ``Objective``, the timestamps
+``IlluminationUnit``, ``IlluminationByChannel`` and ``IlluminationByChannelUnit``, ``BlackLevel``, ``Binning``, ``Objective``, the timestamps
 and ``FrameID``, ``FrameValidity``, ``SaturatedFraction``, ``Dark``,
 ``CameraHeldAChannel`` and ``CameraHeldChannel``. Bio-Formats (Fiji, QuPath,
 OMERO) shows the annotation; a plain or ImageJ TIFF carries the same keys in
 its ``Plane`` block. A key the frame did not know is absent, never a stand-in.
 A Sum z-projection and a composite state no ``FramesSummed``: a sum of slices,
-or a merge of channels each with its own count, is not one capture's sum.
+or a merge of channels each with its own count, is not one capture's sum. A
+composite states no current either, ``Illumination`` or ``IlluminationByChannel``:
+each describes one input's light, not the merge.
 An OME-TIFF from an earlier release carries no annotation, so it states only
 its exposure and position.
 
@@ -1123,7 +1130,7 @@ Per recording (one per well per scan), the run produces:
 - a frames folder (`<step>_video/`) of per-frame TIFFs, numbered in capture order;
 - `recording_manifest.json` in that folder -- the measured truth: delivered frame count, measured frame rate, per-frame timestamps, and the recording's end reason. Downstream consumers (including Create Video's `auto` rate) read the manifest, not the configured rate;
 - one variable-frame-rate MP4 per recording;
-- when the recording is saved as frames, each frame's TIFF carries its own record of when it arrived: the plate position (`plate_pos_mm`, `x_pos`, `y_pos`) and Z (`z_pos_um`) as the scope tracked them, each absent when the scope did not know it; `stage_moving`, true when any axis was moving or homing at delivery; and `channel`, the channel that lit the frame. These are the same keys a still capture writes, and the frame is false-coloured as its recorded channel;
+- when the recording is saved as frames, each frame's TIFF carries its own record of when it arrived: the plate position (`plate_pos_mm`, `x_pos`, `y_pos`) and Z (`z_pos_um`) as the scope tracked them, each absent when the scope did not know it; `stage_moving`, true when any axis was moving or homing at delivery; `channel`, the channel that lit the frame, named as a still is; and `illumination_by_channel_ma`, each lit layer's current by its key, read with `channel` from one read of the LEDs and absent when none was lit. The position keys and `channel` are the ones a still capture writes, and the frame is false-coloured as its recorded channel;
 - after the run completes, one OME-TIFF hyperstack per (well, scan): `T` = frame capture order, `C` = channel, per-plane `DeltaT` from the frames' own timestamps. Hyperstacks build at run completion on every host -- headless and REST runs included, no GUI involved. Nothing waits on that build, so its outcome is told as a notification: "Saving Hyperstacks" as it starts, replaced by "Hyperstacks Saved" with the count and folder, or by what went wrong -- including a build that saved only some of its stacks, which names the ones missing and where the rest are.
 
 A manual frames recording with the hyperstack output format on builds one OME-TIFF hyperstack from its frames, `T` = frame order, with each plane's position from the frame's own record (an axis the scope did not know on any frame is omitted from every plane, as the OME writer refuses to invent one). It is built only when one channel lit the whole recording: the stage and the LEDs stay open to L2 callers while a manual recording runs, and a channel change mid-recording leaves frames no single T x C cube can hold, so the build refuses, the `Hyperstack Not Built` notification carries the builder's reason, and the frames stand with their true per-frame channels.

@@ -2,7 +2,7 @@
 """A still is named for the light, and taken at that layer's stored settings.
 
 The still's name is the light: the lit LED, else the shown layer
-(``common_utils.resolve_channel_identity``). The LEDs are written on the IO
+(``common_utils.read_light``). The LEDs are written on the IO
 lane and the camera on the camera lane, so the light could change without
 the camera following, and a still was named for one layer and taken at
 another's: after a run (named for its last step at the pre-run layer's
@@ -163,6 +163,61 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     ), raw_saved
 
 
+def test_a_still_two_leds_lit_is_named_for_the_first_and_its_file_states_both(session):
+    from modules.image_utils import read_postproc_input_metadata
+
+    session.scope.illumination.led_on(LED0, 100.0)
+    session.scope.illumination.led_on(LED1, 50.0)
+
+    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+
+    saved = read_postproc_input_metadata(still.file)
+    assert f'_{LED0}_' in still.file.name, 'the first lit LED in address order names it'
+    assert saved.get('illumination_by_channel_ma') == {LED0: 100.0, LED1: 50.0}, saved
+    assert saved.get('illumination_ma') == 100.0, 'Illumination is the named channel alone'
+
+
+def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
+    from modules.image_utils import read_postproc_input_metadata
+
+    session.scope.illumination.led_on(LED1, 75.0)
+
+    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+
+    saved = read_postproc_input_metadata(still.file)
+    assert saved.get('illumination_by_channel_ma') == {LED1: 75.0}, saved
+    assert saved.get('illumination_ma') == 75.0
+
+
+def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
+    """The board takes 0 mA as off, and so does the frame's record: the
+    still is named for the LED that lit it, which its file states."""
+    from modules.image_utils import read_postproc_input_metadata
+
+    session.scope.illumination.led_on(LED0, 0.0)
+    session.scope.illumination.led_on(LED1, 100.0)
+
+    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+
+    saved = read_postproc_input_metadata(still.file)
+    assert f'_{LED1}_' in still.file.name, still.file.name
+    assert saved.get('channel') == LED1
+    assert saved.get('illumination_by_channel_ma') == {LED1: 100.0}, saved
+
+
+def test_a_composite_states_no_lit_layer_of_its_inputs(session):
+    from modules.image_utils import build_composite_output_metadata
+
+    session.scope.illumination.led_on(LED0, 100.0)
+    session.scope.illumination.led_on(LED1, 50.0)
+    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+
+    composite = build_composite_output_metadata(still.file, significant_bits=8)
+
+    assert 'illumination_by_channel_ma' not in composite
+    assert 'illumination_ma' not in composite
+
+
 def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
     recording = session.manual_recording.start(false_color_on=False)
     try:
@@ -198,17 +253,17 @@ def test_a_light_that_never_settles_fails_the_still_within_one_budget(session, m
     # a stand-in by design: an LED toggled faster than a capture takes is a
     # race the simulated board cannot be made to win on every run
     lights = iter([LED0, LED1] * 1000)
-    real = manual_capture.common_utils.resolve_channel_identity
+    real = manual_capture.common_utils.read_light
     monkeypatch.setattr(
         manual_capture.common_utils,
-        'resolve_channel_identity',
-        lambda illumination, shown: next(lights),
+        'read_light',
+        lambda illumination, shown: manual_capture.common_utils.Light(next(lights), {}),
     )
     try:
         with pytest.raises(CaptureFailedError) as failed:
             session.manual_capture.capture(false_color_on=False).result(timeout=60)
     finally:
-        monkeypatch.setattr(manual_capture.common_utils, 'resolve_channel_identity', real)
+        monkeypatch.setattr(manual_capture.common_utils, 'read_light', real)
 
     assert failed.value.reason == 'deadline_expired'
 

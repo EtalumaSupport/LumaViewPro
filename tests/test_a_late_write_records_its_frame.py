@@ -171,6 +171,10 @@ class TestALateWriteRecordsItsFrame:
                 f'{name} records LED current {metadata.get("illumination_ma")}, not the '
                 '1 mA it was lit at -- by write time the run had turned the LED off'
             )
+            assert metadata.get('illumination_by_channel_ma') == {'BF': 1.0}, (
+                f'{name} records {metadata.get("illumination_by_channel_ma")}: a run lights '
+                "its step's one LED, and its file says so"
+            )
             assert metadata.get('well_label') == well, (
                 f'{name} records well {metadata.get("well_label")!r}, not {well!r}: the step '
                 "position on the protocol's 6-well plate"
@@ -231,12 +235,12 @@ class TestAFileNamesTheWellAtThePositionItRecords:
     so a file cannot name a well while stating no position."""
 
     def test_an_unknown_position_names_no_well(self):
-        fact = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=5000.0, moving=False, channel='BF')
+        fact = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=5000.0, moving=False)
 
         assert fact.well_label(plate('6 well microplate')) is None
 
     def test_a_known_position_names_the_well_it_lies_in(self):
-        fact = FrameFact(plate_x_mm=60.0, plate_y_mm=20.0, z_um=5000.0, moving=False, channel='BF')
+        fact = FrameFact(plate_x_mm=60.0, plate_y_mm=20.0, z_um=5000.0, moving=False)
 
         assert fact.well_label(plate('6 well microplate')) == 'A2'
 

@@ -248,6 +248,13 @@ class ChannelIdentity:
                 return layer
         return None
 
+    def key_at(self, address: int) -> str | None:
+        """The key of the layer whose LED is at board ``address``, else None."""
+        for layer in self.channels:
+            if address in layer.led_addresses:
+                return layer.key_name
+        return None
+
     @api(in_process=True)
     def refuse_unless_on_scope(self, channel: str, member: str, *, then: str) -> None:
         """Refuse ``channel`` unless it is a layer of this release and this unit has it.

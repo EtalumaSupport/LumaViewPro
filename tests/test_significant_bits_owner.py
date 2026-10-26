@@ -25,12 +25,14 @@ import pytest
 
 from modules import image_utils
 from modules.exceptions import FrameDepthError
+from modules.common_utils import Light
 from modules.recording_frames import FrameFact
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from modules.layer_record import release_color
 from tests.stock_channels import LED1
 
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
+_LIGHT = Light('BF', {})
 
 
 def _configure_sim(scope, pixel_format, pattern='White'):
@@ -529,6 +531,7 @@ class TestVideoFrameCarriesDepth:
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=_FACT,
+            light=_LIGHT,
         )
         image_utils.write_tiff(
             data=arr,

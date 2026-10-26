@@ -1570,9 +1570,7 @@ class ProtocolImageWriter:
                     # after an autofocus sweep that is the focus it found,
                     # not the step's planned Z, and an axis the scope lacks
                     # or has lost its reference on states no position.
-                    frame_position = frame_fact(
-                        self._scope, channel_tiebreak=step['Color'], to_plate=self._to_plate
-                    )
+                    frame_position = frame_fact(self._scope, to_plate=self._to_plate)
                     # The instrument's account of this frame, taken with it on
                     # the camera lane; read here, on the thread that captured,
                     # before anything can capture again.

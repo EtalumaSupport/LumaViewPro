@@ -945,6 +945,8 @@ def _plane_facts(plane: dict) -> dict:
         facts['z_pos_um'] = plane['PositionZ']
     if 'Illumination' in plane:
         facts['illumination_ma'] = plane['Illumination']
+    if 'IlluminationByChannel' in plane:
+        facts['illumination_by_channel_ma'] = plane['IlluminationByChannel']
     if 'ExposureTime' in plane:
         facts['exposure_time_ms'] = plane['ExposureTime']
     if 'Gain' in plane:
@@ -1447,6 +1449,7 @@ def build_composite_output_metadata(
         'gain_db',
         'black_level',
         'illumination_ma',
+        'illumination_by_channel_ma',
         'frames_summed',
     ):
         metadata.pop(per_channel_field, None)
@@ -2490,6 +2493,11 @@ def generate_tiff_data(
     if 'illumination_ma' in metadata:
         plane['Illumination'] = metadata['illumination_ma']
         plane['IlluminationUnit'] = 'mA'
+    # Every LED lit for the grab, by layer; Illumination above is the named
+    # channel's alone, and the one older files carry.
+    if 'illumination_by_channel_ma' in metadata:
+        plane['IlluminationByChannel'] = metadata['illumination_by_channel_ma']
+        plane['IlluminationByChannelUnit'] = 'mA'
     if 'exposure_time_ms' in metadata:
         plane['ExposureTime'] = metadata['exposure_time_ms']
         plane['ExposureTimeUnit'] = 'ms'

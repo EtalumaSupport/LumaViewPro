@@ -45,7 +45,7 @@ from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_REQUIRED_DISK_MB,
     check_disk_space_ok,
-    resolve_channel_identity,
+    read_light,
 )
 from modules.coord_transformations import PlatePosition
 from modules.axes import StageAxis
@@ -72,7 +72,7 @@ from modules.operation import Operation
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
     CameraTickRebaser,
-    frame_fact,
+    arrival_facts,
     manual_frame_filename_template,
     orient_and_fit,
     resolve_recording_pixel_size,
@@ -448,7 +448,7 @@ class ManualRecordingController:
                     message=str(exc),
                 ) from exc
 
-        resolved_layer = resolve_channel_identity(scope.illumination, self._shown_layer())
+        resolved_layer = read_light(scope.illumination, self._shown_layer()).channel
 
         manifest_extra = {
             # The channel the frames are of, and, as a separate RENDERING
@@ -790,30 +790,31 @@ class ManualRecordingController:
     def _on_camera_frame(self, frame: Frame) -> None:
         """SDK-thread listener: rebase the timestamp, offer to the engine.
 
-        The frame's fact is read HERE, when the frame arrives, and rides
-        the queue with it: the write runs later, behind the backlog, and
-        a read then would put a stage move on the wrong frames. Only a
+        The frame's facts -- where it was, what lit it -- are read HERE,
+        when the frame arrives, and ride the queue with it: the write runs
+        later, behind the backlog, and a read then would put a stage move
+        or an LED change on the wrong frames. Only a
         frames recording writes a per-frame file, so only it pays.
         """
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
         plan = self._plan
-        fact = (
-            frame_fact(self._scope, channel_tiebreak=plan.layer, to_plate=plan.to_plate)
+        facts = (
+            arrival_facts(self._scope, channel_tiebreak=plan.layer, to_plate=plan.to_plate)
             if plan.video_as_frames
             else None
         )
         chunks = dict(frame.chunks) if frame.chunks is not None else None
         engine.ingest_frame(
-            frame.image, self._rebaser.frame_time_s(frame.timestamp, chunks), chunks, fact=fact
+            frame.image, self._rebaser.frame_time_s(frame.timestamp, chunks), chunks, fact=facts
         )
 
     # ------------------------------------------------------------------
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
@@ -821,16 +822,17 @@ class ManualRecordingController:
 
         plan = self._plan
         if plan.video_as_frames:
-            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks, fact)
+            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks, facts)
         return self._write_mp4_frame(image, timestamp_s)
 
-    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
+    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
         plan = self._plan
+        fact, light = facts
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
         metadata, ts_filename = tiff_frame_metadata(
-            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um, fact
+            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um, fact, light
         )
         file_loc = config.output_dir / config.filename_template.format(
             n=frame_number, ts=ts_filename
@@ -842,7 +844,7 @@ class ManualRecordingController:
             metadata=metadata,
             # Rendered as the channel that lit THIS frame, so the file never
             # states one channel and is coloured as another.
-            channel=fact.channel,
+            channel=light.channel,
             false_color_on=plan.false_color_on,
             channel_colors=plan.channel_colors,
             save_encoding=plan.save_encoding,
@@ -865,7 +867,7 @@ class ManualRecordingController:
                     # Channel identity: what was imaged. Independent of the
                     # false-color toggle, which governs display only, so it
                     # is recorded on every frame regardless of rendering.
-                    'Color': fact.channel,
+                    'Color': light.channel,
                     'Z-Slice': 0,
                     'X': fact.plate_x_mm,
                     'Y': fact.plate_y_mm,

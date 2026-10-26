@@ -13,7 +13,7 @@ import platform
 import re
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import psutil
 
@@ -524,29 +524,54 @@ def get_layers_with_led() -> list[str]:
 DEFAULT_LAYER = 'BF'
 
 
-def resolve_channel_identity(illumination: 'IlluminationAPI', shown_layer: str) -> str:
-    """The channel a manual output imaged: the lit LED, else the shown layer.
+class Light(NamedTuple):
+    """What lit one frame, from one read of the LEDs.
 
-    A lit LED is direct evidence of what is illuminating the sample, so it
-    outranks the shown channel -- a caller can light an LED through the
-    illumination API without showing its layer, and the light is the
-    truth. The shown layer is the tiebreak for luminescence, which images
-    with no LED lit at all and would otherwise be unnameable. With more
-    than one LED lit, the first in address order wins; a lit address the
-    identity names no layer for names no channel.
+    Attributes:
+        channel: The channel the frame is named for (``read_light``).
+        illumination_by_channel_ma: The current of every lit LED a layer
+            names, by that layer's key, in address order; empty when none
+            was lit.
+    """
+
+    channel: str
+    illumination_by_channel_ma: 'Mapping[str, float]'
+
+
+def read_light(illumination: 'IlluminationAPI', shown_layer: str) -> Light:
+    """The channel a frame was imaged in, and every lit layer's current, from one read.
+
+    The channel is the lit LED, else ``shown_layer``: the shown layer for a
+    still and for a manual recording's start, the channel a recording
+    started on for each of its frames. A lit LED is direct
+    evidence of what is illuminating the sample, so it outranks the shown
+    channel -- a caller can light an LED through the illumination API
+    without showing its layer, and the light is the truth. The shown layer
+    is the tiebreak for luminescence, which images with no LED lit at all
+    and would otherwise be unnameable. With more than one LED lit, the
+    first in address order wins; a lit address the identity names no layer
+    for names no channel and has no current here.
+
+    Lit is the frame record's meaning: commanded on at a current above 0 mA,
+    since the board takes 0 mA as off (``snapshot_lit_pairs``). An LED left
+    on at 0 mA names nothing.
 
     get_led_states() answers None when no LED board is installed: nothing
     is lit, so a board-less scope falls through to the layer.
 
-    Shared by the manual still capture and the manual recording so the two
-    outputs can never disagree about what one frame is.
+    The one naming rule: the manual still, the manual recording and every
+    recorded frame (``recording_frames.arrival_facts``) read it, so no two
+    outputs can disagree about what one frame is.
     """
-    from modules.lumascope_api.illumination import LedState
+    from modules.lumascope_api.illumination import snapshot_lit_pairs
 
-    for reading in illumination.get_led_states() or ():
-        if reading.state == LedState.LIT and reading.name is not None:
-            return reading.name
-    return shown_layer
+    readings = illumination.get_led_states()
+    lit = {address for address, _ma in snapshot_lit_pairs(readings)}
+    named = [r for r in readings or () if r.address in lit and r.name is not None]
+    return Light(
+        channel=named[0].name if named else shown_layer,
+        illumination_by_channel_ma={r.name: r.illumination_ma for r in named},
+    )
 
 
 def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:

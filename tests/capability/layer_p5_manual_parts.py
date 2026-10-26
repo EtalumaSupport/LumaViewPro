@@ -29,8 +29,8 @@ try:
         lambda: sorted(s.get_layer_configs([LED0])[LED0].keys()),
     )
     step(
-        'cu.resolve_channel_identity(illum, BF)',
-        lambda: cu.resolve_channel_identity(scope.illumination, 'BF'),
+        'cu.read_light(illum, BF).channel',
+        lambda: cu.read_light(scope.illumination, 'BF').channel,
     )
     step(
         'cu.build_step_name(...)',

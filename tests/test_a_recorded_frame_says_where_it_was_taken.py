@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A recorded frame's file says where and how the frame was taken.
+"""A recorded frame's file says where and how the frame was taken, and what lit it.
 
-The fact is read when the frame arrives and rides the engine's queue with
+The facts are read when the frame arrives and ride the engine's queue with
 it, because the write runs later, behind the backlog; the frame's TIFF
-carries it under the still capture's position keys, so the file says what
+carries them under the still capture's position keys, so the file says what
 it is with or without a hyperstack. These tests pin the engine's carry,
-the fact's construction from the scope's tracked state, the metadata
+the facts' construction from the scope's tracked state, the metadata
 builder's fields, and the plate transform a recording binds at start.
 """
 
@@ -22,13 +22,15 @@ from modules.image_save import write_video_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.lumascope_api.runtime_state import RuntimeState
-from modules.recording_frames import FrameFact, frame_fact, tiff_frame_metadata
+from modules.common_utils import Light
+from modules.recording_frames import FrameFact, arrival_facts, frame_fact, tiff_frame_metadata
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
-A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False, channel=LED1)
+A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False)
+A_LIGHT = Light(channel=LED1, illumination_by_channel_ma={LED1: 100.0})
 
 
 def _fake_scope(positions, lit=None):
@@ -86,10 +88,9 @@ class TestTheFact:
                 'Y': AxisPosition(AxisState.IDLE, 2000.0),
                 'Z': AxisPosition(AxisState.IDLE, 3.0),
             },
-            lit=LED1,
         )
-        fact = frame_fact(scope, channel_tiebreak='BF', to_plate=_to_plate)
-        assert fact == FrameFact(1.5, 2.5, 3.0, False, LED1)
+        fact = frame_fact(scope, to_plate=_to_plate)
+        assert fact == FrameFact(1.5, 2.5, 3.0, False)
 
     def test_an_unknown_axis_is_unknown_and_x_y_travel_as_a_pair(self):
         scope = _fake_scope(
@@ -99,7 +100,7 @@ class TestTheFact:
                 'Z': AxisPosition(AxisState.IDLE, 3.0),
             }
         )
-        fact = frame_fact(scope, channel_tiebreak='BF', to_plate=_to_plate)
+        fact = frame_fact(scope, to_plate=_to_plate)
         assert (fact.plate_x_mm, fact.plate_y_mm, fact.z_um) == (None, None, 3.0)
 
     def test_a_homing_axis_is_unknown_and_moving(self):
@@ -110,7 +111,7 @@ class TestTheFact:
                 'Z': AxisPosition(AxisState.HOMING, None),
             }
         )
-        fact = frame_fact(scope, channel_tiebreak='BF', to_plate=_to_plate)
+        fact = frame_fact(scope, to_plate=_to_plate)
         assert fact.z_um is None
         assert fact.moving is True
 
@@ -123,7 +124,7 @@ class TestTheFact:
                 'T': AxisPosition(AxisState.MOVING, 2),
             }
         )
-        assert frame_fact(scope, channel_tiebreak='BF', to_plate=_to_plate).moving is True
+        assert frame_fact(scope, to_plate=_to_plate).moving is True
 
     def test_without_a_plate_transform_x_y_are_unknown_and_z_is_kept(self):
         scope = _fake_scope(
@@ -133,12 +134,54 @@ class TestTheFact:
                 'Z': AxisPosition(AxisState.IDLE, 3.0),
             }
         )
-        fact = frame_fact(scope, channel_tiebreak='BF', to_plate=None)
+        fact = frame_fact(scope, to_plate=None)
         assert (fact.plate_x_mm, fact.plate_y_mm, fact.z_um) == (None, None, 3.0)
 
     def test_no_lit_led_records_the_channel_the_recording_started_on(self):
         scope = _fake_scope({'Z': AxisPosition(AxisState.IDLE, 3.0)})
-        assert frame_fact(scope, channel_tiebreak='Lumi', to_plate=None).channel == 'Lumi'
+        _fact, light = arrival_facts(scope, channel_tiebreak='Lumi', to_plate=None)
+        assert light == Light('Lumi', {})
+
+    def test_the_lit_led_names_the_frame_and_its_current_is_recorded(self):
+        scope = _fake_scope({'Z': AxisPosition(AxisState.IDLE, 3.0)}, lit=LED1)
+        fact, light = arrival_facts(scope, channel_tiebreak='BF', to_plate=None)
+        assert fact.z_um == 3.0
+        assert light == Light(LED1, {LED1: 100.0})
+
+
+class TestTheLight:
+    """What lit a recorded frame is one read of the scope's LEDs, named and measured from it."""
+
+    def _metadata(self, scope):
+        fact, light = arrival_facts(scope, channel_tiebreak='BF', to_plate=None)
+        metadata, _ = tiff_frame_metadata(
+            timestamp_s=1755000000.0,
+            frame_number=0,
+            chunks=None,
+            tick_freq_hz=None,
+            pixel_size_um=None,
+            fact=fact,
+            light=light,
+        )
+        return metadata
+
+    def test_a_frame_two_leds_lit_states_both_and_is_named_for_the_first(self, sim_scope):
+        sim_scope.illumination.led_on(LED0, 100.0)
+        sim_scope.illumination.led_on(LED1, 50.0)
+
+        metadata = self._metadata(sim_scope)
+
+        assert metadata['channel'] == LED0
+        assert metadata['illumination_by_channel_ma'] == {LED0: 100.0, LED1: 50.0}
+
+    def test_an_led_left_on_at_0_ma_neither_names_the_frame_nor_is_recorded(self, sim_scope):
+        sim_scope.illumination.led_on(LED0, 0.0)
+        sim_scope.illumination.led_on(LED1, 100.0)
+
+        metadata = self._metadata(sim_scope)
+
+        assert metadata['channel'] == LED1
+        assert metadata['illumination_by_channel_ma'] == {LED1: 100.0}
 
 
 class TestTheFrameFile:
@@ -150,11 +193,13 @@ class TestTheFrameFile:
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=A_FACT,
+            light=A_LIGHT,
         )
         assert metadata['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
         assert metadata['x_pos'] == 1.5 and metadata['y_pos'] == 2.5
         assert metadata['z_pos_um'] == 3.0
         assert metadata['channel'] == LED1
+        assert metadata['illumination_by_channel_ma'] == {LED1: 100.0}
         assert metadata['stage_moving'] is False
 
     def test_an_unknown_position_states_none(self):
@@ -164,11 +209,13 @@ class TestTheFrameFile:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
-            fact=FrameFact(None, None, None, True, 'BF'),
+            fact=FrameFact(None, None, None, True),
+            light=Light('BF', {}),
         )
         assert 'plate_pos_mm' not in metadata and 'x_pos' not in metadata
         assert 'z_pos_um' not in metadata
         assert metadata['stage_moving'] is True
+        assert 'illumination_by_channel_ma' not in metadata, 'a frame no LED lit has no current'
 
     def test_a_frame_without_a_fact_is_refused(self):
         with pytest.raises(ValueError):
@@ -179,6 +226,7 @@ class TestTheFrameFile:
                 tick_freq_hz=None,
                 pixel_size_um=None,
                 fact=None,
+                light=Light('BF', {}),
             )
 
     def test_the_written_file_reads_back_its_fact(self, tmp_path):
@@ -189,6 +237,7 @@ class TestTheFrameFile:
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=A_FACT,
+            light=A_LIGHT,
         )
         path = tmp_path / 'frame.tiff'
         write_video_frame(
@@ -205,6 +254,7 @@ class TestTheFrameFile:
             described = json.loads(t.pages[0].tags['ImageDescription'].value)
         assert described['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
         assert described['channel'] == LED1
+        assert described['illumination_by_channel_ma'] == {LED1: 100.0}
         assert described['stage_moving'] is False
 
 

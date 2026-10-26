@@ -43,6 +43,6 @@ def plate(key: str = '96 well microplate'):
     return WellPlateLoader().get_plate(key)
 
 
-def unpositioned(channel: str = 'BF') -> FrameFact:
+def unpositioned() -> FrameFact:
     """A still's position fact where the scope knew no position: it states none."""
-    return FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel=channel)
+    return FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)

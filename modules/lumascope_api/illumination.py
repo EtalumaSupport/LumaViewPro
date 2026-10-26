@@ -1201,10 +1201,7 @@ class IlluminationAPI:
     # --- State ---
     def _identity_name(self, address: int) -> str | None:
         """The layer the unit's identity names for *address*, else None."""
-        for record in self._scope.channel_identity.channels:
-            if address in record.led_addresses:
-                return record.key_name
-        return None
+        return self._scope.channel_identity.key_at(address)
 
     def _reading(self, address: int) -> LedReading:
         """*address* as the store holds it, named through the identity now.

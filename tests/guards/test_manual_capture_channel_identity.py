@@ -143,19 +143,19 @@ def test_resolver_clauses():
     shown layer; two lit, the first in address order wins; a lit address the
     identity names no layer for names no channel; no board (None) is nothing
     lit."""
-    from modules.common_utils import resolve_channel_identity
+    from modules.common_utils import read_light
 
     lit_red = _illumination(_dark(1, LED1), _lit(2, LED2), _dark(3, 'BF'))
-    assert resolve_channel_identity(lit_red, LED1) == LED2
+    assert read_light(lit_red, LED1).channel == LED2
     none_lit = _illumination(_dark(2, LED2), _dark(3, 'BF'))
-    assert resolve_channel_identity(none_lit, LED1) == LED1
-    assert resolve_channel_identity(_illumination(), LED0) == LED0
+    assert read_light(none_lit, LED1).channel == LED1
+    assert read_light(_illumination(), LED0).channel == LED0
     two_lit = _illumination(_lit(0, LED0), _lit(2, LED2))
-    assert resolve_channel_identity(two_lit, LED1) == LED0
+    assert read_light(two_lit, LED1).channel == LED0
     unnamed_lit = _illumination(_lit(6, None), _dark(2, LED2))
-    assert resolve_channel_identity(unnamed_lit, LED1) == LED1
+    assert read_light(unnamed_lit, LED1).channel == LED1
     no_board = SimpleNamespace(get_led_states=lambda: None)
-    assert resolve_channel_identity(no_board, LED1) == LED1
+    assert read_light(no_board, LED1).channel == LED1
 
 
 def test_both_manual_outputs_share_the_resolver():
@@ -176,11 +176,11 @@ def test_both_manual_outputs_share_the_resolver():
             for n in ast.walk(parse_module(rel))
             if isinstance(n, ast.Call)
             and (
-                (isinstance(n.func, ast.Name) and n.func.id == 'resolve_channel_identity')
-                or (isinstance(n.func, ast.Attribute) and n.func.attr == 'resolve_channel_identity')
+                (isinstance(n.func, ast.Name) and n.func.id == 'read_light')
+                or (isinstance(n.func, ast.Attribute) and n.func.attr == 'read_light')
             )
         ]
-        assert calls, f'{rel} does not call resolve_channel_identity'
+        assert calls, f'{rel} does not call read_light'
 
     defined_in = []
     dead = []

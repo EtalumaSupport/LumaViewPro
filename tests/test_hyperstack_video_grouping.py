@@ -23,12 +23,14 @@ from modules import post_derivation
 from modules import image_utils
 from modules import recording_frames
 from modules.stack_builder import StackBuilder
+from modules.common_utils import Light
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1, LED2
 
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
+_LIGHT = Light('BF', {})
 
 
 def _frame_path(well, color, scan, n):
@@ -191,6 +193,7 @@ class TestVideoWellStackBuild:
                 tick_freq_hz=None,
                 pixel_size_um=None,
                 fact=_FACT,
+                light=_LIGHT,
             )
             image_utils.write_tiff(
                 data=np.full((4, 4), n, dtype=np.uint8),

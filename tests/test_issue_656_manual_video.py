@@ -22,12 +22,14 @@ import tifffile as tf
 import modules.image_utils as image_utils
 import modules.recording_frames as recording_frames
 from modules.video_builder import VideoBuilder
+from modules.common_utils import Light
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
+_LIGHT = Light('BF', {})
 
 
 def _ts(frame_num: int) -> datetime.datetime:
@@ -77,6 +79,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         tick_freq_hz=None,
         pixel_size_um=None,
         fact=_FACT,
+        light=_LIGHT,
     )
     if not include_iso:
         # Older recordings predate the ISO timestamp; drop it to exercise the

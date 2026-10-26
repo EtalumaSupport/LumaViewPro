@@ -22,12 +22,14 @@ from modules.scope_capabilities import (
     _resolve_lens_focal_length_mm,
     _resolve_pixel_size_um,
 )
+from modules.common_utils import Light
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1
 
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
+_LIGHT = Light('BF', {})
 
 
 def _camera_with_pixel_size(pixel_size_um):
@@ -144,6 +146,7 @@ class TestVideoFrameScaleClaim:
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=_FACT,
+            light=_LIGHT,
         )
         path = tmp_path / 'ManualVideo_Frame_0000.tiff'
 
@@ -179,6 +182,7 @@ class TestVideoFrameScaleClaim:
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=_FACT,
+            light=_LIGHT,
         )
 
         assert 'pixel_size_um' in metadata
@@ -202,7 +206,12 @@ class TestVideoFrameCarriesScale:
 
         with pytest.raises(TypeError):
             tiff_frame_metadata(
-                timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None, fact=_FACT
+                timestamp_s=1755000000.0,
+                frame_number=0,
+                chunks=None,
+                tick_freq_hz=None,
+                fact=_FACT,
+                light=_LIGHT,
             )
 
     def test_tiff_frame_metadata_carries_the_measured_scale(self):
@@ -215,6 +224,7 @@ class TestVideoFrameCarriesScale:
             tick_freq_hz=None,
             pixel_size_um=2.2,
             fact=_FACT,
+            light=_LIGHT,
         )
 
         assert metadata['pixel_size_um'] == 2.2
@@ -232,6 +242,7 @@ class TestVideoFrameCarriesScale:
             tick_freq_hz=None,
             pixel_size_um=2.2,
             fact=_FACT,
+            light=_LIGHT,
         )
         path = tmp_path / 'ManualVideo_Frame_0000.tiff'
         write_video_frame(
@@ -266,6 +277,7 @@ class TestVideoFrameCarriesScale:
             tick_freq_hz=None,
             pixel_size_um=None,
             fact=_FACT,
+            light=_LIGHT,
         )
         path = tmp_path / 'ManualVideo_Frame_0001.tiff'
         write_video_frame(
@@ -302,6 +314,7 @@ class TestReadPixelSizeUm:
             tick_freq_hz=None,
             pixel_size_um=pixel_size_um,
             fact=_FACT,
+            light=_LIGHT,
         )
         path = tmp_path / f'ManualVideo_Frame_{pixel_size_um}.tiff'
         write_video_frame(
