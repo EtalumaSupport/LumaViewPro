@@ -72,7 +72,7 @@ Firmware-only (doc_status family):
                 Branch tips and Next, Rulings only when there is one
                 (WARN, diff-aware)
     handover_length -- a live docs/SESSION_HANDOVER_*.md a commit grows is
-                at most 350 words (WARN, diff-aware)
+                at most 150 words (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1118,7 +1118,7 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
     The handover's length lives in sections the writer adds beside the
     template's ("the three facts a builder will rediscover", "what was
     established"), not in the template's own sections, so the shape is
-    closed: the plan paragraph under the H1, then Branch tips / Next,
+    closed: the one sentence under the H1, then Branch tips / Next,
     Rulings only when there is one, and nothing deeper. Diff-aware:
     only an ADDED heading line fires, so an old handover left as written
     stays silent; a missing section is reported only when every line of
@@ -1165,11 +1165,13 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
     return violations
 
 
-# The shape the 2026-10-05 and 10-13 closes produced was 212 to 375 words; the
-# 10-16 round reached 500 by carrying every answered question as a ruling, three
-# days after the template's words against it had been tightened for the second
-# time (Eric, 2026-10-16: "i think handovers are getting long again").
-_HANDOVER_MAX_WORDS = 350
+# The head under the H1 is one sentence, not a paragraph: a paragraph under a
+# ceiling drifts to the ceiling (the 350-word cap of 2026-10-16 halved the
+# median once, to about 160 words, and then held it there), and the paragraph
+# re-told the DAILY_LOG entry. With a one-sentence head, four of the five live
+# handovers of 2026-10-25 weigh 103 to 110 words; the Branch tips table is
+# where the rest goes, and the cap is set to bound it.
+_HANDOVER_MAX_WORDS = 150
 
 
 def _check_handover_length(content: str, path: str, added: set[int] | None) -> list[Violation]:
@@ -1192,8 +1194,9 @@ def _check_handover_length(content: str, path: str, added: set[int] | None) -> l
             0,
             'handover_length',
             f'handover is {words} words; the shape fits in {_HANDOVER_MAX_WORDS}: '
-            'the plan paragraph, Branch tips as SHAs, the Next pointer, and a '
-            'ruling only when the next session must obey one that has no home yet',
+            'one sentence naming the DAILY_LOG entry, Branch tips as SHAs, the '
+            'Next pointer, and a ruling only when the next session must obey one '
+            'that has no home yet',
             severity='warn',
         )
     ]
