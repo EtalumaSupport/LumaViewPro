@@ -7,7 +7,6 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.config_ui_getters import is_image_saving_enabled
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -149,8 +148,8 @@ class ZStack(FloatLayout):
         Everything about the run -- the objective, the stack, the capture,
         and every refusal of it -- is the member's, and the boundary shows
         a refusal once. This button states only what a running GUI knows:
-        the open drawer, its own token, the live engineering flag and the
-        engineering panel's saving switch, all read here on the GUI thread.
+        the open drawer, its own token and the engineering panel's saving
+        switch, all read here on the GUI thread.
 
         Whether the press means Stop is the engine's answer -- is the run
         this button started still live -- never the toggle's, which Kivy has
@@ -176,7 +175,7 @@ class ZStack(FloatLayout):
 
         runner = ctx.session.create_protocol_runner()
         layer = ctx.session.shown_channel.channel
-        enable_image_saving = is_image_saving_enabled()
+        enable_image_saving = not ctx.motion_settings.ids['protocol_settings_id'].saving_disabled
         events = RunEvents(
             frame_captured=show_captured_frame,
             # Each slice redraws the button, which reads the step from the

@@ -93,20 +93,6 @@ def camera_autogain_supported() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Image saving
-# ---------------------------------------------------------------------------
-
-
-def is_image_saving_enabled() -> bool:
-    return not (
-        _app_ctx.ctx.session.engineering_mode
-        and _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-        .ids['protocol_disable_image_saving_id']
-        .active
-    )
-
-
-# ---------------------------------------------------------------------------
 # Position / labware
 # ---------------------------------------------------------------------------
 

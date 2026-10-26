@@ -5,8 +5,8 @@ There is one implementation of "assemble and start a z-stack". The button
 once built the whole run itself -- objective, stack, capture config, the
 protocol, ``prepare`` and ``start`` -- beside the member built for scripts
 and REST, so the two could drift and only tests ever ran the member. Now the
-button states only what a running GUI knows (the open drawer, the live
-engineering flag, the engineering panel's saving switch), the GUI's stamp
+button states only what a running GUI knows (the open drawer and the
+engineering panel's saving switch), the GUI's stamp
 on the worker says who started the run, and the member decides everything
 else, every refusal included.
 
@@ -25,6 +25,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 import ui.zstack as zs
+from ui.protocol_settings import ProtocolSettings
 from modules.caller import Caller, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
@@ -54,6 +55,14 @@ def _progress(
         scans_remaining=1 if live else None,
         period_s=None,
     )
+
+
+class _SavingSwitch(ProtocolSettings):
+    """The real protocol panel, with only its saving checkbox stubbed."""
+
+    def __init__(self):
+        self.box = SimpleNamespace(active=False)
+        self.ids = {'protocol_disable_image_saving_id': self.box}
 
 
 class _Starter(zs.ZStack):
@@ -95,6 +104,7 @@ def clicked(monkeypatch, centre_posts):
     engine._progress_of.side_effect = lambda asked: _progress(asked, live=False)
     session = MagicMock()
     session.create_protocol_runner.return_value = member_runner
+    switch = _SavingSwitch()
     # Nothing holds the scope; a MagicMock's own answer would be truthy.
     session.held_by_other.return_value = False
     monkeypatch.setattr(
@@ -105,13 +115,12 @@ def clicked(monkeypatch, centre_posts):
             sequenced_capture_runner=engine,
             image_settings=MagicMock(),
             scope_display=SimpleNamespace(start=lambda: None, stop=lambda: None),
-            motion_settings=MagicMock(),
+            motion_settings=SimpleNamespace(ids={'protocol_settings_id': switch}),
             worker_pool=pool,
         ),
     )
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
     session.shown_channel = ShownChannel(LED1, lit=False)
-    monkeypatch.setattr(zs, 'is_image_saving_enabled', lambda: False)
     linked = []
     monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))
     return SimpleNamespace(
@@ -122,6 +131,7 @@ def clicked(monkeypatch, centre_posts):
         starters=starters,
         posts=centre_posts,
         starter=_Starter(),
+        saving_box=switch.box,
     )
 
 
@@ -131,7 +141,7 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
     clicked.runner.start_zstack.assert_called_once()
     kwargs = clicked.runner.start_zstack.call_args.kwargs
     assert kwargs['channel'] == LED1
-    assert kwargs['enable_image_saving'] is False
+    assert kwargs['enable_image_saving'] is True, 'an unticked box saves images'
     # Nothing else about the run is the button's to say; who started it is
     # the GUI's stamp on the thread that starts it.
     assert set(kwargs) == {
@@ -140,6 +150,14 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
         'enable_image_saving',
     }
     assert clicked.starters == [Caller.GUI]
+
+
+def test_a_ticked_disable_image_saving_box_starts_a_stack_that_saves_none(clicked):
+    clicked.saving_box.active = True
+
+    clicked.starter.run_zstack_acquire_from_ui()
+
+    assert clicked.runner.start_zstack.call_args.kwargs['enable_image_saving'] is False
 
 
 def test_the_button_starts_no_run_of_its_own(clicked):

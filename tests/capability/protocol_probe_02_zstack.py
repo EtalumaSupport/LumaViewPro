@@ -105,7 +105,7 @@ try:
         max_scans=1,
         sequence_name='zstack',
         parent_dir=_pl.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks',
-        enable_image_saving=True,  # is_image_saving_enabled() -- GUI checkbox
+        enable_image_saving=True,  # not ProtocolSettings.saving_disabled -- GUI checkbox
         autogain_settings=config_helpers.get_auto_gain_settings(settings),
         events="RunEvents(the GUI button's four handlers)",
         return_to_position=session.get_current_plate_position(),

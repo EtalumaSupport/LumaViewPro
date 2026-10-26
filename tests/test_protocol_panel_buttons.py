@@ -70,12 +70,13 @@ class _Button:
 class _Panel(ps.ProtocolSettings):
     """The real class, with only the widget tree stubbed."""
 
-    def __init__(self):
+    def __init__(self, saving_disabled=False):
         self.ids = {
             'run_scan_btn': _Button('Run One Scan'),
             'run_protocol_btn': _Button('Run Full Protocol'),
             'run_autofocus_btn': _Button('Autofocus All Steps'),
             'protocol_filename': SimpleNamespace(text='plate'),
+            'protocol_disable_image_saving_id': SimpleNamespace(active=saving_disabled),
         }
         self._protocol = MagicMock()
         self._runs_started_here = {}
@@ -153,7 +154,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
 
     pool.put.side_effect = _put
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    monkeypatch.setattr(ps, 'is_image_saving_enabled', lambda: True)
     _app_ctx.ctx = SimpleNamespace(
         session=session,
         settings={'live_folder': str(tmp_path)},
@@ -230,6 +230,26 @@ def test_a_press_starts_its_run_through_the_apis_runner(
     )
     assert panel._runs_started_here[button] is run.operation, 'the operation is what its Stop names'
     assert not engine._stop_run.called, 'a start is not a stop'
+    assert kwargs['enable_image_saving'] is True, 'an unticked box saves images'
+
+
+@pytest.mark.parametrize(
+    'press, member_name',
+    [
+        ('run_scan_from_ui', 'start_single_scan'),
+        ('run_protocol_from_ui', 'start_protocol'),
+    ],
+)
+def test_a_ticked_disable_image_saving_box_starts_a_run_that_saves_none(
+    app_ctx, engine, session, press, member_name
+):
+    """The box's state is the run's ``enable_image_saving`` argument, the one REST passes."""
+    engine.start.return_value = _run(engine).operation
+
+    getattr(_Panel(saving_disabled=True), press)()
+
+    member = getattr(session.create_protocol_runner(), member_name)
+    assert member.call_args.kwargs['enable_image_saving'] is False
 
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine, centre_posts):

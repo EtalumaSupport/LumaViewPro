@@ -495,10 +495,8 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/image_settings.py': 5,
     'ui/layer_control.py': 1,
     'ui/microscope_settings.py': 3,
-    'ui/protocol_settings.py': 1,
     'ui/stage.py': 4,
     'ui/ui_helpers.py': 1,
-    'ui/zstack.py': 1,
 }
 
 # Every entry is a hardware write the GUI makes through the API's undispatched
@@ -694,7 +692,7 @@ _GUI_ORCHESTRATION_PIN = {
 }
 
 _MODULES_CONTEXT_READ_PIN = {
-    'modules/config_ui_getters.py': 3,
+    'modules/config_ui_getters.py': 1,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 0,
@@ -757,9 +755,7 @@ def _lower_layer_ui_import_counts():
 
 # Pinned at 74153fad. Lower a value in the same commit that hands the value
 # in as an argument or moves the popup to the caller; never raise one.
-_MODULES_WIDGET_READ_PIN = {
-    'modules/config_ui_getters.py': 2,
-}
+_MODULES_WIDGET_READ_PIN = {}
 
 
 # Proxy 7: TWO ANSWERERS for one question. The five proxies above all count

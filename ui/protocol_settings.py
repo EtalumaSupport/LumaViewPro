@@ -10,7 +10,6 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.config_ui_getters import is_image_saving_enabled
 from modules.labware_loader import CENTER_PLATE
 from modules.protocol import Protocol, schedule_from_units
 from typing import TYPE_CHECKING
@@ -1022,6 +1021,16 @@ class ProtocolSettings(FloatLayout):
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
 
+    @property
+    def saving_disabled(self) -> bool:
+        """True when the user ticked "Disable image saving".
+
+        The box is shown only in engineering mode, and only a user tick sets
+        it, so its state is the choice; a run passes it on as its
+        ``enable_image_saving`` argument, the one REST and the SDK pass.
+        """
+        return bool(self.ids['protocol_disable_image_saving_id'].active)
+
     def log_disable_image_saving(self) -> None:
         """Record the disable-image-saving checkbox.
 
@@ -1030,10 +1039,7 @@ class ProtocolSettings(FloatLayout):
         gesture on it is worth a line: a bundle from a run that saved nothing
         otherwise gives no sign the box was ever touched.
         """
-        gui_logger.toggle(
-            'PROTOCOL_DISABLE_IMAGE_SAVING',
-            bool(self.ids['protocol_disable_image_saving_id'].active),
-        )
+        gui_logger.toggle('PROTOCOL_DISABLE_IMAGE_SAVING', self.saving_disabled)
 
     def get_curr_step(self):
         if self._protocol.num_steps() == 0:
@@ -1295,7 +1301,7 @@ class ProtocolSettings(FloatLayout):
         )
 
         sequence_name = self.ids['protocol_filename'].text
-        enable_image_saving = is_image_saving_enabled()
+        enable_image_saving = not self.saving_disabled
 
         def _start():
             started = start_run(
