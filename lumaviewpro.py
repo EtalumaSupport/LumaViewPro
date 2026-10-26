@@ -1178,13 +1178,6 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as e:
                     ctx.session.plugins.record_runtime_error(plugin_name, 'mount', e)
 
-        # Enable engineering-only log files (autofocus.log, api.log).
-        # Read from the session since the engineering plugin may have turned
-        # its engineering mode on when it loaded.
-        from lvp_logger import enable_engineering_logs
-
-        enable_engineering_logs(ctx.session.engineering_mode)
-
         # NotificationCenter -> UI popup bridge was registered at the
         # top of build(), BEFORE the session factory / Lumascope() /
         # hardware init, so any early hardware errors surface as popups

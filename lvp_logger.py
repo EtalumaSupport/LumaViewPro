@@ -412,7 +412,7 @@ protocol_logger.addHandler(protocol_file_handler)
 protocol_logger.addHandler(error_file_handler)
 
 # Autofocus log -- dedicated file for AF sweep data, scores, timing.
-# Engineering mode only -- handler attached via enable_engineering_logs().
+# Always-on, attached at import like camera.log, so every host writes it.
 af_logger = logging.getLogger('LVP.autofocus')
 af_logger.setLevel(logging.INFO)
 af_logger.propagate = False  # Keep AF data out of the main log
@@ -434,16 +434,18 @@ _af_file_handler = RotatingFileHandler(
     AUTOFOCUS_LOG_FILE,
     mode='a',
     maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    backupCount=1,  # always-on, so one rotation: 40 MB at most, about 11,000 sweeps a file
     encoding=None,
     delay=True,  # Don't create file until first write
 )
 _af_file_handler.namer = rotated_log_name
 _af_file_handler.setFormatter(AFFormatter())
 _af_file_handler.addFilter(ThreadPauseFilter())
+af_logger.addHandler(_af_file_handler)
 
 # API log -- internal Lumascope API calls (state-changing operations).
-# Engineering mode only -- handler attached via enable_engineering_logs().
+# Always-on, attached at import like camera.log: every host -- the GUI, the
+# REST server, a script -- writes it from the first call of bring-up.
 api_logger = logging.getLogger('LVP.api')
 api_logger.setLevel(logging.INFO)
 api_logger.propagate = False  # Keep API traffic out of the main log
@@ -472,34 +474,7 @@ _api_file_handler = RotatingFileHandler(
 _api_file_handler.namer = rotated_log_name
 _api_file_handler.setFormatter(APIFormatter())
 _api_file_handler.addFilter(ThreadPauseFilter())
-
-
-def enable_engineering_logs(enabled: bool):
-    """Attach/detach file handlers for engineering-mode-only logs.
-
-    Called once after engineering mode is determined. When disabled,
-    the loggers exist but have no file handler -- logging calls are
-    essentially free (no I/O).
-
-    WORKAROUND: During beta releases, always enable engineering logs
-    for maximum debugging visibility. Remove this override after
-    beta stabilization and gate behind engineering mode again.
-    """
-    # WORKAROUND: Force-enable during beta for field debugging
-    if 'beta' in version.lower():
-        enabled = True
-
-    if enabled:
-        if _af_file_handler not in af_logger.handlers:
-            af_logger.addHandler(_af_file_handler)
-        if _api_file_handler not in api_logger.handlers:
-            api_logger.addHandler(_api_file_handler)
-        logger.info('[Logger  ] Engineering logs enabled (autofocus.log, api.log)')
-    else:
-        if _af_file_handler in af_logger.handlers:
-            af_logger.removeHandler(_af_file_handler)
-        if _api_file_handler in api_logger.handlers:
-            api_logger.removeHandler(_api_file_handler)
+api_logger.addHandler(_api_file_handler)
 
 
 # Only the REST sink is logger-specific; the bundle file handlers live on root
