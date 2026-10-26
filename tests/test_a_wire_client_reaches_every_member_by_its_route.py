@@ -465,6 +465,33 @@ def test_a_number_that_is_not_finite_is_422_and_reaches_nothing(client, session,
     assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
 
 
+@pytest.mark.parametrize('number', ['nan', 'inf'])
+def test_a_number_that_is_not_finite_in_a_query_string_is_422(client, number):
+    answer = client.get(
+        '/api/v1/scope/camera/applied_gain_db_for', params={'stored_gain_db': number}
+    )
+
+    assert answer.status_code == 422, answer.text
+    assert answer.json()['reason'] == 'invalid_request'
+
+
+@pytest.mark.parametrize('number', ['NaN', 'Infinity'])
+def test_a_number_that_is_not_finite_put_to_a_setting_is_422_and_writes_nothing(
+    client, session, number
+):
+    before = session.scope.camera.gain_db
+
+    answer = client.put(
+        '/api/v1/scope/camera/gain_db',
+        content=f'{{"gain_db": {number}}}',
+        headers={'content-type': 'application/json'},
+    )
+
+    assert answer.status_code == 422, answer.text
+    assert answer.json()['reason'] == 'invalid_request'
+    assert session.scope.camera.gain_db == before
+
+
 def test_a_member_route_takes_no_query_string(client):
     assert client.get('/api/v1/status?verbose=1').status_code == 422
 
