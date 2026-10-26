@@ -106,7 +106,7 @@ class TestTwoResolverSplit:
         ):
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 light()
-            assert refused.value.missing == MissingPart.led(1)
+            assert refused.value.missing == MissingPart.led_address(1)
         assert led_reading(scope, 1).state is LedState.DARK
 
 

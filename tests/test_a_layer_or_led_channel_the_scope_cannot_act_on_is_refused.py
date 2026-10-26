@@ -7,7 +7,7 @@ KeyError, a ValueError calling it a channel, a silent off, a read of
 "dark". ``led_on(True)`` lit Green, since ``True == 1``, and a still named
 for Lumi on a scope with no Lumi was written to disk. Each member now asks
 one check first -- ``ArgumentRefusedError`` ``channel_unknown`` offering
-the catalogue, ``led_channel_unknown`` offering the board's numbers -- and
+the catalogue, ``led_address_unknown`` offering the board's addresses -- and
 a layer the model lacks is absent hardware, ``axis_absent`` naming the
 layer. A value that is no name and no whole number -- None, a ``bool``, a
 float -- is the ``@api`` door's
@@ -94,12 +94,12 @@ def test_a_name_that_is_no_layer_is_refused_offering_the_catalogue(session, memb
 @pytest.mark.parametrize('channel', [99, -1, np.int64(99)])
 def test_a_number_off_the_boards_table_lights_nothing(session, channel):
     refusal = _refused(
-        lambda: session.scope.illumination.led_on(channel, 10.0), 'led_channel_unknown'
+        lambda: session.scope.illumination.led_on(channel, 10.0), 'led_address_unknown'
     )
 
     assert refusal.offered == (0, 1, 2, 3, 4, 5, 6, 7)
     assert _lit(session) == []
-    _refused(lambda: session.scope.illumination.ch2color(channel), 'led_channel_unknown')
+    _refused(lambda: session.scope.illumination.ch2color(channel), 'led_address_unknown')
 
 
 def test_one_leds_read_takes_its_channels_name_not_a_board_address(session):

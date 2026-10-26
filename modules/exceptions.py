@@ -3182,8 +3182,9 @@ class MissingPart:
     its own: a controller the model has is not connected, and every other
     part -- a motor, the turret, an LED -- is not on this scope. The motion
     parts, the LED controller and the camera are the class's constants; an LED is named
-    when it is refused (``MissingPart.led``), by layer or by channel number,
-    as the command named it, and a layer by name (``MissingPart.layer``).
+    when it is refused, by the channel's name (``MissingPart.led``) or by its
+    board address (``MissingPart.led_address``) as the command named it, and
+    a layer by name (``MissingPart.layer``).
 
     Attributes:
         name: The part, for the log.
@@ -3231,16 +3232,17 @@ class MissingPart:
         return cls(f'{layer} layer', 'axis_absent', f'This microscope has no {layer} layer.')
 
     @classmethod
-    def led(cls, led: 'str | int') -> 'MissingPart':
-        """The part for an LED this scope's model does not have.
+    def led(cls, channel: str) -> 'MissingPart':
+        """The part for a channel's LED that this scope's model does not have."""
+        return cls(f'{channel} LED', 'axis_absent', f'This microscope has no {channel} LED.')
 
-        Args:
-            led: The layer name the command gave, or the channel number.
-        """
-        if isinstance(led, str):
-            return cls(f'{led} LED', 'axis_absent', f'This microscope has no {led} LED.')
+    @classmethod
+    def led_address(cls, address: int) -> 'MissingPart':
+        """The part for an LED board address no channel of this scope's model drives."""
         return cls(
-            f'LED channel {led}', 'axis_absent', f'This microscope has no LED on channel {led}.'
+            f'LED address {address}',
+            'axis_absent',
+            f'This microscope has no LED at address {address}.',
         )
 
 
@@ -3547,9 +3549,9 @@ class ArgumentRefusedError(Refusal, ValueError):
               name, and is refused as absent hardware, not here.
             - ``'no_channel_selected'`` -- the member needs a channel and was
               given None (``offered``, the catalogue).
-            - ``'led_channel_unknown'`` -- a number that is not one of the
-              attached LED board's channels (``offered``). A ``bool`` is
-              not a channel number.
+            - ``'led_address_unknown'`` -- an LED address that is not one of
+              the attached LED board's addresses (``offered``). A ``bool`` is
+              not an address.
             - ``'illumination_out_of_range'`` -- an LED current outside
               ``limits``, 0 to the attached LED board's maximum, in mA.
             - ``'missing_key'`` -- a dictionary argument lacks a key its
@@ -3661,9 +3663,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             'No Channel Selected',
             'No channel is selected; {argument} must be one of {offered}.',
         ),
-        'led_channel_unknown': (
-            'Not an LED Channel',
-            "{argument} must be one of the LED board's channels, {offered}; {value!r} is not one.",
+        'led_address_unknown': (
+            'Not an LED Address',
+            "{argument} must be one of the LED board's addresses, {offered}; {value!r} is not one.",
         ),
         'illumination_out_of_range': (
             'LED Current Not Set',

@@ -102,7 +102,7 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
 
 
 @pytest.mark.parametrize(
-    ('led', 'part'), [(2, MissingPart.led(2)), ('Red', MissingPart.led('Red'))]
+    ('led', 'part'), [(2, MissingPart.led_address(2)), ('Red', MissingPart.led('Red'))]
 )
 def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
     make_session, monkeypatch, led, part
@@ -130,7 +130,7 @@ def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
     assert (refusal.reason, refusal.member, refusal.missing) == (
         'axis_absent',
         'restore_led_state',
-        MissingPart.led(2),
+        MissingPart.led_address(2),
     )
     assert sent == []
 
@@ -164,7 +164,7 @@ def test_a_name_that_is_no_layer_and_a_number_off_the_board_are_the_requests(mak
         illumination.led_on(5, 10.0)
 
     assert purple.value.reason == 'channel_unknown'
-    assert (five.value.reason, five.value.offered) == ('led_channel_unknown', (0, 1, 2, 3))
+    assert (five.value.reason, five.value.offered) == ('led_address_unknown', (0, 1, 2, 3))
 
 
 # --- No LED board ----------------------------------------------------------------

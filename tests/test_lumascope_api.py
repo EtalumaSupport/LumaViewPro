@@ -475,7 +475,7 @@ class TestLEDChannelDiscovery:
         for channel in (5, 4):  # DF, PC -- off the 4-channel driver's table
             with pytest.raises(ArgumentRefusedError) as refused:
                 scope.illumination.led_on(channel, 100)
-            assert refused.value.reason == 'led_channel_unknown'
+            assert refused.value.reason == 'led_address_unknown'
 
     def test_api_validation_error_message_reflects_actual_channels(self):
         """Error messages must describe the actual valid range (the

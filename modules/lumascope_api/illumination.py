@@ -507,25 +507,25 @@ class IlluminationAPI:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'`` for a name,
-                ``'led_channel_unknown'`` for a number not on the board's
+                ``'led_address_unknown'`` for an address not on the board's
                 table.
         """
         if isinstance(channel, str):
             refuse_unknown_layer(channel, argument='channel')
         else:
-            self._refuse_not_a_board_channel(channel, 'channel')
+            self._refuse_not_a_board_address(channel, 'channel')
 
-    def _refuse_not_a_board_channel(self, channel: int, argument: str) -> None:
-        """Refuse a number that is not on the attached board's table.
+    def _refuse_not_a_board_address(self, address: int, argument: str) -> None:
+        """Refuse an address that is not on the attached board's table.
 
         Raises:
-            ArgumentRefusedError: ``'led_channel_unknown'``, naming
-                ``argument`` and offering the board's channels.
+            ArgumentRefusedError: ``'led_address_unknown'``, naming
+                ``argument`` and offering the board's addresses.
         """
-        board_channels = tuple(self._driver.available_channels())
-        if channel not in board_channels:
+        board_addresses = tuple(self._driver.available_channels())
+        if address not in board_addresses:
             raise ArgumentRefusedError(
-                'led_channel_unknown', argument=argument, value=channel, offered=board_channels
+                'led_address_unknown', argument=argument, value=address, offered=board_addresses
             )
 
     def _refuse_unless_lightable(self, address: int, member: str) -> None:
@@ -534,7 +534,7 @@ class IlluminationAPI:
         Asked on the lane by every path that lights an address, in one
         order: the board, then the model. A scope with no LED controller
         connected refuses (``not_connected``); an address off the attached
-        board's table is ``led_channel_unknown``; an address no channel of
+        board's table is ``led_address_unknown``; an address no channel of
         this model drives (an LS560's 2) is ``axis_absent``. A model this
         release does not know (identity unresolved) has no channels to
         judge an address by, so its addresses are the board's.
@@ -542,14 +542,14 @@ class IlluminationAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, naming the missing part.
-            ArgumentRefusedError: ``'led_channel_unknown'``, offering the
-                board's channels.
+            ArgumentRefusedError: ``'led_address_unknown'``, offering the
+                board's addresses.
         """
         self.refuse_controller_not_connected(member)
-        self._refuse_not_a_board_channel(address, 'address')
+        self._refuse_not_a_board_address(address, 'address')
         identity = self._scope.channel_identity
         if identity.source != IdentitySource.UNRESOLVED and self._identity_name(address) is None:
-            part = MissingPart.led(address)
+            part = MissingPart.led_address(address)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
     def _drivable_address(self, channel: str) -> int | None:
@@ -718,8 +718,8 @@ class IlluminationAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
                 not a finite number; ``'illumination_out_of_range'``, it is
-                outside 0 to the attached board's maximum (``limits``).
-                ``'led_channel_unknown'``, ``address`` is not on the attached
+                outside 0 to the attached board's maximum (``limits``);
+                ``'led_address_unknown'``, ``address`` is not on the attached
                 board's table.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'axis_absent'`` for an address this
@@ -801,7 +801,7 @@ class IlluminationAPI:
         currents.
 
         Raises:
-            ArgumentRefusedError: ``'led_channel_unknown'``, ``'not_a_number'``
+            ArgumentRefusedError: ``'led_address_unknown'``, ``'not_a_number'``
                 or ``'illumination_out_of_range'``, as ``_led_on_impl`` says.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, as ``_led_on_impl`` says.
@@ -1043,7 +1043,7 @@ class IlluminationAPI:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'`` or
-                ``'led_channel_unknown'``, ``channel`` names no channel (see
+                ``'led_address_unknown'``, ``channel`` names no channel (see
                 ``_refuse_not_a_channel``); nothing was sent.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs; nothing was
@@ -1077,7 +1077,7 @@ class IlluminationAPI:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'`` or
-                ``'led_channel_unknown'``, ``channel`` names no channel (see
+                ``'led_address_unknown'``, ``channel`` names no channel (see
                 ``_refuse_not_a_channel``); nothing was sent.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs; nothing was
@@ -1579,7 +1579,7 @@ class IlluminationAPI:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 ``'not_connected'`` or ``'axis_absent'``, before anything
                 is written.
-            ArgumentRefusedError: ``'led_channel_unknown'``,
+            ArgumentRefusedError: ``'led_address_unknown'``,
                 ``'not_a_number'`` or ``'illumination_out_of_range'`` for a
                 target light, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
@@ -1671,10 +1671,10 @@ class IlluminationAPI:
         records `scope.channel_identity` exposes.
 
         Raises:
-            ArgumentRefusedError: ``'led_channel_unknown'``, *channel* is
+            ArgumentRefusedError: ``'led_address_unknown'``, *channel* is
                 not on the attached board's table.
         """
-        self._refuse_not_a_board_channel(channel, 'channel')
+        self._refuse_not_a_board_address(channel, 'channel')
         return self._identity_name(channel)
 
     @api(reads=True)
