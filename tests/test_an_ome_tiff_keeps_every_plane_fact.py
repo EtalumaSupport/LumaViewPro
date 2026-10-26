@@ -24,6 +24,7 @@ import tifffile as tf
 
 from modules import image_utils
 from modules.layer_record import release_color
+from tests.stock_channels import LED1
 
 _OME_NS = '{http://www.openmicroscopy.org/Schemas/OME/2016-06}'
 _SCHEMA_NUMBERS = ('ExposureTime', 'PositionX', 'PositionY', 'PositionZ')
@@ -36,7 +37,7 @@ def _every_plane_field() -> dict:
     return {
         'objective': {'model': 'PlanFluor20x', 'magnification': 20, 'aperture': 0.45},
         'pixel_size_um': 0.65,
-        'channel': 'Green',
+        'channel': LED1,
         'excitation_nm': 470.0,
         'datetime': '2026-10-19T12:00:00',
         'plate_pos_mm': {'x': 12.5, 'y': 30.25},
@@ -64,7 +65,7 @@ def _every_plane_field() -> dict:
         'saturated_fraction': 0.0,
         'dark': False,
         'camera_held_a_channel': True,
-        'camera_held_channel': 'Green',
+        'camera_held_channel': LED1,
     }
 
 
@@ -74,7 +75,7 @@ def _write(path, metadata, *, ome):
         file_loc=path,
         metadata=metadata,
         ome=ome,
-        color=release_color('Green'),
+        color=release_color(LED1),
         significant_bits=14,
         save_encoding='right_aligned',
         white_bits=12,

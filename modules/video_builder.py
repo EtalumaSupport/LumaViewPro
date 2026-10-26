@@ -384,7 +384,7 @@ class VideoBuilder(ProtocolPostProcessor):
             false_color: When True, the layer false-color is applied inside
                 VideoWriter. Requires ``color``; raises ValueError otherwise.
                 When False, encode grayscale.
-            color: Layer name ('Red', 'Green', 'Blue', 'Lumi', 'BF', ...).
+            color: Layer key ('Ex405', 'Ex488', 'Ex589', 'Lumi', 'BF', ...).
                 Required when ``false_color=True``; ignored otherwise.
             fps: Frames per second.
             include_timestamp_overlay: Overlay frame timestamps.
@@ -404,7 +404,7 @@ class VideoBuilder(ProtocolPostProcessor):
         if false_color and color is None:
             raise ValueError(
                 'build_video: color is required when false_color=True. '
-                "Pass e.g. color='Blue' to specify which layer to false-color."
+                "Pass e.g. color='Ex405' to specify which layer to false-color."
             )
 
         tiff_paths = image_utils.find_tiff_files(source_dir)

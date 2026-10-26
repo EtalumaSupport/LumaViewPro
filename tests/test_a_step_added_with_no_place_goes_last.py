@@ -16,6 +16,7 @@ from modules.exceptions import ProtocolError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -40,13 +41,13 @@ def test_steps_added_with_no_place_follow_the_last_step_in_channel_order(session
     protocol = _protocol(session)
     session.settings['BF']['acquire'] = 'image'
     first = session.add_step(protocol)
-    session.settings['Blue']['acquire'] = 'image'
-    session.settings['step_channel_order'] = ['Blue', 'BF']
+    session.settings[LED0]['acquire'] = 'image'
+    session.settings['step_channel_order'] = [LED0, 'BF']
 
     second = session.add_step(protocol)
 
     assert list(protocol.steps()['Name']) == first + second
-    assert [protocol.step_row(step_index=i)['Color'] for i in range(3)] == ['BF', 'Blue', 'BF']
+    assert [protocol.step_row(step_index=i)['Color'] for i in range(3)] == ['BF', LED0, 'BF']
 
 
 def test_the_protocols_own_insert_names_its_place(session):

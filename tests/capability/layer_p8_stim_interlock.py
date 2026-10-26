@@ -14,17 +14,18 @@ import sys
 import time
 import traceback
 import harness
+from tests.stock_channels import LED0, LED1
 
 s, live = harness.make_session('p8', home=True)
 try:
     from modules import config_helpers
 
-    lay = 'Blue'
+    lay = LED0
     with s.settings_lock:
         s.settings['stimulation_enabled'] = True
         s.settings[lay]['acquire'] = 'image'
         s.settings[lay]['stim_config']['enabled'] = True  # the GUI forbids this pair
-        s.settings['Green']['acquire'] = 'image'
+        s.settings[LED1]['acquire'] = 'image'
     snap = s.get_settings_snapshot()[lay]
     print(
         f'1: stored pair -> acquire={snap["acquire"]!r} '
@@ -46,7 +47,7 @@ try:
     harness.check('a script can build a protocol from settings holding the pair', len(row) > 0)
     _acq = row['Acquire'].iloc[0] if len(row) else None
     _stim = row['Stim_Config'].iloc[0].get(lay) if len(row) else None
-    print(f'4: protocol step for Blue -> Acquire={_acq!r} Stim_Config={_stim!r}')
+    print(f'4: protocol step for {lay} -> Acquire={_acq!r} Stim_Config={_stim!r}')
 
     # run it and see whether prepare() refuses the illegal pair
     s.scope.motion.home('ALL')

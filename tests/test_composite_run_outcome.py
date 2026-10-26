@@ -29,9 +29,10 @@ from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0
 
 
-def _runner(acquiring=('BF', 'Blue')):
+def _runner(acquiring=('BF', LED0)):
     """A ProtocolRunner over a mocked session and engine.
 
     Real config assembly, mocked engine: this pins what the composite

@@ -23,6 +23,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 _DRIVER = pathlib.Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
 
@@ -101,7 +102,7 @@ def test_the_illumination_cache_check_traces_by_the_sessions_setting(tmp_path, e
     )
     try:
         with patch.object(illumination_module, '_api_log') as mock_log:
-            session.scope.illumination.led_on('Blue', 50)
+            session.scope.illumination.led_on(LED0, 50)
             traced = [
                 c for c in mock_log.info.call_args_list if 'led_on cache-check' in str(c.args[0])
             ]

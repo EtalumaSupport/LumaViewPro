@@ -35,6 +35,7 @@ from modules import app_context as _app_ctx
 from modules.stitcher import Stitcher
 from modules.zprojector import ZProjector
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
 @pytest.fixture
@@ -78,7 +79,7 @@ class TestStitcherGroupAlgorithmCarriesColor:
                 rows.append(
                     {
                         'Filepath': p.name,
-                        'Color': 'Green',
+                        'Color': LED1,
                         'X': x,
                         'Y': y,
                         'Well': 'A1',

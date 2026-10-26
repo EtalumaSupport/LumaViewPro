@@ -23,6 +23,7 @@ from rest.app import SERVER_SEGMENTS, build_app
 from rest.routes import routes
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1
 
 # Each setting with a URL on a simulated LS850: the body its PUT is sent, the
 # key its GET is asked with, and what both then answer; or the reason the
@@ -34,9 +35,9 @@ _WRITES = {
     'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'acceleration_limit_pct': ({'limit_pct': 40}, None, 40),
-    'channel_acquire': ({'channel': 'Blue', 'mode': 'video'}, {'channel': 'Blue'}, 'video'),
-    'channel_auto_gain': ({'channel': 'Green', 'enabled': True}, {'channel': 'Green'}, True),
-    'saved_focus_z_um': ({'channel': 'Blue', 'z_um': 5000.0}, {'channel': 'Blue'}, 5000.0),
+    'channel_acquire': ({'channel': LED0, 'mode': 'video'}, {'channel': LED0}, 'video'),
+    'channel_auto_gain': ({'channel': LED1, 'enabled': True}, {'channel': LED1}, True),
+    'saved_focus_z_um': ({'channel': LED0, 'z_um': 5000.0}, {'channel': LED0}, 5000.0),
     'scope/camera/image_mode': ({'mode': '12bit_scientific'}, None, '12bit_scientific'),
     'scope/camera/binning': ({'size': 2}, None, 2),
     'scope/camera/frame_size': ({'width': 600, 'height': 400}, None, {'width': 600, 'height': 400}),

@@ -19,6 +19,7 @@ import modules.settings_init as settings_init
 from modules.exceptions import InstallationFileError
 from modules.zstack_config import ZStackReference
 from tests.installation_fixtures import copy_installation_files
+from tests.stock_channels import LED1
 
 logger = logging.getLogger('test_settings_preparation')
 
@@ -47,7 +48,7 @@ def _legacy_current(data_dir):
     # absent entirely, the way a file older than the video feature has it
     current['BF'].pop('video_config', None)
     current['BF']['acquire'] = 'stack'
-    current['Green']['video_config'] = {'duration': 12, 'fps': 0}
+    current[LED1]['video_config'] = {'duration': 12, 'fps': 0}
     # a plate the catalogue renamed after this file was written
     current['protocol']['labware'] = 'Center Dish'
     # A key the running version ships and this older file predates.
@@ -79,7 +80,7 @@ def test_legacy_file_is_fully_prepared(tmp_path):
     assert prepared['BF']['acquire'] is None
     # a rate the recorder would divide by, repaired without losing the
     # duration beside it -- the merge cannot do this, nothing is missing
-    assert prepared['Green']['video_config'] == {'duration': 12, 'fps': 30}
+    assert prepared[LED1]['video_config'] == {'duration': 12, 'fps': 30}
     # a retired plate name, folded to its catalogue key so the one store
     # every reader trusts never carries a spelling the catalogue lacks
     assert prepared['protocol']['labware'] == 'Center Plate'
@@ -149,7 +150,7 @@ def test_a_headless_session_gets_the_same_preparation(tmp_path, monkeypatch):
     assert session.settings['image_output_format']['sequenced'] == 'OME-TIFF Hyperstack'
     assert 'manual_video' not in session.settings
     assert 'disable_protocol_accordions' not in session.settings
-    assert session.settings['Green']['video_config'] == {'duration': 12, 'fps': 30}
+    assert session.settings[LED1]['video_config'] == {'duration': 12, 'fps': 30}
     assert 'stimulation_enabled' in session.settings
 
 

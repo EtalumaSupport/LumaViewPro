@@ -16,12 +16,13 @@ from modules.cell_count_method import CellCountMethod
 from modules import image_utils
 from modules.post_processing import PostProcessing
 from modules.layer_record import release_color
+from tests.stock_channels import LED1
 
 
 def _meta(significant_bits):
     return {
         'pixel_size_um': 0.5,
-        'channel': 'Green',
+        'channel': LED1,
         'objective': '10x',
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
@@ -43,7 +44,7 @@ def _write_plain_tiff(path, value, significant_bits):
         file_loc=path,
         metadata=_meta(significant_bits),
         ome=False,
-        color=release_color('Green'),
+        color=release_color(LED1),
         significant_bits=significant_bits,
         save_encoding='right_aligned',
         white_bits=None,

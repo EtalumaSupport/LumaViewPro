@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Each colour writer colours a stock channel as it does today.
 
-A transmitted channel (BF, PC, DF) is grey; Blue and Lumi are the image on
-the blue plane, Green on the green, Red on the red. Every writer that colours
+A transmitted channel (BF, PC, DF) is grey; LED 0's channel and Lumi are the
+image on the blue plane, LED 1's on the green, LED 2's on the red. Every writer that colours
 a frame says so: false colour, Quick Enhance's derived image, the TIFF's
 photometric and colour map (plain and OME), the JPEG the display exports and
 the video. These pins hold the stock channels' output while colour stops
@@ -25,15 +25,16 @@ from modules.layer_record import release_color
 from modules.quick_enhance import QuickEnhancer
 from modules.video_writer import VideoWriter
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 # None is grey.
 _COLOUR = {
     'BF': None,
     'PC': None,
     'DF': None,
-    'Blue': (0, 0, 1),
-    'Green': (0, 1, 0),
-    'Red': (1, 0, 0),
+    LED0: (0, 0, 1),
+    LED1: (0, 1, 0),
+    LED2: (1, 0, 0),
     'Lumi': (0, 0, 1),
 }
 _MONO = (np.arange(64 * 48, dtype=np.uint32) * 37 % 256).astype(np.uint8).reshape(48, 64)

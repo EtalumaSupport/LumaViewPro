@@ -31,6 +31,7 @@ from modules.composite_builder import (
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import ConfigError
 from modules.layer_record import release_colors
+from tests.stock_channels import LED2
 
 
 def _in_release_colours(images):
@@ -77,9 +78,9 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
         transmitted, red = self._one_saturated_pixel()
 
         img = build_composite(
-            channels=_in_release_colours({'Red': red}),
+            channels=_in_release_colours({LED2: red}),
             transmitted=TransmittedBase(transmitted, 8, None),
-            brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
+            brightness_thresholds={LED2: brightness_cutoff_from_percent(100)},
         )
 
         assert img[0, 0].tolist() == [255, 0, 0], 'the saturated pixel was dropped'
@@ -90,9 +91,9 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
         red = np.full((2, 2), 254, dtype=np.uint8)
 
         img = build_composite(
-            channels=_in_release_colours({'Red': red}),
+            channels=_in_release_colours({LED2: red}),
             transmitted=TransmittedBase(transmitted, 8, None),
-            brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
+            brightness_thresholds={LED2: brightness_cutoff_from_percent(100)},
         )
 
         assert img[0, 0].tolist() == [40, 40, 40]
@@ -113,10 +114,10 @@ class TestAPercentageOutsideTheRangeIsRefused:
         df = pd.DataFrame(
             [
                 {'Color': 'BF', 'Filepath': bf_path},
-                {'Color': 'Red', 'Filepath': red_path},
+                {'Color': LED2, 'Filepath': red_path},
             ]
         )
-        return df, {'Red': threshold}
+        return df, {LED2: threshold}
 
     @pytest.mark.parametrize('bad', [-1, -25, 101, 500])
     def test_a_percentage_outside_the_range_is_refused_by_name(self, tmp_path, bad):
@@ -132,7 +133,7 @@ class TestAPercentageOutsideTheRangeIsRefused:
             )
 
         message = str(excinfo.value)
-        assert 'Red' in message, 'the refusal must name the layer'
+        assert LED2 in message, 'the refusal must name the layer'
         assert str(bad) in message, 'the refusal must name the value'
 
     def test_a_non_numeric_percentage_is_refused_rather_than_raising_mid_merge(self, tmp_path):

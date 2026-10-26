@@ -22,6 +22,7 @@ from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
 from tests.case_walk import failing_cases
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0
 
 
 def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL, **overrides):
@@ -291,6 +292,6 @@ def test_a_composite_run_never_carries_the_hyperstack_format():
     from tests.test_composite_run_config import _settings
 
     config = config_helpers.get_composite_image_capture_config_from_settings(
-        _settings(acquiring=('BF', 'Blue'), sequenced_format=OutputFormat.HYPERSTACK)
+        _settings(acquiring=('BF', LED0), sequenced_format=OutputFormat.HYPERSTACK)
     )
     assert config.output_format_sequenced != OutputFormat.HYPERSTACK

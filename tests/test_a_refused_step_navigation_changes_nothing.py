@@ -31,6 +31,7 @@ import pytest
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.protocol import StepNotFoundError
 from tests.gesture_fakes import inline_submit_move
+from tests.stock_channels import LED1
 
 
 ON_TURRET = '10x Oly'
@@ -56,7 +57,7 @@ def _make_step(objective: str) -> dict:
         'Y': 2.0,
         'Z': 3.0,
         'Auto_Focus': False,
-        'Color': 'Green',
+        'Color': LED1,
         'False_Color': False,
         'Illumination': 350.0,
         'Gain': 0.0,
@@ -111,7 +112,7 @@ def nav_env(monkeypatch):
             'protocol_led_on': True,
             'stage_offset': {'x': 0, 'y': 0},
             'turret_position': None,
-            'Green': dict(LAYER_SETTINGS),
+            LED1: dict(LAYER_SETTINGS),
         },
         settings_lock=threading.Lock(),
         motion_settings=SimpleNamespace(

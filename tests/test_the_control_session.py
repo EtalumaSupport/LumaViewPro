@@ -32,6 +32,7 @@ from modules.exceptions import (
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from modules.wire_encoding import outcome_fields
 from tests.test_a_run_says_when_its_files_are_written import held_saves  # noqa: F401 -- a fixture
+from tests.stock_channels import LED1, LED2
 
 _WAIT_S = 2.0
 # Long enough that held work is still held when the test acts on it.
@@ -287,7 +288,7 @@ class TestEachTakerNamesTheSession:
         assert sim_session.activity_claim.holder is None
 
     def test_a_change_of_the_shown_layer(self, sim_session, held):
-        other = 'Red' if sim_session.shown_channel.channel == 'Green' else 'Green'
+        other = LED2 if sim_session.shown_channel.channel == LED1 else LED1
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_session.show_channel(other)
         assert refused.value.reason == 'control_session_held'

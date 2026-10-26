@@ -29,6 +29,7 @@ from modules import image_utils
 from tests.frame_records import frame_record, plate
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _bright_mono(value: int = 200) -> np.ndarray:
@@ -54,7 +55,7 @@ def _region_means(bgr: np.ndarray):
 
 def test_green_channel_bakes_green():
     jpg = image_utils.encode_display_jpg(
-        _bright_mono(), release_color('Green'), significant_bits=8, jpeg_quality=95
+        _bright_mono(), release_color(LED1), significant_bits=8, jpeg_quality=95
     )
     m = _region_means(_decode_bgr(jpg))
     assert m['green'] > m['blue'] + 40
@@ -64,7 +65,7 @@ def test_green_channel_bakes_green():
 def test_red_channel_bakes_red_not_blue():
     # The RGB->BGR swap guard: a wrong swap would surface as blue here.
     jpg = image_utils.encode_display_jpg(
-        _bright_mono(), release_color('Red'), significant_bits=8, jpeg_quality=95
+        _bright_mono(), release_color(LED2), significant_bits=8, jpeg_quality=95
     )
     m = _region_means(_decode_bgr(jpg))
     assert m['red'] > m['blue'] + 40
@@ -73,7 +74,7 @@ def test_red_channel_bakes_red_not_blue():
 
 def test_blue_channel_bakes_blue_not_red():
     jpg = image_utils.encode_display_jpg(
-        _bright_mono(), release_color('Blue'), significant_bits=8, jpeg_quality=95
+        _bright_mono(), release_color(LED0), significant_bits=8, jpeg_quality=95
     )
     m = _region_means(_decode_bgr(jpg))
     assert m['blue'] > m['red'] + 40

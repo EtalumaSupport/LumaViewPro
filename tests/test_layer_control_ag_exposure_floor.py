@@ -37,6 +37,7 @@ from modules.lumascope_api.camera import (
     stored_exposure_after_lock,
 )
 from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
+from tests.stock_channels import LED0
 
 
 class TestExposureFloorSourceStructure:
@@ -151,15 +152,15 @@ class TestExposureFloorBehavior:
         ],
     )
     def test_blue_ag_feedback_floored_to_fluorescence_min(self, raw_exp_ms, expected_floor):
-        """For Blue (fluorescence), AG-feedback exp values < 1 ms must be
+        """For LED 0's channel (fluorescence), AG-feedback exp values < 1 ms must be
         floored to 1.0, the fluorescence class floor."""
-        settings = {'Blue': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        settings = {LED0: {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
 
-        _leave(settings, 'Blue', _lock('Blue', 0.0, raw_exp_ms))
+        _leave(settings, LED0, _lock(LED0, 0.0, raw_exp_ms))
 
-        stored = settings['Blue']['exposure_ms']
+        stored = settings[LED0]['exposure_ms']
         assert stored == expected_floor, (
-            f'Blue AG-feedback raw_exp={raw_exp_ms}ms should floor to '
+            f'{LED0} AG-feedback raw_exp={raw_exp_ms}ms should floor to '
             f'{expected_floor}ms (the fluorescence class floor), '
             f'got {stored}ms.'
         )

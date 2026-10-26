@@ -26,8 +26,9 @@ from modules.recording_frames import FrameFact, frame_fact, tiff_frame_metadata
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
-A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False, channel='Green')
+A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False, channel=LED1)
 
 
 def _fake_scope(positions, lit=None):
@@ -38,7 +39,7 @@ def _fake_scope(positions, lit=None):
                 LedReading(address, name, LedState.LIT, 100.0)
                 if name == lit
                 else LedReading(address, name, LedState.DARK, None)
-                for address, name in enumerate(('Blue', 'Green', 'Red', 'BF'))
+                for address, name in enumerate((LED0, LED1, LED2, 'BF'))
             )
         ),
     )
@@ -85,10 +86,10 @@ class TestTheFact:
                 'Y': AxisPosition(AxisState.IDLE, 2000.0),
                 'Z': AxisPosition(AxisState.IDLE, 3.0),
             },
-            lit='Green',
+            lit=LED1,
         )
         fact = frame_fact(scope, channel_tiebreak='BF', to_plate=_to_plate)
-        assert fact == FrameFact(1.5, 2.5, 3.0, False, 'Green')
+        assert fact == FrameFact(1.5, 2.5, 3.0, False, LED1)
 
     def test_an_unknown_axis_is_unknown_and_x_y_travel_as_a_pair(self):
         scope = _fake_scope(
@@ -153,7 +154,7 @@ class TestTheFrameFile:
         assert metadata['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
         assert metadata['x_pos'] == 1.5 and metadata['y_pos'] == 2.5
         assert metadata['z_pos_um'] == 3.0
-        assert metadata['channel'] == 'Green'
+        assert metadata['channel'] == LED1
         assert metadata['stage_moving'] is False
 
     def test_an_unknown_position_states_none(self):
@@ -194,7 +195,7 @@ class TestTheFrameFile:
             frame=np.zeros((8, 8), dtype=np.uint8),
             file_loc=path,
             metadata=metadata,
-            channel='Green',
+            channel=LED1,
             false_color_on=False,
             save_encoding='8bit',
             capture_depth=8,
@@ -203,7 +204,7 @@ class TestTheFrameFile:
         with tf.TiffFile(path) as t:
             described = json.loads(t.pages[0].tags['ImageDescription'].value)
         assert described['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
-        assert described['channel'] == 'Green'
+        assert described['channel'] == LED1
         assert described['stage_moving'] is False
 
 

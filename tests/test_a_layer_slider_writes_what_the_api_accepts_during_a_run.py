@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import modules.app_context as _app_ctx
 from tests.gesture_fakes import inline_submit_reported
 from ui.layer_control import LayerControl
+from tests.stock_channels import LED0
 
 # Each handler, the widgets it reads, and the setting it writes.
 _HANDLERS = (
@@ -45,7 +46,7 @@ def _panel(monkeypatch, *, initializing):
     monkeypatch.setattr(layer_control, 'submit_reported', inline_submit_reported)
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's decision
     panel = LayerControl.__new__(LayerControl)
-    panel.layer = 'Blue'
+    panel.layer = LED0
     panel._initializing = initializing
     panel.ids = {}
     for slider, text, _key, value in _HANDLERS:
@@ -60,7 +61,7 @@ def test_a_slider_moved_while_a_run_holds_the_scope_writes_its_setting(monkeypat
     for handler, *_ in _HANDLERS:
         getattr(LayerControl, handler)(panel)
 
-    assert writes == [(f'Blue.{key}', value) for *_, key, value in _HANDLERS]
+    assert writes == [(f'{LED0}.{key}', value) for *_, key, value in _HANDLERS]
 
 
 def test_a_display_of_a_step_during_a_run_writes_no_setting(monkeypatch):

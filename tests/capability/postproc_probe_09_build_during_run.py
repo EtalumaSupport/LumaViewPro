@@ -40,6 +40,7 @@ import time
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
+from tests.stock_channels import LED0
 
 # B asks to start until the runner admits it; these are the refusals of a
 # run that is still letting go, and any other is the probe's failure.
@@ -185,9 +186,7 @@ def _report_run(name, outcome, started, ended, record):
 def main():
     args = _arguments()
     live = probe_dir('build_during_run')
-    session_cm = (
-        hardware_session() if HARDWARE else headless_session(live, acquiring=('BF', 'Blue'))
-    )
+    session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=('BF', LED0))
     with session_cm as (session, runner):
         if args.labware is not None:
             session.select_labware(args.labware)

@@ -30,6 +30,7 @@ import tifffile
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report, void
+from tests.stock_channels import LED0
 
 # A camera writes exposure in its own steps and reads gain back in its own;
 # the file carries what the camera reported, rounded.
@@ -98,7 +99,7 @@ def _steps(session, protocol, colors):
 def body(session, runner):
     scope = session.scope
     layers = list(session.get_layer_configs())
-    fluor = 'Blue' if 'Blue' in layers else next(layer for layer in layers if layer != 'BF')
+    fluor = LED0 if LED0 in layers else next(layer for layer in layers if layer != 'BF')
     pair = ('BF', fluor)
     figure('layers compared', pair)
     snapshot = session.get_settings_snapshot()

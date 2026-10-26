@@ -9,7 +9,7 @@ light at the optics while it runs.
 
     python tests/capability/layer_p11_led_commanded_step.py             # an LS620 simulator
     python tests/capability/layer_p11_led_commanded_step.py --hardware  # the connected scope
-    ... --layer Green   # a channel other than BF (the default)
+    ... --layer <key>   # a channel other than BF (the default), e.g. LED 1's
 
 The frames are taken at the layer's own saved exposure and gain.
 """

@@ -44,6 +44,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.ast_seams import find_def
+from tests.stock_channels import LED1
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -122,7 +123,7 @@ class TestTheShownLayerSyncsItsAutoGainCheckbox:
         # a stand-in by design: Kivy is stubbed in the test process; the subject is the sync
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display_thread=None))
         widget = SimpleNamespace(
-            layer='Green',
+            layer=LED1,
             ids={'auto_gain': SimpleNamespace(active=False)},
             effective_auto_gain=lambda: True,
         )

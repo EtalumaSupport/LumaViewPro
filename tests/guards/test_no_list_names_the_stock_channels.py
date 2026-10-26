@@ -87,15 +87,3 @@ def test_the_guard_sees_the_tables_it_exempts():
     # guard exempting nothing while the check above still passed.
     seen = {(rel_path, qualname) for rel_path, qualname, _lineno in _found()}
     assert seen >= _FOREIGN_FILE_TABLES
-
-
-def test_the_guard_sees_old_names_once_the_keys_change(tmp_path, monkeypatch):
-    # Once the colour keys are named for their excitation, Quick Enhance's
-    # tables name only old names; the guard reads those too, so it still sees
-    # them, and would see any other list of them.
-    from tests.installation_fixtures import use_release, write_release_in_excitation_keys
-
-    use_release(monkeypatch, write_release_in_excitation_keys(tmp_path))
-
-    seen = {(rel_path, qualname) for rel_path, qualname, _lineno in _found()}
-    assert seen >= _FOREIGN_FILE_TABLES

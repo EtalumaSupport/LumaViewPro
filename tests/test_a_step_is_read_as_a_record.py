@@ -18,12 +18,13 @@ from modules.coord_transformations import PlateLocation
 from modules.protocol import _STEP_CELLS, _STEP_FIELDS, Stimulation, StepRecord, VideoConfig
 from rest.app import build_app
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.stock_channels import LED0
 
 
 def _bf_and_blue(session):
     protocol = session.create_empty_protocol()
     session.add_step(
-        protocol, channels=('BF', 'Blue'), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
+        protocol, channels=('BF', LED0), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
     )
     return protocol
 
@@ -43,7 +44,7 @@ def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
     assert isinstance(step, StepRecord)
     assert (step.name, step.channel, step.x_mm, step.y_mm, step.z_um) == (
         row['Name'],
-        'Blue',
+        LED0,
         20.0,
         15.0,
         6000.0,
@@ -73,7 +74,7 @@ def test_the_step_table_is_every_step_in_order(session):
     table = protocol.step_records()
 
     assert table == (protocol.step(step_index=0), protocol.step(step_index=1))
-    assert [step.channel for step in table] == ['BF', 'Blue']
+    assert [step.channel for step in table] == ['BF', LED0]
 
 
 def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
@@ -90,15 +91,13 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
 def test_the_table_crosses_the_wire_as_records_keyed_by_field(session):
     with TestClient(build_app(session)) as client:
         handle = client.post('/api/v1/create_empty_protocol').json()['handle']
-        added = client.post(
-            '/api/v1/add_step', json={'protocol': handle, 'channels': ['BF', 'Blue']}
-        )
+        added = client.post('/api/v1/add_step', json={'protocol': handle, 'channels': ['BF', LED0]})
         answer = client.get(f'/api/v1/handles/Protocol/{handle}/step_records')
 
     assert added.status_code == 200, added.text
     assert answer.status_code == 200, answer.text
     table = answer.json()
-    assert [step['channel'] for step in table] == ['BF', 'Blue']
+    assert [step['channel'] for step in table] == ['BF', LED0]
     assert set(table[0]) == {field.name for field in dataclasses.fields(StepRecord)}
 
 

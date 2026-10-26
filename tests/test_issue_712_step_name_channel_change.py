@@ -2,7 +2,7 @@
 
 A step's stored Name kept the old channel token after a channel change, so
 both the displayed Step Name and the saved filename were stale -- and the
-filename appended the new channel beside the old one (A2_BF_Blue_...).
+filename appended the new channel beside the old one (A2_BF_<LED 0 key>_...).
 
 Fix (current shape): a step's Name is a DERIVED display column re-rendered
 from the structured columns (Label, Well, Color, Tile, Z-Slice) on every
@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import pathlib
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PS_SRC = REPO / 'ui' / 'protocol_settings.py'
@@ -40,15 +41,13 @@ def test_regenerated_name_replaces_channel_not_appends():
     old = build_step_name(StepNameComponents(well='A2', channel='BF', objective='2xOly'))
     assert old == 'A2_BF_2xOly'
     # Regenerate for a new channel by components: replace the channel field,
-    # rebuild. The bug appended (A2_BF_Blue_...); rebuilding from components
+    # rebuild. The bug appended (A2_BF_<LED 0 key>_...); rebuilding from components
     # replaces, carrying ONLY the new channel. (The parse leg lives at the
     # legacy load boundary now; the runtime pipeline carries columns.)
     new = build_step_name(
-        dataclasses.replace(
-            parse_legacy_step_name(old, known_layers=['BF', 'Blue']), channel='Blue'
-        )
+        dataclasses.replace(parse_legacy_step_name(old, known_layers=['BF', LED0]), channel=LED0)
     )
-    assert new == 'A2_Blue_2xOly'
+    assert new == f'A2_{LED0}_2xOly'
     assert 'BF' not in new
 
 
@@ -91,14 +90,14 @@ def _modify_channel(proto, *, layer, label=None):
 def test_channel_change_replaces_token_on_well_step():
     # The exact #712 repro at the protocol layer: a channel change on an
     # auto-named well step regenerates the channel token (replace, never
-    # append A2_BF_Blue).
+    # append A2_BF_<LED 0 key>).
     from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
     proto = _build_protocol(
         [_make_step(name='A2_BF', well='A2', z_slice=-1, tile_group_id=-1, zstack_group_id=-1)]
     )
-    step = _modify_channel(proto, layer='Blue')
-    assert step['Name'] == 'A2_Blue', step['Name']
+    step = _modify_channel(proto, layer=LED0)
+    assert step['Name'] == f'A2_{LED0}', step['Name']
     assert 'BF' not in step['Name']
 
 
@@ -120,8 +119,8 @@ def test_channel_change_replaces_token_on_custom_step_and_keeps_user_label():
             )
         ]
     )
-    step = _modify_channel(proto, layer='Blue')
-    assert step['Name'] == 'custom0000_Blue', step['Name']
+    step = _modify_channel(proto, layer=LED0)
+    assert step['Name'] == f'custom0000_{LED0}', step['Name']
 
     proto2 = _build_protocol(
         [
@@ -136,8 +135,8 @@ def test_channel_change_replaces_token_on_custom_step_and_keeps_user_label():
             )
         ]
     )
-    step2 = _modify_channel(proto2, layer='Blue')
-    assert step2['Name'] == 'MySpot_Blue', step2['Name']
+    step2 = _modify_channel(proto2, layer=LED0)
+    assert step2['Name'] == f'MySpot_{LED0}', step2['Name']
     assert step2['Label'] == 'MySpot'
     assert not step2['Auto_Named']
 

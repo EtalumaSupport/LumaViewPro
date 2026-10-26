@@ -16,6 +16,7 @@ import pytest
 
 from modules.image_utils import _compute_scale_bar_overlay
 from tests.objective_records import objective
+from tests.stock_channels import LED0, LED1, LED2
 
 _OBJECTIVE = objective(focal_length_mm=45.0, magnification=20)
 
@@ -26,9 +27,9 @@ _OBJECTIVE = objective(focal_length_mm=45.0, magnification=20)
         ('BF', True),  # bright background -> black bar
         ('PC', True),  # bright background -> black bar
         ('DF', False),  # dark background -> white bar (the #429 fix)
-        ('Blue', False),
-        ('Green', False),
-        ('Red', False),
+        (LED0, False),
+        (LED1, False),
+        (LED2, False),
     ],
 )
 def test_scale_bar_value_keys_off_background_brightness(color, expect_black):

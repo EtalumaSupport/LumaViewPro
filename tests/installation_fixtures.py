@@ -42,14 +42,18 @@ def _fluorescence_record(key: str, color: str, step_order: int) -> dict:
 
 
 def _row(key: str, led: int, nm: int | None) -> dict:
-    return {'key_name': key, 'display_name': key, 'led_channel': led, 'excitation_nm': nm}
+    """A model's row for ``key``: a fluorescence row states its excitation and
+    no name, any other its name."""
+    if nm is not None:
+        return {'key_name': key, 'led_channel': led, 'excitation_nm': nm}
+    return {'key_name': key, 'display_name': key, 'led_channel': led, 'excitation_nm': None}
 
 
 # Two fluorescence channels the release does not ship, on the two LED
 # addresses no shipped model drives, in colours no shipped channel has.
 ADDED_CHANNELS = (
-    _fluorescence_record('Ex445', '#00ffff', 7),
-    _fluorescence_record('Ex640', '#ff00ff', 8),
+    _fluorescence_record('Ex445', '#00ffff', 9),
+    _fluorescence_record('Ex730', '#ff00ff', 10),
 )
 
 # Three units on that release, by how many fluorescence channels each
@@ -57,31 +61,16 @@ ADDED_CHANNELS = (
 _BF = _row('BF', 3, None)
 FLUORESCENCE_UNITS = {
     'LS850-F0': [_BF, _row('PC', 4, None), _row('DF', 5, None)],
-    'LS850-F2': [_BF, _row('Ex445', 6, 445), _row('Ex640', 7, 640)],
+    'LS850-F2': [_BF, _row('Ex445', 6, 445), _row('Ex730', 7, 730)],
     'LS850-F5': [
         _BF,
-        _row('Blue', 0, 405),
-        _row('Green', 1, 488),
-        _row('Red', 2, 589),
+        _row('Ex405', 0, 405),
+        _row('Ex488', 1, 488),
+        _row('Ex589', 2, 589),
         _row('Ex445', 6, 445),
-        _row('Ex640', 7, 640),
+        _row('Ex730', 7, 730),
     ],
 }
-
-
-# The release once its fluorescence keys are named for their excitation: each
-# old colour key's record under its stock filterset's key, every field
-# unchanged, and the non-stock filterset's two other channels after them.
-EXCITATION_KEYS = {'Blue': 'Ex405', 'Green': 'Ex488', 'Red': 'Ex589'}
-OLD_CHANNEL_NAMES = {
-    'Blue': {'led_address': 0, 'stock_key': 'Ex405'},
-    'Green': {'led_address': 1, 'stock_key': 'Ex488'},
-    'Red': {'led_address': 2, 'stock_key': 'Ex589'},
-}
-NON_STOCK_CHANNELS = (
-    _fluorescence_record('Ex550', '#00ff00', 7),
-    _fluorescence_record('Ex640', '#ff0000', 8),
-)
 
 
 def non_stock_block(transmitted: list[dict]) -> dict:
@@ -104,41 +93,10 @@ def non_stock_block(transmitted: list[dict]) -> dict:
     return {'Channels': channels, 'Filterset': '488/550/640'}
 
 
-def write_release_in_excitation_keys(data: pathlib.Path) -> pathlib.Path:
-    """Write ``data/scopes.json``: the shipped release with ``EXCITATION_KEYS``
-    for its colour keys, ``NON_STOCK_CHANNELS`` added, and the old names in its
-    ``OldChannelNames``.
-
-    The caller installs it as the process's release (``use_release``).
-    """
-    scopes = json.loads((SHIPPED_DATA / 'scopes.json').read_text(encoding='utf-8'))
-    scopes['LayerOrder'] = [
-        {**record, 'key': EXCITATION_KEYS.get(record['key'], record['key'])}
-        for record in scopes['LayerOrder']
-    ] + list(NON_STOCK_CHANNELS)
-    for entry in scopes['Models'].values():
-        entry['Layers'] = [
-            {
-                **row,
-                'key_name': EXCITATION_KEYS.get(row['key_name'], row['key_name']),
-                'display_name': EXCITATION_KEYS.get(row['display_name'], row['display_name']),
-            }
-            for row in entry['Layers']
-        ]
-    scopes['OldChannelNames'] = OLD_CHANNEL_NAMES
-    path = pathlib.Path(data) / 'scopes.json'
-    path.write_text(json.dumps(scopes), encoding='utf-8')
-    return path
-
-
-def excitation_key_installation(
-    root: pathlib.Path, monkeypatch, *, board_block: dict | None = None
-) -> pathlib.Path:
-    """An installation at ``root`` whose release is in excitation keys, made the process's.
-
-    ``board_block`` is a per-unit block its motor board carries (as
-    ``non_stock_block`` gives), in the motor config every simulated board
-    of the installation starts from.
+def write_installation(root: pathlib.Path, *, board_block: dict | None = None) -> pathlib.Path:
+    """An installation at ``root``: the shipped files, and ``board_block``, a
+    per-unit block its motor board carries (as ``non_stock_block`` gives), in
+    the motor config every simulated board of the installation starts from.
     """
     data = pathlib.Path(root) / 'data'
     data.mkdir(parents=True)
@@ -148,7 +106,6 @@ def excitation_key_installation(
         (data / 'motorconfig_defaults.json').write_text(
             json.dumps({**defaults, **board_block}), encoding='utf-8'
         )
-    use_release(monkeypatch, write_release_in_excitation_keys(data))
     return pathlib.Path(root)
 
 

@@ -185,7 +185,7 @@ class TestLEDSaveRestore:
 
     def test_af_pattern_save_restore(self, scope):
         """Simulate the AF pattern: save -> own LED on -> do work -> release -> restore."""
-        # User has Blue LED on
+        # User has LED 0 on
         scope.illumination.led_on_by_address(0, 100)
         # AF starts
         snapshot = scope.illumination.save_led_state('autofocus')
@@ -193,7 +193,7 @@ class TestLEDSaveRestore:
         scope.illumination._led_on_impl(3, 200, member='led_on', _lease=lease)  # BF for AF
         # AF finishes
         lease.release()  # only kills the LED the AF lease lit
-        assert led_reading(scope, 0).state is LedState.LIT  # user's Blue still on
+        assert led_reading(scope, 0).state is LedState.LIT  # user's LED 0 still on
         assert led_reading(scope, 3).state is LedState.DARK  # AF's BF off
         # Restore (should be a no-op since user's LED was never touched)
         scope.illumination.restore_led_state(snapshot)

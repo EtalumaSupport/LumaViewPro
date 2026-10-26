@@ -28,6 +28,7 @@ from modules.exceptions import FrameDepthError
 from modules.recording_frames import FrameFact
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from modules.layer_record import release_color
+from tests.stock_channels import LED1
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -148,7 +149,7 @@ def _save_meta(significant_bits=None):
     """Minimal metadata dict that write_tiff / generate_tiff_data accept."""
     meta = {
         'pixel_size_um': 0.5,
-        'channel': 'Green',
+        'channel': LED1,
         'objective': '10x',
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
@@ -180,7 +181,7 @@ class TestSavePathNativeDepth:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=True,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
             white_bits=None,
@@ -240,7 +241,7 @@ class TestNonOmeNativeDepth:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
             white_bits=None,
@@ -282,7 +283,7 @@ class TestLoadPixelsBoundary:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=ome,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=significant_bits,
             save_encoding='8bit' if arr.dtype == np.uint8 else 'right_aligned',
             white_bits=None,
@@ -434,7 +435,7 @@ class TestWriteTiffDepthRequired:
                 file_loc=tmp_path / 'frame.tif',
                 metadata=_save_meta(),
                 ome=True,
-                color=release_color('Green'),
+                color=release_color(LED1),
                 white_bits=None,
             )
 
@@ -449,7 +450,7 @@ class TestWriteTiffDepthRequired:
             file_loc=path,
             metadata=_save_meta(),
             ome=True,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
             white_bits=None,

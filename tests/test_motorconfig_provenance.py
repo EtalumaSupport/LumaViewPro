@@ -22,6 +22,7 @@ from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
 from lvp_logger import logger as _mock_logger
 from modules.path_utils import read_installation_file
+from tests.stock_channels import LED2
 
 
 def make_config(tmp_path, defaults=None):
@@ -121,7 +122,7 @@ class TestWholesaleLedBlock:
     def test_board_block_replaces_a_defaults_block_whole(self, tmp_path):
         config = make_config(
             tmp_path,
-            defaults={'Channels': {'BF': {'led_channel': 3}, 'Red': {}}, 'Filterset': 'Old'},
+            defaults={'Channels': {'BF': {'led_channel': 3}, LED2: {}}, 'Filterset': 'Old'},
         )
         config.update_from_board({'Channels': {'BF': {'led_channel': 4}}, 'Filterset': 'New'})
         block = config.led_block()

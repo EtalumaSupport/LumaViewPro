@@ -37,12 +37,13 @@ from tests.test_composite_run_e2e import (
     open_composite_session,
     single_run_dir,
 )
+from tests.stock_channels import LED0, LED1, LED2
 
 # Lit before the run and never acquired: the channel whose survival is
 # the whole question. A channel the run itself lights would be restored
 # by accident, so the pre-run state has to be one the run has no reason
 # to touch.
-_PRE_RUN_CHANNEL = 'Red'
+_PRE_RUN_CHANNEL = LED2
 _PRE_RUN_MA = 50.0
 
 
@@ -146,7 +147,7 @@ def _frame_channels(run_dir, channels):
 # ---------------------------------------------------------------------------
 
 
-_ABORT_ACQUIRING = ('BF', 'Blue', 'Green')
+_ABORT_ACQUIRING = ('BF', LED0, LED1)
 
 
 @pytest.fixture
@@ -284,7 +285,7 @@ class TestPreRunStateSurvivesACompleteRun:
         # abort branch; this is the branch every successful composite
         # takes, and the two derive their end-state separately enough
         # that one can regress while the other stays green.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
         with open_composite_session(settings) as (session, runner):
             _light_pre_run_channel(session)
             assert _lit_channels(session) == {_PRE_RUN_CHANNEL: _PRE_RUN_MA}, (
@@ -306,7 +307,7 @@ class TestPreRunStateSurvivesACompleteRun:
     def test_the_acquiring_channels_are_dark_after_a_complete_run(self, tmp_path):
         # A composite that ends with its last step's channel still lit
         # bleaches the sample for as long as the user leaves the scope.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
         with open_composite_session(settings) as (session, runner):
             _light_pre_run_channel(session)
             runner.run_composite(sequence_name='restore', parent_dir=str(tmp_path))
@@ -322,7 +323,7 @@ class TestPreRunStateSurvivesACompleteRun:
 # ---------------------------------------------------------------------------
 
 
-_ORDER_ACQUIRING = ('BF', 'PC', 'DF', 'Blue', 'Green')
+_ORDER_ACQUIRING = ('BF', 'PC', 'DF', LED0, LED1)
 
 
 @pytest.fixture
@@ -391,7 +392,7 @@ class TestCaptureOrder:
 # ---------------------------------------------------------------------------
 
 
-_SEQUENCE_ACQUIRING = ('BF', 'Blue', 'Green')
+_SEQUENCE_ACQUIRING = ('BF', LED0, LED1)
 
 # Luminescence is emitted BY the sample; illuminating it is the one thing
 # that destroys the measurement. It is also the only acquiring channel
@@ -464,7 +465,7 @@ class TestOneChannelAtATime:
             f'the run captured {captured}, not the planned channel set '
             f'{sequenced_composite["expected"]}'
         )
-        for channel in ('BF', 'Blue', 'Green'):
+        for channel in ('BF', LED0, LED1):
             timeline = [
                 (kind, color) for kind, color, _ in events if color == channel or kind == 'all_off'
             ]

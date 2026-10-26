@@ -38,6 +38,7 @@ from tests.settings_fixtures import complete_settings
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from modules.zproject_method import ZProjectMethod
+from tests.stock_channels import LED0, LED1, LED2
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
 
@@ -200,7 +201,7 @@ def _write(
     array: np.ndarray,
     bits: int,
     encoding: str,
-    color: str = 'Blue',
+    color: str = LED0,
     *,
     white: int | None = None,
     ome: bool = False,
@@ -266,9 +267,9 @@ def test_a_colour_sum_projection_does_not_wrap():
 def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
     rows = []
     for z in range(3):
-        name = f'A1_Blue_Z{z}.tiff'
+        name = f'A1_{LED0}_Z{z}.tiff'
         _write(tmp_path / name, np.full((8, 8), 4000, dtype=np.uint16), 12, 'right_aligned')
-        rows.append({'Color': 'Blue', 'Filepath': name})
+        rows.append({'Color': LED0, 'Filepath': name})
     result = ZProjector(has_turret=False)._zproject(
         path=tmp_path,
         df=pd.DataFrame(rows),
@@ -288,7 +289,7 @@ def _project_summed_slices(tmp_path: pathlib.Path, method: str) -> dict:
     """Project three slices, each a 4-frame sum, and read back what the output states."""
     rows = []
     for z in range(3):
-        name = f'A1_Blue_Z{z}.tiff'
+        name = f'A1_{LED0}_Z{z}.tiff'
         _write(
             tmp_path / name,
             np.full((8, 8), 4000, dtype=np.uint16),
@@ -297,7 +298,7 @@ def _project_summed_slices(tmp_path: pathlib.Path, method: str) -> dict:
             white=12,
             frames_summed=4,
         )
-        rows.append({'Color': 'Blue', 'Filepath': name})
+        rows.append({'Color': LED0, 'Filepath': name})
     ZProjector(has_turret=False)._zproject(
         path=tmp_path,
         df=pd.DataFrame(rows),
@@ -333,12 +334,12 @@ MIXED_PLANES = pytest.mark.parametrize(
 
 
 def _mixed_planes(path: pathlib.Path, encoding: str) -> pd.DataFrame:
-    """An unsummed 8-bit Blue plane beside a 4-sum 10-bit Lumi plane, on disk."""
+    """An unsummed 8-bit LED0 plane beside a 4-sum 10-bit Lumi plane, on disk."""
     _write(path / 'blue.tiff', np.full((4, 4), 200, dtype=np.uint8), 8, encoding)
     _write(path / 'lumi.tiff', np.full((4, 4), 800, dtype=np.uint16), 10, encoding, 'Lumi')
     return pd.DataFrame(
         [
-            {'Filepath': 'blue.tiff', 'Color': 'Blue', 'Scan Count': 0, 'Z-Slice': 0},
+            {'Filepath': 'blue.tiff', 'Color': LED0, 'Scan Count': 0, 'Z-Slice': 0},
             {'Filepath': 'lumi.tiff', 'Color': 'Lumi', 'Scan Count': 0, 'Z-Slice': 0},
         ]
     ).assign(X=0.0, Y=0.0, Z=0.0)
@@ -487,7 +488,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
 
 
 def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
-    """A 4-sum Green beside an unsummed Red, each at one frame's white: both
+    """A 4-sum LED1 beside an unsummed LED2, each at one frame's white: both
     render full, where one shared depth showed the unsummed channel dark."""
     from modules.composite_generation import CompositeGeneration
 
@@ -496,7 +497,7 @@ def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
         np.full((8, 8), 4095, np.uint16),
         14,
         'right_aligned',
-        'Green',
+        LED1,
         white=12,
     )
     _write(
@@ -504,11 +505,11 @@ def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
         np.full((8, 8), 4095, np.uint16),
         12,
         'right_aligned',
-        'Red',
+        LED2,
         white=12,
     )
     df = pd.DataFrame(
-        [{'Filepath': 'green.tiff', 'Color': 'Green'}, {'Filepath': 'red.tiff', 'Color': 'Red'}]
+        [{'Filepath': 'green.tiff', 'Color': LED1}, {'Filepath': 'red.tiff', 'Color': LED2}]
     )
 
     result = CompositeGeneration._create_composite_image(
@@ -531,7 +532,7 @@ def test_a_stitch_keeps_its_tiles_white(tmp_path):
     for i, x in enumerate((0.0, 1.0)):
         name = f'tile{i}.tiff'
         _write(tmp_path / name, np.full((8, 8), 4095, np.uint16), 14, 'right_aligned', white=12)
-        rows.append({'Filepath': name, 'X': x, 'Y': 0.0, 'Color': 'Blue'})
+        rows.append({'Filepath': name, 'X': x, 'Y': 0.0, 'Color': LED0})
 
     result = simple_position_stitcher(
         tmp_path,

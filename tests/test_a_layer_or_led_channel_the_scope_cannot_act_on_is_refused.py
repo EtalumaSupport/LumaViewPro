@@ -4,7 +4,7 @@
 A name that was no layer met a different answer at each member: a
 ConfigError naming the model's LEDs, another naming the catalogue, a
 KeyError, a ValueError calling it a channel, a silent off, a read of
-"dark". ``led_on(True)`` lit Green, since ``True == 1``, and a still named
+"dark". ``led_on(True)`` lit LED 1, since ``True == 1``, and a still named
 for Lumi on a scope with no Lumi was written to disk. Each member now asks
 one check first -- ``ArgumentRefusedError`` ``channel_unknown`` offering
 the catalogue, ``led_address_unknown`` offering the board's addresses -- and

@@ -64,6 +64,7 @@ from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.layer_record import release_colors
 from tests.objective_records import objective
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # Plate coordinates in mm for distinct well positions.
@@ -74,9 +75,9 @@ WELL_COORDS = {
 }
 DEFAULT_Z = 6247.3684
 
-CHANNEL_ILLUMINATION = {'BF': 5.0, 'Blue': 250.0, 'Green': 250.0, 'Red': 350.0}
-CHANNEL_EXPOSURE = {'BF': 0.1, 'Blue': 1.0, 'Green': 6.76, 'Red': 600.0}
-CHANNEL_GAIN = {'BF': 14.4, 'Blue': 20.0, 'Green': 20.0, 'Red': 20.0}
+CHANNEL_ILLUMINATION = {'BF': 5.0, LED0: 250.0, LED1: 250.0, LED2: 350.0}
+CHANNEL_EXPOSURE = {'BF': 0.1, LED0: 1.0, LED1: 6.76, LED2: 600.0}
+CHANNEL_GAIN = {'BF': 14.4, LED0: 20.0, LED1: 20.0, LED2: 20.0}
 
 
 def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1, z_slice=-1):
@@ -420,12 +421,12 @@ def test_s1_single_channel_keep_off_offs_between_each_step(scope, runner, tmp_pa
         scope,
         runner,
         tmp_path,
-        [('A1', 'Green', {}), ('A2', 'Green', {}), ('A3', 'Green', {})],
+        [('A1', LED1, {}), ('A2', LED1, {}), ('A3', LED1, {})],
         keep_led_between_steps=False,
     )
-    assert sub.on_events() == [('Green', 250.0)] * 3, sub.render()
-    assert sub.lit_transitions('Green') == [True, False, True, False, True, False], sub.render()
-    _assert_only_lit(sub, 'Green')
+    assert sub.on_events() == [(LED1, 250.0)] * 3, sub.render()
+    assert sub.lit_transitions(LED1) == [True, False, True, False, True, False], sub.render()
+    _assert_only_lit(sub, LED1)
     assert sub.lit_at_most_one()
     assert sub.final_lit() == set(), sub.render()
 
@@ -438,12 +439,12 @@ def test_s2_single_channel_keep_on_holds_across_boundaries(scope, runner, tmp_pa
         scope,
         runner,
         tmp_path,
-        [('A1', 'Green', {}), ('A2', 'Green', {}), ('A3', 'Green', {})],
+        [('A1', LED1, {}), ('A2', LED1, {}), ('A3', LED1, {})],
         keep_led_between_steps=True,
     )
-    assert sub.on_events() == [('Green', 250.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    _assert_only_lit(sub, 'Green')
+    assert sub.on_events() == [(LED1, 250.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    _assert_only_lit(sub, LED1)
     assert sub.final_lit() == set(), sub.render()
 
 
@@ -459,32 +460,32 @@ def test_s3_zstack_holds_across_slices_regardless_of_flag(scope, runner, tmp_pat
             # Distinct Z-Slice indices, as a real z-stack expansion assigns
             # them -- identical slices would render one capture filename and
             # the run would be refused at validation.
-            ('A1', 'Green', {'zstack_group': 5, 'z_slice': 0}),
-            ('A1', 'Green', {'zstack_group': 5, 'z_slice': 1}),
-            ('A1', 'Green', {'zstack_group': 5, 'z_slice': 2}),
+            ('A1', LED1, {'zstack_group': 5, 'z_slice': 0}),
+            ('A1', LED1, {'zstack_group': 5, 'z_slice': 1}),
+            ('A1', LED1, {'zstack_group': 5, 'z_slice': 2}),
         ],
         keep_led_between_steps=False,
     )
-    assert sub.on_events() == [('Green', 250.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    _assert_only_lit(sub, 'Green')
+    assert sub.on_events() == [(LED1, 250.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    _assert_only_lit(sub, LED1)
     assert sub.final_lit() == set(), sub.render()
 
 
 def test_s4_two_color_one_lit_at_a_time(scope, runner, tmp_path):
-    """Green then Red: exactly one channel lit at a time; Green off + Red on at
+    """LED 1 then LED 2: exactly one channel lit at a time; LED 1 off + LED 2 on at
     the color boundary, no double illumination."""
     sub = _recorded_run(
         scope,
         runner,
         tmp_path,
-        [('A1', 'Green', {}), ('A1', 'Red', {})],
+        [('A1', LED1, {}), ('A1', LED2, {})],
         keep_led_between_steps=False,
     )
-    assert sub.on_events() == [('Green', 250.0), ('Red', 350.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    assert sub.lit_transitions('Red') == [True, False], sub.render()
-    _assert_only_lit(sub, 'Green', 'Red')
+    assert sub.on_events() == [(LED1, 250.0), (LED2, 350.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    assert sub.lit_transitions(LED2) == [True, False], sub.render()
+    _assert_only_lit(sub, LED1, LED2)
     assert sub.lit_at_most_one(), f'double illumination\n{sub.render()}'
     assert sub.final_lit() == set(), sub.render()
 
@@ -495,9 +496,9 @@ def test_s10_run_end_off_leaves_all_dark(scope, runner, tmp_path):
         scope,
         runner,
         tmp_path,
-        [('A1', 'Green', {})],
+        [('A1', LED1, {})],
     )
-    assert sub.on_events() == [('Green', 250.0)], sub.render()
+    assert sub.on_events() == [(LED1, 250.0)], sub.render()
     assert sub.final_lit() == set(), sub.render()
 
 
@@ -508,13 +509,13 @@ def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, t
         scope,
         runner,
         tmp_path,
-        [('A1', 'Green', {})],
+        [('A1', LED1, {})],
         run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-        prelit=('Blue', 120.0),
+        prelit=(LED0, 120.0),
     )
-    assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
-    assert sub.final_lit() == {'Blue'}, sub.render()
-    # The run's Green must be off before Blue is restored -- never two lit at once.
+    assert sub.on_events() == [(LED1, 250.0), (LED0, 120.0)], sub.render()
+    assert sub.final_lit() == {LED0}, sub.render()
+    # The run's LED 1 must be off before LED 0 is restored -- never two lit at once.
     assert sub.lit_at_most_one(), f'double illumination at the run-end restore\n{sub.render()}'
 
 
@@ -536,30 +537,30 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
-    ill._led_on_impl(ill.color2ch('Green'), 250.0, member='led_on', _lease=lease)
+    ill._led_on_impl(ill.color2ch(LED1), 250.0, member='led_on', _lease=lease)
 
     # Out-of-turn live writes (no lease) while the run holds the lease. Both
     # are refused by the LEASE check (_lease_violation) -- the lease is the
-    # only thing that can refuse them. The off is NOT a no-op skip: Green is lit,
-    # so if the lease did not refuse it Green would go dark and the assertions
-    # below would fail -- the refusal is what keeps Green lit.
+    # only thing that can refuse them. The off is NOT a no-op skip: LED 1 is lit,
+    # so if the lease did not refuse it LED 1 would go dark and the assertions
+    # below would fail -- the refusal is what keeps LED 1 lit.
     with pytest.raises(HardwareCommandRefusedError) as refused_on:
-        ill.led_on(channel='Red', illumination_ma=350.0)
+        ill.led_on(channel=LED2, illumination_ma=350.0)
     with pytest.raises(HardwareCommandRefusedError) as refused_off:
-        ill.led_off(channel='Green')
+        ill.led_off(channel=LED1)
     assert refused_on.value.reason == refused_off.value.reason == 'exclusive_activity_running'
 
-    assert ill.get_led_state('Green').state is LedState.LIT, (
+    assert ill.get_led_state(LED1).state is LedState.LIT, (
         'protocol channel was disturbed by a live write'
     )
-    assert ill.get_led_state('Red').state is LedState.DARK, (
+    assert ill.get_led_state(LED2).state is LedState.DARK, (
         'live write lit a channel despite the lease'
     )
-    # Exactly one command reached the driver (the protocol's Green on): the two
-    # refused writes emitted nothing -- no Red blink, no Green off.
-    assert sub.on_events() == [('Green', 250.0)], sub.render()
-    assert sub.lit_transitions('Red') == [], sub.render()
-    assert sub.lit_transitions('Green') == [True], sub.render()  # lit, never offed
+    # Exactly one command reached the driver (the protocol's LED 1 on): the two
+    # refused writes emitted nothing -- no LED 2 blink, no LED 1 off.
+    assert sub.on_events() == [(LED1, 250.0)], sub.render()
+    assert sub.lit_transitions(LED2) == [], sub.render()
+    assert sub.lit_transitions(LED1) == [True], sub.render()  # lit, never offed
 
     lease.release(leave_on=False)
 
@@ -596,23 +597,23 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
             ),
         )
 
-    # Preview to a Green step.
-    _preview('Green', 250.0)
-    assert ill.get_led_state('Green').state is LedState.LIT
-    assert sub.lit_transitions('Green') == [True], sub.render()
+    # Preview to an LED 1 step.
+    _preview(LED1, 250.0)
+    assert ill.get_led_state(LED1).state is LedState.LIT
+    assert sub.lit_transitions(LED1) == [True], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no blink.
-    _preview('Green', 250.0)
-    assert sub.lit_transitions('Green') == [True], (
+    _preview(LED1, 250.0)
+    assert sub.lit_transitions(LED1) == [True], (
         f'same-color re-nav blinked the channel\n{sub.render()}'
     )
 
     # Navigate to a different color: exclusive switch.
-    _preview('Red', 350.0)
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    assert sub.lit_transitions('Red') == [True], sub.render()
+    _preview(LED2, 350.0)
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    assert sub.lit_transitions(LED2) == [True], sub.render()
     assert sub.lit_at_most_one(), f'double illumination during preview\n{sub.render()}'
-    assert sub.final_lit() == {'Red'}, sub.render()
+    assert sub.final_lit() == {LED2}, sub.render()
 
 
 # ---------------------------------------------------------------------------
@@ -668,23 +669,23 @@ def test_s5_protocol_af_same_channel_holds_to_capture(scope):
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
-        led_color='Green',
+        led_color=LED1,
         led_illumination=250.0,
         keep_led_on=True,
         led_lease=lease,
     )
-    assert sub.on_events() == [('Green', 250.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True], sub.render()  # lit, never offed
-    assert sub.final_lit() == {'Green'}, sub.render()
+    assert sub.on_events() == [(LED1, 250.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True], sub.render()  # lit, never offed
+    assert sub.final_lit() == {LED1}, sub.render()
     assert sub.lit_at_most_one(), sub.render()
-    _assert_only_lit(sub, 'Green')
+    _assert_only_lit(sub, LED1)
 
     lease.release(leave_on=False)
 
 
 def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
-    """Protocol AF on Green (kept for the same-channel capture), then the next
-    step switches to Red: the AF/capture channel is switched off and Red lit at
+    """Protocol AF on LED 1 (kept for the same-channel capture), then the next
+    step switches to LED 2: the AF/capture channel is switched off and LED 2 lit at
     the boundary, no stale AF channel left lit."""
     ill = scope.illumination
     sub = LedSubstream()
@@ -693,21 +694,21 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
-        led_color='Green',
+        led_color=LED1,
         led_illumination=250.0,
         keep_led_on=True,
         led_lease=lease,
     )
-    # Next-color step light (the protocol's STEP_LIGHT for a Red step): the
-    # exclusive-Red diff the run drives on the held lease.
+    # Next-color step light (the protocol's STEP_LIGHT for an LED 2 step): the
+    # exclusive-LED 2 diff the run drives on the held lease.
     ill._emit_led_diff(
-        frozenset({(ill.color2ch('Red'), 350.0)}), lease=lease, block=False, member='LedLease.apply'
+        frozenset({(ill.color2ch(LED2), 350.0)}), lease=lease, block=False, member='LedLease.apply'
     )
 
-    assert sub.on_events() == [('Green', 250.0), ('Red', 350.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    assert sub.lit_transitions('Red') == [True], sub.render()
-    assert sub.final_lit() == {'Red'}, f'stale AF channel left lit\n{sub.render()}'
+    assert sub.on_events() == [(LED1, 250.0), (LED2, 350.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    assert sub.lit_transitions(LED2) == [True], sub.render()
+    assert sub.final_lit() == {LED2}, f'stale AF channel left lit\n{sub.render()}'
     assert sub.lit_at_most_one(), f'double illumination at the boundary\n{sub.render()}'
 
     lease.release(leave_on=False)
@@ -719,23 +720,23 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     restores the pre-AF Live channel on exit -- no stale AF channel, original
     Live state back (pins #695 restore path)."""
     ill = scope.illumination
-    ill.led_on(channel='Blue', illumination_ma=120.0)
+    ill.led_on(channel=LED0, illumination_ma=120.0)
 
     sub = LedSubstream()
     ill.add_led_listener(sub)
     # Interactive AF runs as a one-step run, so it nests under that run's lease.
     _drive_af(
         _af_runner(scope),
-        led_color='Green',
+        led_color=LED1,
         led_illumination=250.0,
         keep_led_on=False,
         led_lease=ill.acquire_led_lease('protocol', claim=held_run_claim()),
     )
-    assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()  # AF exclusive then off
-    assert sub.lit_transitions('Blue') == [True], sub.render()  # restored
-    assert sub.final_lit() == {'Blue'}, sub.render()
-    # The restore must off Green before re-lighting Blue -- never two lit at once.
+    assert sub.on_events() == [(LED1, 250.0), (LED0, 120.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()  # AF exclusive then off
+    assert sub.lit_transitions(LED0) == [True], sub.render()  # restored
+    assert sub.final_lit() == {LED0}, sub.render()
+    # The restore must off LED 1 before re-lighting LED 0 -- never two lit at once.
     assert sub.lit_at_most_one(), f'double illumination during AF restore\n{sub.render()}'
 
 
@@ -763,7 +764,7 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     holder_claim.release()
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        completed, result = _run_protocol(runner, _build_protocol([('A1', 'Green', {})]), tmp_path)
+        completed, result = _run_protocol(runner, _build_protocol([('A1', LED1, {})]), tmp_path)
 
     assert completed, 'the run must complete after reclaiming the stranded lease'
     assert result.status == 'completed', f'run must complete normally; got {result}'
@@ -874,7 +875,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
     try:
         completed, result = _run_protocol(
             runner,
-            _build_two_scan_protocol([('A1', 'Green', {})]),
+            _build_two_scan_protocol([('A1', LED1, {})]),
             tmp_path,
             max_scans=2,
             timeout=60,
@@ -907,9 +908,9 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
     assert len(stall_notes) == 1, f'expected one fatal stall notification, saw {fired}'
 
     # Scan 1 ON, then the wedge abort's cleanup darkens; scan 2 never starts.
-    assert sub.on_events() == [('Green', 250.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    _assert_only_lit(sub, 'Green')
+    assert sub.on_events() == [(LED1, 250.0)], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    _assert_only_lit(sub, LED1)
     assert sub.final_lit() == set(), f'wedge abort left the sample lit\n{sub.render()}'
 
 
@@ -938,7 +939,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
 
     completed, _ = _run_protocol(
         runner,
-        _build_two_scan_protocol([('A1', 'Green', {})]),
+        _build_two_scan_protocol([('A1', LED1, {})]),
         tmp_path,
         max_scans=2,
         timeout=60,
@@ -949,9 +950,9 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
     # Failed attempt ON -> SCAN_IDLE OFF (the transient-branch epilogue) ->
     # retry ON (a real re-light proving the off landed before the retry) ->
     # scan-boundary OFF -> scan 2 ON -> run-end OFF.
-    assert sub.on_events() == [('Green', 250.0)] * 3, sub.render()
-    assert sub.lit_transitions('Green') == [True, False, True, False, True, False], sub.render()
-    _assert_only_lit(sub, 'Green')
+    assert sub.on_events() == [(LED1, 250.0)] * 3, sub.render()
+    assert sub.lit_transitions(LED1) == [True, False, True, False, True, False], sub.render()
+    _assert_only_lit(sub, LED1)
     assert sub.lit_at_most_one(), f'double illumination\n{sub.render()}'
     assert sub.final_lit() == set(), sub.render()
 
@@ -985,27 +986,27 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    for color, illumination_ma in (('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)):
+    for color, illumination_ma in ((LED0, 100.0), (LED1, 250.0), (LED2, 350.0)):
         ill.led_on(channel=color, illumination_ma=illumination_ma)
-    assert sub.final_lit() == {'Blue', 'Green', 'Red'}, (
+    assert sub.final_lit() == {LED0, LED1, LED2}, (
         'multi-channel illumination is API-legal; if this fails the premise of '
         f'the test is gone, not the diff\n{sub.render()}'
     )
 
     ill._emit_led_diff(
-        frozenset({(ill.color2ch('Red'), 350.0)}),
+        frozenset({(ill.color2ch(LED2), 350.0)}),
         lease=None,
         block=False,
         member='apply_transition',
     )
 
-    assert sub.final_lit() == {'Red'}, sub.render()
-    # Red was already at its target current, so the diff must emit nothing for
+    assert sub.final_lit() == {LED2}, sub.render()
+    # LED 2 was already at its target current, so the diff must emit nothing for
     # it -- an off/on round trip here would be a visible blink.
-    assert sub.lit_transitions('Red') == [True], sub.render()
-    assert sub.lit_transitions('Blue') == [True, False], sub.render()
-    assert sub.lit_transitions('Green') == [True, False], sub.render()
-    assert sub.on_events() == [('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)], sub.render()
+    assert sub.lit_transitions(LED2) == [True], sub.render()
+    assert sub.lit_transitions(LED0) == [True, False], sub.render()
+    assert sub.lit_transitions(LED1) == [True, False], sub.render()
+    assert sub.on_events() == [(LED0, 100.0), (LED1, 250.0), (LED2, 350.0)], sub.render()
 
 
 def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
@@ -1014,17 +1015,17 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    for color, illumination_ma in (('Blue', 100.0), ('Green', 250.0)):
+    for color, illumination_ma in ((LED0, 100.0), (LED1, 250.0)):
         ill.led_on(channel=color, illumination_ma=illumination_ma)
 
     ill._emit_led_diff(
-        frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),
+        frozenset({(ill.color2ch(LED1), 250.0), (ill.color2ch(LED2), 350.0)}),
         lease=None,
         block=False,
         member='apply_transition',
     )
 
-    assert sub.final_lit() == {'Green', 'Red'}, sub.render()
-    assert sub.lit_transitions('Blue') == [True, False], sub.render()
-    assert sub.lit_transitions('Green') == [True], sub.render()
-    assert sub.lit_transitions('Red') == [True], sub.render()
+    assert sub.final_lit() == {LED1, LED2}, sub.render()
+    assert sub.lit_transitions(LED0) == [True, False], sub.render()
+    assert sub.lit_transitions(LED1) == [True], sub.render()
+    assert sub.lit_transitions(LED2) == [True], sub.render()

@@ -43,6 +43,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.stock_channels import LED0, LED1, LED2
 
 
 class TestNullMotionBoardCapabilities:
@@ -471,7 +472,7 @@ class TestLEDChannelDiscovery:
 
         scope._led_driver = FourChannelLED()
 
-        scope.illumination.led_on_by_address(0, 100)  # Blue -- valid on 4-channel driver
+        scope.illumination.led_on_by_address(0, 100)  # LED 0 -- valid on 4-channel driver
         for channel in (5, 4):  # DF, PC -- off the 4-channel driver's table
             with pytest.raises(ArgumentRefusedError) as refused:
                 scope.illumination.led_on_by_address(channel, 100)
@@ -914,7 +915,7 @@ class TestScopeCapabilities:
             timing_record=None,
         )
         assert caps.led_addresses == (0, 1, 2, 3)
-        assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}
+        assert set(caps.led_colors) == {LED0, LED1, LED2, 'BF'}
 
     def test_capabilities_is_frozen(self):
         """The dataclass is frozen -- any attempt to mutate a field

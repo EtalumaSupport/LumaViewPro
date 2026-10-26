@@ -38,6 +38,7 @@ from modules.protocol_post_record import ProtocolPostRecord
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from modules.coord_transformations import PlateLocation
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED1, LED2
 
 # A stitched output's derivation, as a Quality stitch of raw tiles records it.
 _STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()
@@ -141,12 +142,13 @@ def test_v7_load_recovers_labels_and_saves_at_the_current_version(tmp_path):
     # prefix for a custom step).
     assert list(steps['Label']) == ['', 'Control_preDose', 'Treatment_10x', 'custom0001']
     # Names re-render from the columns: byte-identical for auto rows, and
-    # user labels gain their channel token.
+    # user labels gain their channel token. The v7 file's old channel names
+    # read as the stock unit's keys for those LEDs.
     assert list(steps['Name']) == [
         'A2_BF',
         'Control_preDose_BF',
-        'Treatment_10x_Green',
-        'custom0001_Red',
+        f'Treatment_10x_{LED1}',
+        f'custom0001_{LED2}',
     ]
 
     # Save -> the file is stamped Version 8; reload -> byte-identical Names
@@ -191,10 +193,11 @@ def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
     )
     steps = proto.steps()
 
-    # Pure auto names reload byte-identically and are flagged auto=True (the
-    # old back-fill marked every pre-v7 step user-named, freezing auto names
-    # against channel changes forever).
-    assert list(steps['Name']) == ['A2_BF', 'B4_Green_TA1', 'MyPickedSpot_BF']
+    # Pure auto names re-render from their columns and are flagged auto=True
+    # (the old back-fill marked every pre-v7 step user-named, freezing auto
+    # names against channel changes forever); the old channel name reads as
+    # the stock unit's key for its LED, so the auto name follows it.
+    assert list(steps['Name']) == ['A2_BF', f'B4_{LED1}_TA1', 'MyPickedSpot_BF']
     assert list(steps['Label']) == ['', '', 'MyPickedSpot']
     assert list(steps['Auto_Named']) == [True, True, False]
 
@@ -270,8 +273,8 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
 
 def test_token_shaped_label_segments_survive_whole():
     for label in ('Assay_Turret3', 'Foo_stitched', 'Plate_T3', 'Run_Z12', 'Deck_0003'):
-        base = _writer_base(_step_row(label, color='Green'))
-        assert base == f'{label}_Green_0000', (
+        base = _writer_base(_step_row(label, color=LED1))
+        assert base == f'{label}_{LED1}_0000', (
             f'label {label!r} must reach the filename unparsed; got {base!r}'
         )
 
@@ -628,7 +631,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
             turret_slot=-1,
             step_index=0,
             label='###',
-            layer='Green',
+            layer=LED1,
             layer_config=layer_config,
             plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
             objective_id='4x Oly',

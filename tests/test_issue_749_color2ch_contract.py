@@ -35,6 +35,7 @@ import pytest
 from modules import common_utils
 from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope
+from tests.stock_channels import LED0
 
 
 class _FourColourRecordingBoard:
@@ -220,7 +221,7 @@ class TestDarkFloorKeysOnLedDrivability:
         # which passes for the wrong reason. The invariant is pinned here
         # instead, on the one path every capture takes, and the drivability
         # half is pinned behaviourally by TestCaptureAbortWording below.
-        kwargs, _, _ = self._run_capture({'Color': 'Blue', 'Illumination': 50.0})
+        kwargs, _, _ = self._run_capture({'Color': LED0, 'Illumination': 50.0})
         assert 'dark_floor_check' not in kwargs
 
     def test_live_capture_reads_no_settings_predicate(self):

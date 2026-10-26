@@ -30,9 +30,10 @@ import pytest
 import tifffile as tf
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1
 
 
-def _metadata(path, channel='Blue', significant_bits=None):
+def _metadata(path, channel=LED0, significant_bits=None):
     """Minimal metadata dict matching write_tiff's generate_tiff_data."""
     meta = {
         'file_loc': str(path),
@@ -408,7 +409,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
 
 def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     """rgb encoding bakes the layer color into 3-channel RGB for a
-    fluorescence layer. Blue lands at index 2, value preserved, others zero."""
+    fluorescence layer. LED0 (blue) lands at index 2, value preserved, others zero."""
     from modules.image_utils import write_tiff
 
     out_path = tmp_path / 'blue_rgb.tiff'
@@ -417,9 +418,9 @@ def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     write_tiff(
         data=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Blue'),
+        metadata=_metadata(out_path, channel=LED0),
         ome=False,
-        color=release_color('Blue'),
+        color=release_color(LED0),
         significant_bits=16,
         save_encoding='rgb',
         white_bits=None,
@@ -500,9 +501,9 @@ def test_write_tiff_video_frame_rgb_widens_uint16(tmp_path):
     write_tiff(
         data=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
+        metadata=_metadata(out_path, channel=LED1),
         ome=False,
-        color=release_color('Green'),
+        color=release_color(LED1),
         video_frame=True,
         significant_bits=16,
         save_encoding='rgb',
@@ -526,9 +527,9 @@ def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
     write_tiff(
         data=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
+        metadata=_metadata(out_path, channel=LED1),
         ome=False,
-        color=release_color('Green'),
+        color=release_color(LED1),
         video_frame=True,
         significant_bits=8,
         save_encoding='8bit',
@@ -549,17 +550,17 @@ def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
     ('save_encoding', 'capture_depth', 'in_dtype', 'fill', 'layer', 'fc_on', 'ndim', 'out_dtype'),
     [
         # 8-bit: fluorescence + false color bakes RGB (no palette on video frames)
-        ('8bit', 8, np.uint8, 200, 'Green', True, 3, np.uint8),
-        ('8bit', 8, np.uint8, 200, 'Green', False, 2, np.uint8),
+        ('8bit', 8, np.uint8, 200, LED1, True, 3, np.uint8),
+        ('8bit', 8, np.uint8, 200, LED1, False, 2, np.uint8),
         ('8bit', 8, np.uint8, 200, 'BF', False, 2, np.uint8),
         # 12-bit scientific + scaled are mono modes regardless of the layer toggle
-        ('right_aligned', 12, np.uint16, 4095, 'Green', True, 2, np.uint16),
-        ('right_aligned', 12, np.uint16, 4095, 'Green', False, 2, np.uint16),
-        ('msb_aligned', 12, np.uint16, 4095, 'Green', True, 2, np.uint16),
+        ('right_aligned', 12, np.uint16, 4095, LED1, True, 2, np.uint16),
+        ('right_aligned', 12, np.uint16, 4095, LED1, False, 2, np.uint16),
+        ('msb_aligned', 12, np.uint16, 4095, LED1, True, 2, np.uint16),
         # 12-bit RGB: colorize fluorescence when the layer toggle is on;
         # mono when off (per-layer gate) or transmitted
-        ('rgb', 12, np.uint16, 42000, 'Green', True, 3, np.uint16),
-        ('rgb', 12, np.uint16, 42000, 'Green', False, 2, np.uint16),
+        ('rgb', 12, np.uint16, 42000, LED1, True, 3, np.uint16),
+        ('rgb', 12, np.uint16, 42000, LED1, False, 2, np.uint16),
         ('rgb', 12, np.uint16, 42000, 'BF', True, 2, np.uint16),
     ],
 )
@@ -598,8 +599,8 @@ def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
     write_video_frame(
         frame=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
-        channel='Green',
+        metadata=_metadata(out_path, channel=LED1),
+        channel=LED1,
         false_color_on=False,
         save_encoding='rgb',
         capture_depth=12,
@@ -619,8 +620,8 @@ def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
     write_video_frame(
         frame=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Green'),
-        channel='Green',
+        metadata=_metadata(out_path, channel=LED1),
+        channel=LED1,
         false_color_on=True,
         save_encoding='8bit',
         capture_depth=8,
@@ -846,9 +847,9 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
         image_utils.write_tiff(
             data=data,
             file_loc=out_path,
-            metadata=_metadata(out_path, channel='Blue'),
+            metadata=_metadata(out_path, channel=LED0),
             ome=False,
-            color=release_color('Blue'),
+            color=release_color(LED0),
             significant_bits=16,
             save_encoding=encoding,
             white_bits=None,

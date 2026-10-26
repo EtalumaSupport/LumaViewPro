@@ -6,7 +6,7 @@ None a successful off returns, so an L2 ``led_on`` on a board-less scope
 answered as if it had lit. After ``disconnect()`` the state reads still
 said the last channel was lit, the capabilities took the null board's 0 mA
 as a real cap (a run was refused "Illumination must be 0-0 mA"), an LS560
-asked to light channel 2 lit Red, and a run whose LED board was pulled
+asked to light channel 2 lit LED 2, and a run whose LED board was pulled
 captured on, dark, to its end.
 
 Every LED command now asks for the LED controller on the io lane, and an
@@ -47,6 +47,7 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
 from tests.log_capture import capture_module_log, messages
 from tests.scope_fakes import led_reading
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _spy_led_writes(monkeypatch, scope) -> list:
@@ -102,7 +103,7 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
 
 
 _LIGHTS = {
-    'the name Red': (lambda il: il.led_on('Red', 10.0), MissingPart.led('Red')),
+    f'the name {LED2}': (lambda il: il.led_on(LED2, 10.0), MissingPart.led(LED2)),
     'the address 2': (lambda il: il.led_on_by_address(2, 10.0), MissingPart.led_address(2)),
 }
 
@@ -143,20 +144,20 @@ def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
 def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):
     scope = make_session('LS560').scope
 
-    refusal = _refused(lambda: scope.illumination.get_led_state('Red'))
+    refusal = _refused(lambda: scope.illumination.get_led_state(LED2))
 
-    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.led('Red'))
+    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.led(LED2))
 
 
 _OFFS = {
-    'Red': lambda il: il.led_off('Red'),
+    LED2: lambda il: il.led_off(LED2),
     'address 2': lambda il: il.led_off_by_address(2),
     'Lumi': lambda il: il.led_off('Lumi'),
 }
 
 
 @pytest.mark.parametrize(
-    ('model', 'led'), [('LS560', 'Red'), ('LS560', 'address 2'), ('Lumi', 'Lumi')]
+    ('model', 'led'), [('LS560', LED2), ('LS560', 'address 2'), ('Lumi', 'Lumi')]
 )
 def test_an_off_of_an_led_the_model_lacks_is_silent(make_session, monkeypatch, caplog, model, led):
     scope = make_session(model).scope
@@ -220,7 +221,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     assert illumination.get_led_states() is None
     assert illumination.save_led_state('after') is None
     assert ('BF', LedState.DARK) in heard
-    assert common_utils.resolve_channel_identity(illumination, 'Green') == 'Green'
+    assert common_utils.resolve_channel_identity(illumination, LED1) == LED1
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
@@ -268,7 +269,7 @@ def test_a_scope_that_came_up_without_its_board_has_no_led_cap_or_channels(make_
     )
 
     assert (caps.led_max_ma, caps.led_addresses) == (None, None)
-    assert caps.led_colors == ('BF', 'Blue', 'Green', 'Red')
+    assert caps.led_colors == ('BF', LED0, LED1, LED2)
 
 
 def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
@@ -334,7 +335,7 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
 
     monkeypatch.setattr(driver, 'led_on', pulled_after_this)
     first = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
-    second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'Color': 'Blue', 'X': 12.0}
+    second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'Color': LED0, 'X': 12.0}
     runner = session.create_protocol_runner()
 
     run = runner.start_single_scan(

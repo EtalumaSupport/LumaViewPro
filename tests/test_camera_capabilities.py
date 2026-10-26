@@ -26,6 +26,7 @@ from drivers.pyloncamera import PylonCamera
 from drivers.simulated_camera import SimulatedCamera
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
+from tests.stock_channels import LED0, LED1, LED2
 
 
 class TestBaseCameraDefaults:
@@ -107,8 +108,8 @@ class TestScopeCapabilitiesIntegration:
 
     def _stub_led(self):
         led = MagicMock()
-        led.available_channels.return_value = ('Blue', 'Green', 'Red')
-        led.available_colors.return_value = ('Blue', 'Green', 'Red')
+        led.available_channels.return_value = (LED0, LED1, LED2)
+        led.available_colors.return_value = (LED0, LED1, LED2)
         led.supports_firmware_stim.return_value = False
         return led
 

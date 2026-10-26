@@ -20,6 +20,7 @@ import drivers.sim_wire.backend as sim_backend
 from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 _FX2_STEP_MA = 840 / 255
 
@@ -125,7 +126,7 @@ def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
     commanded = illumination.led_on_by_address(0, 0.5)
     # The field firmware's mA_to_dac: int(60.936 * 1 + 890).
     assert _dac(board, 0) == 950
-    assert illumination.get_led_state('Blue').illumination_ma == 1.0
+    assert illumination.get_led_state(LED0).illumination_ma == 1.0
     assert commanded == 1.0
 
 
@@ -145,6 +146,6 @@ def test_a_serial_request_of_0_ma_is_dark_and_stays_on_at_0(serial):
     illumination.led_on_by_address(0, 10)
     commanded = illumination.led_on_by_address(0, 0)
     assert _dac(board, 0) == 0
-    blue = illumination.get_led_state('Blue')
+    blue = illumination.get_led_state(LED0)
     assert (blue.state, blue.illumination_ma) == (LedState.LIT, 0.0)
     assert commanded == 0.0

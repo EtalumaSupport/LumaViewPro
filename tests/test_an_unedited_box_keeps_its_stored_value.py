@@ -26,6 +26,7 @@ from modules.notification_center import notifications
 from ui.layer_control import LayerControl
 from tests.gesture_fakes import inline_submit_reported
 from tests.settings_fixtures import settings_writer
+from tests.stock_channels import LED0
 
 
 class _Slider:
@@ -37,7 +38,7 @@ class _Slider:
 
 def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
     settings = {
-        'Blue': {'exposure_ms': exposure_ms, 'illumination_ma': illumination_ma},
+        LED0: {'exposure_ms': exposure_ms, 'illumination_ma': illumination_ma},
         'fx2_debug_wire_enabled': False,
     }
     writer = settings_writer(settings)
@@ -56,7 +57,7 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
 
     monkeypatch.setattr(layer_control, 'submit_reported', inline_submit_reported)
     layer = LayerControl.__new__(LayerControl)
-    layer.layer = 'Blue'
+    layer.layer = LED0
     layer._initializing = False
     layer.ids = {
         'exp_slider': _Slider(0.01, 1000.0, 1000.0),
@@ -82,7 +83,7 @@ def test_a_stored_value_above_the_bound_survives_a_click_in_and_out(
 
     getattr(layer, handler)()
 
-    assert settings['Blue'][key] == stored
+    assert settings[LED0][key] == stored
     assert applied == []
 
 
@@ -102,7 +103,7 @@ def test_an_edit_is_committed_as_typed_with_no_apply_of_the_boxs_own(
 
     getattr(layer, handler)()
 
-    assert settings['Blue'][key] == committed
+    assert settings[LED0][key] == committed
     assert layer.ids[text_id].text == str(committed)
     assert applied == []
 
@@ -117,7 +118,7 @@ def test_an_edit_the_writer_refuses_is_not_stored_and_the_box_goes_back(monkeypa
 
     layer.exp_text()
 
-    assert settings['Blue']['exposure_ms'] == 500.0
+    assert settings[LED0]['exposure_ms'] == 500.0
     assert layer.ids['exp_text'].text == '500.0'
     assert reported == ['SettingRefusedError']
     assert applied == []

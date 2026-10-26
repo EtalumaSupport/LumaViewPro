@@ -28,6 +28,7 @@ from tests import ast_seams
 
 import pandas as pd
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
 
 
 def _channel_files(tmp_path, colors):
@@ -43,13 +44,13 @@ class TestHeadlessCompositeWithTransmittedBase:
     def test_a_transmitted_composite_merges_without_any_app_context(self, tmp_path):
         # The exact shape that crashed: a transmitted channel present, so
         # the threshold is actually consulted, with no GUI anywhere.
-        df = _channel_files(tmp_path, ('BF', 'Red'))
+        df = _channel_files(tmp_path, ('BF', LED2))
         out = tmp_path / 'composite.tiff'
 
         result = CompositeGeneration._create_composite_image(
             path=tmp_path,
             df=df,
-            brightness_thresholds_percent={'Red': 25},
+            brightness_thresholds_percent={LED2: 25},
             output_file_loc=out,
             channel_colors=release_colors(),
         )
@@ -58,7 +59,7 @@ class TestHeadlessCompositeWithTransmittedBase:
         assert out.exists(), 'the merged composite was never written'
 
     def test_a_missing_threshold_is_refused_loudly(self, tmp_path):
-        df = _channel_files(tmp_path, ('BF', 'Red'))
+        df = _channel_files(tmp_path, ('BF', LED2))
 
         with pytest.raises(ConfigError) as excinfo:
             CompositeGeneration._create_composite_image(
@@ -68,7 +69,7 @@ class TestHeadlessCompositeWithTransmittedBase:
                 output_file_loc=tmp_path / 'composite.tiff',
                 channel_colors=release_colors(),
             )
-        assert 'Red' in str(excinfo.value), (
+        assert LED2 in str(excinfo.value), (
             'the refusal must name the layer whose threshold is missing'
         )
 
@@ -76,7 +77,7 @@ class TestHeadlessCompositeWithTransmittedBase:
         # Without a transmitted base there is nothing to blend onto, so no
         # threshold is consulted -- this is the case that used to succeed
         # while the transmitted one crashed.
-        df = _channel_files(tmp_path, ('Red', 'Green'))
+        df = _channel_files(tmp_path, (LED2, LED1))
         out = tmp_path / 'composite.tiff'
 
         result = CompositeGeneration._create_composite_image(

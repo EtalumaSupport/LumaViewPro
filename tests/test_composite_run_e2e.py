@@ -39,12 +39,13 @@ from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.installation_fixtures import copy_installation_files
+from tests.stock_channels import LED0
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
 # so a threshold that never reached the merge fails here rather than
 # passing quietly on a fluorescence-only stack.
-_ACQUIRING = ('BF', 'Blue')
+_ACQUIRING = ('BF', LED0)
 
 
 def headless_settings(

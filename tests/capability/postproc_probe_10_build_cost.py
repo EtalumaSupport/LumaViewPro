@@ -31,8 +31,9 @@ import time
 from harness import check, figure, headless_session, probe_dir, report
 from postproc_probe_06_cell_count import METHOD
 from runfolder import run_protocol_folder
+from tests.stock_channels import LED0, LED1, LED2
 
-CHANNELS = ('BF', 'Blue', 'Green', 'Red')
+CHANNELS = ('BF', LED0, LED1, LED2)
 ZSTACK_STEP_UM = 5.0
 
 

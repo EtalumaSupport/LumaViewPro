@@ -28,6 +28,7 @@ from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 
 @pytest.fixture(scope='module')
@@ -78,7 +79,7 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         # A format of the set the live selector does not offer.
         ('image_output_format.live', 'OME-TIFF Hyperstack', 'not_offered'),
         # A leaf shipped null takes null or the kind it holds when set.
-        ('Blue.display_color', 7, 'wrong_kind'),
+        (f'{LED0}.display_color', 7, 'wrong_kind'),
         ('step_channel_order', ['BF'], 'derived'),
     ],
 )
@@ -156,21 +157,21 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
             'has_member',
         ),
         (
-            'Blue.acquire',
+            f'{LED0}.acquire',
             ScopeSession,
             'set_channel_acquire',
             'ScopeSession.set_channel_acquire',
             'has_member',
         ),
         (
-            'Blue.auto_gain',
+            f'{LED0}.auto_gain',
             ScopeSession,
             'set_channel_auto_gain',
             'ScopeSession.set_channel_auto_gain',
             'has_member',
         ),
         (
-            'Blue.focus',
+            f'{LED0}.focus',
             ScopeSession,
             'save_channel_focus',
             'ScopeSession.save_channel_focus',
@@ -245,10 +246,10 @@ def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(sessi
     # with the stored value kept for a camera that can reach it.
     assert session.scope.capabilities.camera_limits.exposure_max_ms == 1000.0
     assert session.scope.capabilities.camera_limits.gain_max_db == 48.0
-    session.update_settings('Blue.exposure_ms', 1500.0)
-    session.update_settings('Blue.gain_db', 60.0)
-    assert session.settings['Blue']['exposure_ms'] == 1500.0
-    assert session.settings['Blue']['gain_db'] == 60.0
+    session.update_settings(f'{LED0}.exposure_ms', 1500.0)
+    session.update_settings(f'{LED0}.gain_db', 60.0)
+    assert session.settings[LED0]['exposure_ms'] == 1500.0
+    assert session.settings[LED0]['gain_db'] == 60.0
 
 
 def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(tmp_path):
@@ -267,7 +268,7 @@ def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(
         s.shutdown()
 
 
-@pytest.mark.parametrize('path', ['Blue.illumination_ma', 'Blue.stim_config.illumination_ma'])
+@pytest.mark.parametrize('path', [f'{LED0}.illumination_ma', f'{LED0}.stim_config.illumination_ma'])
 def test_a_layer_current_above_the_led_board_is_refused_naming_the_board(session, path):
     # The board refuses to drive it and over-driving an LED is a damage
     # mode, so the writer refuses it where the camera's limit is applied.

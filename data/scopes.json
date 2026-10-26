@@ -3,12 +3,18 @@
         {"key": "BF", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 50, "display_color": "#ffffff", "step_order": 0, "sim_light_per_ma_s": 89.1},
         {"key": "PC", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 1, "sim_light_per_ma_s": 3.57},
         {"key": "DF", "modality": "transmitted", "background": "dark", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 2, "sim_light_per_ma_s": 0.594},
-        {"key": "Blue", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#0000ff", "step_order": 4, "sim_light_per_ma_s": 0.0126},
-        {"key": "Green", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 3, "sim_light_per_ma_s": 0.0126},
-        {"key": "Red", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 5, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex405", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#0000ff", "step_order": 4, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex488", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 3, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex550", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 7, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex589", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 5, "sim_light_per_ma_s": 0.0126},
+        {"key": "Ex640", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 8, "sim_light_per_ma_s": 0.0126},
         {"key": "Lumi", "modality": "luminescence", "background": "dark", "manual_max_exposure_ms": null, "display_color": "#0000ff", "step_order": 6, "sim_light_per_ma_s": null}
     ],
-    "OldChannelNames": {},
+    "OldChannelNames": {
+        "Blue": {"led_address": 0, "stock_key": "Ex405"},
+        "Green": {"led_address": 1, "stock_key": "Ex488"},
+        "Red": {"led_address": 2, "stock_key": "Ex589"}
+    },
     "Models": {
         "Lumi": {
             "Focus": true,
@@ -63,20 +69,17 @@
                     "excitation_nm": null
                 },
                 {
-                    "key_name": "Blue",
-                    "display_name": "Blue",
+                    "key_name": "Ex405",
                     "led_channel": 0,
                     "excitation_nm": 405
                 },
                 {
-                    "key_name": "Green",
-                    "display_name": "Green",
+                    "key_name": "Ex488",
                     "led_channel": 1,
                     "excitation_nm": 488
                 },
                 {
-                    "key_name": "Red",
-                    "display_name": "Red",
+                    "key_name": "Ex589",
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
@@ -109,20 +112,17 @@
                     "excitation_nm": null
                 },
                 {
-                    "key_name": "Blue",
-                    "display_name": "Blue",
+                    "key_name": "Ex405",
                     "led_channel": 0,
                     "excitation_nm": 405
                 },
                 {
-                    "key_name": "Green",
-                    "display_name": "Green",
+                    "key_name": "Ex488",
                     "led_channel": 1,
                     "excitation_nm": 488
                 },
                 {
-                    "key_name": "Red",
-                    "display_name": "Red",
+                    "key_name": "Ex589",
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
@@ -170,20 +170,17 @@
                     "excitation_nm": null
                 },
                 {
-                    "key_name": "Blue",
-                    "display_name": "Blue",
+                    "key_name": "Ex405",
                     "led_channel": 0,
                     "excitation_nm": 405
                 },
                 {
-                    "key_name": "Green",
-                    "display_name": "Green",
+                    "key_name": "Ex488",
                     "led_channel": 1,
                     "excitation_nm": 488
                 },
                 {
-                    "key_name": "Red",
-                    "display_name": "Red",
+                    "key_name": "Ex589",
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
@@ -228,20 +225,17 @@
                     "excitation_nm": null
                 },
                 {
-                    "key_name": "Blue",
-                    "display_name": "Blue",
+                    "key_name": "Ex405",
                     "led_channel": 0,
                     "excitation_nm": 405
                 },
                 {
-                    "key_name": "Green",
-                    "display_name": "Green",
+                    "key_name": "Ex488",
                     "led_channel": 1,
                     "excitation_nm": 488
                 },
                 {
-                    "key_name": "Red",
-                    "display_name": "Red",
+                    "key_name": "Ex589",
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
@@ -266,20 +260,17 @@
                     "excitation_nm": null
                 },
                 {
-                    "key_name": "Blue",
-                    "display_name": "Blue",
+                    "key_name": "Ex405",
                     "led_channel": 0,
                     "excitation_nm": 405
                 },
                 {
-                    "key_name": "Green",
-                    "display_name": "Green",
+                    "key_name": "Ex488",
                     "led_channel": 1,
                     "excitation_nm": 488
                 },
                 {
-                    "key_name": "Red",
-                    "display_name": "Red",
+                    "key_name": "Ex589",
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
@@ -307,8 +298,7 @@
                     "excitation_nm": null
                 },
                 {
-                    "key_name": "Green",
-                    "display_name": "Green",
+                    "key_name": "Ex488",
                     "led_channel": 1,
                     "excitation_nm": 488
                 }

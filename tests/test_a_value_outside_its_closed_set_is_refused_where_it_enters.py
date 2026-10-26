@@ -28,6 +28,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.routes import routes
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED2
 
 OFFERED = ('Off', 'Once', 'Continuous')
 
@@ -110,13 +111,13 @@ def test_a_container_of_a_closed_set_takes_plain_strings_and_refuses_naming_the_
 
 
 def test_a_record_built_with_a_plain_string_holds_the_member():
-    reading = LedReading(2, 'Red', 'lit', 10.0)
+    reading = LedReading(2, LED2, 'lit', 10.0)
     assert reading.state is LedState.LIT
 
 
 def test_a_record_built_with_a_string_outside_the_set_is_refused_naming_its_field():
     _not_offered(
-        lambda: LedReading(2, 'Red', 'glowing', None),
+        lambda: LedReading(2, LED2, 'glowing', None),
         'LedReading.state',
         tuple(m.value for m in LedState),
     )
@@ -155,8 +156,8 @@ def test_a_snapshot_a_caller_built_with_plain_strings_restores_its_lit_address(s
             LedReading(
                 r.address,
                 r.name,
-                'lit' if r.name == 'Red' else 'dark',
-                10.0 if r.name == 'Red' else None,
+                'lit' if r.name == LED2 else 'dark',
+                10.0 if r.name == LED2 else None,
             )
             for r in illumination.get_led_states()
         ),
@@ -164,7 +165,7 @@ def test_a_snapshot_a_caller_built_with_plain_strings_restores_its_lit_address(s
 
     illumination.restore_led_state(snapshot)
 
-    assert illumination.get_led_state('Red') == LedReading(2, 'Red', LedState.LIT, 10.0)
+    assert illumination.get_led_state(LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
 
 def test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered(client, session):

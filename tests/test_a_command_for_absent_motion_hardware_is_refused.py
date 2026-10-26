@@ -34,6 +34,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1
 from tests.test_a_run_needs_every_axis_position import _settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
@@ -340,7 +341,7 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
 @pytest.mark.slow
 @pytest.mark.parametrize('model', MANUAL)
 def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, tmp_path, model):
-    session = make_session(model, acquiring=('BF', 'Blue', 'Green'))
+    session = make_session(model, acquiring=('BF', LED0, LED1))
     runner = session.create_protocol_runner()
 
     run = runner.start_single_scan(

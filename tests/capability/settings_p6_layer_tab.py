@@ -14,13 +14,14 @@ import sys
 import harness as _common
 
 from modules.lumascope_api.illumination import LedState
+from tests.stock_channels import LED1
 
 s, live = _common.make_session()
 try:
     ill, im = s.scope.illumination, s.scope.camera
     cfgs = s.get_layer_configs()
     print('layers known to the session:', sorted(cfgs))
-    target = 'Green' if 'Green' in cfgs else sorted(cfgs)[0]
+    target = LED1 if LED1 in cfgs else sorted(cfgs)[0]
     cfg = cfgs[target]
     print(f'{target} config:', {k: cfg[k] for k in list(cfg)[:6]})
 

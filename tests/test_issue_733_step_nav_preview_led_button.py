@@ -27,6 +27,7 @@ import pytest
 from modules.lumascope_api.protocols import ProtocolsAPI
 
 from tests.gesture_fakes import inline_submit_move
+from tests.stock_channels import LED1
 
 
 GREEN_LAYER_SETTINGS = {
@@ -55,7 +56,7 @@ def _make_step():
         'X': 10.0,
         'Y': 20.0,
         'Z': 3.0,
-        'Color': 'Green',
+        'Color': LED1,
         'Auto_Focus': False,
         'False_Color': True,
         'Illumination': 350.0,
@@ -98,7 +99,7 @@ def stepnav_env(monkeypatch):
         settings={
             'protocol_led_on': True,
             'stage_offset': {'x': 0, 'y': 0},
-            'Green': dict(GREEN_LAYER_SETTINGS),
+            LED1: dict(GREEN_LAYER_SETTINGS),
         },
         settings_lock=threading.Lock(),
         motion_settings=SimpleNamespace(

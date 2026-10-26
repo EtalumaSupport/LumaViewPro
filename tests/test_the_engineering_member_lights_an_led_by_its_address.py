@@ -61,7 +61,7 @@ def test_on_an_unresolved_identity_an_address_lights_and_reads_back_by_its_addre
 
 
 def test_an_address_the_model_does_not_drive_is_refused_naming_the_member(scope):
-    scope.refresh_layer_identity(override_model='LS850-0')  # Green, address 1, gone
+    scope.refresh_layer_identity(override_model='LS850-0')  # LED 1's channel, address 1, gone
 
     with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.illumination.led_on_by_address(1, 50.0)

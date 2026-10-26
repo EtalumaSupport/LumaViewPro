@@ -2,6 +2,7 @@
 
 import traceback
 import harness
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p3')
 im = s.scope.imaging
@@ -36,9 +37,9 @@ try:
     step('set_auto_gain(True, ag)', lambda: im_camera.set_auto_gain(True, ag))
     step('lock_auto_gain()', lambda: im_camera.lock_auto_gain())
     step(
-        'camera.apply(Blue)',
+        f'camera.apply({LED0})',
         lambda: im_camera.apply(
-            channel='Blue', gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
+            channel=LED0, gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
         ),
     )
     print(

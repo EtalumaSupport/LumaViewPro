@@ -33,6 +33,7 @@ import pytest
 import tifffile as tf
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 XFAIL_REASON = (
@@ -42,7 +43,7 @@ XFAIL_REASON = (
 )
 
 
-def _metadata(path, channel='Blue'):
+def _metadata(path, channel=LED0):
     """Minimal metadata dict matching ``write_tiff``'s generate_tiff_data."""
     return {
         'file_loc': str(path),
@@ -64,13 +65,13 @@ def _metadata(path, channel='Blue'):
 
 
 def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
-    """Synth uint16 Blue-layer mono; save with the false-color opt-in ON;
+    """Synth uint16 LED 0 layer mono; save with the false-color opt-in ON;
     read back.
 
     Default OFF saves 2D mono + metadata (covered by test_tiff_format's
     default-off cases). With ``use_false_color_16bit=True`` the layer color
     is baked into 3-channel RGB so Windows Preview renders 16-bit
-    fluorescence in color. The Blue layer must land in RGB index 2 with the
+    fluorescence in color. The LED 0 layer (blue) must land in RGB index 2 with the
     value preserved exactly and the other planes zero (the R/B-swap and
     wrong-channel-on-video defects guard against an ordering regression).
     """
@@ -82,9 +83,9 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
     write_tiff(
         data=data,
         file_loc=out_path,
-        metadata=_metadata(out_path, channel='Blue'),
+        metadata=_metadata(out_path, channel=LED0),
         ome=False,
-        color=release_color('Blue'),
+        color=release_color(LED0),
         significant_bits=16,
         save_encoding='rgb',
         white_bits=None,
@@ -96,7 +97,7 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
         f'false_color_16bit=True must widen to 3-channel RGB, got {result.shape}.'
     )
     assert result.dtype == np.uint16
-    assert result[0, 0, 2] == 42000, 'Blue lands at RGB index 2'
+    assert result[0, 0, 2] == 42000, f'{LED0} lands at RGB index 2'
     assert result[0, 0, 0] == 0
     assert result[0, 0, 1] == 0
 
@@ -126,7 +127,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     input_dir = tmp_path / 'tiff_in'
     input_dir.mkdir()
     src = np.full((8, 8), 42000, dtype=np.uint16)
-    tf.imwrite(str(input_dir / 'frame_0000_Blue.tiff'), src)
+    tf.imwrite(str(input_dir / f'frame_0000_{LED0}.tiff'), src)
 
     out_path = tmp_path / 'out.mp4'
 
@@ -138,7 +139,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
         source_dir=input_dir,
         output_file=out_path,
         false_color=True,
-        color='Blue',
+        color=LED0,
         channel_colors=release_colors(),
     )
 
@@ -171,7 +172,7 @@ _RUN_COLUMNS = [
     'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config',
     'Stim_Config', 'Auto_Named', 'Label',
 ]  # fmt: skip
-_CHANNEL_VALUES = {'Red': 200, 'Green': 140, 'Blue': 80}
+_CHANNEL_VALUES = {LED2: 200, LED1: 140, LED0: 80}
 
 
 def _rgb_step(index: int, color: str) -> list[str]:
@@ -196,7 +197,7 @@ def session(tmp_path):
 
 @pytest.fixture
 def rgb_run_folder(tmp_path):
-    """One position imaged in Red, Green and Blue, each a flat 8-bit frame
+    """One position imaged in LED 2, LED 1 and LED 0 (red, green, blue), each a flat 8-bit frame
     of its own value, as a run of this release saves it."""
     from modules import image_utils
 
@@ -250,7 +251,7 @@ def rgb_run_folder(tmp_path):
 
 
 def test_a_composite_from_a_folder_keeps_each_channel_on_its_own_plane(session, rgb_run_folder):
-    """A Red, Green and Blue position composited through the Session's
+    """An LED 2, LED 1 and LED 0 position composited through the Session's
     post-processing reads back as one 8-bit RGB image with each channel on
     its own plane (R 0, G 1, B 2): the routing the #657 / #672 swaps broke.
 
@@ -271,10 +272,10 @@ def test_a_composite_from_a_folder_keeps_each_channel_on_its_own_plane(session, 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('color', ['Red', 'Green'])
+@pytest.mark.parametrize('color', [LED2, LED1])
 def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
-    """Per-color hardening for the false-color opt-in: confirm the Red and
-    Green layer paths widen to 3-channel RGB with the value in the correct
+    """Per-color hardening for the false-color opt-in: confirm the LED 2 (red) and
+    LED 1 (green) layer paths widen to 3-channel RGB with the value in the correct
     plane. Catches asymmetries in the layer-color lookup (a historical
     Red-specific R/B swap motivates the parametrize).
     """
@@ -296,7 +297,7 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
 
     result = tf.imread(str(out_path))
     assert result.shape == (8, 8, 3), f'{color}: expected 3-channel RGB, got {result.shape}'
-    expected_index = {'Red': 0, 'Green': 1}[color]
+    expected_index = {LED2: 0, LED1: 1}[color]
     assert result[0, 0, expected_index] == 30000
     for other in (0, 1, 2):
         if other != expected_index:
@@ -331,13 +332,13 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
     import pandas as pd
     from modules.composite_generation import CompositeGeneration
 
-    for ch in ('Red', 'Green', 'Blue'):
+    for ch in (LED2, LED1, LED0):
         tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))
     df = pd.DataFrame(
         [
-            {'Color': 'Red', 'Filepath': 'Red.tiff'},
-            {'Color': 'Green', 'Filepath': 'Green.tiff'},
-            {'Color': 'Blue', 'Filepath': 'Blue.tiff'},
+            {'Color': LED2, 'Filepath': f'{LED2}.tiff'},
+            {'Color': LED1, 'Filepath': f'{LED1}.tiff'},
+            {'Color': LED0, 'Filepath': f'{LED0}.tiff'},
         ]
     )
 
@@ -423,9 +424,9 @@ def test_piw6_buffer_allocation_o1(tmp_path):
             write_tiff(
                 data=data,
                 file_loc=tmp_path / f'frame_{i:04d}.tiff',
-                metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel='Blue'),
+                metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel=LED0),
                 ome=False,
-                color=release_color('Blue'),
+                color=release_color(LED0),
                 false_color_buf=scratch,
                 significant_bits=16,
                 save_encoding='rgb',

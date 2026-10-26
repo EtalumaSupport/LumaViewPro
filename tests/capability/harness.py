@@ -108,6 +108,10 @@ def _open_record():
 # The run's two files share this path stem (THE RECORD).
 RECORD = _open_record()
 
+# Imported once the repo is on the path and the console is recorded, as a
+# probe's own imports are.
+from tests.stock_channels import LED0
+
 # (name, passed, kind) where kind is 'check' or 'void'.
 RESULTS: list[tuple[str, bool, str]] = []
 
@@ -337,7 +341,7 @@ def run(body):
 
 
 @contextlib.contextmanager
-def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
+def headless_session(live_folder, acquiring=('BF', LED0), **extra):
     """A homed session with its executors up and a protocol runner attached."""
     import modules.common_utils as common_utils
     from modules.scope_session import ScopeSession

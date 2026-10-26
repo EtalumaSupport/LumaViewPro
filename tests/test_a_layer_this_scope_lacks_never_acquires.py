@@ -37,6 +37,7 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     executors,
     scope,
 )
+from tests.stock_channels import LED0
 
 ABSENT = 'layer_not_on_scope'
 
@@ -185,13 +186,13 @@ def test_update_on_a_layer_not_set_to_acquire_is_refused_and_the_step_kept(ls850
 
 
 def test_a_stim_edit_is_judged_on_the_steps_own_channel(ls850):
-    # Blue stimulates and does not acquire; the step it edits is BF's, and
+    # LED 0 stimulates and does not acquire; the step it edits is BF's, and
     # BF acquires, so the stim edit is not refused.
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)
-    ls850.set_channel_acquire('Blue', None)
-    ls850.settings['Blue']['stim_config']['enabled'] = True
+    ls850.set_channel_acquire(LED0, None)
+    ls850.settings[LED0]['stim_config']['enabled'] = True
 
-    ls850.update_step(protocol, 0, channel='Blue')
+    ls850.update_step(protocol, 0, channel=LED0)
 
     assert protocol.step_row(step_index=0)['Color'] == 'BF'

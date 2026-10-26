@@ -27,7 +27,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from modules.scope_session import ScopeSession
 
-LAYERS = ('BF', 'Blue')
+LAYERS = ('BF', 'Ex405')
 # One well, in plate millimetres: well A1 of the selected plate.
 WELL = 'A1'
 

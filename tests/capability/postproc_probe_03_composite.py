@@ -12,11 +12,12 @@ import sys
 
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
+from tests.stock_channels import LED0
 
 
 def main() -> int:
     live = probe_dir('composite')
-    with headless_session(live, acquiring=('BF', 'Blue')) as (session, runner):
+    with headless_session(live, acquiring=('BF', LED0)) as (session, runner):
         # A real plate coordinate from the API, so the probe cannot invent
         # one outside the stage's travel.
         session.scope.motion.move_xy(x_um=40000.0)

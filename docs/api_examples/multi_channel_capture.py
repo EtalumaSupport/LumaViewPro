@@ -3,7 +3,8 @@
 """Multi-channel fluorescence capture example.
 
 Demonstrates:
-- Capturing images across multiple fluorescence channels (Blue, Green, Red)
+- Capturing images across multiple fluorescence channels (Ex405, Ex488, Ex589,
+  each named for its LED's excitation in nm)
 - Setting per-channel LED illumination (mA) and exposure (ms)
 - Reading the captured frame via scope.imaging.capture_and_wait
 """
@@ -26,9 +27,9 @@ from modules.scope_session import ScopeSession
 
 # Channel configurations: channel name, LED current (mA), exposure time (ms)
 CHANNELS = [
-    {'channel': 'Blue', 'illumination_ma': 50, 'exposure_ms': 200},
-    {'channel': 'Green', 'illumination_ma': 80, 'exposure_ms': 150},
-    {'channel': 'Red', 'illumination_ma': 100, 'exposure_ms': 100},
+    {'channel': 'Ex405', 'illumination_ma': 50, 'exposure_ms': 200},
+    {'channel': 'Ex488', 'illumination_ma': 80, 'exposure_ms': 150},
+    {'channel': 'Ex589', 'illumination_ma': 100, 'exposure_ms': 100},
 ]
 
 

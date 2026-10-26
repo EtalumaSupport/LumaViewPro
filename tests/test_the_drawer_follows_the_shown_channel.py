@@ -16,6 +16,7 @@ import pytest
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
+from tests.stock_channels import LED0, LED1
 
 
 @pytest.fixture
@@ -43,11 +44,11 @@ def _bridge(session, *, ready=True):
 def test_each_change_of_the_shown_channel_draws_the_drawers(session):
     drawn = _bridge(session)
 
-    session.show_channel('Green')
+    session.show_channel(LED1)
     session.light_shown_channel(True)
-    session.show_channel('Blue')
+    session.show_channel(LED0)
 
-    assert drawn == ['Green', 'Green', 'Blue']
+    assert drawn == [LED1, LED1, LED0]
 
 
 def test_a_show_that_changes_nothing_draws_nothing(session):
@@ -61,6 +62,6 @@ def test_a_show_that_changes_nothing_draws_nothing(session):
 def test_before_the_window_is_ready_nothing_is_drawn(session):
     drawn = _bridge(session, ready=False)
 
-    session.show_channel('Green')
+    session.show_channel(LED1)
 
     assert drawn == []

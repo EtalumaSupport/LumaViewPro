@@ -25,6 +25,7 @@ from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.objective_records import objective
+from tests.stock_channels import LED0, LED1
 
 
 @pytest.fixture
@@ -129,7 +130,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     ended_run.release(leave_on=False)
     holder = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert holder is not None
-    ill._led_on_impl(ill.color2ch('Blue'), 120.0, member='led_on', _lease=holder)
+    ill._led_on_impl(ill.color2ch(LED0), 120.0, member='led_on', _lease=holder)
 
     runner = _af_runner(scope)
     iterations = []
@@ -154,7 +155,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
         runner.run(
             objective_id='objective-under-test',
             abort_event=threading.Event(),
-            led_color='Green',
+            led_color=LED1,
             led_illumination=250.0,
             led_lease=ended_run,
         )
@@ -186,10 +187,10 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     # AF channel was never lit.
     assert holder.held
     assert ill.led_lease_purpose == 'protocol'
-    assert ill.get_led_state('Blue').state is LedState.LIT, (
+    assert ill.get_led_state(LED0).state is LedState.LIT, (
         "the holder's lit channel must survive the refused AF"
     )
-    assert ill.get_led_state('Green').state is LedState.DARK, (
+    assert ill.get_led_state(LED1).state is LedState.DARK, (
         'the refused AF must not light its channel'
     )
     holder.release(leave_on=False)
@@ -218,7 +219,7 @@ def test_af_under_a_live_run_whose_leds_another_holds_is_refused_and_says_so(sco
             runner.run(
                 objective_id='objective-under-test',
                 abort_event=threading.Event(),
-                led_color='Green',
+                led_color=LED1,
                 led_illumination=250.0,
                 led_lease=run,
             )

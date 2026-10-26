@@ -20,6 +20,7 @@ from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
 from modules.layer_record import UNRESOLVED
 from modules.lumascope_api.illumination import LedReading, LedState
 from tests.scope_fakes import build_scope, led_reading
+from tests.stock_channels import LED1
 
 
 @pytest.fixture
@@ -31,9 +32,9 @@ def scope():
 
 class TestFusion:
     def test_identity_layer_on_drivable_channel_lights(self, scope):
-        scope.illumination.led_on(channel='Green', illumination_ma=50)
-        assert scope.illumination.get_led_state('Green').state is LedState.LIT
-        scope.illumination.led_off(channel='Green')
+        scope.illumination.led_on(channel=LED1, illumination_ma=50)
+        assert scope.illumination.get_led_state(LED1).state is LedState.LIT
+        scope.illumination.led_off(channel=LED1)
 
     @pytest.mark.parametrize('member', ['led_on', 'led_off'])
     def test_a_name_that_is_no_layer_is_refused_by_name(self, scope, member):
@@ -47,13 +48,13 @@ class TestFusion:
 
     def test_identity_narrowed_layer_on_raises_by_name(self, scope):
         scope.refresh_layer_identity(override_model='LS850-0')
-        with pytest.raises(HardwareCommandRefusedError, match='Green') as refused:
-            scope.illumination.led_on(channel='Green', illumination_ma=50)
-        assert refused.value.missing == MissingPart.led('Green')
+        with pytest.raises(HardwareCommandRefusedError, match=LED1) as refused:
+            scope.illumination.led_on(channel=LED1, illumination_ma=50)
+        assert refused.value.missing == MissingPart.led(LED1)
 
     def test_identity_narrowed_layer_off_still_noops(self, scope):
         scope.refresh_layer_identity(override_model='LS850-0')
-        scope.illumination.led_off(channel='Green')
+        scope.illumination.led_off(channel=LED1)
 
     def test_no_led_layer_resolves_to_no_channel_without_error(self, scope):
         scope.refresh_layer_identity(override_model='Lumi')
@@ -64,17 +65,17 @@ class TestFusion:
 
 class TestTwoResolverSplit:
     def test_identity_answers_by_record(self, scope):
-        assert scope.illumination.color2ch('Green') == 1
-        assert scope.illumination.ch2color(1) == 'Green'
+        assert scope.illumination.color2ch(LED1) == 1
+        assert scope.illumination.ch2color(1) == LED1
         scope.refresh_layer_identity(override_model='LS850-0')
-        assert scope.illumination.color2ch('Green') is None
+        assert scope.illumination.color2ch(LED1) is None
         assert scope.illumination.ch2color(1) is None
 
     def test_lit_channel_stays_recorded_under_narrowed_identity(self, scope):
         """An address lit before the identity narrowed stays in the state
         store, reported by its address with no name, and the extinguish
         that rides that record still reaches it."""
-        scope.illumination.led_on(channel='Green', illumination_ma=50)
+        scope.illumination.led_on(channel=LED1, illumination_ma=50)
         scope.refresh_layer_identity(override_model='LS850-0')
         assert LedReading(1, None, LedState.LIT, 50.0) in scope.illumination.get_led_states()
         scope.illumination.led_off_by_address(1)
@@ -96,9 +97,9 @@ class TestTwoResolverSplit:
         """Numbered, or replayed from a snapshot taken before the identity
         narrowed, a light of an LED the model now lacks is refused and
         lights nothing."""
-        scope.illumination.led_on(channel='Green', illumination_ma=50)
+        scope.illumination.led_on(channel=LED1, illumination_ma=50)
         snapshot = scope.illumination.save_led_state('fusion-test')
-        scope.illumination.led_off(channel='Green')
+        scope.illumination.led_off(channel=LED1)
         scope.refresh_layer_identity(override_model='LS850-0')
         for light in (
             lambda: scope.illumination.led_on_by_address(1, 50),
@@ -113,6 +114,6 @@ class TestTwoResolverSplit:
 class TestOverrideScope:
     def test_override_is_session_scoped_not_sticky(self, scope):
         scope.refresh_layer_identity(override_model='LS850-0')
-        assert scope.channel_identity.find('Green') is None
+        assert scope.channel_identity.find(LED1) is None
         scope.refresh_layer_identity()
-        assert scope.channel_identity.find('Green') is not None
+        assert scope.channel_identity.find(LED1) is not None

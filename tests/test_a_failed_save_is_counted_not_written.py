@@ -22,6 +22,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.stock_channels import LED0
 
 WAIT_S = 30.0
 
@@ -120,7 +121,7 @@ class TestARunWhoseSaveFails:
             )
 
     def test_its_composite_is_not_built_and_says_the_save_failed(self, tmp_path, monkeypatch):
-        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == 'Blue')
+        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == LED0)
         with (
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
             pytest.raises(CaptureError) as failed,

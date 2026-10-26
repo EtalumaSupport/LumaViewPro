@@ -14,6 +14,7 @@ from modules.exceptions import ArgumentRefusedError, CaptureFailedError
 from modules.frame_validity import FrameValiditySource
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED2
 
 
 @pytest.fixture
@@ -24,7 +25,7 @@ def session(tmp_path):
 
 
 def test_a_recorded_change_names_its_source_as_the_member(session):
-    session.scope.illumination.led_on('Red', 10.0)
+    session.scope.illumination.led_on(LED2, 10.0)
 
     changes = session.scope.imaging.recorded_changes()
 
@@ -36,7 +37,7 @@ def test_a_recorded_change_names_its_source_as_the_member(session):
 
 def test_an_exclusion_takes_a_members_plain_string_and_refuses_any_other_word(session):
     imaging = session.scope.imaging
-    session.scope.illumination.led_on('Red', 10.0)
+    session.scope.illumination.led_on(LED2, 10.0)
 
     imaging.frames_until_valid(exclude_sources=('led',))
     with pytest.raises(ArgumentRefusedError) as refused:

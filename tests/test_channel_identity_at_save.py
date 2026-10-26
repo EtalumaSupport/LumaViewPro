@@ -10,11 +10,11 @@ one that reached durable storage was the one nobody passed: it defaulted to
 'BF', so every manual capture stamped itself brightfield regardless of the
 channel its LED had just lit. Quick Enhance then read that back and declined to
 false-color a green frame, because the file said brightfield. The filename beside
-it said Green.
+it named the fluorescence channel.
 
 A second carrier hid underneath. Channel.Modality was derived from the render
 color, which collapses to 'BF' whenever false color is off -- so one file could
-carry Channel.Name = Green and Channel.Modality = BF, disagreeing with itself,
+carry Channel.Name = the LED 1 key and Channel.Modality = BF, disagreeing with itself,
 with the second field tracking a checkbox.
 
 These tests assert the invariant directly rather than the symptom: identity is
@@ -34,9 +34,10 @@ from tests.ast_seams import find_def
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
-LAYER = 'Green'
+LAYER = LED1
 PLATE = '24 well microplate'
 
 
@@ -378,7 +379,7 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
     channel, whichever way the toggle is set -- while the rendering fields do
     differ, so the test cannot be satisfied by disabling false color outright.
 
-    Pre-fix the toggle-off file carried Channel.Name = Green with
+    Pre-fix the toggle-off file carried Channel.Name = the LED 1 key with
     Channel.Modality = BF: two identity fields in one file, disagreeing, the
     second tracking a checkbox.
     """

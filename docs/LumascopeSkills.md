@@ -107,7 +107,7 @@ Methods on the L2 surface follow one of two contracts, read from what the method
 - **Camera reads come in a pair** (`scope.camera`). A held read is a property named for the setting -- `gain_db`, `exposure_ms`, `black_level`, `binning`, `frame_size`, `pixel_format`, `auto_gain`, `auto_exposure`, `high_conversion_gain`, `line_noise_reduction` -- and answers what the camera last reported or took, with no read of the camera, so it is safe at any frequency from any thread. It is `None` whenever that value is unknown: no camera, not yet reported, or a write the camera did not answer; there is no sentinel such as `-1`. A fresh read that fails leaves the held value as it was. `active`, whether the camera is connected and active as last found, is a held `bool`. A fresh read is a `read_*` method -- `read_gain_db`, `read_exposure_ms`, `read_black_level`, `read_binning`, `read_frame_size`, `read_pixel_format`, `read_frame_rate_fps`, `read_auto_gain`, `read_auto_exposure` -- that asks the camera now and raises `CameraReadFailedError` (`drivers.exceptions`, reason `camera_read_failed`) when the camera does not answer; its `None` means only that no camera is active, or that the camera reports no such value (a black level, a frame rate). A fresh read the camera answered is the held value from then on. `auto_gain` and `auto_exposure` answer a `CameraAutoMode` (`modules.lumascope_api.camera`): `OFF`, `ONCE` or `CONTINUOUS`, `'Off'`, `'Once'` or `'Continuous'` on the wire. `ONCE` is a one-shot the camera is still running; the camera turns it off itself when done, so the held value says `ONCE` until a fresh read finds it ended. A camera without hardware auto-gain or auto-exposure answers `OFF` unasked. High conversion gain and line-noise reduction have a held read only: no camera reads them back, so each is what the camera last accepted. `image_mode` is the saved mode, since the camera holds only the pixel format the mode chose. What the camera was at a given frame is that frame's own record, not a read made afterwards: a saved file carries its exposure and gain in its metadata, and an in-process caller reads it whole as `last_capture_info['frame_record']`.
 - **State-changing operations** (setters like `move_xy`, `led_on`, etc.) return only once the change is made; a change that could not be made raises (a refusal names what was missing or wrong, a fault what broke). A `Raises:` section in the docstring documents the typed exception (`HardwareError` and its children from `drivers.exceptions`; `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. Some members still log and show their own notification before re-raising; they are being moved to raise only, so the failure is shown once, by whoever reports it. The typed exception is what L2 callers should catch. **Read the member's own `Raises:` section rather than this paragraph: it is the declaration, and not every setter returns a status.**
 - **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_black_level`, and the camera's `set_frame_size`, `set_binning` and `set_image_mode`) are the raise contract, not the True/False one: every setting write either applied or raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, `reason`, and the `title` and message a person reads, with the driver's exception as its `__cause__` when it raised; nothing is logged or shown before it reaches you, so reporting it is yours. Its `reason` is `camera_rejected` (title 'Camera Setting Not Applied') when the camera refused the value or its driver raised from the write, and `camera_no_answer` (title 'Camera Did Not Answer') when the camera did not answer the write in time: the API sends a write the camera did not answer once more, at once, and raises only when the resend goes unanswered too. A refused write is not resent. After an unanswered one, whether the camera took the value is not known, so the gate that holds a capture until frames carry the new setting forgets the value it was waiting for and settles by frame count. Both are REST `500`. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`capabilities.camera_limits`: `gain_min_db` .. `gain_max_db`, `exposure_min_ms` .. `exposure_max_ms`, read once at connect) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`camera_limits.frame_min`, the scope's maximum / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`); the scope's maximum is `camera_limits.frame_max`, unbinned whatever binning the camera held at connect: the sensor, or the model's smaller one where its lens images less of the sensor (1700 on the LS560). When it is `None` the maximum is unknown and is not checked. Inside the range every camera delivers exactly the size asked for: it acquires the next window up on its own grid and crops back. The camera's `set_frame_size` floors the size to even sides first (`get_pixel_alignment()`, `{2, 2}` on every camera) and refuses before it stores. With no camera connected each raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; see the dispatch paragraph below), not `CameraSettingRejected`. So does every camera command whose camera was declared removed (`scope.camera.camera_removed`) by the time it failed or, for a write, returned, with the command's own fault as its `__cause__` and nothing recorded; an off (`disable_streaming`, `set_auto_gain(False)`, `set_auto_exposure(CameraAutoMode.OFF)`, `lock_auto_gain`) is satisfied instead, as with no camera. A camera is declared removed only on definite evidence that it is gone (its SDK's removal callback, a grab that finds no device, a run of failed grabs, and on the Classic (FX2) body a failed write or stream start after which the device is absent from the USB bus on two probes 0.5 s apart). On the Basler and IDS bodies that happens on another thread: one failed write is that write's `CameraSettingRejected` with the camera still connected, so a write its cable was pulled during can first raise `CameraSettingRejected`, and the next command is refused `not_connected`. On the Classic body the failed command itself asks the bus, so a setting written to, or a stream started on, a removed camera is refused `not_connected` at once, streaming or not. A driver with no confirmation signal is deliberately **not** a rejection and does not raise: it answers `None`, meaning "cannot confirm", not "refused". On the Classic (FX2) body the sensor register write raises rather than reporting a refusal, so a failed apply there is a `CameraSettingRejected` chained to the driver's exception. The camera's `apply` writes the gain, the exposure and the auto-gain change even when one is not taken, and then raises one `CameraSettingRejected` naming each that was not (`setting` comma-separated, `camera_no_answer` when any went unanswered).
-- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, so commands from every caller run one at a time per bus, in order. While a run, a diagnostic or a home holds the scope (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. Once `session.shutdown()` has shut the lanes -- the first step of the scope's own `disconnect()`, before the boards are released -- every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. While a control session is held (see "The control session", below) a command that is not its holder's raises it with `reason` `control_session_held`, naming the session in `control_session`. These are the lanes' refusals, every hardware command's, so no member's `Raises:` section lists them, nor the control session's refusal of a write: every member that writes a setting, a protocol file or a recording's pending frames -- `update_settings` and every member that stores a setting, `save_protocol`, `recover_file_writer`, `discard_close_drain`, `manual_recording.discard_pending`, `repair_camera_driver` -- raises `ControlSessionRefusedError` (`control_session_held`) while a control session is held and the call is not its holder's, before it writes anything; the display preferences (`show_tooltips`, `show_step_locations`, `live_view_fps`, `stimulation_enabled`, `focus_score_enabled`) are written by anyone; a support report and a logs zip are made by anyone, since each writes a support artefact and changes no scope state; and a post-processing build is open to anyone. A member's own gate that refuses with `exclusive_activity_running` (a plate change during a run, a home) is in its section. A motion, LED or camera command for hardware the scope does not have raises it too, before anything moves, lights or is written, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`), or no camera ("The camera is not connected.", `MissingPart.CAMERA`: every camera command, the camera's diagnostic runners, `add_frame_listener` and a manual still's Future included); `axis_absent` when the scope does not have the part: `MissingPart.FAN_CONTROL` and `MissingPart.LED_ENGINEERING_MODE` for the diagnostics' fan and LED engineering mode, `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Red LED.", "... no LED on channel 2."); `MissingPart.layer(...)` for a layer the model lacks that a layer's settings, its focus or a still names ("This microscope has no Lumi layer."). A name that is no axis at all is refused first, on every model, with `ArgumentRefusedError` reason `not_offered` (see the arguments paragraph below). An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. An LED command whose own write is what finds the LED controller gone (on the Classic the LED shares the camera's USB device, which tells nothing when unplugged) answers as it would have with the controller known gone: refused `not_connected` with the device's fault as its `__cause__`, or an off satisfied when nothing is believed lit; a channel it could not darken stays believed lit. So with no camera does a camera off, with the answer it gives with a camera: `disable_streaming` (None), `set_auto_gain(False, ...)` and `set_auto_exposure(CameraAutoMode.OFF)` (True), and `lock_auto_gain` (an `AutoGainLock` whose `state` is None: no arm can stand). `remove_frame_listener` never needs a camera. There is one form of each command; a caller that must not wait runs it on its own thread.
+- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, so commands from every caller run one at a time per bus, in order. While a run, a diagnostic or a home holds the scope (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. Once `session.shutdown()` has shut the lanes -- the first step of the scope's own `disconnect()`, before the boards are released -- every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. While a control session is held (see "The control session", below) a command that is not its holder's raises it with `reason` `control_session_held`, naming the session in `control_session`. These are the lanes' refusals, every hardware command's, so no member's `Raises:` section lists them, nor the control session's refusal of a write: every member that writes a setting, a protocol file or a recording's pending frames -- `update_settings` and every member that stores a setting, `save_protocol`, `recover_file_writer`, `discard_close_drain`, `manual_recording.discard_pending`, `repair_camera_driver` -- raises `ControlSessionRefusedError` (`control_session_held`) while a control session is held and the call is not its holder's, before it writes anything; the display preferences (`show_tooltips`, `show_step_locations`, `live_view_fps`, `stimulation_enabled`, `focus_score_enabled`) are written by anyone; a support report and a logs zip are made by anyone, since each writes a support artefact and changes no scope state; and a post-processing build is open to anyone. A member's own gate that refuses with `exclusive_activity_running` (a plate change during a run, a home) is in its section. A motion, LED or camera command for hardware the scope does not have raises it too, before anything moves, lights or is written, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`), or no camera ("The camera is not connected.", `MissingPart.CAMERA`: every camera command, the camera's diagnostic runners, `add_frame_listener` and a manual still's Future included); `axis_absent` when the scope does not have the part: `MissingPart.FAN_CONTROL` and `MissingPart.LED_ENGINEERING_MODE` for the diagnostics' fan and LED engineering mode, `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Ex589 LED.", "... no LED on channel 2."); `MissingPart.layer(...)` for a layer the model lacks that a layer's settings, its focus or a still names ("This microscope has no Lumi layer."). A name that is no axis at all is refused first, on every model, with `ArgumentRefusedError` reason `not_offered` (see the arguments paragraph below). An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. An LED command whose own write is what finds the LED controller gone (on the Classic the LED shares the camera's USB device, which tells nothing when unplugged) answers as it would have with the controller known gone: refused `not_connected` with the device's fault as its `__cause__`, or an off satisfied when nothing is believed lit; a channel it could not darken stays believed lit. So with no camera does a camera off, with the answer it gives with a camera: `disable_streaming` (None), `set_auto_gain(False, ...)` and `set_auto_exposure(CameraAutoMode.OFF)` (True), and `lock_auto_gain` (an `AutoGainLock` whose `state` is None: no arm can stand). `remove_frame_listener` never needs a camera. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 - **`scope.camera.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on. A capture that meets a removed camera is refused `HardwareCommandRefusedError` (`not_connected`), and a run that meets it ends at once, `status='failed'`, `reason='hardware_disconnected'`, in words naming the part gone. False on a scope with no camera at all.
@@ -662,8 +662,8 @@ section above.
 
 ```python
 # LED
-session.scope.illumination.led_on('Blue', 200)      # returns once the board has been sent the command
-session.scope.illumination.led_off('Blue')
+session.scope.illumination.led_on('Ex405', 200)     # returns once the board has been sent the command
+session.scope.illumination.led_off('Ex405')
 session.scope.illumination.leds_off()
 
 # Motion
@@ -783,7 +783,7 @@ when the scope did not know it (an axis that has lost its reference, or a
 scope with no X and Y).
 
 ```python
-session.show_channel('Blue')
+session.show_channel('Ex405')
 (still,) = session.manual_capture.capture(
     false_color_on=True, bullseye=False, crosshairs=False,
 ).result(timeout=30)
@@ -1021,7 +1021,7 @@ grids.default               # '1x1'
 
 ```python
 session.set_channel_acquire('BF', 'image')
-session.set_channel_acquire('Green', None)
+session.set_channel_acquire('Ex488', None)
 ```
 
 **Turning a layer's auto-gain on and off.** `session.set_channel_auto_gain(channel, enabled)` does what the GUI's Auto Gain/Exp box does. For the shown layer the camera follows before it returns: turning it on (`True`) starts the camera adjusting, and turning it off (`False`) stops it and keeps what it reached: the gain becomes the layer's stored gain and the exposure its stored exposure, rounded to 0.1 dB and 0.01 ms. The stored exposure is never below the channel's usable floor (0.1 ms for brightfield, phase contrast and darkfield, 1 ms for fluorescence and luminescence), even when the camera went lower on a bright sample. A value the camera did not report is left as it was. For a layer the camera does not hold, only the preference is stored: the camera's adjusting belongs to the layer it holds. Turning it off returns the lock result: its `state` says whether the camera converged, hit the exposure ceiling (`MAXED`), hit the floor (`AT_MINIMUM`), or reported nothing usable (`FAILED`); a `state` of None means auto-gain was not running. `session.channel_auto_gain_lock(layer)` answers that same lock afterwards, until the layer's auto-gain is next turned off: over REST, where `PUT /api/v1/channel_auto_gain` answers the setting's read, `GET /api/v1/channel_auto_gain_lock?channel=BF` is how a client learns it. It records that turning off, not the layer now, so turning auto-gain back on or storing a gain leaves it as it was; it is None until the layer's auto-gain is first turned off in the session. Turning it on returns None. Either waits for the camera. While a run, a diagnostic or a home holds the scope, turning it on is stored only, and turning the shown layer's off raises `HardwareCommandRefusedError` and stores nothing. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`), and turning it on for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing; turning it off is always accepted.
@@ -1048,7 +1048,7 @@ session.set_protocol_schedule(protocol, period_s=0.5, duration_s=3600)  # Protoc
 
 **A step's autofocus.** `session.set_step_autofocus(protocol, enabled=True, step_index=2)` turns autofocus on or off for one step, and with no `step_index` for every step; a `step_index` the protocol lacks raises `StepNotFoundError` (`no_such_step`) and changes nothing.
 
-**Adding a step.** `session.add_step(protocol, before_step_index=... | after_step_index=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the live stage position read on the protocol's plate (`protocol.labware_id()`, which need not be the session's selected plate; `session.get_current_plate_position()` reads on the selected one). Every step takes the live Z, whatever its layer's saved focus: the focus of the channel being viewed is a better guess for every channel than an older saved one, and no saved focus is changed, since it is where `new_protocol` starts the next protocol. Each step is made with the current objective, in the settings' `step_channel_order`. `channels=('BF', 'Blue')` adds a step for each layer named instead, in that order, with its stored settings, a layer whose `acquire` is None added as an image step, so a script adds without changing the settings; `at=PlateLocation(x_mm=..., y_mm=..., z_um=...)` places the steps there on the protocol's plate instead of at the live position (a layer name that is no layer is `ArgumentRefusedError` `channel_unknown`, a layer this scope lacks `HardwareCommandRefusedError` `axis_absent`). With no `before_step_index` or `after_step_index` the steps follow the last step; giving both raises `StepEditRefusedError`. `use_zstacking=True` makes each added step a z-stack of the stored z-stack settings, which `session.get_zstack_params()` answers (`range` and `step_size` in micrometres, `z_reference` a `ZStackReference`: `'top'`, `'center'` or `'bottom'`), built as `apply_zstacking` builds one, and leaves the protocol's other steps as they are and where they are; the stack is judged before anything is added, so a stack `apply_zstacking` would refuse (no extent, no Z motor, a slice outside the Z travel) adds nothing, with the same reason. It returns the inserted step names in protocol order, each stack's slices when stacked. When any axis (X, Y, Z, or the turret) does not know its position -- never homed, homing, or lost after a failed home -- it raises `ProtocolRunRefusedError` with reason `step_position_unknown`, naming the axes: the position read keeps answering the last number an axis reported, so a step saved then would record a place the scope no longer vouches for. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`; on a turret scope whose slot is unknown or has no objective assigned, reason `turret_objective_unset`; when the objective is otherwise unknown (a slot assigned an objective that is not in the catalogue, or `objective_id=None` passed below), reason `objective_unknown`. Each is raised to you and posted to no listener; nothing is added.
+**Adding a step.** `session.add_step(protocol, before_step_index=... | after_step_index=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the live stage position read on the protocol's plate (`protocol.labware_id()`, which need not be the session's selected plate; `session.get_current_plate_position()` reads on the selected one). Every step takes the live Z, whatever its layer's saved focus: the focus of the channel being viewed is a better guess for every channel than an older saved one, and no saved focus is changed, since it is where `new_protocol` starts the next protocol. Each step is made with the current objective, in the settings' `step_channel_order`. `channels=('BF', 'Ex405')` adds a step for each layer named instead, in that order, with its stored settings, a layer whose `acquire` is None added as an image step, so a script adds without changing the settings; `at=PlateLocation(x_mm=..., y_mm=..., z_um=...)` places the steps there on the protocol's plate instead of at the live position (a layer name that is no layer is `ArgumentRefusedError` `channel_unknown`, a layer this scope lacks `HardwareCommandRefusedError` `axis_absent`). With no `before_step_index` or `after_step_index` the steps follow the last step; giving both raises `StepEditRefusedError`. `use_zstacking=True` makes each added step a z-stack of the stored z-stack settings, which `session.get_zstack_params()` answers (`range` and `step_size` in micrometres, `z_reference` a `ZStackReference`: `'top'`, `'center'` or `'bottom'`), built as `apply_zstacking` builds one, and leaves the protocol's other steps as they are and where they are; the stack is judged before anything is added, so a stack `apply_zstacking` would refuse (no extent, no Z motor, a slice outside the Z travel) adds nothing, with the same reason. It returns the inserted step names in protocol order, each stack's slices when stacked. When any axis (X, Y, Z, or the turret) does not know its position -- never homed, homing, or lost after a failed home -- it raises `ProtocolRunRefusedError` with reason `step_position_unknown`, naming the axes: the position read keeps answering the last number an axis reported, so a step saved then would record a place the scope no longer vouches for. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`; on a turret scope whose slot is unknown or has no objective assigned, reason `turret_objective_unset`; when the objective is otherwise unknown (a slot assigned an objective that is not in the catalogue, or `objective_id=None` passed below), reason `objective_unknown`. Each is raised to you and posted to no listener; nothing is added.
 
 ```python
 protocol = session.new_protocol()                   # one step per acquiring layer at every well; refused no_acquiring_layer when none acquires
@@ -1059,7 +1059,7 @@ names = session.add_step(protocol, before_step_index=0)   # ['custom0000_BF', ..
 **Updating a step.** `session.update_step(protocol, step_index, channel=..., label=None)` does what the GUI's Update Step does: step `step_index` takes `channel`'s settings, the live stage position read on the protocol's plate, as an add does, and the current objective. `label` renames the step; `None` keeps its label. When `channel`'s stim config is enabled the update is a stim edit, so the step keeps the channel it already acquires. It returns the step's name after the update. It is refused for the same reasons, under the same names, as an add -- `step_position_unknown`, `turret_objective_unset`, `objective_unknown`, and `no_acquiring_layer` when the layer the step takes (for a stim edit, the step's own) is not set to acquire -- each raised to you and posted to no listener, with the step unchanged; a `step_index` that is not a step of `protocol` raises `StepNotFoundError`; a `channel` that is no layer raises `ArgumentRefusedError` (`channel_unknown`), and one this scope lacks `HardwareCommandRefusedError` (`axis_absent`), each before anything is read.
 
 ```python
-name = session.update_step(protocol, 0, channel='Blue')   # 'custom0000_Blue'
+name = session.update_step(protocol, 0, channel='Ex405')  # 'custom0000_Ex405'
 ```
 
 **Deleting and renaming a step.** `session.delete_step(protocol, step_index)` does what the protocol panel's Delete does: step `step_index` is removed and the steps after it move up one. `session.rename_step(protocol, step_index, name)` does what typing in the step's name field does: the step takes `name` as its label, kept through later channel changes, and it returns the step's name after the rename. Characters a filename cannot carry are removed from `name`; a name with no letter, digit, dash or underscore left raises `StepEditRefusedError` and the step keeps its name. A `step_index` that is not a step of `protocol` -- including any index of a protocol with no steps -- raises `StepNotFoundError`, and nothing changes.
@@ -1560,16 +1560,17 @@ still states the major version.
 | level 36 | An LED is lit by its board address on the engineering members `scope.illumination.led_on_by_address(address, illumination_ma)` and `led_off_by_address(address)`; an address off the board is refused `led_address_unknown` (`argument` `address`), and one no channel of the model drives `axis_absent` with `MissingPart.led_address(address)`. `led_on` / `led_off` still take an address until the plugin release that lights through these, then take a channel's name only. |
 | level 37 | An LED's board addresses are `led_addresses`: `scope.capabilities.led_addresses` (the installed board's, None without one) and a `ChannelRecord`'s `led_addresses` (the addresses the channel drives, `()` for none). A model's and a board's file still name a row's addresses `led_channel`. The old names read until the plugin release that reads the new ones, then go. |
 | level 38 | An LED is lit by its channel's name: `scope.illumination.led_on(channel, illumination_ma)` and `led_off(channel)` take a name only, a number refused at the door (`wrong_argument_type`); a board address is `led_on_by_address` / `led_off_by_address`'s. `ch2color` and `color2ch` are not on the surface (no route); a channel's addresses are its record's `led_addresses`. `ScopeCapabilities.led_channels` and `ChannelRecord.led_channel` are gone, with no alias. |
+| level 39 | A fluorescence channel is named for its excitation: the release's keys are `BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex550`, `Ex589`, `Ex640` and `Lumi`, and a stock unit's are `Ex405` / `Ex488` / `Ex589` on LEDs 0 / 1 / 2, where `Blue` / `Green` / `Red` were. A fluorescence `ChannelRecord`'s `display_name` is `None` (its `label` is its excitation, `'405 nm'`). A caller's old name is refused, not translated: a channel `channel_unknown`, a settings path `not_a_setting`; a stored file's old names are read by the LED they were made with (see "Color channel reference"). |
 
 ### Configuration queries
 
 ```python
-session.saved_focus_z_um('Blue')         # the Z saved as a layer's focus; FocusNotSavedError when none was
+session.saved_focus_z_um('Ex405')        # the Z saved as a layer's focus; FocusNotSavedError when none was
                                          # ever saved (a step built for that layer takes the current Z)
-session.channel_acquire('Blue')            # what a layer captures: an AcquireMode or None (set_channel_acquire)
-session.channel_auto_gain('Blue')          # whether a layer's auto-gain is on (set_channel_auto_gain; turning it
+session.channel_acquire('Ex405')           # what a layer captures: an AcquireMode or None (set_channel_acquire)
+session.channel_auto_gain('Ex405')         # whether a layer's auto-gain is on (set_channel_auto_gain; turning it
                                          # off also stores the layer's gain and exposure, read by get_setting)
-session.channel_auto_gain_lock('Blue')     # what the camera reached when that layer's auto-gain was last turned
+session.channel_auto_gain_lock('Ex405')    # what the camera reached when that layer's auto-gain was last turned
                                          # off: the AutoGainLock set_channel_auto_gain returned, else None
 session.model                            # the saved model, brought up at the next start (select_model)
 session.objective_id                     # the active objective's key; None while it is not known (select_objective)
@@ -1589,10 +1590,10 @@ session.get_current_plate_position()     # PlateLocation(x_mm, y_mm, z_um): wher
                                          # AxisStateUnknownError when an axis does not know its position
                                          # (before a home) -- never a converted number nobody read
 session.get_setting('protocol.autogain') # auto-gain config
-session.get_setting('Blue.stim_config')  # one layer's stim settings
+session.get_setting('Ex405.stim_config') # one layer's stim settings
 session.channel_colors()                 # every layer's colour, (r, g, b) weights 0-1: what captures, recordings,
                                          # builds and the view are coloured in, read by each as it starts
-session.update_settings('Red.display_color', '#ff00ff')  # override a layer's colour; None gives the unit's back
+session.update_settings('Ex589.display_color', '#ff00ff')  # override a layer's colour; None gives the unit's back
                                          # (its board block's, else the catalogue's).
                                          # '#rrggbb', lower case, brightest component ff, else SettingRefusedError
 ```
@@ -1917,8 +1918,8 @@ scope.motion.remove_turret_listener(on_turret)
 
 Channels available depend on the scope — the layers it lights are the records in `scope.channel_identity.channels` whose `led_addresses` is not empty.
 
-**A channel is named, never numbered.** `'BF'`, `'PC'`, `'DF'`, `'Blue'`,
-`'Green'`, `'Red'` — the name is the portable identity. The number behind it is
+**A channel is named, never numbered.** `'BF'`, `'PC'`, `'DF'`, `'Ex405'`,
+`'Ex488'`, `'Ex589'` — the name is the portable identity. The number behind it is
 a driver detail and is NOT portable: an FX2 board carries four channels and an
 RP2040 board six, so the same integer means different LEDs, or none, depending
 on the board. Ask `scope.channel_identity.channels` for what a given scope can actually drive.
@@ -1934,13 +1935,13 @@ installed board's table is `led_address_unknown` (`argument` `address`), and an
 address no channel of a known model drives is `axis_absent`
 (`MissingPart.led_address(address)`); each refusal names the member called.
 
-**LEDs the scope cannot drive**: `led_on` asks, in order, whether the channel is one at all, whether an LED controller is connected, and whether this model has the LED. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`) offering the catalogue, at the door, whatever the scope is doing. A current outside 0 to the board's maximum is `illumination_out_of_range`, its `limits` holding both. With no LED controller connected it raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.LED_CONTROLLER`). An LED this model does not have -- a layer it lacks (an LS560's `'Red'`), or a layer that drives no LED (`'Lumi'`) -- raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.led(name)`), and nothing lights; it never maps to a substitute channel. `led_off` of an LED the scope does not have is an idempotent no-op — a channel the scope does not have is already off.
+**LEDs the scope cannot drive**: `led_on` asks, in order, whether the channel is one at all, whether an LED controller is connected, and whether this model has the LED. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`) offering the catalogue, at the door, whatever the scope is doing. A current outside 0 to the board's maximum is `illumination_out_of_range`, its `limits` holding both. With no LED controller connected it raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.LED_CONTROLLER`). An LED this model does not have -- a layer it lacks (an LS560's `'Ex589'`), or a layer that drives no LED (`'Lumi'`) -- raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.led(name)`), and nothing lights; it never maps to a substitute channel. `led_off` of an LED the scope does not have is an idempotent no-op — a channel the scope does not have is already off.
 
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
-scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.illumination.led_off('Blue')
+scope.illumination.led_on('Ex405', 200)                # the 405 nm LED at 200 mA
+scope.illumination.led_off('Ex405')
 scope.illumination.leds_off()                          # turn off all LEDs
 
 ```
@@ -1956,13 +1957,13 @@ scope.illumination.leds_off()                          # turn off all LEDs
 Each read answers an `LedReading`: the `address`, the layer `name` the identity gives it (`None` when it names none -- the address is still reported, never hidden), its `state` (`LedState.LIT`, `DARK` or `UNKNOWN`; `'lit'`, `'dark'`, `'unknown'` on the wire) and its `illumination_ma` (the commanded current when lit, else `None`).
 
 ```python
-scope.illumination.get_led_state('Blue')               # LedReading(address=0, name='Blue', state=LedState.LIT, illumination_ma=200.0)
+scope.illumination.get_led_state('Ex405')              # LedReading(address=0, name='Ex405', state=LedState.LIT, illumination_ma=200.0)
 scope.illumination.get_led_states()                    # one LedReading per address of the board (0-7 on the EL-0940 board, 0-3 on FX2),
                                                        # named or not: the read of an address by its number
 scope.illumination.save_led_state('mine')              # an LedSnapshot(tag, readings) for restore_led_state
 ```
 
-A layer name the unit's identity gives no LED (`'Lumi'`, or `'Red'` on an LS560) is refused `axis_absent`, as `led_on` refuses it.
+A layer name the unit's identity gives no LED (`'Lumi'`, or `'Ex589'` on an LS560) is refused `axis_absent`, as `led_on` refuses it.
 
 With no LED board installed -- none came up, or after `session.shutdown()` -- the three answer `None`: there is no board whose state to describe, which is not the same answer as every channel off. Shutdown darkens the board and leaves nothing believed lit. A frame captured then records no LED lit.
 
@@ -1971,9 +1972,9 @@ With no LED board installed -- none came up, or after `session.shutdown()` -- th
 The session holds the channel the scope shows: `session.shown_channel` is a `ShownChannel(channel, lit)`. `session.show_channel(channel)` makes `channel` the shown channel -- every other LED dark, `channel` lit at its stored current only if the shown channel was lit, then its camera settings applied. `session.light_shown_channel(lit)` lights or darkens it, and leaves the camera on its stored settings. Both refuse before turning anything off, so a refused call leaves the LEDs as they were. While a manual recording runs, showing another layer is refused (`exclusive_activity_running`, `holder` `'recording'`): a recording keeps one layer. `go_to_step` and a run's steps move it too, and `add_shown_channel_listener` (the REST `shown_channel` event) hears each change as `(layer, lit)`.
 
 ```python
-session.show_channel('Blue')          # ShownChannel(channel='Blue', lit=False): Blue's camera settings, every LED dark
-session.light_shown_channel(True)     # Blue lit at its stored illumination_ma
-session.show_channel('Green')         # Green lit, Blue dark: the light follows the shown channel
+session.show_channel('Ex405')         # ShownChannel(channel='Ex405', lit=False): Ex405's camera settings, every LED dark
+session.light_shown_channel(True)     # Ex405 lit at its stored illumination_ma
+session.show_channel('Ex488')         # Ex488 lit, Ex405 dark: the light follows the shown channel
 ```
 
 ### Exclusivity — a run holds the LEDs
@@ -1993,11 +1994,11 @@ scope.illumination.leds_off()                          # unconditional off (shut
 Preserve the user's LED state while a subsystem does its own work, then restore:
 
 ```python
-# User has Red on at 150 mA. Autofocus needs BF:
+# User has Ex589 on at 150 mA. Autofocus needs BF:
 snapshot = scope.illumination.save_led_state('autofocus')        # capture current state
 scope.illumination.led_on('BF', 100)
 # ... autofocus runs: changes Z, captures frames, evaluates focus ...
-scope.illumination.restore_led_state(snapshot)                   # Red back on at 150 mA, BF off
+scope.illumination.restore_led_state(snapshot)                   # Ex589 back on at 150 mA, BF off
 ```
 
 `save_led_state(tag)` returns an `LedSnapshot` (the tag is for logs; a REST client gets it as JSON and can send it back); `restore_led_state(snapshot)` turns off the addresses the snapshot does not have lit and re-lights the ones it does. While a run holds the LEDs, the restore is refused like any other write.
@@ -2271,7 +2272,7 @@ scope.camera.longest_exposure_ms
 # skipped while the objective is unknown, with one warning each time it becomes unknown)
 # Whether it is drawn is the session's setting (session.set_scale_bar); the
 # colour is the imaging API's own.
-scope.imaging.set_scale_bar_color('Red')
+scope.imaging.set_scale_bar_color('Ex589')
 scope.imaging.scale_bar_config                     # (in-process) {'enabled': bool, 'color': str | None};
                                                    # a wire client reads session.scale_bar_enabled
 ```
@@ -2604,7 +2605,7 @@ caps.camera_reports_temperature # the camera has a temperature sensor (probed at
 Important consequences:
 
 - **`camera_limits` is `None` when no camera is connected**, and its `frame_max` `None` when none of its sources answered. Check it before using it as a `scope.camera.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
-- **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over the layers in `scope.channel_identity.channels` that have an `led_channel`.
+- **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Ex405`, `Ex488`, `Ex589`); an **LS560, same driver family, exposes 2** (`BF`, `Ex488`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex589`). Don't iterate over a hardcoded list — iterate over the layers in `scope.channel_identity.channels` that have an `led_channel`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_xy(x_um=…)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`: steps at different places on that axis, or, on a scope without X and Y, steps with no X/Y whose wells or tiles differ, since each would be one field saved under a different name.
 - **A step may have no position on an axis.** It is recorded on a scope that lacks the axis: blank in the `.tsv`, NaN in `protocol.steps()`'s `X`, `Y` or `Z` column (pandas' missing value, so the column stays a number column), None in `protocol.step(step_index)`'s `x_mm`, `y_mm` or `z_um` and null over REST. X and Y are both or neither; a file or frame with one of them is refused (`ProtocolFormatError`). On a scope that has the axis such a step says nothing about where to go, so a run, `step_targets` (and Go To Step), `apply_tiling` and `apply_zstacking` refuse it as `step_position_missing` (`ProtocolRunRefusedError`), naming the steps and the axes; nothing moves or changes. A protocol file with a blank position is refused by LumaViewPro releases before this one, which read every position as a number.
@@ -2816,7 +2817,7 @@ curl -s -X POST $API/scope/motion/move_z -H 'Content-Type: application/json' \
 curl -s -X POST $API/scope/motion/move_xy -H 'Content-Type: application/json' \
      -d '{"x_um": 60000.0, "y_um": 40000.0}'          # null: X and Y as one request
 curl -s -X POST $API/scope/illumination/led_on -H 'Content-Type: application/json' \
-     -d '{"channel": "Blue", "illumination_ma": 50.0}'   # 50.0
+     -d '{"channel": "Ex405", "illumination_ma": 50.0}'   # 50.0
 curl -s -X POST $API/scope/illumination/leds_off
 
 # One scan of a one-step protocol
@@ -2982,7 +2983,7 @@ session = ScopeSession.create(settings, simulate=True)   # brought up and stream
 scope = session.scope
 
 # All API calls work identically:
-scope.illumination.led_on('Blue', 200)
+scope.illumination.led_on('Ex405', 200)
 scope.motion.move_z(5000)
 image = scope.imaging.capture_and_wait()
 ```
@@ -3038,7 +3039,7 @@ Capture Root
 Steps
 Name	X	Y	Z	Auto_Focus	Color	...
 A1_BF	60000	40000	5000	False	BF	...
-A1_Green	60000	40000	5000	False	Green	...
+A1_Ex488	60000	40000	5000	False	Ex488	...
 ```
 
 **Step fields:**
@@ -3048,7 +3049,7 @@ A1_Green	60000	40000	5000	False	Green	...
 | Name | string | Step label (e.g. `A1_BF`) |
 | X, Y, Z | float | Position in µm |
 | Auto_Focus | bool | Run autofocus at this step |
-| Color | string | `Blue`, `Green`, `Red`, `BF`, `PC`, `DF`, `Lumi` |
+| Color | string | A channel key: `BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex589`, `Lumi`, ... |
 | False_Color | bool | Apply false-color mapping |
 | Illumination | float | LED current in mA |
 | Gain | float | Camera gain in dB |
@@ -3076,27 +3077,30 @@ A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` a
 
 ## Color channel reference
 
-A scope's layers are the records of `scope.channel_identity.channels`, in display order, each with its `key_name`, `modality` and `display_color`. The release has seven; a scope lists the ones it has (an LS850T has no `Lumi`):
+A scope's layers are the records of `scope.channel_identity.channels`, in display order, each with its `key_name`, `modality`, `label` and `display_color`. The release's catalogue has nine; a scope lists the ones it has (an LS850T has no `Lumi`, and a stock unit none of `Ex550` / `Ex640`):
 
 ```python
 [layer.key_name for layer in scope.channel_identity.channels]
-# the release's seven: ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
-# BF  -- brightfield (white LED)            transmitted
-# PC  -- phase contrast                     transmitted
-# DF  -- darkfield                          transmitted, dark background
-# Blue  -- blue-EMISSION fluorescence       (stock excitation 405 nm)
-# Green -- green-EMISSION fluorescence      (stock excitation 488 nm)
-# Red   -- red-EMISSION fluorescence        (stock excitation 589 nm)
+# the release's nine: ['BF', 'PC', 'DF', 'Ex405', 'Ex488', 'Ex550', 'Ex589', 'Ex640', 'Lumi']
+# BF    -- brightfield (white LED)            transmitted
+# PC    -- phase contrast                     transmitted
+# DF    -- darkfield                          transmitted, dark background
+# Ex405 -- fluorescence excited at 405 nm     (the stock filterset, LED 0, shown blue)
+# Ex488 -- fluorescence excited at 488 nm     (the stock filterset, LED 1, shown green)
+# Ex589 -- fluorescence excited at 589 nm     (the stock filterset, LED 2, shown red)
+# Ex550, Ex640 -- fluorescence excited at 550 / 640 nm, on a unit whose board carries them
 # Lumi  -- luminescence (all LEDs off, sensitive mode)
 ```
 
 (`common_utils.ColorChannel` is gone in 4.0: a layer is a catalogue record, not an enum member.)
 
-**A channel name is the colour you SEE, not the colour that excites it.** `Blue` is a blue-emitting dye excited by 405 nm violet light, `Green` a green-emitting dye excited by 488 nm, `Red` a red-emitting dye excited by 589 nm. The layer's `excitation_nm` field carries the excitation wavelength, and the UI marks it `Ex` for the same reason: a bare "Green 488 nm" invites reading 488 as the emission, which writes silently wrong metadata into your own data.
+**A fluorescence channel is named for the light that excites it.** Its key is `Ex<nm>`, the number its record's `excitation_nm` holds; a fluorescence record has no `display_name` (`None`), and its `label` is the excitation (`'405 nm'`). The colour it is shown in is `display_color`, the unit's choice, never part of its name: a colour word invites reading the excitation as the emission, which writes silently wrong metadata into your own data.
 
-**Fluorescence excitation wavelengths depend on the installed filterset** — the stock filterset is 405 / 488 / 589 nm, but OEM customers may have custom filtersets at different wavelengths.
+**Fluorescence excitation wavelengths depend on the installed filterset** — the stock filterset is 405 / 488 / 589 nm on LEDs 0 / 1 / 2; a unit with another filterset carries its own channels in its board's `Channels` block (488 / 550 / 640 nm on the same LEDs is one such set).
 
-**Not every scope has every channel, and two models in the same family differ.** Always check the scope's layers (`scope.channel_identity.channels`) before using a color — an LS620 exposes `{'BF', 'Blue', 'Green', 'Red'}`, while an **LS560 exposes only `{'BF', 'Green'}`**. Phase contrast on those models is brightfield with a mechanical phase slider installed, not a separate illumination channel.
+**The old names.** Releases before the excitation keys named the fluorescence channels `Blue`, `Green` and `Red`, which were LEDs 0, 1 and 2 on every unit. A file such a release wrote is read by the LED it was made with: the user's settings at bring-up and a protocol loaded on a scope take the unit's key for that LED (`Ex405` / `Ex488` / `Ex589` on a stock unit, a non-stock unit's own key there), and a run folder post-processed keeps its old names, read in the stock channel's colour and modality. A caller's old name is not translated: `led_on('Blue', ...)`, `show_channel('Red')` or `update_settings('Blue.gain_db', ...)` is refused: a channel `channel_unknown` (`ArgumentRefusedError`, naming the release's keys), a settings path `not_a_setting` (`SettingRefusedError`).
+
+**Not every scope has every channel, and two models in the same family differ.** Always check the scope's layers (`scope.channel_identity.channels`) before using a channel — an LS620 exposes `{'BF', 'Ex405', 'Ex488', 'Ex589'}`, while an **LS560 exposes only `{'BF', 'Ex488'}`**. Phase contrast on those models is brightfield with a mechanical phase slider installed, not a separate illumination channel.
 
 ---
 

@@ -4,7 +4,7 @@
 Adding a channel is one catalogue record and a unit's row: its settings
 block, its colour and its place in a composite follow, with no code naming
 it. Three simulated units on a release carrying two added channels (445 nm
-on LED address 6, 640 nm on 7), brought up the way every host is
+on LED address 6, 730 nm on 7), brought up the way every host is
 (``prepare_settings``, then ``ScopeSession.create``), carry none, two and
 five fluorescence channels; each has a block and a colour for every
 channel, and a composite takes each of its channels in that channel's
@@ -30,6 +30,7 @@ from tests.installation_fixtures import (
     write_release_with_added_channels,
 )
 from tests.test_composite_run_e2e import open_composite_session, single_run_dir
+from tests.stock_channels import LED0, LED1, LED2
 
 logger = logging.getLogger('test_a_channel_added_by_data_is_set_coloured_and_composited')
 
@@ -76,8 +77,8 @@ def _fluorescence(session) -> list[str]:
     ('model', 'expected'),
     [
         ('LS850-F0', []),
-        ('LS850-F2', ['Ex445', 'Ex640']),
-        ('LS850-F5', ['Blue', 'Green', 'Red', 'Ex445', 'Ex640']),
+        ('LS850-F2', list(_ADDED)),
+        ('LS850-F5', [LED0, LED1, LED2, *_ADDED]),
     ],
 )
 def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, model, expected):
@@ -88,7 +89,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
         assert set(_ADDED) <= set(keys)
         # The block is the template's fluorescence default: the catalogue
         # prepare_settings read is the one this test wrote.
-        fluorescence_block = session.scope.settings_template['Blue']
+        fluorescence_block = session.scope.settings_template[LED0]
         for key in keys:
             assert key in session.settings, key
         for key in _ADDED:
@@ -98,8 +99,8 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
             assert colors[record.key_name] == layer_record.parse_display_color(
                 record.display_color
             ), record.key_name
-        assert colors['Ex445'] == (0.0, 1.0, 1.0)
-        assert colors['Ex640'] == (1.0, 0.0, 1.0)
+        assert colors[_ADDED[0]] == (0.0, 1.0, 1.0)
+        assert colors[_ADDED[1]] == (1.0, 0.0, 1.0)
 
 
 def _gray(path: pathlib.Path) -> np.ndarray:

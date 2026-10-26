@@ -41,6 +41,7 @@ from drivers import fx2driver
 from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
 from drivers.protocols import LEDBoardProtocol
 from drivers.camera_profiles import lookup_profile
+from tests.stock_channels import LED0, LED1, LED2
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -649,7 +650,7 @@ class TestScopesJsonClassicModels:
         FX2LEDController's colour table then had no 'PC' entry.
         """
         rows = {r['key_name']: r for r in scopes['LS620']['Layers']}
-        assert set(rows) == {'BF', 'Blue', 'Green', 'Red'}
+        assert set(rows) == {'BF', LED0, LED1, LED2}
         assert rows['BF']['display_name'] == 'BF-Phase'
         assert rows['BF']['led_channel'] == 3
         assert 'PC' not in rows
@@ -657,13 +658,13 @@ class TestScopesJsonClassicModels:
 
     def test_ls560_has_fluorescence_bf(self, scopes):
         """LS560 ships as the transmitted layer (displayed 'BF-Phase') plus
-        Green only -- unlike LS620's BGR -- and no separate PC layer,
+        LED 1 (488 nm) only -- unlike LS620's three LEDs -- and no separate PC layer,
         same phase-slider rationale as test_ls620_has_fluorescence_bf.
         """
         rows = {r['key_name']: r for r in scopes['LS560']['Layers']}
-        assert set(rows) == {'BF', 'Green'}
+        assert set(rows) == {'BF', LED1}
         assert rows['BF']['display_name'] == 'BF-Phase'
-        assert rows['Green']['led_channel'] == 1
+        assert rows[LED1]['led_channel'] == 1
         assert 'PC' not in rows
 
 

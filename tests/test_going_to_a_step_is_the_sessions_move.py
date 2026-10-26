@@ -40,6 +40,7 @@ from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED0, LED1
 
 _PLATE = '96 well microplate'
 _OTHER_PLATE = 'Four-Slide Holder'
@@ -487,7 +488,7 @@ class TestTheLedPreview:
 
     def test_going_to_a_step_darkens_everything_when_the_preview_is_off(self, session):
         session.settings['protocol_led_on'] = False
-        session.scope.illumination.led_on('Blue', 50.0)
+        session.scope.illumination.led_on(LED0, 50.0)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
 
         session.go_to_step(protocol, 0)
@@ -498,12 +499,12 @@ class TestTheLedPreview:
         session.settings['protocol_led_on'] = True
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
         session.go_to_step(protocol, 0)
-        session.scope.illumination.led_on('Blue', 50.0)
+        session.scope.illumination.led_on(LED0, 50.0)
         session.scope.illumination.led_off('BF')
 
         session.go_to_step(protocol, 0)
 
-        assert self._lit(session) == {'Blue'}, 'a re-click re-drove the preview'
+        assert self._lit(session) == {LED0}, 'a re-click re-drove the preview'
 
     def test_a_different_step_previews_again(self, session):
         session.settings['protocol_led_on'] = True
@@ -559,7 +560,7 @@ class TestEveryStepValueReachesTheLayer:
                 'Acquire': 'video',
                 'Z': 1234.0,
                 'Video Config': {'fps': 15, 'duration': 30},
-                'Stim_Config': {'Green': {'enabled': True, 'illumination_ma': 200}},
+                'Stim_Config': {LED1: {'enabled': True, 'illumination_ma': 200}},
             }
         )
         protocol = _protocol('Center Plate', step)
@@ -569,13 +570,13 @@ class TestEveryStepValueReachesTheLayer:
         layer = no_motor_session.settings['BF']
         for column, key in STEP_TO_SETTINGS.items():
             assert layer[key] == step[column], f"{key} did not take the step's {column}"
-        assert no_motor_session.settings['Green']['stim_config'] == step['Stim_Config']['Green']
+        assert no_motor_session.settings[LED1]['stim_config'] == step['Stim_Config'][LED1]
         # The step's dicts are the protocol's: a later edit to them must not
         # reach into the live settings.
         step['Video Config']['duration'] = 999
-        step['Stim_Config']['Green']['illumination_ma'] = 999
+        step['Stim_Config'][LED1]['illumination_ma'] = 999
         assert layer['video_config']['duration'] == 30
-        assert no_motor_session.settings['Green']['stim_config']['illumination_ma'] == 200
+        assert no_motor_session.settings[LED1]['stim_config']['illumination_ma'] == 200
 
     def test_a_scope_with_no_motor_previews_the_step(self, no_motor_session):
         no_motor_session.settings['protocol_led_on'] = True

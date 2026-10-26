@@ -15,6 +15,7 @@ from modules.layer_record import load_scope_models
 from modules.scope_init_config import ScopeInitConfig
 from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
 from tests.scope_fakes import build_scope, identity_with_layers
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -41,8 +42,8 @@ _LS850T_CONFIG = _MODELS['LS850T']
 # The truth-table fixtures used to carry scopes.json category booleans;
 # expects_led derives from the scope's resolved layer identity, so the
 # fixtures carry the same models' layers instead.
-_LS620_IDENTITY = identity_with_layers(['BF', 'Blue', 'Green', 'Red'])
-_LS820_IDENTITY = identity_with_layers(['BF', 'PC', 'DF', 'Blue', 'Green', 'Red'])
+_LS620_IDENTITY = identity_with_layers(['BF', LED0, LED1, LED2])
+_LS820_IDENTITY = identity_with_layers(['BF', 'PC', 'DF', LED0, LED1, LED2])
 _LS850T_IDENTITY = _LS820_IDENTITY
 _NO_LED_IDENTITY = identity_with_layers(['Lumi'])
 

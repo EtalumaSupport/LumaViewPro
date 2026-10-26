@@ -2,8 +2,8 @@
 """The shipped template's layer gains are within reach of every camera.
 
 A run refuses a step whose gain is outside the camera's range, and a new step
-copies its layer's gain. The template once shipped Lumi at 48 dB, Red at 30
-and Green at 20, so a fresh install on a camera with a smaller ceiling had its
+copies its layer's gain. The template once shipped Lumi at 48 dB, LED 2 at 30
+and LED 1 at 20, so a fresh install on a camera with a smaller ceiling had its
 first Lumi run refused. Every layer's default must fit the smallest ceiling a
 shipped camera advertises.
 
@@ -18,6 +18,7 @@ import pytest
 from modules.layer_record import release_catalogue
 from tests.case_walk import failing_cases
 from tests.settings_fixtures import shipped_template
+from tests.stock_channels import LED1, LED2
 
 # The smallest gain ceiling a shipped camera advertises: the IDS U3-34L0XCP's
 # 30 dB, pinned by its driver's test
@@ -38,8 +39,8 @@ def test_every_layer_gain_fits_the_smallest_camera():
     assert failing_cases(release_catalogue(), check) == {}
 
 
-@pytest.mark.parametrize('layer', ('Green', 'Red', 'Lumi'))
+@pytest.mark.parametrize('layer', (LED1, LED2, 'Lumi'))
 def test_the_fluorescence_layers_ship_at_10_db(layer):
-    """The fit alone admits Green at 30 dB, at the smallest ceiling; the
+    """The fit alone admits LED 1 at 30 dB, at the smallest ceiling; the
     template ships the three at 10 dB, well inside every camera's range."""
     assert shipped_template()[layer]['gain_db'] == 10.0

@@ -40,6 +40,7 @@ import pytest
 
 from modules.lumascope_api.illumination import LedTransition
 from tests.af_drives import af_runner_and_scope, drive_af
+from tests.stock_channels import LED2
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +104,7 @@ class TestAutofocusAcquiresLeaseBeforeIllumination:
             runner.run(
                 objective_id='objective-under-test',
                 abort_event=threading.Event(),
-                led_color='Red',
+                led_color=LED2,
                 led_illumination=42.0,
             )
         assert scope.illumination.method_calls == [], (

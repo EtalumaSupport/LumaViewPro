@@ -14,6 +14,7 @@ from modules.exceptions import ArgumentRefusedError
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
 from modules.scope_session import ScopeSession, ShownChannel
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1
 
 
 @pytest.fixture
@@ -35,24 +36,24 @@ def test_showing_a_channel_keeps_it_dark_until_it_is_lit(session):
     heard = []
     session.add_shown_channel_listener(lambda layer, lit: heard.append((layer, lit)))
 
-    assert session.show_channel('Blue') == ShownChannel('Blue', lit=False)
+    assert session.show_channel(LED0) == ShownChannel(LED0, lit=False)
     assert _lit(session) == set()
 
     session.light_shown_channel(True)
-    blue = session.scope.illumination.get_led_state('Blue')
+    blue = session.scope.illumination.get_led_state(LED0)
     assert (blue.state, blue.illumination_ma) == (
         LedState.LIT,
-        session.settings['Blue']['illumination_ma'],
+        session.settings[LED0]['illumination_ma'],
     )
-    assert heard == [('Blue', False), ('Blue', True)]
+    assert heard == [(LED0, False), (LED0, True)]
 
 
 def test_a_lit_shown_channel_moves_its_light_to_the_next_layer(session):
     session.light_shown_channel(True)
     assert _lit(session) == {'BF'}
 
-    assert session.show_channel('Green') == ShownChannel('Green', lit=True)
-    assert _lit(session) == {'Green'}
+    assert session.show_channel(LED1) == ShownChannel(LED1, lit=True)
+    assert _lit(session) == {LED1}
 
     session.light_shown_channel(False)
     assert _lit(session) == set()
@@ -67,7 +68,7 @@ def test_a_refused_light_turns_nothing_off(session):
         illumination.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
-                channel=illumination.color2ch('Blue'),
+                channel=illumination.color2ch(LED0),
                 illumination_ma=session.scope.capabilities.led_max_ma + 1,
                 preview_on=True,
             ),
@@ -108,10 +109,10 @@ def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
     """A still held another layer (a raw LED named it); lighting the shown
     layer afterwards puts the camera back on the shown layer's settings."""
     camera = session.scope.camera
-    session.update_settings('Blue.exposure_ms', 88.0)
-    session.scope.illumination.led_on('Blue', 100.0)
+    session.update_settings(f'{LED0}.exposure_ms', 88.0)
+    session.scope.illumination.led_on(LED0, 100.0)
     session.manual_capture.capture(false_color_on=False).result(timeout=30)
-    session.scope.illumination.led_off('Blue')
+    session.scope.illumination.led_off(LED0)
 
     session.light_shown_channel(True)
 
@@ -120,7 +121,7 @@ def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
 
 
 def test_bring_up_again_shows_bf_dark(session):
-    session.show_channel('Blue')
+    session.show_channel(LED0)
     session.light_shown_channel(True)
 
     session.configure_scope()
@@ -132,7 +133,7 @@ def _run_one_blue_step(built, tmp_path):
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    blue = dict(_make_single_step_protocol(color='Blue').step_row(step_index=0))
+    blue = dict(_make_single_step_protocol(color=LED0).step_row(step_index=0))
     run = built.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([blue]), parent_dir=str(tmp_path)
     )
@@ -162,7 +163,7 @@ def _session_showing_bf(tmp_path):
 
 
 def test_a_runs_end_shows_the_layer_shown_before_it(tmp_path):
-    """BF shown before a Blue step's run: after it BF is shown again and the
+    """BF shown before an LED 0 step's run: after it BF is shown again and the
     camera holds BF's stored settings, so a still is named and set for BF."""
     built = _session_showing_bf(tmp_path)
     try:
@@ -179,7 +180,7 @@ def test_a_write_during_a_run_to_the_layer_shown_before_it_is_on_the_camera_afte
     built = _session_showing_bf(tmp_path)
 
     def write_while_the_step_is_lit(layer, _lit):
-        if layer == 'Blue':
+        if layer == LED0:
             built.update_settings('BF.exposure_ms', 7.0)
 
     built.add_shown_channel_listener(write_while_the_step_is_lit)
@@ -199,7 +200,7 @@ def test_showing_another_layer_during_a_recording_is_refused_and_changes_nothing
     recording = session.manual_recording.start(false_color_on=False)
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            session.show_channel('Blue')
+            session.show_channel(LED0)
         assert (refused.value.reason, refused.value.holder) == (
             'exclusive_activity_running',
             'recording',

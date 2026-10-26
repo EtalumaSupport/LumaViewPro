@@ -42,6 +42,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -149,13 +150,13 @@ def test_a_listener_members_event_is_its_record(client):
         assert (
             client.post(
                 '/api/v1/scope/illumination/led_on',
-                json={'channel': 'Blue', 'illumination_ma': 10.0},
+                json={'channel': LED0, 'illumination_ma': 10.0},
             ).status_code
             == 200
         )
         led = stream.until('led')[-1]
 
-    assert led['data'] == {'address': 0, 'name': 'Blue', 'state': 'lit', 'illumination_ma': 10.0}
+    assert led['data'] == {'address': 0, 'name': LED0, 'state': 'lit', 'illumination_ma': 10.0}
     assert int(led['id']) > 0
 
 
@@ -335,7 +336,7 @@ def test_an_outcome_nobody_asked_for_is_sent_once_and_an_answered_one_never(clie
         notifications.report_outcome(unasked, solicited=False, category='Unasked')
         notifications.report_outcome(unasked, solicited=False, category='Unasked')
         client.post(
-            '/api/v1/scope/illumination/led_on', json={'channel': 'Blue', 'illumination_ma': 10.0}
+            '/api/v1/scope/illumination/led_on', json={'channel': LED0, 'illumination_ma': 10.0}
         )
         events = stream.until('led')
 
@@ -345,12 +346,12 @@ def test_an_outcome_nobody_asked_for_is_sent_once_and_an_answered_one_never(clie
 
 
 def test_a_reconnect_is_sent_what_it_missed_and_no_status(client):
-    led = {'channel': 'Blue', 'illumination_ma': 10.0}
+    led = {'channel': LED0, 'illumination_ma': 10.0}
     with _reading(client) as stream:
         stream.until('status')
         client.post('/api/v1/scope/illumination/led_on', json=led)
         last = stream.until('led')[-1]['id']
-    client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
+    client.post('/api/v1/scope/illumination/led_off', json={'channel': LED0})
 
     with _reading(client, **{'Last-Event-ID': last}) as stream:
         resent = stream.until('led')
@@ -368,9 +369,9 @@ def test_a_reconnect_past_what_is_held_is_sent_reset_then_status(session, monkey
             for _ in range(3):
                 client.post(
                     '/api/v1/scope/illumination/led_on',
-                    json={'channel': 'Blue', 'illumination_ma': 10.0},
+                    json={'channel': LED0, 'illumination_ma': 10.0},
                 )
-                client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
+                client.post('/api/v1/scope/illumination/led_off', json={'channel': LED0})
             stream.until('led')
 
         with _reading(client, **{'Last-Event-ID': '0'}) as stream:
@@ -399,10 +400,10 @@ def test_a_stream_that_has_closed_hears_nothing_more(session):
         stream.until('status')
         client.post(
             '/api/v1/scope/illumination/led_on',
-            json={'channel': 'Blue', 'illumination_ma': 10.0},
+            json={'channel': LED0, 'illumination_ma': 10.0},
         )
         first = stream.until('led')[-1]
-        client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
+        client.post('/api/v1/scope/illumination/led_off', json={'channel': LED0})
         second = stream.until('led')[-1]
 
     assert first['data']['state'] == 'lit'
@@ -510,7 +511,7 @@ def test_a_poll_answers_the_events_held_after_an_id_and_the_id_to_ask_after_next
     assert begun.json()['next'] == status['id']
 
     client.post(
-        '/api/v1/scope/illumination/led_on', json={'channel': 'Blue', 'illumination_ma': 10.0}
+        '/api/v1/scope/illumination/led_on', json={'channel': LED0, 'illumination_ma': 10.0}
     )
     polled = client.get('/api/v1/events/held', params={'after': begun.json()['next']}).json()
 
@@ -529,9 +530,9 @@ def test_a_poll_after_an_id_no_longer_held_answers_reset_then_status(session, mo
         for _ in range(3):
             client.post(
                 '/api/v1/scope/illumination/led_on',
-                json={'channel': 'Blue', 'illumination_ma': 10.0},
+                json={'channel': LED0, 'illumination_ma': 10.0},
             )
-            client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
+            client.post('/api/v1/scope/illumination/led_off', json={'channel': LED0})
 
         polled = client.get('/api/v1/events/held', params={'after': 0}).json()
 

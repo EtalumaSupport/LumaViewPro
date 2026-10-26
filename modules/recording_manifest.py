@@ -132,7 +132,7 @@ def build_session_manifest(
         camera_serial: device serial string or None.
         lvp_version: LumaViewPro version (line 1 of version.txt).
         channel_color: active channel/layer color for the recording
-            ('Red', 'Green', 'Blue', 'Lumi', ...), or None for mono /
+            ('Ex405', 'Ex488', 'Ex589', 'Lumi', ...), or None for mono /
             brightfield. Consumed by the Create-Video build so a
             false-colored recording renders in color, not grayscale.
 

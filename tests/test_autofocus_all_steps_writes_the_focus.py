@@ -32,6 +32,7 @@ from modules.sequenced_capture_runner import EngineRun
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.stock_channels import LED2
 
 WAIT_S = 120.0
 FOCAL_Z_UM = 5050.0
@@ -256,7 +257,7 @@ class TestTheProtocolsOneFocusWriter:
 
     @pytest.mark.parametrize(
         'column, value',
-        [('X', 40.0), ('Y', 40.0), ('Color', 'Red'), ('Objective', '4x Oly')],
+        [('X', 40.0), ('Y', 40.0), ('Color', LED2), ('Objective', '4x Oly')],
     )
     def test_a_step_that_differs_refuses_and_changes_nothing(self, column, value):
         protocol = _two_steps()

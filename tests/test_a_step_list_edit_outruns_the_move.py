@@ -68,6 +68,7 @@ from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED2
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -443,7 +444,7 @@ def _add_bf_and_blue(
     protocol, *, before_step_index=None, after_step_index=None, use_zstacking=False
 ):
     names = []
-    for layer in ('BF', 'Blue'):
+    for layer in ('BF', LED0):
         names.append(
             protocol.insert_step(
                 channel_group_id=protocol.new_channel_group_id(),
@@ -465,12 +466,12 @@ def _add_bf_and_blue(
 
 @pytest.mark.parametrize(
     ('shown', 'selected_color'),
-    [('BF', 'BF'), ('Blue', 'Blue'), ('Red', 'BF')],
+    [('BF', 'BF'), (LED0, LED0), (LED2, 'BF')],
 )
 def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, selected_color):
-    """Adding BF and Blue while viewing BF stays on BF; nothing on screen changes.
+    """Adding BF and LED0 while viewing BF stays on BF; nothing on screen changes.
 
-    Going to the last channel added lit Blue and moved to its focus on the
+    Going to the last channel added lit LED 0 and moved to its focus on the
     bench (LS850T, 2026-10-02). A viewed channel that acquires nothing gets
     the first step added.
     """
@@ -480,6 +481,6 @@ def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, select
 
     panel.insert_step_ex(after_current_step=True)
 
-    assert list(panel._protocol.steps()['Color']) == ['BF', 'BF', 'Blue', 'BF']
+    assert list(panel._protocol.steps()['Color']) == ['BF', 'BF', LED0, 'BF']
     assert panel.curr_step in (1, 2)
     assert panel._protocol.step_row(panel.curr_step)['Color'] == selected_color

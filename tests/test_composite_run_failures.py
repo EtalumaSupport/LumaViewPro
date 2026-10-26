@@ -45,6 +45,7 @@ from tests.test_composite_run_e2e import (
     open_composite_session,
     single_run_dir,
 )
+from tests.stock_channels import LED0, LED1, LED2
 
 # The invariant middle of the substitution notice
 # config_helpers.get_composite_image_capture_config_from_settings emits --
@@ -55,11 +56,11 @@ from tests.test_composite_run_e2e import (
 # into one that passes for the wrong reason.
 _COERCION_LOG_FRAGMENT = 'cannot be merged; this run saves'
 
-# The layer whose steps are made to fail. Blue is never first in the
-# release layer order (BF, PC, DF, Blue, Green, Red, Lumi), so a run that
-# fails only Blue always has a successful step before it -- which is what
+# The layer whose steps are made to fail. LED0 is never first in the
+# release step order (BF, PC, DF, LED1, LED0, LED2, Lumi, ...), so a run that
+# fails only LED0 always has a successful step before it -- which is what
 # makes the strike counter's reset, not just its increment, observable.
-_FAILING = 'Blue'
+_FAILING = LED0
 
 
 @contextlib.contextmanager
@@ -245,7 +246,7 @@ class TestAChannelThatCapturesNothing:
         # for: a merge of the other two would hand a user a two-channel
         # image they asked three channels for. The group fails, naming the
         # channel, and no composite is written.
-        step_colors = ('BF', _FAILING, 'Green')
+        step_colors = ('BF', _FAILING, LED1)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with open_composite_session(settings) as (_session, runner):
             outcome = runner.start_composite(
@@ -276,7 +277,7 @@ class TestTheThreeStrikeFatalAbort:
         # Four acquiring channels with the camera black for the whole run
         # is the shape that separates "the run stopped" from "the run
         # finished badly": the fourth channel must never be reached.
-        step_colors = ('BF', 'Blue', 'Green', 'Red')
+        step_colors = ('BF', LED0, LED1, LED2)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with open_composite_session(settings) as (session, runner):
             # No frame at all for the whole run. A black test pattern
@@ -320,7 +321,7 @@ class TestTheThreeStrikeFatalAbort:
         # later run and recording, so the run has to be fully unwound by
         # the time the outcome resolves -- the same settling contract the
         # successful path has.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue', 'Green', 'Red'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0, LED1, LED2))
         with open_composite_session(settings) as (session, runner):
             # No frame at all for the whole run. A black test pattern
             # used to stand in for this, but a dark frame is now
@@ -343,7 +344,7 @@ class TestTheThreeStrikeFatalAbort:
         # back on at the end. A FATAL abort is the exception: the run died
         # on a fault, and leaving the sample illuminated by a scope nobody
         # is driving is the outcome that policy must not produce.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue', 'Green', 'Red'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0, LED1, LED2))
         with open_composite_session(settings) as (session, runner):
             led_board = session.scope._led_driver
             # PC is an LED layer this run does not acquire, so it can only

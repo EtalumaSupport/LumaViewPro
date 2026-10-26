@@ -27,6 +27,7 @@ from tests.scope_fakes import (
     real_executor_bundle,
     swap_lanes,
 )
+from tests.stock_channels import LED2
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +183,8 @@ class TestGetLayerConfigs:
 
     def test_specific_layers_filter(self):
         settings = _make_settings()
-        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF', 'Red'])
-        assert set(configs.keys()) == {'BF', 'Red'}
+        configs = config_helpers.get_layer_configs(settings, specific_layers=['BF', LED2])
+        assert set(configs.keys()) == {'BF', LED2}
 
     def test_illumination_rounded(self):
         settings = _make_settings()
@@ -275,7 +276,7 @@ class TestGetStimConfigs:
         del settings['BF']['stim_config']
         stim = config_helpers.get_stim_configs(settings)
         assert 'BF' not in stim
-        assert 'Red' in stim
+        assert LED2 in stim
 
     def test_no_stim_returns_empty(self):
         settings = _make_settings(with_stim=False)
@@ -522,8 +523,8 @@ class TestScopeSession:
 
     def test_get_layer_configs_with_filter(self):
         session = self._make_session()
-        configs = session.get_layer_configs(specific_layers=['Red'])
-        assert set(configs.keys()) == {'Red'}
+        configs = session.get_layer_configs(specific_layers=[LED2])
+        assert set(configs.keys()) == {LED2}
 
     def test_the_current_objective_is_the_runtime_states(self):
         # The answer is the runtime state's, not the settings dict's: on

@@ -38,6 +38,7 @@ from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from modules.zproject_method import ZProjectMethod
+from tests.stock_channels import LED0, LED1
 
 
 def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: int = 256) -> None:
@@ -299,7 +300,7 @@ class TestAHyperstackLeavesNothingWhenRefused:
 
 def test_a_custom_steps_refusal_names_no_well(tmp_path):
     rows = []
-    for z, color in ((0, 'BF'), (1, 'BF'), (0, 'Green')):
+    for z, color in ((0, 'BF'), (1, 'BF'), (0, LED1)):
         name = f'{color}_{z}.tiff'
         _write_frame(tmp_path / name, x=1.0, well='', seed=z, size=8)
         rows.append({'Filepath': name, 'Color': color, 'Scan Count': 0, 'Z-Slice': z,
@@ -318,7 +319,7 @@ def test_a_custom_steps_refusal_names_no_well(tmp_path):
 
 
 def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(tmp_path):
-    """The folder is a simulator run's: two positions, BF and Green at each."""
+    """The folder is a simulator run's: two positions, BF and LED 1 at each."""
     from modules.composite_generation import CompositeGeneration
     from modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
@@ -335,7 +336,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
             {**base, 'Name': f'p{p}_{color}', 'Label': f'p{p}_{color}', 'X': x,
              'Color': color, 'Channel Group ID': p, 'Step Index': 2 * p + c}
             for p, x in enumerate((10.0, 30.0))
-            for c, color in enumerate(('BF', 'Green'))
+            for c, color in enumerate(('BF', LED1))
         ]  # fmt: skip
         _run_protocol(session, tmp_path, steps)
     finally:
@@ -343,7 +344,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
     run_dir = next(
         p for p in tmp_path.iterdir() if p.is_dir() and (p / 'protocol_record.tsv').exists()
     )
-    bad_frame = next(run_dir.glob('p0_Green*.tiff'))
+    bad_frame = next(run_dir.glob(f'p0_{LED1}*.tiff'))
     _truncate(bad_frame)
 
     with pytest.raises(PostProcessingFailedError) as incomplete:
@@ -351,7 +352,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
             path=run_dir,
             tiling_configs_file_loc=TILING_CONFIGS,
             output_format='TIFF',
-            brightness_thresholds_percent={'Green': 50},
+            brightness_thresholds_percent={LED1: 50},
             channel_colors=release_colors(),
         )
 
@@ -486,16 +487,16 @@ class TestAFrameTheRunRecordedAndTheFolderLacks:
             [
                 {'name': f'A1_{color}_Z{z}', 'well': 'A1', 'x': 14.38, 'z_slice': z,
                  'color': color, 'channel_folder': True,
-                 **({'no_file': 'capture_failed'} if (color, z) == ('Blue', 1) else {})}
-                for color in ('BF', 'Blue')
+                 **({'no_file': 'capture_failed'} if (color, z) == (LED0, 1) else {})}
+                for color in ('BF', LED0)
                 for z in (0, 1)
             ],
         )  # fmt: skip
 
         assert _zproject(folder / 'BF')['status'] is True
         with pytest.raises(PostProcessingFailedError) as failed:
-            _zproject(folder / 'Blue')
+            _zproject(folder / LED0)
 
-        assert 'A1_Blue_Z1 scan 1 (its capture failed during the run: capture_failed)' in str(
+        assert f'A1_{LED0}_Z1 scan 1 (its capture failed during the run: capture_failed)' in str(
             failed.value.errors
         )

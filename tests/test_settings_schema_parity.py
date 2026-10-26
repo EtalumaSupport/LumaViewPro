@@ -23,6 +23,7 @@ import pathlib
 
 import pytest
 
+from modules.layer_record import release_old_names
 from tests.settings_fixtures import shipped_template
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -41,7 +42,10 @@ RUNTIME_ONLY_TOP_LEVEL = {'turret_position'}
 # schema:
 # - manual_video: renamed to video (the rate/duration authority applies
 #   to every recording path); folded by migrate_video_settings_dict.
-MIGRATED_TOP_LEVEL = {'manual_video'}
+# - the old channel names (the release's OldChannelNames): each block is
+#   renamed to its LED's key at preparation and placed by the unit at
+#   bring-up.
+MIGRATED_TOP_LEVEL = {'manual_video', *(old.name for old in release_old_names())}
 
 # Per-layer (nested dict) keys that exist ONLY in current.json, on purpose,
 # keyed by the top-level entry they live under. None now: the frame's

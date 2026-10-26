@@ -31,6 +31,7 @@ from tests.ast_seams import find_def
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 from modules.scope_session import ShownChannel
+from tests.stock_channels import LED1
 
 
 def _refusal():
@@ -88,7 +89,7 @@ def ctx(monkeypatch):
         image_settings=MagicMock(),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
-    session.shown_channel = ShownChannel('Green', lit=False)
+    session.shown_channel = ShownChannel(LED1, lit=False)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
     return context
@@ -96,7 +97,7 @@ def ctx(monkeypatch):
 
 class TestAddStep:
     def test_an_accepted_step_is_gone_to_last(self, ctx):
-        ctx.session.add_step.return_value = ['A1_Green']
+        ctx.session.add_step.return_value = [f'A1_{LED1}']
         panel = _Panel(_protocol())
 
         panel.insert_step(after_current_step=True)
@@ -125,7 +126,7 @@ class TestModifyStep:
         panel.modify_step()
 
         kwargs = ctx.session.update_step.call_args.kwargs
-        assert kwargs['channel'] == 'Green'
+        assert kwargs['channel'] == LED1
         assert kwargs['label'] == 'my_step'
 
     def test_a_refused_modify_is_shown_once(self, ctx, centre_posts):

@@ -3060,7 +3060,7 @@ class FX2LEDController:
 
     # Channel count is fixed at 4 by the hardware. Which layer each
     # address lights, and per-model LED presence (e.g. LS560 having only
-    # BF + Green), is the unit's layer identity's (scopes.json Layers),
+    # BF + Ex488), is the unit's layer identity's (scopes.json Layers),
     # NOT hidden here. The driver reports what the FX2 protocol supports.
 
     # Full-scale drive current of the Classic LED peripheral, shared by

@@ -22,6 +22,7 @@ from tests.ast_seams import REPO_ROOT
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
 )
+from tests.stock_channels import LED1
 
 
 def _stim(session, layer):
@@ -38,19 +39,19 @@ class TestTheSessionSetsTheMode:
     @pytest.mark.parametrize('mode', ['image', 'video'])
     def test_a_layer_set_to_acquire_stops_stimulating(self, session, mode):
         with session.settings_lock:
-            session.settings['Green']['stim_config']['enabled'] = True
+            session.settings[LED1]['stim_config']['enabled'] = True
 
-        session.set_channel_acquire('Green', mode)
+        session.set_channel_acquire(LED1, mode)
 
-        assert _stim(session, 'Green') is False
+        assert _stim(session, LED1) is False
 
     def test_a_layer_set_to_nothing_keeps_its_stimulation(self, session):
         with session.settings_lock:
-            session.settings['Green']['stim_config']['enabled'] = True
+            session.settings[LED1]['stim_config']['enabled'] = True
 
-        session.set_channel_acquire('Green', None)
+        session.set_channel_acquire(LED1, None)
 
-        assert _stim(session, 'Green') is True
+        assert _stim(session, LED1) is True
 
     def test_an_unknown_layer_is_refused(self, session):
         with pytest.raises(ArgumentRefusedError) as refused:

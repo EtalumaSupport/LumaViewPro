@@ -22,7 +22,7 @@ import modules.manual_recording as manual_recording_module
 import modules.stack_builder as stack_builder_module
 from modules.coord_transformations import PlatePosition
 from modules.exceptions import RecordingRefusedError
-from modules.layer_record import release_catalogue
+from modules.layer_record import load_scope_models
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
@@ -36,8 +36,17 @@ from modules.lumascope_api import AxisPosition, AxisState
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from tests.post_processing_lane import a_post_processing_api
+from tests.stock_channels import LED0, LED1, LED2
 
 TICK_HZ = 1_000_000_000
+
+# The layers the stock models carry, read from the units' own rows: the
+# release lists keys (Ex550, Ex640) that no stock model has.
+_STOCK_LAYERS = tuple(
+    dict.fromkeys(
+        record.key_name for model in load_scope_models().values() for record in model.channels
+    )
+)
 
 
 # The test's own builds, a real lane per test (``_a_lane_of_builds``).
@@ -139,7 +148,7 @@ class _FakeIllumination:
     # One reading per board address, address order, each named by the
     # layer the unit's identity gives it; the two trailing addresses are
     # named by no layer, as on an EL-0940 board.
-    _NAMES = ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF', None, None)
+    _NAMES = (LED0, LED1, LED2, 'BF', 'PC', 'DF', None, None)
 
     def get_led_states(self):
         if not self._board:
@@ -185,9 +194,10 @@ class _FakeScope:
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
-        # Every layer of the release: the recording's start asks the scope
-        # has the layer it is named for, and these tests name each.
-        self.channel_identity = identity_with_layers(release_catalogue(), model='LS850')
+        # Every layer a stock model carries: the recording's start asks the
+        # scope has the layer it is named for, and these tests name the
+        # LS850's layers and Lumi.
+        self.channel_identity = identity_with_layers(_STOCK_LAYERS, model='LS850')
         # A scope that reports no optics: the recording start resolves its
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(
@@ -361,7 +371,7 @@ class TestRateLimit:
 
 class TestFramesLeg:
     def test_end_to_end_frames_and_manifest(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit=LED0)
         controller.start(false_color_on=True)
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
@@ -376,7 +386,7 @@ class TestFramesLeg:
         manifest = json.loads((folders[0] / 'recording_manifest.json').read_text())
         assert manifest['frames_written'] == 5
         assert manifest['write_failures'] == 0
-        assert (manifest['channel'], manifest['false_color']) == ('Blue', True)
+        assert (manifest['channel'], manifest['false_color']) == (LED0, True)
         assert manifest['camera']['model'] == 'testcam-9000'
         assert manifest['camera']['serial'] == 'TC9K-001'
         assert manifest['camera']['timestamp_tick_hz'] == TICK_HZ
@@ -391,7 +401,7 @@ class TestFramesLeg:
         # join the first via mkdir(exist_ok=True): measured on the bench as 19
         # recordings landing in 6 folders, frame numbers restarting per
         # recording so a rebuild interleaved them into one scrambled video.
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit=LED0)
 
         controller.start(false_color_on=True)
         feed_frames(scope, clock, 3, fps=10.0)
@@ -575,7 +585,7 @@ class TestFailedStartUnwind:
         # off the encoder init defers and the assertion would hold for a
         # reason that has nothing to do with the unwind.
         made = _capture_engine_and_writer(monkeypatch)
-        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False, lit='Blue')
+        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False, lit=LED0)
         _fail_the_finish_thread(monkeypatch)
 
         with pytest.raises(RuntimeError):
@@ -662,7 +672,7 @@ def _block_the_finish(monkeypatch):
 class TestExclusivitySpansTheFinish:
     def test_second_start_during_finish_is_refused(self, tmp_path, monkeypatch):
         entered, release = _block_the_finish(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0)
         try:
             controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
@@ -689,9 +699,7 @@ class TestExclusivitySpansTheFinish:
         # before the last refusal: a refused start that still nags the
         # user about their FPS budget has already run half of start().
         entered, release = _block_the_finish(monkeypatch)
-        controller, scope, clock = make_controller(
-            tmp_path, hyperstack=True, lit='Blue', max_fps=20
-        )
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, max_fps=20)
         try:
             controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
@@ -715,7 +723,7 @@ class TestARecordingIsAnOperation:
 
     def test_its_operation_is_done_only_when_a_new_start_is_accepted(self, tmp_path, monkeypatch):
         entered, release = _block_the_finish(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0)
         try:
             recording = controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
@@ -973,13 +981,13 @@ class TestChannelIdentity:
         # A channel can be lit while a different one is shown -- the LED
         # is the evidence of what was imaged, so it wins.
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0)
         controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == ['Blue', 'Blue']
+        assert list(captured['df']['Color']) == [LED0, LED0]
 
     def test_luminescence_records_with_zero_lit_channels(self, tmp_path, monkeypatch):
         # Lumi is legitimately unlit; the shown channel names it.
@@ -1011,14 +1019,14 @@ class TestChannelIdentity:
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
         controller, scope, clock = make_controller(
-            tmp_path, scope=scope, hyperstack=True, shown='Green'
+            tmp_path, scope=scope, hyperstack=True, shown=LED1
         )
         controller.start(false_color_on=True)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['Color']) == ['Green', 'Green']
+        assert list(captured['df']['Color']) == [LED1, LED1]
 
     def test_brightfield_hyperstack_is_actually_written(self, tmp_path):
         # End to end with the REAL builder: the defect this fix exists for
@@ -1038,7 +1046,7 @@ class TestChannelIdentity:
         # REGRESSION PIN. false_color is a RENDERING field: video_builder
         # reads it back to decide whether to colorize a rebuild, so a
         # recording saved mono records that it was, beside its channel.
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit=LED0)
         controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
@@ -1046,12 +1054,12 @@ class TestChannelIdentity:
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert (manifest['channel'], manifest['false_color']) == ('Blue', False)
+        assert (manifest['channel'], manifest['false_color']) == (LED0, False)
         assert 'channel_color' not in manifest
 
     def test_toggle_on_records_the_channel_in_false_colour(self, tmp_path):
         # The other half of the pin: rendering on still records the color.
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit=LED0)
         controller.start(false_color_on=True)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
@@ -1059,7 +1067,7 @@ class TestChannelIdentity:
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert (manifest['channel'], manifest['false_color']) == ('Blue', True)
+        assert (manifest['channel'], manifest['false_color']) == (LED0, True)
 
 
 class TestCloseWithProgress:
@@ -1329,17 +1337,17 @@ class TestTheRecordedPosition:
 
     def test_each_row_is_its_own_frames_position_and_channel(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0)
         controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.positions['X'] = 3000.0
-        scope.illumination._lit = 'Green'
+        scope.illumination._lit = LED1
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
 
         assert list(captured['df']['X']) == [1.5, 3.5]
-        assert list(captured['df']['Color']) == ['Blue', 'Green']
+        assert list(captured['df']['Color']) == [LED0, LED1]
 
     def test_a_frames_recording_without_a_hyperstack_is_told_too(self, tmp_path, monkeypatch):
         shown = []
@@ -1460,17 +1468,17 @@ class TestEachFrameRecordsItsOwnMoment:
         assert moving['z_pos_um'] == 3.0, 'a moving axis still knows its frame of reference'
 
     def test_the_channel_that_lit_each_frame_is_recorded(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit=LED0)
         controller.start(false_color_on=True)
         feed_frames(scope, clock, 1, fps=10.0)
-        scope.illumination._lit = 'Green'
+        scope.illumination._lit = LED1
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
 
         blue, green = self._described_frames(tmp_path)
-        assert blue['channel'] == 'Blue'
-        assert green['channel'] == 'Green'
+        assert blue['channel'] == LED0
+        assert green['channel'] == LED1
 
     def test_without_labware_frames_record_no_plate_position_but_keep_z(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
@@ -1496,10 +1504,10 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
     def test_the_notification_carries_the_builders_reason_and_the_frames_stand(
         self, tmp_path, centre_posts
     ):
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0)
         controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
-        scope.illumination._lit = 'Green'
+        scope.illumination._lit = LED1
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)

@@ -27,6 +27,7 @@ import pytest
 from modules.exceptions import AutofocusFailedError
 from modules.notification_center import Severity
 from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
+from tests.stock_channels import LED1
 
 
 def _flat_curve(monkeypatch):
@@ -101,7 +102,7 @@ class TestDegenerateCurveReportsFailure:
         _flat_curve(monkeypatch)
         runner, scope = af_runner_and_scope()
 
-        _drive_flat(runner, keep_led_on=True, led_color='Green')
+        _drive_flat(runner, keep_led_on=True, led_color=LED1)
 
         lease = af_lease(scope)
         assert lease.apply.called, 'the AF-end LED transition must be applied'

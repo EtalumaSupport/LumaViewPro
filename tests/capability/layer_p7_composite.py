@@ -3,12 +3,13 @@
 import pathlib
 import traceback
 import harness
+from tests.stock_channels import LED0, LED1
 
 s, live = harness.make_session('p7')
 try:
     # two channels acquiring an image is the composite's own precondition
     with s.settings_lock:
-        for lay in ('Blue', 'Green'):
+        for lay in (LED0, LED1):
             s.settings[lay]['acquire'] = 'image'
             s.settings[lay]['illumination_ma'] = 50
     runner = s.create_protocol_runner()

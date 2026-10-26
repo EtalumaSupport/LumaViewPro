@@ -35,6 +35,7 @@ from modules import common_utils
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED1
 
 
 def test_the_light_scales_with_the_led_current():
@@ -298,12 +299,12 @@ def _shown(scope, layer: str, ma: float, exposure_ms: float, gain_db: float) -> 
 
 
 # Each layer's shipped (mA, ms, dB): what makes it look right on a scope.
-_SHIPPED = {'BF': (5.0, 2.0, 1.0), 'Green': (250.0, 100.0, 10.0)}
+_SHIPPED = {'BF': (5.0, 2.0, 1.0), LED1: (250.0, 100.0, 10.0)}
 
 
 # The two simulated cameras, and a bright modality and a dim one.
 @pytest.mark.parametrize('model', ['LS850', 'LS620'])
-@pytest.mark.parametrize('layer', ['BF', 'Green'])
+@pytest.mark.parametrize('layer', ['BF', LED1])
 def test_each_slider_moves_the_image_from_the_layer_s_shipped_settings(model, layer):
     ma, ms, db = _SHIPPED[layer]
     with _scope(model) as scope:
@@ -319,7 +320,7 @@ def test_each_slider_moves_the_image_from_the_layer_s_shipped_settings(model, la
 
 
 # A bright modality and a dim one.
-@pytest.mark.parametrize('layer', ['BF', 'Green'])
+@pytest.mark.parametrize('layer', ['BF', LED1])
 def test_a_layer_at_its_shipped_settings_shows_the_field_unsaturated(layer):
     with _scope('LS850') as scope:
         frame = _shown(scope, layer, *_SHIPPED[layer])

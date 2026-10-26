@@ -25,6 +25,7 @@ from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import ProtocolFormatError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import make_session  # noqa: F401
 from modules.protocol import StoredNames
+from tests.stock_channels import LED0
 
 
 def _saved_steps(session, path, count):
@@ -259,7 +260,7 @@ def test_the_plate_read_and_the_steps_record_nothing_for_an_absent_axis(
 def test_a_composite_runs_on_a_scope_without_a_stage(make_session, tmp_path, model):
     session = make_session(model)
     # One transmitted and one fluorescence channel: two planes of a composite.
-    for layer in ('BF', 'Blue'):
+    for layer in ('BF', LED0):
         session.set_channel_acquire(layer, 'image')
 
     outcome = session.create_protocol_runner().run_composite(
@@ -273,7 +274,7 @@ def test_channels_added_together_without_a_stage_are_one_composite(make_session,
     # #772's case on a scope whose steps carry no X/Y.
     session = make_session('LS820')
     # One transmitted and one fluorescence channel: two planes of a composite.
-    for layer in ('BF', 'Blue'):
+    for layer in ('BF', LED0):
         session.set_channel_acquire(layer, 'image')
     protocol = session.create_empty_protocol()
     session.add_step(protocol)

@@ -32,6 +32,7 @@ from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from ui.motion_settings import XYStageControl
 from ui.stage import Stage
+from tests.stock_channels import LED0
 
 
 class _DrawnError(Exception):
@@ -141,7 +142,7 @@ def test_once_the_bridge_unregisters_the_scopes_events_schedule_nothing(window):
         session.scope.illumination.led_on('BF', ma)
         session.show_channel(layer)
 
-    tell(10000.0, 10.0, 'Blue')
+    tell(10000.0, 10.0, LED0)
     assert not scheduled.empty(), 'registered, the events schedule redraws'
     window.bridge.unregister_all()
     window.bridge.unregister_all()

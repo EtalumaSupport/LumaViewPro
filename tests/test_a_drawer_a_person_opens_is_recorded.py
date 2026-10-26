@@ -20,6 +20,7 @@ import pytest
 
 from modules.scope_session import ShownChannel
 from ui.ui_helpers import LoggedAccordionItem
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -137,7 +138,7 @@ def test_a_persons_open_asks_the_session_and_redraws_from_its_answer(monkeypatch
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the ask
     panel = SimpleNamespace(draw_shown_channel=lambda: None)
 
-    ImageSettings._show_channel_for_person(panel, 'Blue')
+    ImageSettings._show_channel_for_person(panel, LED0)
 
-    assert asked == ['Blue']
-    assert submits == [(panel.draw_shown_channel, 'SHOW_CHANNEL_Blue', {})]
+    assert asked == [LED0]
+    assert submits == [(panel.draw_shown_channel, f'SHOW_CHANNEL_{LED0}', {})]

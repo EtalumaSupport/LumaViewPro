@@ -16,6 +16,7 @@ import tifffile
 from modules import image_utils
 from modules.image_utils import mono_to_rgb_falsecolor
 from modules.layer_record import GREY, parse_display_color, release_color
+from tests.stock_channels import LED0, LED1, LED2
 
 
 @pytest.fixture
@@ -30,12 +31,12 @@ def mono_uint16():
 
 @pytest.mark.parametrize('dtype_fixture', ['mono_uint8', 'mono_uint16'])
 class TestFluorescenceLayers:
-    """Red / Green / Blue / Lumi each place the source in the canonical
-    RGB index. Other channels are zero."""
+    """LED 2 / LED 1 / LED 0 / Lumi each place the source in the RGB index of
+    their colour (red / green / blue / blue). Other channels are zero."""
 
     def test_red_layer_populates_index_0(self, request, dtype_fixture):
         mono = request.getfixturevalue(dtype_fixture)
-        rgb = mono_to_rgb_falsecolor(mono, release_color('Red'))
+        rgb = mono_to_rgb_falsecolor(mono, release_color(LED2))
         assert rgb.shape == (8, 8, 3)
         assert rgb.dtype == mono.dtype
         assert (rgb[:, :, 0] == mono).all()
@@ -44,14 +45,14 @@ class TestFluorescenceLayers:
 
     def test_green_layer_populates_index_1(self, request, dtype_fixture):
         mono = request.getfixturevalue(dtype_fixture)
-        rgb = mono_to_rgb_falsecolor(mono, release_color('Green'))
+        rgb = mono_to_rgb_falsecolor(mono, release_color(LED1))
         assert (rgb[:, :, 0] == 0).all()
         assert (rgb[:, :, 1] == mono).all()
         assert (rgb[:, :, 2] == 0).all()
 
     def test_blue_layer_populates_index_2(self, request, dtype_fixture):
         mono = request.getfixturevalue(dtype_fixture)
-        rgb = mono_to_rgb_falsecolor(mono, release_color('Blue'))
+        rgb = mono_to_rgb_falsecolor(mono, release_color(LED0))
         assert (rgb[:, :, 0] == 0).all()
         assert (rgb[:, :, 1] == 0).all()
         assert (rgb[:, :, 2] == mono).all()
@@ -84,12 +85,12 @@ class TestInputShapeContract:
     def test_3d_input_raises(self):
         rgb = np.zeros((8, 8, 3), dtype=np.uint8)
         with pytest.raises(ValueError, match='2D'):
-            mono_to_rgb_falsecolor(rgb, release_color('Red'))
+            mono_to_rgb_falsecolor(rgb, release_color(LED2))
 
     def test_1d_input_raises(self):
         flat = np.zeros(64, dtype=np.uint8)
         with pytest.raises(ValueError, match='2D'):
-            mono_to_rgb_falsecolor(flat, release_color('Red'))
+            mono_to_rgb_falsecolor(flat, release_color(LED2))
 
 
 class TestSourcePreservation:
@@ -98,7 +99,7 @@ class TestSourcePreservation:
     def test_source_not_mutated(self):
         mono = np.full((4, 4), 50, dtype=np.uint16)
         mono_copy = mono.copy()
-        _ = mono_to_rgb_falsecolor(mono, release_color('Red'))
+        _ = mono_to_rgb_falsecolor(mono, release_color(LED2))
         assert (mono == mono_copy).all()
 
 
@@ -135,7 +136,7 @@ class TestAColourIsAValue:
         image_utils.write_tiff(
             data=np.full((8, 8), 7, dtype=np.uint8),
             file_loc=path,
-            metadata={**_METADATA, 'channel': 'Blue'},
+            metadata={**_METADATA, 'channel': LED0},
             ome=False,
             color=self.ORANGE,
             significant_bits=8,
@@ -152,7 +153,7 @@ class TestAColourIsAValue:
         image_utils.write_tiff(
             data=np.full((8, 8), 700, dtype=np.uint16),
             file_loc=path,
-            metadata={**_METADATA, 'channel': 'Blue'},
+            metadata={**_METADATA, 'channel': LED0},
             ome=False,
             color=self.ORANGE,
             significant_bits=12,
@@ -178,7 +179,7 @@ class TestAColourIsAValue:
         )
         metadata = image_utils.build_hyperstack_output_metadata(
             reference,
-            channel_names=['Blue'],
+            channel_names=[LED0],
             channel_colors=[self.MAGENTA],
             plane_positions={
                 'PositionX': [0.0],

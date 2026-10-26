@@ -26,6 +26,7 @@ from tests.settings_fixtures import complete_settings
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingRefusedError
 from modules.image_mode import OutputFormat
+from tests.stock_channels import LED0, LED1, LED2
 
 # pin-justified: kv is declarative source with no headless seam; the kv
 # text is the contract.
@@ -97,7 +98,7 @@ def _stub_helper(post_processor, df, record=None):
 
 def test_composite_rejects_jpg_source_with_clear_message():
     comp = _make_composite()
-    df = pd.DataFrame({'Filepath': ['A1_Green_0000.jpg', 'A1_Red_0000.jpg']})
+    df = pd.DataFrame({'Filepath': [f'A1_{LED1}_0000.jpg', f'A1_{LED2}_0000.jpg']})
     # No record stub needed: the JPG guard returns before the record is used.
     _stub_helper(comp, df)
     with pytest.raises(PostProcessingRefusedError) as refused:
@@ -105,25 +106,27 @@ def test_composite_rejects_jpg_source_with_clear_message():
     assert refused.value.reason == 'unsupported_source_format'
     assert 'JPG' in str(refused.value)
     assert 'TIFF' in str(refused.value)
-    assert 'A1_Green_0000.jpg' in str(refused.value)
+    assert f'A1_{LED1}_0000.jpg' in str(refused.value)
 
 
 def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
     comp = _make_composite()
-    df = pd.DataFrame({'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.jpg', 'A1_Blue_0000.jpg']})
+    df = pd.DataFrame(
+        {'Filepath': [f'A1_{LED1}_0000.tiff', f'A1_{LED2}_0000.jpg', f'A1_{LED0}_0000.jpg']}
+    )
     _stub_helper(comp, df)
 
     with pytest.raises(PostProcessingRefusedError) as refused:
         comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
 
     assert refused.value.reason == 'unsupported_source_format'
-    assert 'A1_Red_0000.jpg' in str(refused.value)
-    assert 'A1_Blue_0000.jpg' not in str(refused.value)
+    assert f'A1_{LED2}_0000.jpg' in str(refused.value)
+    assert f'A1_{LED0}_0000.jpg' not in str(refused.value)
 
 
 def test_composite_does_not_trip_guard_for_tiff_source():
     comp = _make_composite()
-    df = pd.DataFrame({'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.tiff']})
+    df = pd.DataFrame({'Filepath': [f'A1_{LED1}_0000.tiff', f'A1_{LED2}_0000.tiff']})
     _stub_helper(comp, df, record=_RecordStub())
     # Isolate the format guard from downstream grouping: a TIFF scan must get
     # PAST the guard. Stub the grouping so the test asserts only that the

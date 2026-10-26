@@ -38,6 +38,7 @@ from modules.scope_session import ScopeSession
 from rest.app import SERVER_SEGMENTS, build_app
 from rest.routes import routes
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED2
 
 
 @pytest.fixture
@@ -308,26 +309,24 @@ def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_w
 def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, session):
     on = client.post(
         '/api/v1/scope/illumination/led_on',
-        json={'channel': 'Red', 'illumination_ma': 10.0},
+        json={'channel': LED2, 'illumination_ma': 10.0},
     )
     assert on.status_code == 200
     assert on.json() == 10.0
-    assert session.scope.illumination.get_led_state('Red') == LedReading(
-        2, 'Red', LedState.LIT, 10.0
-    )
+    assert session.scope.illumination.get_led_state(LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
-    state = client.get('/api/v1/scope/illumination/get_led_state', params={'channel': 'Red'})
-    assert state.json() == {'address': 2, 'name': 'Red', 'state': 'lit', 'illumination_ma': 10.0}
+    state = client.get('/api/v1/scope/illumination/get_led_state', params={'channel': LED2})
+    assert state.json() == {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0}
 
 
 def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session):
     # The snapshot holds its readings as records inside an array; the
     # wire answers it as JSON and restore_led_state decodes it back.
-    session.scope.illumination.led_on('Red', 10.0)
+    session.scope.illumination.led_on(LED2, 10.0)
     snapshot = client.get('/api/v1/scope/illumination/save_led_state', params={'tag': 'before'})
     assert snapshot.status_code == 200
     assert snapshot.json()['tag'] == 'before'
-    assert {'address': 2, 'name': 'Red', 'state': 'lit', 'illumination_ma': 10.0} in (
+    assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in (
         snapshot.json()['readings']
     )
     session.scope.illumination.leds_off()
@@ -337,28 +336,26 @@ def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session)
     )
 
     assert restored.status_code == 200
-    assert session.scope.illumination.get_led_state('Red') == LedReading(
-        2, 'Red', LedState.LIT, 10.0
-    )
+    assert session.scope.illumination.get_led_state(LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
 
 @pytest.mark.parametrize('body', [None, {}])
 def test_a_method_with_no_arguments_takes_an_empty_body_or_an_empty_object(client, session, body):
-    session.scope.illumination.led_on('Red', 10.0)
+    session.scope.illumination.led_on(LED2, 10.0)
 
     answer = client.post('/api/v1/scope/illumination/leds_off', json=body)
 
     assert answer.status_code == 200
-    assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
+    assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
 
 
 @pytest.mark.parametrize(
     'body',
     [
         {},
-        {'channel': 'Red'},
-        {'channel': 'Red', 'illumination_ma': '10'},
-        {'channel': 'Red', 'illumination_ma': 10.0, 'brightness': 3},
+        {'channel': LED2},
+        {'channel': LED2, 'illumination_ma': '10'},
+        {'channel': LED2, 'illumination_ma': 10.0, 'brightness': 3},
     ],
     ids=[
         'empty',
@@ -371,7 +368,7 @@ def test_a_body_that_does_not_fit_is_422_and_reaches_nothing(client, session, bo
     answer = client.post('/api/v1/scope/illumination/led_on', json=body)
 
     assert answer.status_code == 422
-    assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
+    assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
 
 
 def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client, session):
@@ -409,12 +406,12 @@ def test_a_number_that_is_not_finite_is_422_and_reaches_nothing(client, session,
     # Python's JSON reader takes these tokens, though JSON has none of them.
     answer = client.post(
         '/api/v1/scope/illumination/led_on',
-        content=f'{{"channel": "Red", "illumination_ma": {number}}}',
+        content=f'{{"channel": "{LED2}", "illumination_ma": {number}}}',
         headers={'content-type': 'application/json'},
     )
 
     assert answer.status_code == 422
-    assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
+    assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
 
 
 def test_a_member_route_takes_no_query_string(client):

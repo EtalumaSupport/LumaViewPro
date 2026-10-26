@@ -42,12 +42,13 @@ from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1, LED2
 
 AT = PlateLocation(x_mm=122.26, y_mm=81.48, z_um=5000.0)
 OBJECTIVE = '4x Oly'
 # The reporter's four Adds at one position, in order (#772's own files).
-ADDS = (('BF',), ('BF', 'Green'), ('BF', 'Blue', 'Green', 'Red'), ('BF', 'Blue', 'Green', 'Red'))
-THRESHOLDS = {'Blue': 25, 'Green': 25, 'Red': 25}
+ADDS = (('BF',), ('BF', LED1), ('BF', LED0, LED1, LED2), ('BF', LED0, LED1, LED2))
+THRESHOLDS = {LED0: 25, LED1: 25, LED2: 25}
 
 
 def _layer_configs(acquiring):
@@ -162,7 +163,7 @@ class TestEachAddIsItsOwnComposite:
         assert len(result['artifact_paths']) == 3, result
 
     def test_an_add_shares_one_group_and_the_next_add_takes_a_new_one(self, scope):
-        protocol = _added(scope, adds=(('BF', 'Green'), ('BF', 'Green')))
+        protocol = _added(scope, adds=(('BF', LED1), ('BF', LED1)))
 
         groups = list(protocol.steps()['Channel Group ID'])
 
@@ -195,7 +196,7 @@ class TestTheCompositeRefusesADoubledPlane:
     @pytest.mark.usefixtures('turret_in_a_known_slot')
     @pytest.mark.parametrize(
         'adds',
-        [(('BF', 'Red'), ('Red',)), (('BF', 'PC', 'Red'),), (('BF', 'Red'), ('BF',))],
+        [(('BF', LED2), (LED2,)), (('BF', 'PC', LED2),), (('BF', LED2), ('BF',))],
         ids=['two-of-one-color', 'two-transmitted-layers', 'two-of-the-transmitted-layer'],
     )
     def test_a_group_with_two_images_for_one_plane_is_not_composited(self, scope, tmp_path, adds):
@@ -211,7 +212,7 @@ class TestTheCompositeRefusesADoubledPlane:
         assert failed.value.produced_paths == ()
 
     def test_one_image_per_plane_is_composited(self, tmp_path):
-        df = self._files(tmp_path, ('BF', 'Green', 'Red'))
+        df = self._files(tmp_path, ('BF', LED1, LED2))
         out = tmp_path / 'composite.tiff'
 
         result = CompositeGeneration._create_composite_image(
@@ -259,35 +260,33 @@ def _group_sizes(builder, frame):
 
 class TestTheOtherBuildsGroupByAdd:
     def test_a_z_projection_takes_one_adds_slices_only(self):
-        # Two Adds of Green at one position, each z-stacked to two slices.
-        frame = _raw_frame([('Green', g, 0, z, '', AT.x_mm) for g in (0, 1) for z in (0, 1)])
+        # Two Adds of LED 1 at one position, each z-stacked to two slices.
+        frame = _raw_frame([(LED1, g, 0, z, '', AT.x_mm) for g in (0, 1) for z in (0, 1)])
 
         assert _group_sizes(ZProjector, frame) == [2, 2]
 
     def test_a_timelapse_takes_one_adds_stills_only(self):
-        frame = _raw_frame([('Green', g, scan, -1, '', AT.x_mm) for g in (0, 1) for scan in (0, 1)])
+        frame = _raw_frame([(LED1, g, scan, -1, '', AT.x_mm) for g in (0, 1) for scan in (0, 1)])
 
         assert _group_sizes(VideoBuilder, frame) == [2, 2]
 
     def test_a_hyperstack_takes_one_adds_channels_only(self):
-        frame = _raw_frame([(c, g, 0, -1, '', AT.x_mm) for g in (0, 1) for c in ('BF', 'Green')])
+        frame = _raw_frame([(c, g, 0, -1, '', AT.x_mm) for g in (0, 1) for c in ('BF', LED1)])
 
         assert _group_sizes(StackBuilder, frame) == [2, 2]
 
     def test_a_stitch_belongs_to_an_add_only_when_every_tile_does(self):
         # Then the composite of stitched channels groups by that Add; tiles
         # from several Adds belong to none (-1).
-        one_add = _raw_frame([('Green', 3, 0, -1, 't', x) for x in (10.0, 12.0)])
-        several = _raw_frame([('Green', g, 0, -1, '', x) for g, x in ((0, 10.0), (1, 12.0))])
+        one_add = _raw_frame([(LED1, 3, 0, -1, 't', x) for x in (10.0, 12.0)])
+        several = _raw_frame([(LED1, g, 0, -1, '', x) for g, x in ((0, 10.0), (1, 12.0))])
 
         assert Stitcher._stitched_channel_group(one_add) == 3
         assert Stitcher._stitched_channel_group(several) == -1
 
     def test_a_stitch_still_joins_one_color_across_adds_at_several_positions(self):
         # Each position Added on its own: one Add per tile of the mosaic.
-        frame = _raw_frame(
-            [('Green', g, 0, -1, '', x) for g, x in ((0, 10.0), (1, 12.0), (2, 14.0))]
-        )
+        frame = _raw_frame([(LED1, g, 0, -1, '', x) for g, x in ((0, 10.0), (1, 12.0), (2, 14.0))])
 
         assert _group_sizes(Stitcher, frame) == [3]
 
@@ -297,7 +296,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
     def test_a_timelapse_with_two_stills_in_one_scan_is_refused_naming_them(self, scope, tmp_path):
         # Two Adds' stills are one group only in a folder from before steps
         # recorded their Add.
-        protocol = _added(scope, adds=(('Green',), ('Green',)))
+        protocol = _added(scope, adds=((LED1,), (LED1,)))
         folder = _run_folder(tmp_path, protocol, without_groups=True)
 
         with pytest.raises(PostProcessingFailedError) as failed:
@@ -317,7 +316,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
 
     @pytest.mark.usefixtures('turret_in_a_known_slot')
     def test_a_stack_with_two_stills_for_one_plane_is_refused_naming_them(self, scope, tmp_path):
-        protocol = _added(scope, adds=(('Green',), ('Green',)))
+        protocol = _added(scope, adds=((LED1,), (LED1,)))
         folder = _run_folder(tmp_path, protocol, without_groups=True)
 
         with pytest.raises(PostProcessingFailedError) as failed:
@@ -337,7 +336,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestAnUpdateCannotDoubleAChannelInItsAdd:
     def test_changing_a_step_to_a_channel_its_add_holds_is_refused_and_nothing_changes(self, scope):
-        protocol = _added(scope, adds=(('BF', 'Green'),))
+        protocol = _added(scope, adds=(('BF', LED1),))
         before = protocol.steps()
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
@@ -345,7 +344,7 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
                 protocol,
                 1,
                 layer='BF',
-                layer_configs=_layer_configs(('BF', 'Green')),
+                layer_configs=_layer_configs(('BF', LED1)),
                 stim_configs={},
                 plate_position=AT,
                 objective_id=OBJECTIVE,
@@ -355,14 +354,14 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
         pd.testing.assert_frame_equal(protocol.steps(), before)
 
     def test_a_step_from_before_the_column_has_no_add_to_check(self, scope):
-        protocol = _added(scope, adds=(('BF', 'Green'),))
+        protocol = _added(scope, adds=(('BF', LED1),))
         protocol._config['steps']['Channel Group ID'] = -1
 
         scope.protocols.update_step(
             protocol,
             1,
             layer='BF',
-            layer_configs=_layer_configs(('BF', 'Green')),
+            layer_configs=_layer_configs(('BF', LED1)),
             stim_configs={},
             plate_position=AT,
             objective_id=OBJECTIVE,
@@ -377,7 +376,7 @@ class TestAGeneratedProtocolKeepsAPositionTogether:
     ):
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None
-        for layer in ('BF', 'Green'):
+        for layer in ('BF', LED1):
             session.set_channel_acquire(layer, 'image')
         protocol = session.new_protocol(tiling='2x2')
         steps = protocol.steps()
@@ -412,7 +411,7 @@ class TestAHyperstackAfterApplyTiling:
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None
         session.settings['BF']['acquire'] = 'image'
-        session.settings['Green']['acquire'] = 'image'
+        session.settings[LED1]['acquire'] = 'image'
         session.scope.motion.move_xy(x_um=20000)
         session.scope.motion.move_xy(y_um=40000)
         session.scope.motion.move_z(5000.0)
@@ -422,4 +421,4 @@ class TestAHyperstackAfterApplyTiling:
         session.apply_tiling(protocol, '2x2')
 
         stacks = list(StackBuilder._get_groups(_frame_of(protocol.steps())))
-        assert sorted(sorted(g['Color']) for _, g in stacks) == [['BF', 'Green']] * 4
+        assert sorted(sorted(g['Color']) for _, g in stacks) == [['BF', LED1]] * 4

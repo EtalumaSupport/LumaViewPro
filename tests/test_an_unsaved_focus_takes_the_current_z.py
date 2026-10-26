@@ -5,7 +5,7 @@ The shipped template gave every layer a focus of 4950.0, which the default
 merge copied into each user's live settings, so a channel nobody focused
 looked saved and every step built for it went to that height: Add, New and
 a composite capture alike (bench, LS850T, 2026-10-02: BF saved at 5998.6,
-Blue never saved, Blue's steps at 4950). New images a saved channel at its
+LED 0's channel never saved, its steps at 4950). New images a saved channel at its
 saved focus; Add images every channel at the current Z
 (`tests/test_adding_a_step_is_an_api_capability.py`).
 """
@@ -23,6 +23,7 @@ from modules.exceptions import FocusNotSavedError, ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from tests.settings_fixtures import shipped_template
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -52,7 +53,7 @@ def _input_config(**extra):
         'zstack_params': {'range': 0, 'step_size': 0, 'z_reference': 'center'},
         'use_zstacking': False,
         'tiling': '1x1',
-        'layer_configs': {'BF': _layer(5998.6), 'Blue': _layer(None)},
+        'layer_configs': {'BF': _layer(5998.6), LED0: _layer(None)},
         'period': None,
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},
@@ -97,14 +98,14 @@ def test_a_stored_shipped_focus_is_read_as_never_saved():
 def test_the_files_retirements_read_a_stored_shipped_focus_as_never_saved(caplog):
     import logging
 
-    stored = {'Blue': {'focus': 4950.0}, 'BF': {'focus': 5998.6}}
+    stored = {LED0: {'focus': 4950.0}, 'BF': {'focus': 5998.6}}
 
     with caplog.at_level(logging.INFO):
         settings_init._retire_shipped_values(logging.getLogger('test'), stored)
 
-    assert stored['Blue']['focus'] is None
+    assert stored[LED0]['focus'] is None
     assert stored['BF']['focus'] == 5998.6
-    assert 'No focus was ever saved for Blue' in caplog.text
+    assert f'No focus was ever saved for {LED0}' in caplog.text
 
 
 def test_new_images_an_unsaved_channel_at_the_current_z_and_a_saved_one_at_its_focus(
@@ -112,12 +113,12 @@ def test_new_images_an_unsaved_channel_at_the_current_z_and_a_saved_one_at_its_f
 ):
     steps = _from_config(_input_config(current_z=6100.0), scale_capabilities)
 
-    assert set(steps[steps['Color'] == 'Blue']['Z']) == {6100.0}
+    assert set(steps[steps['Color'] == LED0]['Z']) == {6100.0}
     assert set(steps[steps['Color'] == 'BF']['Z']) == {5998.6}
 
 
 def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capabilities):
-    with pytest.raises(ProtocolRunRefusedError, match='No focus is saved for Blue') as refused:
+    with pytest.raises(ProtocolRunRefusedError, match=f'No focus is saved for {LED0}') as refused:
         _from_config(_input_config(), scale_capabilities)
     assert refused.value.reason == 'focus_not_given'
 
@@ -125,8 +126,8 @@ def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capab
 def test_the_saved_focus_of_a_channel_never_saved_is_refused():
     from modules.scope_session import ScopeSession
 
-    session = SimpleNamespace(settings={'Blue': {'focus': None}, 'BF': {'focus': 5998.6}})
+    session = SimpleNamespace(settings={LED0: {'focus': None}, 'BF': {'focus': 5998.6}})
 
     assert ScopeSession.saved_focus_z_um(session, 'BF') == 5998.6
-    with pytest.raises(FocusNotSavedError, match='No focus is saved for Blue'):
-        ScopeSession.saved_focus_z_um(session, 'Blue')
+    with pytest.raises(FocusNotSavedError, match=f'No focus is saved for {LED0}'):
+        ScopeSession.saved_focus_z_um(session, LED0)

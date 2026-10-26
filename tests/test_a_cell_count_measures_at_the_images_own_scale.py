@@ -28,6 +28,7 @@ from modules.cell_count_method import (
 )
 from modules.post_processing import PostProcessing, load_cell_count_method
 from modules.layer_record import release_color
+from tests.stock_channels import LED1
 
 _BLOB = np.zeros((64, 64), dtype=np.uint8)
 _BLOB[20:40, 20:40] = 255  # one bright square, 20 x 20 pixels
@@ -40,12 +41,12 @@ def _capture(path, pixel_size_um):
         metadata={
             'objective': {},
             'pixel_size_um': pixel_size_um,
-            'channel': 'Green',
+            'channel': LED1,
             'significant_bits': 8,
             'datetime': '2026-10-04T00:00:00',
         },
         ome=False,
-        color=release_color('Green'),
+        color=release_color(LED1),
         significant_bits=8,
         save_encoding='right_aligned',
         white_bits=None,

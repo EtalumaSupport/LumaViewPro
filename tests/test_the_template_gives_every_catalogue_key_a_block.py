@@ -25,6 +25,7 @@ from modules.exceptions import InstallationFileError
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import SHIPPED_DATA, copy_installation_files
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1, LED2
 
 logger = logging.getLogger('test_the_template_gives_every_catalogue_key_a_block')
 
@@ -76,7 +77,7 @@ def test_every_preparation_path_gives_every_key_a_block_and_holds_no_defaults(tm
     for name, prepared in (('fresh', fresh), ('corrupt', corrupt), ('late', late)):
         assert 'channel_defaults' not in prepared, name
         assert [k for k in keys if k not in prepared] == [], name
-        for key in ('Blue', 'Green', 'Red'):
+        for key in (LED0, LED1, LED2):
             assert prepared[key] == fluorescence, (name, key)
 
 
@@ -101,14 +102,14 @@ def test_a_session_on_each_model_holds_every_block_and_publishes_no_defaults(tmp
 
 def test_a_key_added_to_the_catalogue_gets_its_modalitys_block(tmp_path, monkeypatch):
     shipped = layer_record.release_layers()
-    blue = next(layer for layer in shipped if layer.key == 'Blue')
+    blue = next(layer for layer in shipped if layer.key == LED0)
     nir = dataclasses.replace(blue, key='NIR', display_color='#ff00ff', step_order=99)
     monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', (*shipped, nir))
 
     template = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
 
     assert template['NIR'] == _shipped_fluorescence_block()
-    assert template['NIR'] is not template['Blue']
+    assert template['NIR'] is not template[LED0]
 
 
 def test_a_template_without_channel_defaults_is_refused_naming_it(tmp_path):
@@ -130,12 +131,12 @@ def test_a_key_with_no_block_and_no_default_for_its_modality_is_refused_naming_i
         settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=True)
 
     assert refused.value.file_path == data / 'settings.json'
-    assert 'Blue (fluorescence)' in str(refused.value)
+    assert f'{LED0} (fluorescence)' in str(refused.value)
 
 
-def test_a_fresh_install_adds_a_multi_channel_step_green_before_blue(tmp_path):
-    # The shipped step order is the catalogue's step_order, which puts Green
-    # before Blue for the composite's focus, not the display order.
+def test_a_fresh_install_adds_a_multi_channel_step_led1_before_led0(tmp_path):
+    # The shipped step order is the catalogue's step_order, which puts LED1
+    # before LED0 for the composite's focus, not the display order.
     settings = complete_settings(live_folder=str(tmp_path), microscope='LS620')
     for key in layer_record.release_catalogue():
         settings[key]['acquire'] = None
@@ -144,15 +145,15 @@ def test_a_fresh_install_adds_a_multi_channel_step_green_before_blue(tmp_path):
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )
-        for key in ('Blue', 'BF', 'Green'):
+        for key in (LED0, 'BF', LED1):
             session.set_channel_acquire(key, 'image')
 
         session.add_step(protocol)
 
         assert [protocol.step_row(step_index=i)['Color'] for i in range(3)] == [
             'BF',
-            'Green',
-            'Blue',
+            LED1,
+            LED0,
         ]
     finally:
         session.shutdown()
@@ -161,7 +162,7 @@ def test_a_fresh_install_adds_a_multi_channel_step_green_before_blue(tmp_path):
 
 def test_a_key_added_to_the_catalogue_takes_its_step_order(monkeypatch):
     shipped = layer_record.release_layers()
-    blue = next(layer for layer in shipped if layer.key == 'Blue')
+    blue = next(layer for layer in shipped if layer.key == LED0)
     nir = dataclasses.replace(blue, key='NIR', display_color='#ff00ff', step_order=-1)
     monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', (*shipped, nir))
 
@@ -172,16 +173,18 @@ def test_a_key_added_to_the_catalogue_takes_its_step_order(monkeypatch):
         'BF',
         'PC',
         'DF',
-        'Green',
-        'Blue',
-        'Red',
+        LED1,
+        LED0,
+        LED2,
         'Lumi',
+        'Ex550',
+        'Ex640',
     ]
 
 
 def test_a_template_that_states_a_step_order_is_refused_naming_it(tmp_path):
     data = _installation(tmp_path)
-    _write_template(data, lambda t: t.update(step_channel_order=['BF', 'Blue']))
+    _write_template(data, lambda t: t.update(step_channel_order=['BF', LED0]))
 
     with pytest.raises(InstallationFileError) as refused:
         settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=True)
@@ -190,12 +193,12 @@ def test_a_template_that_states_a_step_order_is_refused_naming_it(tmp_path):
     assert 'step_channel_order' in str(refused.value)
 
 
-def test_a_stored_red_illumination_is_kept(tmp_path):
-    # The shared default is 250 mA where Red once shipped 350; nothing
+def test_a_stored_led2_illumination_is_kept(tmp_path):
+    # The shared default is 250 mA where LED 2 once shipped 350; nothing
     # migrates a stored value, so a user's 350 stays theirs.
     data = _installation(tmp_path)
     stored = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
-    stored['Red']['illumination_ma'] = 350.0
+    stored[LED2]['illumination_ma'] = 350.0
     (data / 'current.json').write_text(json.dumps(stored))
 
     prepared, rejected = settings_init.prepare_settings(
@@ -203,5 +206,5 @@ def test_a_stored_red_illumination_is_kept(tmp_path):
     )
 
     assert rejected is None
-    assert prepared['Red']['illumination_ma'] == 350.0
-    assert prepared['Blue']['illumination_ma'] == 250.0
+    assert prepared[LED2]['illumination_ma'] == 350.0
+    assert prepared[LED0]['illumination_ma'] == 250.0

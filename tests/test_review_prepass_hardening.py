@@ -17,6 +17,7 @@ import numpy as np
 import tifffile as tf
 
 from modules import image_utils
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -56,7 +57,7 @@ def _structured_metadata(missing: str | None = None, missing_top: str | None = N
     top = {
         'Plane': plane,
         'PhysicalSizeX': 0.5,
-        'Channel': {'Name': ['Blue']},
+        'Channel': {'Name': [LED0]},
     }
     if missing_top is not None:
         top.pop(missing_top, None)
@@ -73,7 +74,7 @@ class TestMetadataReadRobustness:
         out = image_utils.read_postproc_input_metadata(p)
         assert out is not None
         assert out['exposure_time_ms'] == 10.0
-        assert out['channel'] == 'Blue'
+        assert out['channel'] == LED0
 
     def test_missing_acquisition_key_returns_none_not_keyerror(self, tmp_path):
         p = tmp_path / 'partial.tiff'
@@ -107,7 +108,7 @@ class TestMetadataReadRobustness:
 
         assert out is not None
         assert out['pixel_size_um'] == 0.5
-        assert out['channel'] == 'Blue'
+        assert out['channel'] == LED0
         assert out['exposure_time_ms'] == 10.0
         assert 'plate_pos_mm' not in out
         assert 'z_pos_um' not in out

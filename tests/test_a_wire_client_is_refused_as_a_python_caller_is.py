@@ -33,6 +33,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED2
 
 UUID_URN = re.compile(r'urn:uuid:[0-9a-f-]{36}')
 
@@ -320,14 +321,14 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
             'invalid_request',
         ),
         (
-            lambda c: c.post('/api/v1/scope/illumination/led_on', json={'channel': 'Red'}),
+            lambda c: c.post('/api/v1/scope/illumination/led_on', json={'channel': LED2}),
             422,
             'invalid_request',
         ),
         (
             lambda c: c.post(
                 '/api/v1/scope/illumination/led_off',
-                content='channel=Red',
+                content=f'channel={LED2}',
                 headers={'content-type': 'text/plain'},
             ),
             415,

@@ -25,6 +25,7 @@ from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
+from tests.stock_channels import LED0
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -82,7 +83,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
 
     step = {
         'Video Config': {'fps': 5, 'duration': 1},
-        'Color': 'Blue',
+        'Color': LED0,
         'False_Color': false_color,
         'Auto_Gain': False,
         'Exposure': 10.0,
@@ -127,7 +128,7 @@ def test_grayscale_stream_encodes_grey(tmp_path, monkeypatch):
 
 def test_false_color_stream_carries_the_layer(tmp_path, monkeypatch):
     captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=True, false_color=True)
-    assert captured['color'] == release_color('Blue')
+    assert captured['color'] == release_color(LED0)
 
 
 def test_the_timestamp_is_drawn_on_a_copy_of_a_read_only_frame():

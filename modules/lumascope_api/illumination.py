@@ -539,7 +539,7 @@ class IlluminationAPI:
         The fusion of identity and drivability: identity says what the
         channel IS, the driver says what the board can DRIVE. None for a
         channel of the model that drives no LED (Lumi), a channel the model
-        lacks (an LS560's Red), and a channel whose record names an address
+        lacks (an LS560's Ex589), and a channel whose record names an address
         the attached board lacks -- lighting that address anyway would light
         whatever occupies it on this board.
         """

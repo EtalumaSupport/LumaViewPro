@@ -24,6 +24,7 @@ import tifffile as tf
 from tests.ast_seams import REPO_ROOT, parse_module
 from tests.scope_fakes import bind_settings_like_a_session
 from modules.layer_record import release_catalogue, release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 PLATE = '24 well microplate'
@@ -87,19 +88,19 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
 
 
 def test_a_lit_led_outranks_the_shown_channel(identity_scope, tmp_path):
-    """Green shown with false colour on, Red LED lit: the file is named,
-    labelled and rendered as Red. The light is the truth; the shown layer's
+    """LED1 shown with false colour on, LED 2 lit: the file is named,
+    labelled and rendered as LED2. The light is the truth; the shown layer's
     toggle only says the frame is rendered in colour."""
-    identity_scope.illumination.led_on(channel='Red', illumination_ma=100)
+    identity_scope.illumination.led_on(channel=LED2, illumination_ma=100)
 
     written, _ = _run_manual_capture(
-        tmp_path, identity_scope, shown_layer='Green', false_color_on=True, separate_folders=False
+        tmp_path, identity_scope, shown_layer=LED1, false_color_on=True, separate_folders=False
     )
 
     assert len(written) == 1
     path = written[0]
-    assert 'Red' in path.name and 'Green' not in path.name, path.name
-    assert _read_channel_name(path) == 'Red'
+    assert LED2 in path.name and LED1 not in path.name, path.name
+    assert _read_channel_name(path) == LED2
     # An 8-bit still with false colour on is written PALETTE with a (3, 256)
     # colormap; the imaged channel decides which row carries the ramp.
     with tf.TiffFile(str(path)) as handle:
@@ -144,17 +145,17 @@ def test_resolver_clauses():
     lit."""
     from modules.common_utils import resolve_channel_identity
 
-    lit_red = _illumination(_dark(1, 'Green'), _lit(2, 'Red'), _dark(3, 'BF'))
-    assert resolve_channel_identity(lit_red, 'Green') == 'Red'
-    none_lit = _illumination(_dark(2, 'Red'), _dark(3, 'BF'))
-    assert resolve_channel_identity(none_lit, 'Green') == 'Green'
-    assert resolve_channel_identity(_illumination(), 'Blue') == 'Blue'
-    two_lit = _illumination(_lit(0, 'Blue'), _lit(2, 'Red'))
-    assert resolve_channel_identity(two_lit, 'Green') == 'Blue'
-    unnamed_lit = _illumination(_lit(6, None), _dark(2, 'Red'))
-    assert resolve_channel_identity(unnamed_lit, 'Green') == 'Green'
+    lit_red = _illumination(_dark(1, LED1), _lit(2, LED2), _dark(3, 'BF'))
+    assert resolve_channel_identity(lit_red, LED1) == LED2
+    none_lit = _illumination(_dark(2, LED2), _dark(3, 'BF'))
+    assert resolve_channel_identity(none_lit, LED1) == LED1
+    assert resolve_channel_identity(_illumination(), LED0) == LED0
+    two_lit = _illumination(_lit(0, LED0), _lit(2, LED2))
+    assert resolve_channel_identity(two_lit, LED1) == LED0
+    unnamed_lit = _illumination(_lit(6, None), _dark(2, LED2))
+    assert resolve_channel_identity(unnamed_lit, LED1) == LED1
     no_board = SimpleNamespace(get_led_states=lambda: None)
-    assert resolve_channel_identity(no_board, 'Green') == 'Green'
+    assert resolve_channel_identity(no_board, LED1) == LED1
 
 
 def test_both_manual_outputs_share_the_resolver():

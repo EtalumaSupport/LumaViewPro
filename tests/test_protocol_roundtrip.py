@@ -49,6 +49,7 @@ from unittest.mock import MagicMock
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # ---------------------------------------------------------------------------
@@ -76,21 +77,21 @@ def _make_image_capture_config():
 
 def _default_stim_config():
     return {
-        'Red': {
+        LED2: {
             'enabled': False,
             'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
-        'Green': {
+        LED1: {
             'enabled': False,
             'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
-        'Blue': {
+        LED0: {
             'enabled': False,
             'illumination_ma': 100.0,
             'frequency': 1.0,
@@ -100,7 +101,7 @@ def _default_stim_config():
     }
 
 
-def _stim_config_enabled(channels=('Green',)):
+def _stim_config_enabled(channels=(LED1,)):
     """Stim config with specified channels enabled."""
     cfg = _default_stim_config()
     for ch in channels:
@@ -363,10 +364,10 @@ class TestRoundTripBasic:
         assert step['Acquire'] == 'image'
 
     def test_single_fluor_step(self, tmp_path):
-        proto = _build_protocol([_make_step(color='Green', illumination=200.0)])
+        proto = _build_protocol([_make_step(color=LED1, illumination=200.0)])
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
-        assert step['Color'] == 'Green'
+        assert step['Color'] == LED1
         assert step['Illumination'] == 200.0
 
     def test_video_step_config_preserved(self, tmp_path):
@@ -382,17 +383,17 @@ class TestRoundTripBasic:
         assert step['Video Config']['fps'] == 30
 
     def test_stim_config_preserved(self, tmp_path):
-        sc = _stim_config_enabled(channels=['Green', 'Blue'])
+        sc = _stim_config_enabled(channels=[LED1, LED0])
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
         assert isinstance(step['Stim_Config'], dict), (
             f'Stim_Config is {type(step["Stim_Config"])}, not dict'
         )
-        assert step['Stim_Config']['Green']['enabled'] is True
-        assert step['Stim_Config']['Blue']['enabled'] is True
-        assert step['Stim_Config']['Red']['enabled'] is False
-        assert step['Stim_Config']['Green']['frequency'] == 5.0
+        assert step['Stim_Config'][LED1]['enabled'] is True
+        assert step['Stim_Config'][LED0]['enabled'] is True
+        assert step['Stim_Config'][LED2]['enabled'] is False
+        assert step['Stim_Config'][LED1]['frequency'] == 5.0
 
     def test_stim_disabled_preserved(self, tmp_path):
         sc = _default_stim_config()
@@ -400,7 +401,7 @@ class TestRoundTripBasic:
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
         assert isinstance(step['Stim_Config'], dict)
-        for ch in ('Red', 'Green', 'Blue'):
+        for ch in (LED2, LED1, LED0):
             assert step['Stim_Config'][ch]['enabled'] is False
 
     def test_legacy_python_repr_tsv_parses(self, tmp_path):
@@ -409,7 +410,8 @@ class TestRoundTripBasic:
         in older versions; json.loads rejects it. Before the fix, legacy TSVs
         came back with a stand-in stimulation (enabled=False, ill=100) on every
         step instead of the saved stim values -- stim ran but fired no pulses
-        because every channel was read as disabled.
+        because every channel was read as disabled. Its old colour keys are
+        read on a stock unit as the stock keys.
         """
         stim_legacy = (
             "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
@@ -447,12 +449,12 @@ class TestRoundTripBasic:
         step = proto.step_row(step_index=0)
 
         assert isinstance(step['Stim_Config'], dict)
-        assert step['Stim_Config']['Green']['enabled'] is True
-        assert step['Stim_Config']['Green']['illumination_ma'] == 500.0
-        assert step['Stim_Config']['Green']['frequency'] == 0.8
-        assert step['Stim_Config']['Green']['pulse_count'] == 10
-        assert step['Stim_Config']['Red']['enabled'] is False
-        assert step['Stim_Config']['Blue']['enabled'] is False
+        assert step['Stim_Config'][LED1]['enabled'] is True
+        assert step['Stim_Config'][LED1]['illumination_ma'] == 500.0
+        assert step['Stim_Config'][LED1]['frequency'] == 0.8
+        assert step['Stim_Config'][LED1]['pulse_count'] == 10
+        assert step['Stim_Config'][LED2]['enabled'] is False
+        assert step['Stim_Config'][LED0]['enabled'] is False
 
         assert isinstance(step['Video Config'], dict)
         assert step['Video Config']['duration'] == 8
@@ -566,22 +568,22 @@ class TestRoundTripMultiStep:
     def test_bf_plus_fluor(self, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF', illumination=50.0),
-            _make_step(name='A1_Green', color='Green', illumination=200.0),
-            _make_step(name='A1_Red', color='Red', illumination=150.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, illumination=200.0),
+            _make_step(name=f'A1_{LED2}', color=LED2, illumination=150.0),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
         assert reloaded.step_row(step_index=0)['Color'] == 'BF'
-        assert reloaded.step_row(step_index=1)['Color'] == 'Green'
-        assert reloaded.step_row(step_index=2)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=1)['Color'] == LED1
+        assert reloaded.step_row(step_index=2)['Color'] == LED2
 
     def test_mixed_image_and_video(self, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Green_vid',
-                color='Green',
+                name=f'A1_{LED1}_vid',
+                color=LED1,
                 acquire='video',
                 video_config={'duration': 3.0, 'fps': 10},
             ),
@@ -607,12 +609,12 @@ class TestRoundTripMultiStep:
 
     def test_video_with_stim(self, tmp_path):
         """OG protocol pattern: video capture with stimulation enabled."""
-        sc = _stim_config_enabled(channels=['Green'])
+        sc = _stim_config_enabled(channels=[LED1])
         vc = {'duration': 5.0, 'fps': 30}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Red_stim', color='Red', acquire='video', video_config=vc, stim_config=sc
+                name=f'A1_{LED2}_stim', color=LED2, acquire='video', video_config=vc, stim_config=sc
             ),
         ]
         proto = _build_protocol(steps)
@@ -626,8 +628,8 @@ class TestRoundTripMultiStep:
 
         # Verify stim config survived
         assert isinstance(vid_step['Stim_Config'], dict)
-        assert vid_step['Stim_Config']['Green']['enabled'] is True
-        assert vid_step['Stim_Config']['Green']['frequency'] == 5.0
+        assert vid_step['Stim_Config'][LED1]['enabled'] is True
+        assert vid_step['Stim_Config'][LED1]['frequency'] == 5.0
 
     def test_tiled_steps(self, tmp_path):
         """Tiled protocol steps preserve tile labels and group IDs."""
@@ -673,13 +675,11 @@ class TestRoundTripMultiStep:
 
     def test_double_save_load(self, tmp_path):
         """Save -> load -> save -> load preserves data (no drift)."""
-        sc = _stim_config_enabled(channels=['Red', 'Blue'])
+        sc = _stim_config_enabled(channels=[LED2, LED0])
         vc = {'duration': 2.0, 'fps': 15}
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(
-                name='A1_vid', color='Green', acquire='video', video_config=vc, stim_config=sc
-            ),
+            _make_step(name='A1_vid', color=LED1, acquire='video', video_config=vc, stim_config=sc),
         ]
         proto = _build_protocol(steps)
 
@@ -691,9 +691,9 @@ class TestRoundTripMultiStep:
 
         step = r2.step_row(step_index=1)
         assert step['Video Config']['fps'] == 15
-        assert step['Stim_Config']['Red']['enabled'] is True
-        assert step['Stim_Config']['Blue']['enabled'] is True
-        assert step['Stim_Config']['Green']['enabled'] is False
+        assert step['Stim_Config'][LED2]['enabled'] is True
+        assert step['Stim_Config'][LED0]['enabled'] is True
+        assert step['Stim_Config'][LED1]['enabled'] is False
 
 
 class TestRoundTripEdgeCases:
@@ -730,7 +730,7 @@ class TestRoundTripEdgeCases:
         assert reloaded.step_row(step_index=0)['Auto_Gain'] == True  # noqa: E712 -- exact bool check
 
     def test_false_color_flag(self, tmp_path):
-        proto = _build_protocol([_make_step(false_color=True, color='Green')])
+        proto = _build_protocol([_make_step(false_color=True, color=LED1)])
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.step_row(step_index=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
@@ -773,7 +773,7 @@ class TestExecuteSingleStep:
         assert completed, 'BF image protocol did not complete'
 
     def test_fluor_image(self, executor, scope, tmp_path):
-        steps = [_make_step(color='Green', illumination=200.0)]
+        steps = [_make_step(color=LED1, illumination=200.0)]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, 'Fluorescence image protocol did not complete'
@@ -798,8 +798,8 @@ class TestExecuteMultiStep:
     def test_bf_plus_two_fluor(self, executor, scope, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_Green', color='Green', illumination=200.0),
-            _make_step(name='A1_Red', color='Red', illumination=150.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, illumination=200.0),
+            _make_step(name=f'A1_{LED2}', color=LED2, illumination=150.0),
         ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
@@ -850,8 +850,8 @@ class TestExecuteMultiStep:
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Green_vid',
-                color='Green',
+                name=f'A1_{LED1}_vid',
+                color=LED1,
                 acquire='video',
                 video_config={'duration': 0.5, 'fps': 5},
             ),
@@ -865,11 +865,11 @@ class TestExecuteWithStim:
     """Protocol execution with stimulation configs."""
 
     def test_video_with_stim_enabled(self, executor, scope, tmp_path):
-        sc = _stim_config_enabled(channels=['Green'])
+        sc = _stim_config_enabled(channels=[LED1])
         steps = [
             _make_step(
-                name='A1_Red_stim',
-                color='Red',
+                name=f'A1_{LED2}_stim',
+                color=LED2,
                 acquire='video',
                 video_config={'duration': 0.5, 'fps': 5},
                 stim_config=sc,
@@ -899,12 +899,12 @@ class TestExecuteSaveLoadRun:
 
     def test_video_stim_save_load_run(self, executor, scope, tmp_path):
         """OG protocol pattern: save with stim+video, reload, run."""
-        sc = _stim_config_enabled(channels=['Green'])
+        sc = _stim_config_enabled(channels=[LED1])
         vc = {'duration': 0.5, 'fps': 5}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
-                name='A1_Red_stim', color='Red', acquire='video', video_config=vc, stim_config=sc
+                name=f'A1_{LED2}_stim', color=LED2, acquire='video', video_config=vc, stim_config=sc
             ),
         ]
         proto = _build_protocol(steps)
@@ -914,7 +914,7 @@ class TestExecuteSaveLoadRun:
         vid_step = reloaded.step_row(step_index=1)
         assert isinstance(vid_step['Video Config'], dict)
         assert isinstance(vid_step['Stim_Config'], dict)
-        assert vid_step['Stim_Config']['Green']['enabled'] is True
+        assert vid_step['Stim_Config'][LED1]['enabled'] is True
 
         # Run the reloaded protocol
         completed, _ = _run_and_wait(executor, reloaded, tmp_path)
@@ -937,7 +937,7 @@ class TestExecuteSaveLoadRun:
         proto_a = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF'),
-                _make_step(name='A1_Green', color='Green'),
+                _make_step(name=f'A1_{LED1}', color=LED1),
             ]
         )
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
@@ -945,7 +945,7 @@ class TestExecuteSaveLoadRun:
 
         proto_b = _build_protocol(
             [
-                _make_step(name='B1_Red', color='Red', acquire='image'),
+                _make_step(name=f'B1_{LED2}', color=LED2, acquire='image'),
             ]
         )
         completed_b, _ = _run_and_wait(executor, proto_b, tmp_path / 'run_b')
@@ -1091,32 +1091,32 @@ class TestRoundTripMetadata:
 
     def test_stim_multi_channel_enabled(self, tmp_path):
         """Stim config with all 3 channels enabled."""
-        sc = _stim_config_enabled(channels=['Red', 'Green', 'Blue'])
+        sc = _stim_config_enabled(channels=[LED2, LED1, LED0])
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
-        for ch in ('Red', 'Green', 'Blue'):
+        for ch in (LED2, LED1, LED0):
             assert step['Stim_Config'][ch]['enabled'] is True
 
     def test_stim_per_channel_values(self, tmp_path):
         """Each stim channel can have different parameter values."""
         sc = _default_stim_config()
-        sc['Red']['enabled'] = True
-        sc['Red']['frequency'] = 10.0
-        sc['Red']['pulse_width'] = 5
-        sc['Red']['pulse_count'] = 200
-        sc['Green']['enabled'] = True
-        sc['Green']['frequency'] = 20.0
-        sc['Green']['pulse_width'] = 50
-        sc['Green']['pulse_count'] = 10
+        sc[LED2]['enabled'] = True
+        sc[LED2]['frequency'] = 10.0
+        sc[LED2]['pulse_width'] = 5
+        sc[LED2]['pulse_count'] = 200
+        sc[LED1]['enabled'] = True
+        sc[LED1]['frequency'] = 20.0
+        sc[LED1]['pulse_width'] = 50
+        sc[LED1]['pulse_count'] = 10
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
-        assert step['Stim_Config']['Red']['frequency'] == 10.0
-        assert step['Stim_Config']['Red']['pulse_count'] == 200
-        assert step['Stim_Config']['Green']['frequency'] == 20.0
-        assert step['Stim_Config']['Green']['pulse_count'] == 10
-        assert step['Stim_Config']['Blue']['enabled'] is False
+        assert step['Stim_Config'][LED2]['frequency'] == 10.0
+        assert step['Stim_Config'][LED2]['pulse_count'] == 200
+        assert step['Stim_Config'][LED1]['frequency'] == 20.0
+        assert step['Stim_Config'][LED1]['pulse_count'] == 10
+        assert step['Stim_Config'][LED0]['enabled'] is False
 
 
 class TestRoundTripCombinations:
@@ -1147,7 +1147,7 @@ class TestRoundTripCombinations:
         """Multi-well x multi-channel protocol."""
         steps = []
         for well, x, y in [('A1', 10, 20), ('A2', 30, 20), ('B1', 10, 40)]:
-            for color, ill in [('BF', 50), ('Green', 200), ('Red', 150)]:
+            for color, ill in [('BF', 50), (LED1, 200), (LED2, 150)]:
                 steps.append(
                     _make_step(
                         name=f'{well}_{color}',
@@ -1164,7 +1164,7 @@ class TestRoundTripCombinations:
         assert reloaded.step_row(step_index=0)['Well'] == 'A1'
         assert reloaded.step_row(step_index=0)['Color'] == 'BF'
         assert reloaded.step_row(step_index=8)['Well'] == 'B1'
-        assert reloaded.step_row(step_index=8)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=8)['Color'] == LED2
 
     def test_tiling_1x3(self, tmp_path):
         """1 row x 3 columns tiling."""
@@ -1199,7 +1199,7 @@ class TestRoundTripCombinations:
         steps = []
         for well, wx, wy in [('A1', 10, 20), ('A2', 30, 20)]:
             for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0), (0, 5), (5, 5)]):
-                for color in ['BF', 'Green']:
+                for color in ['BF', LED1]:
                     steps.append(
                         _make_step(
                             name=f'{well}_{color}_T{tile_idx:02d}',
@@ -1252,7 +1252,7 @@ class TestExecuteMultiScan:
     def test_three_scan_multichannel(self, executor, scope, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_Green', color='Green'),
+            _make_step(name=f'A1_{LED1}', color=LED1),
         ]
         proto = _build_protocol(steps, period_min=1 / 60, duration_hrs=0.01)
         completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=3)
@@ -1302,7 +1302,7 @@ class TestExecuteSeparateFolders:
     def test_separate_folders(self, executor, scope, tmp_path):
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_Green', color='Green'),
+            _make_step(name=f'A1_{LED1}', color=LED1),
         ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(
@@ -1339,7 +1339,7 @@ class TestExecuteCombinations:
     def test_multiwell_multichannel(self, executor, scope, tmp_path):
         steps = []
         for well, x, y in [('A1', 10, 20), ('A2', 30, 20)]:
-            for color in ['BF', 'Green']:
+            for color in ['BF', LED1]:
                 steps.append(
                     _make_step(
                         name=f'{well}_{color}',
@@ -1358,7 +1358,7 @@ class TestExecuteCombinations:
         steps = []
         for well, wx, wy in [('A1', 10, 20), ('A2', 30, 20)]:
             for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0)]):
-                for color in ['BF', 'Green']:
+                for color in ['BF', LED1]:
                     steps.append(
                         _make_step(
                             name=f'{well}_{color}_T{tile_idx:02d}',
@@ -1521,8 +1521,8 @@ class TestRealPathExecution:
         """BF + fluorescence with real LED and motor paths."""
         steps = [
             _make_step(name='A1_BF', color='BF', illumination=50.0),
-            _make_step(name='A1_Green', color='Green', illumination=200.0),
-            _make_step(name='A1_Red', color='Red', illumination=150.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, illumination=200.0),
+            _make_step(name=f'A1_{LED2}', color=LED2, illumination=150.0),
         ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
@@ -1555,7 +1555,7 @@ class TestRealPathExecution:
         """Full pipeline: create -> save -> reload -> run with real motion."""
         steps = [
             _make_step(name='A1_BF', color='BF', x=10.0, y=20.0, z=5000.0),
-            _make_step(name='A1_Green', color='Green', x=10.0, y=20.0, z=5000.0),
+            _make_step(name=f'A1_{LED1}', color=LED1, x=10.0, y=20.0, z=5000.0),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path / 'save')
@@ -1582,7 +1582,7 @@ class TestRealPathExecution:
 
         proto_b = _build_protocol(
             [
-                _make_step(name='B1_Green', color='Green', x=30.0, y=30.0),
+                _make_step(name=f'B1_{LED1}', color=LED1, x=30.0, y=30.0),
             ]
         )
         completed_b, _ = _run_and_wait(real_executor, proto_b, tmp_path / 'run_b')
@@ -1628,13 +1628,13 @@ class TestProtocolModification:
     def test_step_access_by_index(self):
         steps = [
             _make_step(name='first', color='BF'),
-            _make_step(name='second', color='Green'),
-            _make_step(name='third', color='Red'),
+            _make_step(name='second', color=LED1),
+            _make_step(name='third', color=LED2),
         ]
         proto = _build_protocol(steps)
         assert proto.step_row(step_index=0)['Color'] == 'BF'
-        assert proto.step_row(step_index=1)['Color'] == 'Green'
-        assert proto.step_row(step_index=2)['Color'] == 'Red'
+        assert proto.step_row(step_index=1)['Color'] == LED1
+        assert proto.step_row(step_index=2)['Color'] == LED2
 
     def test_labware_accessor(self):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
@@ -1712,7 +1712,7 @@ class TestProtocolSaveLoadFieldLevel:
 
     def test_every_field_preserved(self, tmp_path):
         """Check that ALL 21 step fields round-trip correctly."""
-        sc = _stim_config_enabled(channels=['Red'])
+        sc = _stim_config_enabled(channels=[LED2])
         vc = {'duration': 3.5, 'fps': 15}
         step = _make_step(
             name='Test_Step_1',
@@ -1721,7 +1721,7 @@ class TestProtocolSaveLoadFieldLevel:
             x=12.345,
             y=67.89,
             z=4567.0,
-            color='Green',
+            color=LED1,
             illumination=234.5,
             gain=3.7,
             exposure=42.0,
@@ -1746,12 +1746,12 @@ class TestProtocolSaveLoadFieldLevel:
         # Name is derived at load from the structured columns: the user label
         # base plus the channel/tile/z tokens. The user's text itself
         # round-trips in Label.
-        assert s['Name'] == 'Test_Step_1_Green_TT02_Z3'
+        assert s['Name'] == f'Test_Step_1_{LED1}_TT02_Z3'
         assert s['Label'] == 'Test_Step_1'
         assert s['X'] == pytest.approx(12.345)
         assert s['Y'] == pytest.approx(67.89)
         assert s['Z'] == pytest.approx(4567.0)
-        assert s['Color'] == 'Green'
+        assert s['Color'] == LED1
         assert s['Illumination'] == pytest.approx(234.5)
         assert s['Gain'] == pytest.approx(3.7)
         assert s['Exposure'] == pytest.approx(42.0)
@@ -1770,7 +1770,7 @@ class TestProtocolSaveLoadFieldLevel:
         assert s['Video Config']['duration'] == 3.5
         assert s['Video Config']['fps'] == 15
         assert isinstance(s['Stim_Config'], dict)
-        assert s['Stim_Config']['Red']['enabled'] is True
+        assert s['Stim_Config'][LED2]['enabled'] is True
 
 
 # ===========================================================================
@@ -1873,7 +1873,7 @@ class TestProtocolInsertStep:
             channel_group_id=proto.new_channel_group_id(),
             turret_slot=-1,
             step_name='new_step',
-            layer='Green',
+            layer=LED1,
             layer_config=_layer_config(illumination=200.0),
             plate_position=PlateLocation(x_mm=30.0, y_mm=40.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -1884,8 +1884,8 @@ class TestProtocolInsertStep:
         # The typed name becomes the step's Label; the derived Name renders
         # it with the channel token.
         assert proto.step_row(step_index=0)['Label'] == 'new_step'
-        assert proto.step_row(step_index=0)['Name'] == 'new_step_Green'
-        assert proto.step_row(step_index=0)['Color'] == 'Green'
+        assert proto.step_row(step_index=0)['Name'] == f'new_step_{LED1}'
+        assert proto.step_row(step_index=0)['Color'] == LED1
         assert proto.step_row(step_index=1)['Name'] == 'existing'
 
     def test_insert_after_last_step(self):
@@ -1894,7 +1894,7 @@ class TestProtocolInsertStep:
             channel_group_id=proto.new_channel_group_id(),
             turret_slot=-1,
             step_name='appended',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(illumination=150.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -1905,8 +1905,8 @@ class TestProtocolInsertStep:
         assert proto.num_steps() == 2
         assert proto.step_row(step_index=0)['Name'] == 'first'
         assert proto.step_row(step_index=1)['Label'] == 'appended'
-        assert proto.step_row(step_index=1)['Name'] == 'appended_Red'
-        assert proto.step_row(step_index=1)['Color'] == 'Red'
+        assert proto.step_row(step_index=1)['Name'] == f'appended_{LED2}'
+        assert proto.step_row(step_index=1)['Color'] == LED2
 
     def test_insert_between_steps(self):
         proto = _build_protocol(
@@ -1940,7 +1940,7 @@ class TestProtocolInsertStep:
             channel_group_id=proto.new_channel_group_id(),
             turret_slot=-1,
             step_name='video_step',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(acquire='video', video_config=vc),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -1955,12 +1955,12 @@ class TestProtocolInsertStep:
 
     def test_insert_with_stim_config(self):
         proto = _build_protocol([_make_step()])
-        sc = _stim_config_enabled(channels=['Green'])
+        sc = _stim_config_enabled(channels=[LED1])
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
             turret_slot=-1,
             step_name='stim_step',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(acquire='video'),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -1970,7 +1970,7 @@ class TestProtocolInsertStep:
         )
         step = proto.step_row(step_index=1)
         assert isinstance(step['Stim_Config'], dict)
-        assert step['Stim_Config']['Green']['enabled'] is True
+        assert step['Stim_Config'][LED1]['enabled'] is True
 
     def test_insert_save_load_run(self, real_executor, scope, tmp_path):
         """Insert a step, save, reload, and run -- full pipeline."""
@@ -1979,7 +1979,7 @@ class TestProtocolInsertStep:
             channel_group_id=proto.new_channel_group_id(),
             turret_slot=-1,
             step_name='added_green',
-            layer='Green',
+            layer=LED1,
             layer_config=_layer_config(illumination=200.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -1991,7 +1991,7 @@ class TestProtocolInsertStep:
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
         assert reloaded.num_steps() == 2
-        assert reloaded.step_row(step_index=1)['Color'] == 'Green'
+        assert reloaded.step_row(step_index=1)['Color'] == LED1
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed, 'Inserted-step protocol did not complete'
@@ -2064,30 +2064,30 @@ class TestProtocolModifyStep:
             turret_slot=-1,
             step_index=0,
             label='modified',
-            layer='Green',
+            layer=LED1,
             layer_config=_layer_config(illumination=300.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
         )
         step = proto.step_row(step_index=0)
-        assert step['Color'] == 'Green'
+        assert step['Color'] == LED1
         assert step['Illumination'] == 300.0
         # A rename via modify_step stores the label and derives the display
         # Name with the (new) channel token.
         assert step['Label'] == 'modified'
-        assert step['Name'] == 'modified_Green_Z0'
+        assert step['Name'] == f'modified_{LED1}_Z0'
         assert not step['Auto_Named']
 
     def test_modify_to_video_with_stim(self):
         proto = _build_protocol([_make_step(acquire='image')])
-        sc = _stim_config_enabled(channels=['Blue'])
+        sc = _stim_config_enabled(channels=[LED0])
         vc = {'duration': 3.0, 'fps': 15}
         proto.modify_step(
             turret_slot=-1,
             step_index=0,
             label='now_video',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(acquire='video', video_config=vc),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -2096,7 +2096,7 @@ class TestProtocolModifyStep:
         step = proto.step_row(step_index=0)
         assert step['Acquire'] == 'video'
         assert step['Video Config']['fps'] == 15
-        assert step['Stim_Config']['Blue']['enabled'] is True
+        assert step['Stim_Config'][LED0]['enabled'] is True
 
     def test_modify_save_load_run(self, real_executor, scope, tmp_path):
         """Modify a step, save, reload, run."""
@@ -2105,7 +2105,7 @@ class TestProtocolModifyStep:
             turret_slot=-1,
             step_index=0,
             label='modified_red',
-            layer='Red',
+            layer=LED2,
             layer_config=_layer_config(illumination=200.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
@@ -2113,7 +2113,7 @@ class TestProtocolModifyStep:
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
-        assert reloaded.step_row(step_index=0)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Color'] == LED2
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed
@@ -2154,28 +2154,28 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.illumination.led_on_by_address(0, 100)
-        assert scope.illumination.get_led_state('Blue').state is LedState.LIT
+        assert scope.illumination.get_led_state(LED0).state is LedState.LIT
         scope.illumination.led_off_by_address(0)
-        assert scope.illumination.get_led_state('Blue').state is LedState.DARK
+        assert scope.illumination.get_led_state(LED0).state is LedState.DARK
 
     def test_led_on_by_color_name(self, scope):
-        scope.illumination.led_on(channel='Green', illumination_ma=200)
-        state = scope.illumination.get_led_state('Green')
+        scope.illumination.led_on(channel=LED1, illumination_ma=200)
+        state = scope.illumination.get_led_state(LED1)
         assert (state.state, state.illumination_ma) == (LedState.LIT, 200)
 
     def test_leds_off(self, scope):
         scope.illumination.led_on(channel='BF', illumination_ma=50)
-        scope.illumination.led_on(channel='Red', illumination_ma=100)
+        scope.illumination.led_on(channel=LED2, illumination_ma=100)
         scope.illumination.leds_off()
         not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after leds_off: {not_dark}'
 
     def test_led_states_snapshot(self, scope):
-        scope.illumination.led_on(channel='Green', illumination_ma=200)
-        scope.illumination.led_on(channel='Red', illumination_ma=150)
+        scope.illumination.led_on(channel=LED1, illumination_ma=200)
+        scope.illumination.led_on(channel=LED2, illumination_ma=150)
         states = {r.name: r for r in scope.illumination.get_led_states()}
-        assert (states['Green'].state, states['Green'].illumination_ma) == (LedState.LIT, 200)
-        assert states['Red'].state is LedState.LIT
+        assert (states[LED1].state, states[LED1].illumination_ma) == (LedState.LIT, 200)
+        assert states[LED2].state is LedState.LIT
         assert states['BF'].state is LedState.DARK
 
 
@@ -2271,24 +2271,24 @@ class TestV6LayerSettings:
                     exposure=2.0,
                 ),
                 _make_step(
-                    name='A1_Blue',
-                    color='Blue',
+                    name=f'A1_{LED0}',
+                    color=LED0,
                     acquire='image',
                     illumination=150.0,
                     gain=0.0,
                     exposure=100.0,
                 ),
                 _make_step(
-                    name='A1_Green',
-                    color='Green',
+                    name=f'A1_{LED1}',
+                    color=LED1,
                     acquire='image',
                     illumination=250.0,
                     gain=20.0,
                     exposure=100.0,
                 ),
                 _make_step(
-                    name='A1_Red',
-                    color='Red',
+                    name=f'A1_{LED2}',
+                    color=LED2,
                     acquire='image',
                     illumination=350.0,
                     gain=48.0,
@@ -2304,12 +2304,12 @@ class TestV6LayerSettings:
         )
         inferred = reloaded.channel_settings()
 
-        assert set(inferred.keys()) == {'BF', 'Blue', 'Green', 'Red'}
-        for layer in ('BF', 'Blue', 'Green', 'Red'):
+        assert set(inferred.keys()) == {'BF', LED0, LED1, LED2}
+        for layer in ('BF', LED0, LED1, LED2):
             assert inferred[layer].acquire == 'image'
-        assert inferred['Blue'].illumination_ma == 150.0
-        assert inferred['Green'].gain_db == 20.0
-        assert inferred['Red'].exposure_ms == 100.0
+        assert inferred[LED0].illumination_ma == 150.0
+        assert inferred[LED1].gain_db == 20.0
+        assert inferred[LED2].exposure_ms == 100.0
 
     def test_explicit_block_round_trips(self, tmp_path):
         """Save with layer_settings kwarg, reload, expect identical values
@@ -2317,7 +2317,7 @@ class TestV6LayerSettings:
         proto = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF', acquire='image', illumination=2.0),
-                _make_step(name='A1_Blue', color='Blue', acquire='image', illumination=150.0),
+                _make_step(name=f'A1_{LED0}', color=LED0, acquire='image', illumination=150.0),
             ]
         )
         ls_in = {
@@ -2332,8 +2332,8 @@ class TestV6LayerSettings:
                 'Sum': 1,
                 'Stim_Enabled': '',
             },
-            'Blue': {
-                'Layer': 'Blue',
+            LED0: {
+                'Layer': LED0,
                 'Acquire': 'image',
                 'Illumination': 150.0,
                 'Gain': 0.0,
@@ -2356,11 +2356,11 @@ class TestV6LayerSettings:
             filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
         )
         ls_out = reloaded.channel_settings()
-        assert set(ls_out.keys()) == {'BF', 'Blue'}
+        assert set(ls_out.keys()) == {'BF', LED0}
         assert ls_out['BF'].acquire == 'image'
-        assert ls_out['Blue'].illumination_ma == 150.0
-        assert ls_out['Blue'].false_color is True
-        assert ls_out['Blue'].stim_enabled is False
+        assert ls_out[LED0].illumination_ma == 150.0
+        assert ls_out[LED0].false_color is True
+        assert ls_out[LED0].stim_enabled is False
 
     def test_disabled_layers_omitted(self, tmp_path):
         """Layers with Acquire not in (image, video) should NOT be written
@@ -2377,7 +2377,7 @@ class TestV6LayerSettings:
                 'False_Color': False,
                 'Sum': 1,
             },
-            'Blue': {'Layer': 'Blue', 'Acquire': None, 'Illumination': 150.0},  # disabled
+            LED0: {'Layer': LED0, 'Acquire': None, 'Illumination': 150.0},  # disabled
             'PC': {'Layer': 'PC', 'Acquire': '', 'Illumination': 5.0},  # disabled
         }
         filepath = tmp_path / 'v6_partial.tsv'
@@ -2387,7 +2387,7 @@ class TestV6LayerSettings:
         )
         ls_out = reloaded.channel_settings()
         assert 'BF' in ls_out
-        assert 'Blue' not in ls_out
+        assert LED0 not in ls_out
         assert 'PC' not in ls_out
 
     def test_to_file_falls_back_to_stored_layer_settings(self, tmp_path):

@@ -7,6 +7,7 @@ import pytest
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from modules.composite_builder import CompositeChannel, TransmittedBase, build_composite
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _in_release_colours(images, bits=8):
@@ -19,7 +20,7 @@ def _in_release_colours(images, bits=8):
 
 
 def test_a_composite_of_pure_primaries_puts_each_channel_on_its_own_plane():
-    """Red, Green and Blue, one each, build the composite they always have.
+    """LEDs 2, 1 and 0 (red, green and blue), one each, build the composite they always have.
 
     Every pixel's planes come from the channels alone: with no transmitted
     base, each channel's 8-bit value on its own plane; with one, a pixel where
@@ -29,7 +30,7 @@ def test_a_composite_of_pure_primaries_puts_each_channel_on_its_own_plane():
     five channel sets, each with a row of black and a row at full scale, and
     every case that differs is named.
     """
-    plane_of = {'Red': 0, 'Green': 1, 'Blue': 2}
+    plane_of = {LED2: 0, LED1: 1, LED0: 2}
     rng = np.random.default_rng(0)
     differing = []
     cases = 0
@@ -38,11 +39,11 @@ def test_a_composite_of_pure_primaries_puts_each_channel_on_its_own_plane():
         for with_base in (False, True):
             for cutoff in (1, 50, 128, 255):
                 for keys in (
-                    ('Red', 'Green', 'Blue'),
-                    ('Red', 'Green'),
-                    ('Green', 'Blue'),
-                    ('Blue',),
-                    ('Red', 'Blue'),
+                    (LED2, LED1, LED0),
+                    (LED2, LED1),
+                    (LED1, LED0),
+                    (LED0,),
+                    (LED2, LED0),
                 ):
                     channels = {}
                     for key in keys:
@@ -92,7 +93,7 @@ class TestBuildCompositeNoTransmitted:
 
     def test_single_red_channel(self):
         red = np.full((4, 4), 200, dtype=np.uint8)
-        img = build_composite(channels=_in_release_colours({'Red': red}, 8))
+        img = build_composite(channels=_in_release_colours({LED2: red}, 8))
         assert img.shape == (4, 4, 3)
         assert img.dtype == np.uint8
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red channel
@@ -106,9 +107,9 @@ class TestBuildCompositeNoTransmitted:
 
     def test_all_three_channels(self):
         channels = {
-            'Red': np.full((4, 4), 100, dtype=np.uint8),
-            'Green': np.full((4, 4), 150, dtype=np.uint8),
-            'Blue': np.full((4, 4), 200, dtype=np.uint8),
+            LED2: np.full((4, 4), 100, dtype=np.uint8),
+            LED1: np.full((4, 4), 150, dtype=np.uint8),
+            LED0: np.full((4, 4), 200, dtype=np.uint8),
         }
         img = build_composite(channels=_in_release_colours(channels, 8))
         np.testing.assert_array_equal(img[:, :, 0], 100)
@@ -120,7 +121,7 @@ class TestBuildCompositeNoTransmitted:
         not stored right-aligned in a 16-bit container (which renders near-black
         in any viewer that ignores the depth tag)."""
         red = np.full((4, 4), 3000, dtype=np.uint16)
-        img = build_composite(channels=_in_release_colours({'Red': red}, 12))
+        img = build_composite(channels=_in_release_colours({LED2: red}, 12))
         assert img.dtype == np.uint8
         # The red plane equals the canonical downconvert of the input -- not the
         # raw 12-bit value (3000), which the old build stored verbatim.
@@ -134,7 +135,7 @@ class TestBuildCompositeNoTransmitted:
         (255) -- the composite is bright, not the ~6%-of-full-scale that made
         12-bit composites read as black."""
         red = np.full((4, 4), 4095, dtype=np.uint16)
-        img = build_composite(channels=_in_release_colours({'Red': red}, 12))
+        img = build_composite(channels=_in_release_colours({LED2: red}, 12))
         assert img.dtype == np.uint8
         np.testing.assert_array_equal(img[:, :, 0], 255)
 
@@ -169,9 +170,9 @@ class TestBuildCompositeWithTransmitted:
             dtype=np.uint8,
         )
         img = build_composite(
-            channels=_in_release_colours({'Green': green}),
+            channels=_in_release_colours({LED1: green}),
             transmitted=TransmittedBase(bf, 8, None),
-            brightness_thresholds={'Green': 50},
+            brightness_thresholds={LED1: 50},
         )
         # Top-left quadrant: above threshold -> green channel set, others cleared
         assert img[0, 0, 0] == 0  # Red cleared
@@ -187,9 +188,9 @@ class TestBuildCompositeWithTransmitted:
         red = np.full((4, 4), 200, dtype=np.uint8)
         green = np.full((4, 4), 150, dtype=np.uint8)
         img = build_composite(
-            channels=_in_release_colours({'Red': red, 'Green': green}),
+            channels=_in_release_colours({LED2: red, LED1: green}),
             transmitted=TransmittedBase(bf, 8, None),
-            brightness_thresholds={'Red': 10, 'Green': 10},
+            brightness_thresholds={LED2: 10, LED1: 10},
         )
         # Both above threshold: the pixel is their sum in place of the base
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red
@@ -201,7 +202,7 @@ class TestBuildCompositeWithTransmitted:
         bf = np.full((4, 4), 100, dtype=np.uint8)
         red = np.full((4, 4), 1, dtype=np.uint8)  # Very dim but > 0
         img = build_composite(
-            channels=_in_release_colours({'Red': red}),
+            channels=_in_release_colours({LED2: red}),
             transmitted=TransmittedBase(bf, 8, None),
         )
         # Default cutoff 1: any pixel > 0 replaces transmitted
@@ -226,22 +227,22 @@ class TestChannelsAdd:
     def test_blue_and_lumi_add_in_either_order_with_a_base_or_none(self):
         blue = np.full((1, 1), 100, np.uint8)
         lumi = np.full((1, 1), 50, np.uint8)
-        blue_first = _in_release_colours({'Blue': blue, 'Lumi': lumi})
-        lumi_first = _in_release_colours({'Lumi': lumi, 'Blue': blue})
+        blue_first = _in_release_colours({LED0: blue, 'Lumi': lumi})
+        lumi_first = _in_release_colours({'Lumi': lumi, LED0: blue})
         for base in (None, 30):
             assert self._pixel(blue_first, base) == [0, 0, 150]
             assert self._pixel(lumi_first, base) == [0, 0, 150]
 
     def test_a_sum_past_full_scale_saturates_rather_than_wrapping(self):
         channels = _in_release_colours(
-            {'Blue': np.full((1, 1), 200, np.uint8), 'Lumi': np.full((1, 1), 100, np.uint8)}
+            {LED0: np.full((1, 1), 200, np.uint8), 'Lumi': np.full((1, 1), 100, np.uint8)}
         )
         assert self._pixel(channels) == [0, 0, 255]
 
     def test_equal_red_and_green_are_equal_in_the_composite(self):
         # Green is not weaker than Red at the same intensity (#521).
         pair = _in_release_colours(
-            {'Red': np.full((1, 1), 120, np.uint8), 'Green': np.full((1, 1), 120, np.uint8)}
+            {LED2: np.full((1, 1), 120, np.uint8), LED1: np.full((1, 1), 120, np.uint8)}
         )
         assert self._pixel(pair) == [120, 120, 0]
         assert self._pixel(pair, base=40) == [120, 120, 0]
@@ -261,7 +262,7 @@ class TestChannelsAdd:
             return np.full((1, 1), value, np.uint8)
 
         channels = _in_release_colours(
-            {'Red': one(40), 'Green': one(50), 'Blue': one(60), 'Lumi': one(70)}
+            {LED2: one(40), LED1: one(50), LED0: one(60), 'Lumi': one(70)}
         )
         channels['Magenta'] = CompositeChannel(
             one(20), layer_record.parse_display_color('#ff00ff'), 8, None
@@ -309,8 +310,8 @@ def test_the_builds_peak_memory_does_not_grow_with_the_channel_count():
         '        return tracemalloc.get_traced_memory()[1] / side / side\n'
         '    finally:\n'
         '        tracemalloc.stop()\n'
-        "print(peak_per_pixel(('Red', 'Green', 'Blue')),\n"
-        "      peak_per_pixel(('Red', 'Green', 'Blue', 'Lumi', 'BF')))\n"
+        f'print(peak_per_pixel(({LED2!r}, {LED1!r}, {LED0!r})),\n'
+        f"      peak_per_pixel(({LED2!r}, {LED1!r}, {LED0!r}, 'Lumi', 'BF')))\n"
     )
     measured = subprocess.run(
         [sys.executable, '-c', script],

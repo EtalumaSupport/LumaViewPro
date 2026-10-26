@@ -19,6 +19,7 @@ import modules.app_context as _app_ctx
 from modules.layer_record import release_catalogue
 from modules.lumascope_api.camera import AppliedExposure, AppliedGain, cap_stored_value
 from modules.scope_session import ShownChannel
+from tests.stock_channels import LED0, LED1, LED2
 
 _CAP_DB = 24.0
 
@@ -57,18 +58,18 @@ def _reconcile(monkeypatch, *, shown, capped):
 
 
 def test_every_capped_layer_is_rendered_and_none_applied(monkeypatch):
-    layer_objs = _reconcile(monkeypatch, shown='Blue', capped={'Blue', 'Red'})
+    layer_objs = _reconcile(monkeypatch, shown=LED0, capped={LED0, LED2})
 
-    for layer in ('Blue', 'Red'):
+    for layer in (LED0, LED2):
         layer_objs[layer].render_layer_values_from_settings.assert_called_once_with()
     for layer_obj in layer_objs.values():
         layer_obj.apply_settings.assert_not_called()
 
 
 def test_with_no_capped_layer_shown_nothing_is_applied(monkeypatch):
-    layer_objs = _reconcile(monkeypatch, shown='BF', capped={'Green', 'Red'})
+    layer_objs = _reconcile(monkeypatch, shown='BF', capped={LED1, LED2})
 
     for layer_obj in layer_objs.values():
         layer_obj.apply_settings.assert_not_called()
-    layer_objs['Green'].render_layer_values_from_settings.assert_called_once_with()
-    layer_objs['Red'].render_layer_values_from_settings.assert_called_once_with()
+    layer_objs[LED1].render_layer_values_from_settings.assert_called_once_with()
+    layer_objs[LED2].render_layer_values_from_settings.assert_called_once_with()

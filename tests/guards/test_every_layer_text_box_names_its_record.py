@@ -2,7 +2,7 @@
 """Every caller of the layer text helper names its box with a literal id ending in '_text'.
 
 ``LayerControl._validate_and_apply_text_input`` derives the record name from
-the box's id (``exp_text`` on the Blue panel records ``EXP_Blue``) and raises
+the box's id (``exp_text`` on a channel's panel records ``EXP_<channel>``) and raises
 ``ValueError`` on an id that does not end in ``_text``, before it writes
 anything. That raise is the runtime half of the contract, and it fires under
 a person's cursor, on the commit of the one box whose caller got it wrong.

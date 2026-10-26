@@ -30,6 +30,7 @@ import tifffile as tf
 
 from modules.image_utils import write_tiff
 from modules.layer_record import release_color
+from tests.stock_channels import LED2
 
 
 def _grayscale_image(dtype):
@@ -42,7 +43,7 @@ def _grayscale_image(dtype):
     raise ValueError(dtype)
 
 
-def _minimal_metadata(path, channel='Red'):
+def _minimal_metadata(path, channel=LED2):
     """Minimal metadata dict matching what write_tiff's generate_tiff_data
     expects. The plane metadata is keyed off these fields."""
     return {
@@ -79,7 +80,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
             file_loc=tmp_tiff,
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
-            color=release_color('Red'),
+            color=release_color(LED2),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,

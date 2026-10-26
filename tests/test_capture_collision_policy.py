@@ -54,6 +54,7 @@ from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
 from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED0, LED1
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -71,7 +72,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
     p = _make_protocol(
         [
             _valid_step(
-                Name='Control_Blue_Z0',
+                Name=f'Control_{LED0}_Z0',
                 Label='Control',
                 Well='A1',
                 X=60.0,
@@ -80,7 +81,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
                 **{'Tile Group ID': 0},
             ),
             _valid_step(
-                Name='Control_Blue_Z0',
+                Name=f'Control_{LED0}_Z0',
                 Label='Control',
                 Well='A2',
                 X=61.0,
@@ -99,7 +100,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
     assert len(collision_errors) == 1, errors
     msg = collision_errors[0]
     assert 'Steps 1, 2' in msg
-    assert "'Control_Blue_Z0_...'" in msg
+    assert f"'Control_{LED0}_Z0_...'" in msg
     assert 'Rename' in msg
 
 
@@ -301,7 +302,7 @@ def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, 
     processor = _FakePostProcessor()
     post_record = MagicMock()
     post_record.file_exists_in_records.return_value = False
-    images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff', 'B2_Green_zproj.tiff'])
+    images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff', f'B2_{LED1}_zproj.tiff'])
 
     with pytest.raises(PostProcessingFailedError) as incomplete:
         _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
@@ -309,10 +310,12 @@ def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, 
     assert 'refused' in str(incomplete.value)
     assert 'A1_BF_zproj.tiff' in str(incomplete.value)
     assert len(incomplete.value.produced_paths) == 1
-    assert incomplete.value.produced_paths[0].endswith('B2_Green_zproj.tiff')
-    assert processor.algorithm_calls == ['B2_Green_zproj.tiff'], 'only the clean group may generate'
+    assert incomplete.value.produced_paths[0].endswith(f'B2_{LED1}_zproj.tiff')
+    assert processor.algorithm_calls == [f'B2_{LED1}_zproj.tiff'], (
+        'only the clean group may generate'
+    )
     assert len(processor.records_added) == 1
-    assert str(processor.records_added[0]).endswith('B2_Green_zproj.tiff')
+    assert str(processor.records_added[0]).endswith(f'B2_{LED1}_zproj.tiff')
     post_record.complete.assert_called_once()
 
 

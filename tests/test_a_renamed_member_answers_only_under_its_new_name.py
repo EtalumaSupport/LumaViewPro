@@ -15,6 +15,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 # Stands for a new empty protocol's handle, made for each request that names it.
 PROTOCOL = '<protocol>'
@@ -55,41 +56,41 @@ RENAMED = [
     (
         'PUT',
         'channel_auto_gain',
-        {'layer': 'Blue', 'enabled': True},
+        {'layer': LED0, 'enabled': True},
         'channel_auto_gain',
-        {'channel': 'Blue', 'enabled': True},
+        {'channel': LED0, 'enabled': True},
     ),
-    ('GET', 'channel_auto_gain', {'layer': 'Blue'}, 'channel_auto_gain', {'channel': 'Blue'}),
+    ('GET', 'channel_auto_gain', {'layer': LED0}, 'channel_auto_gain', {'channel': LED0}),
     (
         'GET',
         'channel_auto_gain_lock',
-        {'layer': 'Blue'},
+        {'layer': LED0},
         'channel_auto_gain_lock',
-        {'channel': 'Blue'},
+        {'channel': LED0},
     ),
     (
         'PUT',
         'layer_auto_gain',
-        {'channel': 'Blue', 'enabled': True},
+        {'channel': LED0, 'enabled': True},
         'channel_auto_gain',
-        {'channel': 'Blue', 'enabled': True},
+        {'channel': LED0, 'enabled': True},
     ),
-    ('GET', 'layer_auto_gain', {'channel': 'Blue'}, 'channel_auto_gain', {'channel': 'Blue'}),
+    ('GET', 'layer_auto_gain', {'channel': LED0}, 'channel_auto_gain', {'channel': LED0}),
     (
         'GET',
         'layer_auto_gain_lock',
-        {'channel': 'Blue'},
+        {'channel': LED0},
         'channel_auto_gain_lock',
-        {'channel': 'Blue'},
+        {'channel': LED0},
     ),
     (
         'PUT',
         'saved_focus',
-        {'channel': 'Blue', 'z_um': 5000.0},
+        {'channel': LED0, 'z_um': 5000.0},
         'saved_focus_z_um',
-        {'channel': 'Blue', 'z_um': 5000.0},
+        {'channel': LED0, 'z_um': 5000.0},
     ),
-    ('GET', 'saved_focus', {'channel': 'Blue'}, 'saved_focus_z_um', {'channel': 'Blue'}),
+    ('GET', 'saved_focus', {'channel': LED0}, 'saved_focus_z_um', {'channel': LED0}),
     (
         'GET',
         'scope/motion/jog_step',
@@ -113,7 +114,7 @@ RENAMED = [
         'scope/protocols/focus_z_um',
         {'then': 'save the focus'},
     ),
-    ('POST', 'show_channel', {'layer': 'Blue'}, 'show_channel', {'channel': 'Blue'}),
+    ('POST', 'show_channel', {'layer': LED0}, 'show_channel', {'channel': LED0}),
     (
         'POST',
         'scope/camera/apply',

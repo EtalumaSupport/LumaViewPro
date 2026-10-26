@@ -24,6 +24,7 @@ from modules.exceptions import CaptureError, PostProcessingRefusedError
 from modules.notification_center import Severity, notifications
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_composite_run_failures import _fail_these_channels
+from tests.stock_channels import LED0
 
 
 @contextlib.contextmanager
@@ -74,7 +75,7 @@ class TestAFailedMergeTellsTheUserOnce:
         # frame its run recorded, so it is not built. The merge's failure
         # names the channel, and the run's missing channel is its own
         # notice, after it.
-        settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
         with (
             open_composite_session(settings) as (session, runner),
             _bus_at_popup_threshold() as seen,
@@ -83,7 +84,7 @@ class TestAFailedMergeTellsTheUserOnce:
             runner.run_composite(
                 sequence_name='one_of_two',
                 parent_dir=str(tmp_path),
-                events=_fail_these_channels(session.scope._camera_driver, ('BF', 'Blue'), {'Blue'}),
+                events=_fail_these_channels(session.scope._camera_driver, ('BF', LED0), {LED0}),
             )
 
         assert excinfo.value.reason == 'post_processing_failed'
@@ -92,9 +93,9 @@ class TestAFailedMergeTellsTheUserOnce:
             ('Composite Failed', Severity.ERROR),
             ('Run Incomplete', Severity.ERROR),
         ], told
-        assert all(
-            'Blue' in n.message for n in seen if n.severity.level >= Severity.NOTICE.level
-        ), 'each notice must name the channel that failed'
+        assert all(LED0 in n.message for n in seen if n.severity.level >= Severity.NOTICE.level), (
+            'each notice must name the channel that failed'
+        )
 
     def test_a_refusal_from_the_merge_is_told_as_itself(self, tmp_path, monkeypatch):
         from modules.composite_generation import CompositeGeneration

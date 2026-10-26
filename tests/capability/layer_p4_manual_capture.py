@@ -8,6 +8,7 @@ Stage B: session.manual_capture, the one path the GUI's Capture button also
 import sys
 import traceback
 import harness
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p4')
 scope = s.scope
@@ -20,8 +21,8 @@ try:
     harness.check('a script can get one frame from the API', arr is not None)
 
     # --- Stage B: the Session member captures and saves one still ---
-    scope.illumination.led_on('Blue', 100.0)
-    s.show_channel('Blue')
+    scope.illumination.led_on(LED0, 100.0)
+    s.show_channel(LED0)
     paths = [
         still.file for still in s.manual_capture.capture(false_color_on=True).result(timeout=30)
     ]

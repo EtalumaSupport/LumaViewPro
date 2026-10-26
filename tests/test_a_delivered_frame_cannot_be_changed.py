@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from tests.scope_fakes import bind_settings_like_a_session
+from tests.stock_channels import LED1
 
 
 def _next_delivered_frame(scope):
@@ -50,7 +51,7 @@ def test_the_preview_draws_its_scale_bar_on_its_own_copy(sim_scope):
     """The preview's frame carries the bar; the delivered frame it was drawn from does not."""
     bind_settings_like_a_session(sim_scope, scale_bar={'enabled': True})
     # A fluorescence channel's bar is white, so it shows on a dark frame.
-    sim_scope.imaging.set_scale_bar_color('Green')
+    sim_scope.imaging.set_scale_bar_color(LED1)
     delivered = []
 
     def _listener(frame):

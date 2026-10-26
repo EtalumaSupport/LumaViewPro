@@ -34,12 +34,13 @@ from tests.test_run_refusal_contract import _build_real_protocol, _make_single_s
 from tests.case_walk import failing_cases
 from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED1
 
 _POSITION = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
 
 
 def _at_start():
-    settings = _run_settings(acquiring=('BF', 'Green'), sequenced_format=OutputFormat.TIFF)
+    settings = _run_settings(acquiring=('BF', LED1), sequenced_format=OutputFormat.TIFF)
     settings['image_mode'] = ImageMode.EIGHT_BIT
     settings['zstack'] = {
         'range': 20.0,
@@ -157,7 +158,7 @@ def test_before_a_home_the_run_is_refused_as_not_homed(unhomed_session, member):
     the axes; the run's own gate answers, as it does for every run kind."""
     settings = unhomed_session.settings
     for layer in config_helpers.get_layer_configs(settings):
-        settings[layer]['acquire'] = 'image' if layer in ('BF', 'Green') else None
+        settings[layer]['acquire'] = 'image' if layer in ('BF', LED1) else None
     settings['zstack'].update({'range': 20.0, 'step_size': 5.0})
     runner = unhomed_session.create_protocol_runner()
     with pytest.raises(ProtocolRunRefusedError) as refused:

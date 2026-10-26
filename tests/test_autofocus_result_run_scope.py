@@ -46,6 +46,7 @@ from tests.ast_seams import parse_module
 from tests.scope_fakes import spec_scope
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from modules.scope_session import ShownChannel
+from tests.stock_channels import LED1
 
 STALE_Z = 4321.0  # a prior run's result; no drive ever produces this value
 
@@ -196,7 +197,7 @@ class _Session:
     def __init__(self):
         self.saved = []
         self.engineering_mode = False
-        self.shown_channel = ShownChannel('Green', lit=False)
+        self.shown_channel = ShownChannel(LED1, lit=False)
 
     def save_channel_focus(self, layer, z_um):
         self.saved.append((layer, z_um))
@@ -255,7 +256,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
 
         events.run_ended(_outcome(777.5), None, MagicMock())
 
-        assert gui.saved == [('Green', 777.5)]
+        assert gui.saved == [(LED1, 777.5)]
 
     def test_an_outcome_with_no_focus_saves_nothing(self, gui, monkeypatch):
         """Not found: an autofocus that found nothing writes nothing. The
@@ -271,7 +272,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
         camera from committed settings on EVERY terminal path, so an
         uncommitted text edit must be re-pointed at the truth even when
         no focus was found."""
-        gui.vc.VerticalControl._autofocus_run_ended(gui.button, 'Green', _outcome(None))
+        gui.vc.VerticalControl._autofocus_run_ended(gui.button, LED1, _outcome(None))
 
         gui.layer_obj.sync_widgets_from_settings.assert_called_once()
 

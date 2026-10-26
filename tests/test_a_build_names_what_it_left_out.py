@@ -28,6 +28,7 @@ from modules.exceptions import (
     PostProcessingRefusedError,
 )
 from modules.layer_record import release_color
+from tests.stock_channels import LED0, LED1
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -41,7 +42,7 @@ _TILE_PX = 64
 # 15% overlap: tiles one step apart share 10 columns (or rows).
 _STEP_MM = (_TILE_PX - 10) * _PIXEL_SIZE_UM / 1000
 _TILES = {'A1': (0, 0), 'A2': (1, 0), 'B1': (0, 1), 'B2': (1, 1)}
-_CHANNELS = {'BF': (0, 'False', 'custom0000'), 'Blue': (1, 'True', 'custom0001')}
+_CHANNELS = {'BF': (0, 'False', 'custom0000'), LED0: (1, 'True', 'custom0001')}
 
 
 def _step(tile: str, color: str) -> list[str]:
@@ -69,7 +70,7 @@ def session(tmp_path):
 
 @pytest.fixture
 def run_folder(tmp_path):
-    """A 2x2 tiled BF + Blue run at 15% overlap, as a run of this release saves it."""
+    """A 2x2 tiled BF + LED 0 run at 15% overlap, as a run of this release saves it."""
     folder = tmp_path / 'live' / 'ProtocolData' / '20261012_120000'
     folder.mkdir(parents=True)
     steps = [_step(tile, color) for tile in _TILES for color in _CHANNELS]
@@ -205,7 +206,7 @@ def test_a_build_with_a_failed_group_still_names_what_it_left_out(session, run_f
 @pytest.fixture(scope='module')
 def _recorded_runs(tmp_path_factory):
     """Two real simulated scans with a recording saved as frames: one with BF
-    and Green stills beside it, one of the recording alone. Run once; each
+    and LED 1 stills beside it, one of the recording alone. Run once; each
     test builds in its own copy."""
     from tests.test_a_late_write_records_its_frame import _protocol
     from tests.test_a_late_write_records_its_frame import _step as _run_step
@@ -215,8 +216,8 @@ def _recorded_runs(tmp_path_factory):
     settings = headless_settings(root)
     settings['video_as_frames'] = True
     shapes = {
-        'stills_and_recording': (('BF', 'image'), ('Green', 'image'), ('Blue', 'video')),
-        'recording_alone': (('Blue', 'video'),),
+        'stills_and_recording': (('BF', 'image'), (LED1, 'image'), (LED0, 'video')),
+        'recording_alone': ((LED0, 'video'),),
     }
     folders = {}
     with open_composite_session(settings) as (_session, runner):

@@ -33,6 +33,7 @@ from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protoco
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1
 
 ADDED_AT = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)
 UPDATED_TO = PlateLocation(x_mm=30.0, y_mm=40.0, z_um=6000.0)
@@ -40,13 +41,13 @@ OBJECTIVE = '4x Oly'
 
 
 def _layer_configs(**stim_enabled_by_layer):
-    """The production layer configs, BF and Blue set to acquire; the named
+    """The production layer configs, BF and LED 0 set to acquire; the named
     layers' stim config enabled."""
     settings = complete_settings()
     for layer in config_helpers.get_layer_configs(settings):
         settings[layer]['acquire'] = None
     settings['BF']['acquire'] = 'image'
-    settings['Blue']['acquire'] = 'image'
+    settings[LED0]['acquire'] = 'image'
     for layer, enabled in stim_enabled_by_layer.items():
         settings[layer]['stim_config'] = {**settings[layer]['stim_config'], 'enabled': enabled}
     return config_helpers.get_layer_configs(settings)
@@ -69,7 +70,7 @@ def _update(
     scope,
     protocol,
     *,
-    layer='Blue',
+    layer=LED0,
     objective_id=OBJECTIVE,
     label=None,
     layer_configs=None,
@@ -161,10 +162,10 @@ class TestTheApiRefuses:
         that was not why nothing could be updated."""
         protocol = _empty_protocol_for_add()
         configs = _layer_configs()
-        configs['Green'] = {**configs['Green'], 'acquire': None}
+        configs[LED1] = {**configs[LED1], 'acquire': None}
 
         with pytest.raises(StepNotFoundError) as excinfo:
-            _update(scope, protocol, layer='Green', layer_configs=configs)
+            _update(scope, protocol, layer=LED1, layer_configs=configs)
 
         assert excinfo.value.title == 'No Such Step'
         assert protocol.num_steps() == 0
@@ -179,7 +180,7 @@ class TestTheApiUpdates:
 
         step = _step(protocol)
         assert (step['X'], step['Y'], step['Z']) == (30.0, 40.0, 6000.0)
-        assert step['Color'] == 'Blue'
+        assert step['Color'] == LED0
         assert step['Objective'] == '10x Oly'
         assert name == step['Name']
 
@@ -199,7 +200,7 @@ class TestTheApiUpdates:
         # not a channel change: the step keeps acquiring what it acquired.
         protocol = _protocol_with_one_bf_step(scope)
 
-        _update(scope, protocol, layer='Blue', layer_configs=_layer_configs(Blue=True))
+        _update(scope, protocol, layer=LED0, layer_configs=_layer_configs(**{LED0: True}))
 
         assert _step(protocol)['Color'] == 'BF'
 
@@ -209,9 +210,9 @@ class TestTheApiUpdates:
         protocol = _protocol_with_one_bf_step(scope)
         stim = {'enabled': True, 'frequency': 0, 'illumination_ma': 50.0, 'exposure': 10.0}
 
-        _update(scope, protocol, stim_configs={'Blue': stim})
+        _update(scope, protocol, stim_configs={LED0: stim})
 
-        assert _step(protocol)['Stim_Config']['Blue']['enabled'] is False
+        assert _step(protocol)['Stim_Config'][LED0]['enabled'] is False
 
 
 @pytest.fixture

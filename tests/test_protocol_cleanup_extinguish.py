@@ -28,8 +28,9 @@ import modules.sequenced_capture_runner as scr
 from tests.protocol_drives import held_run_claim
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.scope_fakes import build_scope
+from tests.stock_channels import LED0
 
-LAYER = 'Blue'
+LAYER = LED0
 ILLUMINATION_MA = 10.0
 
 

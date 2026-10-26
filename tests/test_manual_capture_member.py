@@ -34,6 +34,7 @@ from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0, LED1, LED2
 
 RESULT_TIMEOUT_S = 30.0
 
@@ -157,22 +158,22 @@ class TestWhereTheFileLands:
 
     def test_the_shown_channel_names_the_still_when_nothing_is_lit(self, still_session):
         session, _ = still_session
-        session.show_channel('Blue')
+        session.show_channel(LED0)
 
         (path,) = _files(session)
 
-        assert '_Blue_' in path.name
-        assert read_postproc_input_metadata(path)['channel'] == 'Blue'
+        assert f'_{LED0}_' in path.name
+        assert read_postproc_input_metadata(path)['channel'] == LED0
 
     def test_a_lit_led_outranks_the_shown_channel(self, still_session):
         session, _ = still_session
-        session.show_channel('Blue')
-        session.scope.illumination.led_on('Green', 50.0)
+        session.show_channel(LED0)
+        session.scope.illumination.led_on(LED1, 50.0)
 
         (path,) = _files(session)
 
-        assert '_Green_' in path.name
-        assert read_postproc_input_metadata(path)['channel'] == 'Green'
+        assert f'_{LED1}_' in path.name
+        assert read_postproc_input_metadata(path)['channel'] == LED1
 
     def test_a_second_still_takes_the_next_number(self, still_session):
         session, _ = still_session
@@ -187,10 +188,10 @@ class TestWhereTheFileLands:
         settings = _settings(tmp_path)
         settings['separate_folder_per_channel'] = True
         with _open_session(settings) as session:
-            session.show_channel('Red')
+            session.show_channel(LED2)
             (path,) = _files(session)
 
-        assert path.parent == tmp_path / 'Manual' / 'Red'
+        assert path.parent == tmp_path / 'Manual' / LED2
 
     def test_the_live_format_is_the_settings(self, tmp_path):
         with _open_session(_settings(tmp_path, live_format='JPG')) as session:

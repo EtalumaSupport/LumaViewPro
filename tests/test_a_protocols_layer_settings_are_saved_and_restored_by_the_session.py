@@ -27,6 +27,7 @@ from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW, _protoco
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
 )
+from tests.stock_channels import LED1, LED2
 
 PLATE = '6 well microplate'
 BLOCK_HEADER = (
@@ -101,7 +102,7 @@ class TestSaveThenRestore:
         written = session.save_protocol(protocol, tmp_path / 'plate.tsv')
 
         _set_layer(session, 'BF', illumination_ma=99.0, sum=1)
-        _set_layer(session, 'Green', acquire='image')
+        _set_layer(session, LED1, acquire='image')
         loaded = session.load_protocol(written)
         session.apply_channel_settings(loaded)
 
@@ -111,7 +112,7 @@ class TestSaveThenRestore:
             protocol.duration_s(),
         )
         assert _layer_fields(session, 'BF') == saved_bf
-        assert session.settings['Green']['acquire'] is None, (
+        assert session.settings[LED1]['acquire'] is None, (
             'a layer the protocol does not name is cleared'
         )
 
@@ -119,12 +120,12 @@ class TestSaveThenRestore:
         _only_bf_acquiring(session)
         written = session.save_protocol(session.new_protocol(), tmp_path / 'plate.tsv')
         _set_layer(session, 'BF', illumination_ma=99.0)
-        _set_layer(session, 'Green', acquire='image')
+        _set_layer(session, LED1, acquire='image')
 
         session.load_protocol(written)
 
         assert session.settings['BF']['illumination_ma'] == 99.0
-        assert session.settings['Green']['acquire'] == 'image'
+        assert session.settings[LED1]['acquire'] == 'image'
 
     def test_save_returns_the_path_written(self, session, tmp_path):
         _only_bf_acquiring(session)
@@ -180,9 +181,11 @@ class TestSaveThenRestore:
 
 class TestTheBlockIsTypedAtLoad:
     def test_a_saved_block_comes_back_typed(self, session, tmp_path):
-        tsv = _file_with_block(tmp_path, 'Red\timage\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n')
+        tsv = _file_with_block(
+            tmp_path, f'{LED2}\timage\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n'
+        )
 
-        row = session.load_protocol(tsv).channel_settings()['Red']
+        row = session.load_protocol(tsv).channel_settings()[LED2]
 
         assert row == ChannelSettings(
             acquire='image',
@@ -196,11 +199,13 @@ class TestTheBlockIsTypedAtLoad:
         )
 
     def test_a_loaded_acquire_is_an_acquire_mode(self, session, tmp_path):
-        tsv = _file_with_block(tmp_path, 'Red\tvideo\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n')
+        tsv = _file_with_block(
+            tmp_path, f'{LED2}\tvideo\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n'
+        )
 
         protocol = session.load_protocol(tsv)
 
-        assert protocol.channel_settings()['Red'].acquire is AcquireMode.VIDEO
+        assert protocol.channel_settings()[LED2].acquire is AcquireMode.VIDEO
         assert type(protocol.step(0).acquire) is AcquireMode
 
     def test_a_row_built_with_a_word_that_is_no_mode_is_refused(self):

@@ -24,6 +24,7 @@ from modules.protocol_post_processing_result import PostProcResult
 from modules.stitcher import Stitcher
 from modules.zprojector import ZProjector
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
 
 
 @pytest.fixture
@@ -120,7 +121,7 @@ class TestGroupAlgorithmsCarryDepth:
 
     def test_composite_result_carries_depth(self, tmp_path, neutral_ctx):
         rows = []
-        for color, val in (('Red', 120), ('Green', 180)):
+        for color, val in ((LED2, 120), (LED1, 180)):
             p = tmp_path / f'{color}.tiff'
             _write_mono_tiff(p, value=val)
             rows.append({'Filepath': p.name, 'Color': color})

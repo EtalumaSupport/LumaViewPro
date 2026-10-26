@@ -25,6 +25,7 @@ from modules.post_processing import PostProcessing
 from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 OLD_RESULTS = 'file,time,num_cells\nold.tif,yesterday,7\n'
 
@@ -35,7 +36,7 @@ def _write_tiff(path):
         file_loc=path,
         metadata={
             'pixel_size_um': 0.5,
-            'channel': 'Green',
+            'channel': LED1,
             'objective': '10x',
             'exposure_time_ms': 50.0,
             'gain_db': 0.0,
@@ -49,7 +50,7 @@ def _write_tiff(path):
             'significant_bits': 8,
         },
         ome=False,
-        color=release_color('Green'),
+        color=release_color(LED1),
         significant_bits=8,
         save_encoding='right_aligned',
         white_bits=None,

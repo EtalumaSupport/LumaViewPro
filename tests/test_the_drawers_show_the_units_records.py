@@ -23,6 +23,7 @@ from modules.path_utils import read_installation_file
 from tests.installation_fixtures import FLUORESCENCE_UNITS, write_release_with_added_channels
 from tests.scope_fakes import refuse_a_report
 from ui.image_settings import ImageSettings
+from tests.stock_channels import LED0
 
 _uids = itertools.count()
 
@@ -148,7 +149,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
 
 def test_a_fluorescence_drawer_is_titled_by_its_excitation_and_lumi_sums(panel):
     ImageSettings.show_drawers(panel, _identity('LS850'))
-    blue = panel._drawers['Blue']
+    blue = panel._drawers[LED0]
     assert blue.title == '405 nm'
     assert blue.color_rgba == (0.0, 0.0, 1.0, 1.0)
     assert blue.chrome_rgba == pytest.approx((0.4, 0.4, 1.0, 1.0))

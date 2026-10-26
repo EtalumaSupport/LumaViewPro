@@ -67,6 +67,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED2
 
 COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
@@ -551,7 +552,7 @@ class TestTheCompositeChannelFloor:
 
     @pytest.mark.parametrize(
         'protocol_factory',
-        [lambda: _build_real_protocol([]), lambda: _make_single_step_protocol('Blue')],
+        [lambda: _build_real_protocol([]), lambda: _make_single_step_protocol(LED0)],
         ids=['no_channel', 'one_channel'],
     )
     def test_fewer_than_two_channels_is_refused_and_posts_nothing(
@@ -571,7 +572,7 @@ class TestTheCompositeChannelFloor:
         # to capture, the run would take both and its composite be refused.
         steps = [
             _make_single_step_protocol(c).step_row(step_index=0).to_dict()
-            for c in ('BF', 'PC', 'Red')
+            for c in ('BF', 'PC', LED2)
         ]
         captured = _capture_notifications(centre_posts)
         with pytest.raises(ProtocolRunRefusedError) as excinfo:

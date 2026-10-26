@@ -20,6 +20,7 @@ import time
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from lib import profile_trace
+from tests.stock_channels import LED0
 
 
 def _run(session, runner, protocol, parent, name):
@@ -126,12 +127,12 @@ def main():
     if HARDWARE:
         with hardware_session() as (session, runner):
             # The installation's layers may acquire nothing; this run captures
-            # BF and Blue as stills, on the session's settings in memory only.
-            for layer in ('BF', 'Blue'):
+            # BF and LED 0's channel as stills, on the session's settings in memory only.
+            for layer in ('BF', LED0):
                 session.set_channel_acquire(layer, 'image')
             body(session, runner, live)
         sys.exit(report())
-    with headless_session(live, acquiring=('BF', 'Blue')) as (session, runner):
+    with headless_session(live, acquiring=('BF', LED0)) as (session, runner):
         body(session, runner, live)
     harness.assert_no_ui()
     sys.exit(report())

@@ -37,6 +37,7 @@ from tests.af_drives import (
     drive_af,
     raises_the_failure_from,
 )
+from tests.stock_channels import LED1
 
 
 class SetupError(Exception):
@@ -484,7 +485,7 @@ def test_a_clean_exit_still_runs_every_restore_step(monkeypatch):
     monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
     runner, scope = af_runner_and_scope()
 
-    assert drive_af(runner, keep_led_on=True, led_color='Green') == AF_CENTER_Z
+    assert drive_af(runner, keep_led_on=True, led_color=LED1) == AF_CENTER_Z
 
     assert scope.motion.set_precision_mode.called, 'the precision restore must still run'
     assert af_lease(scope).apply.called, 'the AF-end LED transition must still run'

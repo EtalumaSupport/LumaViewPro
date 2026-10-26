@@ -9,7 +9,7 @@ layer control set the camera, and the LS850T read the Pylon default
 1. after bring-up, the camera against BF's stored exposure and gain (not
    asked when BF's auto-gain is on: the camera then holds what the auto loop
    reached);
-2. after `go_to_step` to a Blue step, then a BF step, built from the layers'
+2. after `go_to_step` to an LED 0 step, then a BF step, built from the layers'
    own settings, the camera against that step's exposure and gain.
 
 A capture after each go reads the frame record, the values a saved file
@@ -22,6 +22,7 @@ would carry.
 import sys
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from tests.stock_channels import LED0
 
 
 def _camera(scope):
@@ -83,13 +84,13 @@ def body(session):
     for layer in layers:
         settings[layer]['acquire'] = None
     settings['BF']['acquire'] = 'image'
-    settings['Blue']['acquire'] = 'image'
+    settings[LED0]['acquire'] = 'image'
     protocol = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
     session.add_step(protocol, before_step_index=0)
     colors = [protocol.step_row(step_index=i)['Color'] for i in range(protocol.num_steps())]
     figure('steps', colors)
 
-    for color in ('Blue', 'BF'):
+    for color in (LED0, 'BF'):
         idx = colors.index(color)
         step = protocol.step_row(step_index=idx)
         want = (round(float(step['Exposure']), 3), round(float(step['Gain']), 3))

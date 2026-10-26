@@ -4,7 +4,7 @@ Every numeric text box in the layer panel commits through one shared helper,
 ``LayerControl._validate_and_apply_text_input``, and the helper -- not each of
 its callers -- writes the record, so a new box records by routing through it.
 The record name is derived from the box's id and the panel's channel
-(``exp_text`` on the Blue panel records ``EXP_Blue``); no caller passes one.
+(``exp_text`` on LED 0's panel records ``EXP_`` and its key); no caller passes one.
 
 The record is ``gui_logger.text_input``, synchronous and unconditional, with
 ``<NAME>_APPLIED`` beside it only when what is stored differs from what was
@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import modules.app_context as _app_ctx
 from tests.settings_fixtures import settings_writer
 from ui.layer_control import LayerControl
+from tests.stock_channels import LED0
 
 _GUI_LOG = 'LVP.gui_interactions'
 
@@ -37,13 +38,13 @@ class _Slider:
 
 
 def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
-    """The Blue panel's exposure box holding ``typed``, over a store holding ``stored``.
+    """LED 0's panel's exposure box holding ``typed``, over a store holding ``stored``.
 
     Returns the panel, the store, and one entry per settings write: the
     records already in the log when the write happened.
     """
     caplog.set_level(logging.INFO, logger=_GUI_LOG)
-    settings = {'Blue': {'exposure_ms': stored}, 'fx2_debug_wire_enabled': False}
+    settings = {LED0: {'exposure_ms': stored}, 'fx2_debug_wire_enabled': False}
     write = settings_writer(settings)
     writes = []
 
@@ -56,7 +57,7 @@ def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
     )
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     panel = LayerControl.__new__(LayerControl)
-    panel.layer = 'Blue'
+    panel.layer = LED0
     panel._initializing = False
     panel.ids = {
         'exp_slider': _Slider(0.01, 1000.0, stored),
@@ -87,7 +88,7 @@ def test_layer_owned_records_carry_the_channel_suffix(monkeypatch, caplog):
     _commit(panel)
     panel.log_histogram_scale()
 
-    assert _records(caplog) == ['TEXT_INPUT EXP_Blue 250', 'TOGGLE LOG_HISTOGRAM_Blue ON']
+    assert _records(caplog) == [f'TEXT_INPUT EXP_{LED0} 250', f'TOGGLE LOG_HISTOGRAM_{LED0} ON']
 
 
 def test_the_record_carries_the_text_as_typed_not_the_number_stored(monkeypatch, caplog):
@@ -100,8 +101,8 @@ def test_the_record_carries_the_text_as_typed_not_the_number_stored(monkeypatch,
 
     _commit(panel)
 
-    assert settings['Blue']['exposure_ms'] == 2.5
-    assert _records(caplog) == ['TEXT_INPUT EXP_Blue 2.50']
+    assert settings[LED0]['exposure_ms'] == 2.5
+    assert _records(caplog) == [f'TEXT_INPUT EXP_{LED0} 2.50']
 
 
 def test_a_refused_entry_reports_the_value_kept_under_its_own_name(monkeypatch, caplog):
@@ -115,9 +116,9 @@ def test_a_refused_entry_reports_the_value_kept_under_its_own_name(monkeypatch, 
 
     _commit(panel)
 
-    assert settings['Blue']['exposure_ms'] == 500.0
+    assert settings[LED0]['exposure_ms'] == 500.0
     typed_records = [m for m in _records(caplog) if m.startswith('TEXT_INPUT')]
-    assert typed_records == ['TEXT_INPUT EXP_Blue -5', 'TEXT_INPUT EXP_Blue_APPLIED 500.0']
+    assert typed_records == [f'TEXT_INPUT EXP_{LED0} -5', f'TEXT_INPUT EXP_{LED0}_APPLIED 500.0']
 
 
 def test_an_accepted_whole_number_in_a_float_box_reports_no_correction(monkeypatch, caplog):
@@ -130,8 +131,8 @@ def test_an_accepted_whole_number_in_a_float_box_reports_no_correction(monkeypat
 
     _commit(panel)
 
-    assert settings['Blue']['exposure_ms'] == 5.0
-    assert _records(caplog) == ['TEXT_INPUT EXP_Blue 5']
+    assert settings[LED0]['exposure_ms'] == 5.0
+    assert _records(caplog) == [f'TEXT_INPUT EXP_{LED0} 5']
 
 
 def test_an_unparseable_entry_records_the_attempt_and_the_value_kept(monkeypatch, caplog):
@@ -145,13 +146,13 @@ def test_an_unparseable_entry_records_the_attempt_and_the_value_kept(monkeypatch
 
     assert writes == []
     assert panel.ids['exp_text'].text == '500.0'
-    assert _records(caplog) == ['TEXT_INPUT EXP_Blue -', 'TEXT_INPUT EXP_Blue_APPLIED 500.0']
+    assert _records(caplog) == [f'TEXT_INPUT EXP_{LED0} -', f'TEXT_INPUT EXP_{LED0}_APPLIED 500.0']
 
 
 def test_the_helper_does_not_emit_through_the_slider_verb(monkeypatch, caplog):
     """A typed commit and a drag on the same setting stay distinguishable.
 
-    The slider twin records ``SLIDER EXP_Blue``; a typed commit records
+    The slider twin records ``SLIDER EXP_`` and the channel's key; a typed commit records
     ``TEXT_INPUT`` and never ``SLIDER``, or the bundle could not tell a
     keystroke from a drag.
 
@@ -173,7 +174,7 @@ def test_the_typed_record_is_written_after_the_settings_write(monkeypatch, caplo
     records after, so a refusal's notification reaches the log ahead of the
     entry that caused it. The test asserts today's order so that it passes
     against today's code; the fix moves the record ahead of the write and
-    turns this assertion into ``writes == [['TEXT_INPUT EXP_Blue 250']]``.
+    turns this assertion into ``writes == [[f'TEXT_INPUT EXP_{LED0} 250']]``.
 
     Fails if the record moves ahead of the write (the fix), which is when
     this test is rewritten to the contract's side.
@@ -183,4 +184,4 @@ def test_the_typed_record_is_written_after_the_settings_write(monkeypatch, caplo
     _commit(panel)
 
     assert writes == [[]], f'records already in the log at the settings write: {writes}'
-    assert _records(caplog) == ['TEXT_INPUT EXP_Blue 250']
+    assert _records(caplog) == [f'TEXT_INPUT EXP_{LED0} 250']

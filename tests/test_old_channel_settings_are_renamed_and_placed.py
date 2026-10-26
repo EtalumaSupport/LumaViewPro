@@ -8,8 +8,8 @@ stock key (``Ex405`` / ``Ex488`` / ``Ex589``) before anything reads one;
 the session's bring-up then places them by the unit, first: on a unit
 whose LED 0 is 488 nm, ``Blue``'s settings are its ``Ex488``'s.
 
-Each test runs on a release in excitation keys
-(``excitation_key_installation``).
+Each test runs on the shipped release, whose keys are named for their
+excitation.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from modules.path_utils import read_installation_file
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import (
     SHIPPED_DATA,
-    excitation_key_installation,
     non_stock_block,
+    write_installation,
 )
 from tests.settings_fixtures import complete_settings
 
@@ -68,7 +68,7 @@ def test_preparation_renames_old_blocks_to_their_stock_keys(tmp_path, monkeypatc
     """Prepared, the old blocks are the stock keys' and every reader saw them
     there: ``Blue``'s retired 4950 focus is forgotten, no old key is left,
     and the old step order is re-derived without being reported."""
-    root = excitation_key_installation(tmp_path, monkeypatch)
+    root = write_installation(tmp_path)
     _write_old_current_json(root, microscope='LS850')
     settings_init.take_stored_replacements()
 
@@ -88,7 +88,7 @@ def test_an_old_block_beside_its_stock_keys_block_is_dropped_and_told(tmp_path, 
     """A file holding both ``Blue`` and ``Ex405`` (written across a rollback,
     or by hand) keeps ``Ex405``; ``Blue``'s block is replaced by nothing, the
     release having no such setting, and the load says so."""
-    root = excitation_key_installation(tmp_path, monkeypatch)
+    root = write_installation(tmp_path)
     _write_old_current_json(root, microscope='LS850')
     current = json.loads((root / 'data' / 'current.json').read_text())
     current['Ex405'] = {**current['Blue'], 'gain_db': 9.0}
@@ -141,7 +141,7 @@ def test_bring_up_places_old_settings_on_the_units_own_leds(
     a unit with its LED, and stops on the LS560, whose ``Ex405`` it lacks."""
     root = tmp_path / 'installation'
     board_block = non_stock_block(_transmitted_rows()) if block else None
-    excitation_key_installation(root, monkeypatch, board_block=board_block)
+    write_installation(root, board_block=board_block)
     session = _session(root, microscope=microscope)
     try:
         held = {key: session.get_setting(f'{key}.gain_db') for key in expected}

@@ -31,6 +31,7 @@ from modules import image_utils
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
 def _write_frame(
@@ -88,16 +89,16 @@ def _row(fname, *, color, z_idx, z_um, well='A1', scan=0):
 
 
 def test_sparse_grid_refused_not_crashed(tmp_path):
-    # One well: Brightfield z-stacked over 3 slices + Green single-shot.
+    # One well: Brightfield z-stacked over 3 slices + an LED 1 single-shot.
     # Dense cube wants 1 x 3 x 2 = 6 planes; only 4 frames exist -> the
-    # phantom (Green, z1/z2) cells are the pre-fix IndexError.
+    # phantom (LED 1, z1/z2) cells are the pre-fix IndexError.
     rows = []
     for z_idx in range(3):
         fname = f'bf_z{z_idx}.tiff'
         _write_frame(tmp_path / fname, color='BF', value=50 + z_idx * 10)
         rows.append(_row(fname, color='BF', z_idx=z_idx, z_um=100.0 + z_idx * 10))
-    _write_frame(tmp_path / 'green_z0.tiff', color='Green', value=200)
-    rows.append(_row('green_z0.tiff', color='Green', z_idx=0, z_um=100.0))
+    _write_frame(tmp_path / 'green_z0.tiff', color=LED1, value=200)
+    rows.append(_row('green_z0.tiff', color=LED1, z_idx=0, z_um=100.0))
     df = pd.DataFrame(rows)
 
     result = StackBuilder._create_stack(
@@ -144,7 +145,7 @@ def test_rectangular_multichannel_still_builds(tmp_path):
     # Complete 1 x 2 x 2 grid (both channels captured at both z-slices):
     # the guard must NOT false-refuse a valid multi-channel z-stack.
     rows = []
-    for color, base in (('BF', 10), ('Green', 100)):
+    for color, base in (('BF', 10), (LED1, 100)):
         for z_idx in range(2):
             fname = f'{color}_z{z_idx}.tiff'
             _write_frame(tmp_path / fname, color=color, value=base + z_idx * 10)
@@ -180,8 +181,8 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
         fname = f'bf_z{z_idx}.tiff'
         _write_frame(tmp_path / fname, color='BF', value=50 + z_idx * 10)
         rows.append(_row(fname, color='BF', z_idx=z_idx, z_um=100.0 + z_idx * 10))
-    _write_frame(tmp_path / 'green_z0.tiff', color='Green', value=200)
-    rows.append(_row('green_z0.tiff', color='Green', z_idx=0, z_um=100.0))
+    _write_frame(tmp_path / 'green_z0.tiff', color=LED1, value=200)
+    rows.append(_row('green_z0.tiff', color=LED1, z_idx=0, z_um=100.0))
 
     video_dir = tmp_path / 'BF' / 'A1_BF_0000_video'
     video_dir.mkdir(parents=True)

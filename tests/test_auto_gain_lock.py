@@ -43,6 +43,7 @@ from tests.scope_fakes import (
     give_camera_capabilities,
     give_stub_lanes,
 )
+from tests.stock_channels import LED0, LED2
 
 AG_SETTINGS_FLUORESCENCE = {
     'target_brightness': 0.5,
@@ -335,7 +336,7 @@ def test_class_floor_lives_in_config_helpers():
     AG/AE ceiling; the layer control reads it and no longer defines it."""
     assert config_helpers.get_ag_ae_min_exposure_ms('BF') == 0.1
     assert config_helpers.get_ag_ae_min_exposure_ms('PC') == 0.1
-    assert config_helpers.get_ag_ae_min_exposure_ms('Blue') == 1.0
+    assert config_helpers.get_ag_ae_min_exposure_ms(LED0) == 1.0
     assert config_helpers.get_ag_ae_min_exposure_ms('Lumi') == 1.0
     tree = ast_seams.parse_module('ui/layer_control.py')
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
@@ -588,7 +589,7 @@ class _ApiLogCollector(logging.Handler):
 def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     """Two layers at identical gain and exposure must not log identically.
 
-    Without the layer, a live view whose Red and Lumi both sit at 20 dB /
+    Without the layer, a live view whose LED2 and Lumi both sit at 20 dB /
     100 ms writes two byte-identical api.log lines in the same
     millisecond, which reads as one call logged twice -- a double-apply
     bug that has to be disproved by hand every time someone reads the log.
@@ -603,7 +604,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     api_log.setLevel(logging.INFO)
     api_log.addHandler(collector)
     try:
-        for layer in ('Red', 'Lumi'):
+        for layer in (LED2, 'Lumi'):
             camera._apply_settings_impl(
                 layer=layer,
                 gain_db=20.0,
@@ -620,7 +621,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
         f'both layers logged the same line, so the log cannot tell one apply '
         f'from two: {applied[0]!r}'
     )
-    assert 'Red' in applied[0] and 'Lumi' in applied[1], (
+    assert LED2 in applied[0] and 'Lumi' in applied[1], (
         f'each line must name its own layer: {applied}'
     )
 

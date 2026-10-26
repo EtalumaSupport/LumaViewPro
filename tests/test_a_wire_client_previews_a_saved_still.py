@@ -20,6 +20,7 @@ import modules.image_mode as image_mode
 from modules import image_utils
 from rest.app import build_app
 from tests.test_manual_capture_member import _capture, _open_session, _settings
+from tests.stock_channels import LED0
 
 
 def _jpeg(answer) -> np.ndarray:
@@ -79,7 +80,7 @@ def test_the_preview_is_no_wider_than_asked_and_half_the_image_by_default(summed
 def test_a_colour_file_previews_grey(tmp_path):
     # A JPG still bakes its channel's false colour into its pixels.
     with _open_session(_settings(tmp_path, live_format='JPG')) as session:
-        session.show_channel('Blue')
+        session.show_channel(LED0)
         (still,) = _capture(session, false_color_on=True)
         assert image_utils.load_pixels(still.file)[0].ndim == 3, 'the JPG is colour'
         with TestClient(build_app(session)) as client:

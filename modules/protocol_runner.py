@@ -257,7 +257,7 @@ class ProtocolRunner:
         runs, which it must do anyway for the measurements to be comparable.
 
         Args:
-            channel: Which channel to focus on ('BF', 'Green', ...).
+            channel: Which channel to focus on ('BF', 'Ex488', ...).
             save_characterization_data: Whether to write the per-position
                 focus scores this sweep measured. Off by default: a caller
                 that does not ask for data gets no folder. When on, the
@@ -428,7 +428,7 @@ class ProtocolRunner:
         enabled ones, this is the line that changes.
 
         Args:
-            channel: Which channel to capture ('BF', 'Green', ...).
+            channel: Which channel to capture ('BF', 'Ex488', ...).
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to

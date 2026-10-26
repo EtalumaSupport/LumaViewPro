@@ -25,6 +25,7 @@ from modules.video_builder import VideoBuilder
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -184,7 +185,7 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
     # A folder with no manual frames must take the protocol load_folder path.
     folder = tmp_path / 'protocol_run'
     folder.mkdir()
-    tf.imwrite(str(folder / 'scan_step1_Blue.tiff'), np.zeros((8, 8), dtype=np.uint16))
+    tf.imwrite(str(folder / f'scan_step1_{LED0}.tiff'), np.zeros((8, 8), dtype=np.uint16))
 
     builder = VideoBuilder(has_turret=False)
     assert builder._is_manual_recording_folder(folder) is False
@@ -247,16 +248,14 @@ def _channel_means_bgr(frame):
 
 
 def test_manual_video_renders_channel_color_from_manifest(tmp_path):
-    folder = _make_manual_folder(
-        tmp_path, n_frames=2, include_hyperstack=False, channel_color='Red'
-    )
+    folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=LED2)
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
         folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
     )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
-    # 'Red' false-color -> red channel dominates; NOT grayscale (the bug).
+    # LED 2's red false-color -> red channel dominates; NOT grayscale (the bug).
     assert r > g + 10 and r > b + 10, f'expected red-dominant frame, got B={b} G={g} R={r}'
 
 
@@ -283,9 +282,9 @@ def test_read_manifest_channel_color(tmp_path):
     assert builder._read_recording_manifest(folder)['channel_color'] is None
     # Manifest with the key -> the color.
     (folder / 'session_manifest.json').write_text(
-        json.dumps({'recording': {'channel_color': 'Green'}})
+        json.dumps({'recording': {'channel_color': LED1}})
     )
-    assert builder._read_recording_manifest(folder)['channel_color'] == 'Green'
+    assert builder._read_recording_manifest(folder)['channel_color'] == LED1
 
 
 def test_build_session_manifest_includes_channel_color():
@@ -297,9 +296,9 @@ def test_build_session_manifest_includes_channel_color():
         tick_freq_hz=None,
         captured_frames=0,
         video_duration=0.0,
-        channel_color='Blue',
+        channel_color=LED0,
     )
-    assert m['recording']['channel_color'] == 'Blue'
+    assert m['recording']['channel_color'] == LED0
 
 
 # ---------------------------------------------------------------------------

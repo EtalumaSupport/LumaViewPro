@@ -26,6 +26,7 @@ from modules.stack_builder import StackBuilder
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -249,8 +250,8 @@ class TestVideoWellStackBuild:
         # Behavior-preservation guard (refuses before and after): two
         # channels of one (well, scan) with unequal frame counts cannot
         # form a rectangular T x Z x C grid; refuse loudly, never pad.
-        rows = [(_frame_path('A1', 'Green', 0, n), 0, 'Green', 0) for n in range(3)]
-        rows += [(_frame_path('A1', 'Red', 0, n), 0, 'Red', 0) for n in range(2)]
+        rows = [(_frame_path('A1', LED1, 0, n), 0, LED1, 0) for n in range(3)]
+        rows += [(_frame_path('A1', LED2, 0, n), 0, LED2, 0) for n in range(2)]
         df = _stack_df(rows)
         _write_frames(tmp_path, df)
 

@@ -11,7 +11,7 @@ those settings describe; one with the same settings makes nothing new.
 
 Each test runs the real builds through ``session.post_processing`` on a
 run folder written as a run of this release saves it: a 2x2 tiled scan at
-15% overlap, a 3-slice Z-stack at each tile, BF and Blue.
+15% overlap, a 3-slice Z-stack at each tile, BF and the stock LED 0.
 """
 
 from __future__ import annotations
@@ -24,7 +24,8 @@ import tifffile
 
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError
-from modules.layer_record import release_color
+from modules.layer_record import release_color, stored_key
+from tests.stock_channels import LED0
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -38,13 +39,17 @@ _TILE_PX = 64
 # 15% overlap: tiles one step apart share 10 columns (or rows).
 _STEP_MM = (_TILE_PX - 10) * _PIXEL_SIZE_UM / 1000
 _TILES = {'A1': (0, 0), 'A2': (1, 0), 'B1': (0, 1), 'B2': (1, 1)}
-_CHANNELS = {'BF': (0, 'False', 'custom0000'), 'Blue': (1, 'True', 'custom0001')}
 _SLICES = (0, 1, 2)
 
 
-def _step(tile: str, color: str, z_slice: int) -> list[str]:
+def _channels(fluorescence: str) -> dict[str, tuple[int, str, str]]:
+    """Each channel of the run: its channel group, false colour and step prefix."""
+    return {'BF': (0, 'False', 'custom0000'), fluorescence: (1, 'True', 'custom0001')}
+
+
+def _step(channels: dict, tile: str, color: str, z_slice: int) -> list[str]:
     column, row = _TILES[tile]
-    group, false_color, prefix = _CHANNELS[color]
+    group, false_color, prefix = channels[color]
     return [
         f'{prefix}_{color}_T{tile}_Z{z_slice}', f'{10 + column * _STEP_MM:.4f}',
         f'{10 + row * _STEP_MM:.4f}', f'{5000.0 + 5 * z_slice:.1f}', 'False', color,
@@ -68,11 +73,21 @@ def session(tmp_path):
 
 @pytest.fixture
 def run_folder(tmp_path):
-    """A 2x2 tiled, 3-slice BF + Blue run, each slice a different scene."""
+    """A 2x2 tiled, 3-slice BF + LED 0 run, each slice a different scene."""
+    return write_run_folder(tmp_path, LED0)
+
+
+def write_run_folder(tmp_path, fluorescence: str):
+    """The run folder of a 2x2 tiled, 3-slice run of BF and ``fluorescence``,
+    each slice a different scene, as a release naming it so saves it."""
+    channels = _channels(fluorescence)
     folder = tmp_path / 'live' / 'ProtocolData' / '20261018_120000'
     folder.mkdir(parents=True)
     steps = [
-        _step(tile, color, z_slice) for tile in _TILES for color in _CHANNELS for z_slice in _SLICES
+        _step(channels, tile, color, z_slice)
+        for tile in _TILES
+        for color in channels
+        for z_slice in _SLICES
     ]
     (folder / 'run.tsv').write_text(
         'LumaViewPro Protocol\nVersion\t8\nPeriod\t20.0\nDuration\t48.0\n'
@@ -108,7 +123,7 @@ def run_folder(tmp_path):
                 'significant_bits': 8,
             },
             ome=False,
-            color=release_color(color),
+            color=release_color(stored_key(color)),
             significant_bits=8,
             save_encoding='right_aligned',
             white_bits=None,
@@ -148,8 +163,8 @@ def test_a_stitch_of_two_projections_makes_a_mosaic_of_each(session, run_folder,
     assert mosaics == [
         'custom0000_BF_0000_zproj_max_stitched.tiff',
         'custom0000_BF_0000_zproj_sum_stitched.tiff',
-        'custom0001_Blue_0000_zproj_max_stitched.tiff',
-        'custom0001_Blue_0000_zproj_sum_stitched.tiff',
+        f'custom0001_{LED0}_0000_zproj_max_stitched.tiff',
+        f'custom0001_{LED0}_0000_zproj_sum_stitched.tiff',
     ]
     for method, folder in alone.items():
         name = f'custom0000_BF_0000_zproj_{method.lower()}_stitched.tiff'
@@ -176,8 +191,8 @@ def test_a_projection_of_two_stitches_makes_a_projection_of_each(session, run_fo
     assert projections == [
         'custom0000_BF_0000_stitched_FastPreview_zproj_sum.tiff',
         'custom0000_BF_0000_stitched_zproj_sum.tiff',
-        'custom0001_Blue_0000_stitched_FastPreview_zproj_sum.tiff',
-        'custom0001_Blue_0000_stitched_zproj_sum.tiff',
+        f'custom0001_{LED0}_0000_stitched_FastPreview_zproj_sum.tiff',
+        f'custom0001_{LED0}_0000_stitched_zproj_sum.tiff',
     ]
     quality_slices = [
         tifffile.imread(run_folder / 'Stitched' / f'custom0000_BF_Z{z}_0000_stitched.tiff')
@@ -198,7 +213,7 @@ def test_a_composite_rebuilt_with_a_new_threshold_is_built_and_one_with_the_same
     describes, beside the earlier ones; a rebuild with the same settings
     makes nothing new."""
     first = session.post_processing.composite(run_folder)
-    session.update_settings('Blue.composite_brightness_threshold', 80)
+    session.update_settings(f'{LED0}.composite_brightness_threshold', 80)
 
     rebuilt = session.post_processing.composite(run_folder)
     again = session.post_processing.composite(run_folder)
@@ -245,7 +260,7 @@ def test_a_projection_an_earlier_release_made_is_stitched_and_named_for_no_metho
 
     assert _names(stitched.artifact_paths, 'Stitched-ZProject') == [
         'custom0000_BF_0000_zproj_stitched.tiff',
-        'custom0001_Blue_0000_zproj_stitched.tiff',
+        f'custom0001_{LED0}_0000_zproj_stitched.tiff',
     ]
     record = (run_folder / 'protocol_post_record.tsv').read_text()
     assert 'Version\t4' in record

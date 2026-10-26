@@ -41,6 +41,7 @@ from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401
     GREEN_LAYER_SETTINGS,
     stepnav_env,
 )
+from tests.stock_channels import LED1
 
 
 # A step whose every field differs from GREEN_LAYER_SETTINGS, so a write of
@@ -50,7 +51,7 @@ def _make_step():
         'X': 10.0,
         'Y': 20.0,
         'Z': 7.5,
-        'Color': 'Green',
+        'Color': LED1,
         'Auto_Focus': True,
         'False_Color': False,
         'Illumination': 350.0,
@@ -62,7 +63,7 @@ def _make_step():
         'Objective': 'obj1',
         'Video Config': {'duration': 30},
         'Stim_Config': {
-            'Green': {
+            LED1: {
                 'enabled': True,
                 'illumination_ma': 200,
                 'frequency': 2,
@@ -99,11 +100,11 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         included. Recorded so a future caller cannot lose the display
         silently by flipping that flag."""
         env = stepnav_env
-        before = copy.deepcopy(env.ctx.settings['Green'])
+        before = copy.deepcopy(env.ctx.settings[LED1])
 
         _go_to_step(_make_step(), include_move=False)
 
-        assert env.ctx.settings['Green'] == before
+        assert env.ctx.settings[LED1] == before
         assert env.layer_obj.set_step_state.call_count == 0
 
 
@@ -115,7 +116,7 @@ class TestManualNavigationWritesNothingInTheGui:
         tests/test_going_to_a_step_is_the_sessions_move.py); the GUI writes
         no setting and makes no second call to apply the layer."""
         env = stepnav_env
-        before = copy.deepcopy(env.ctx.settings['Green'])
+        before = copy.deepcopy(env.ctx.settings[LED1])
         order = []
         env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_index: order.append(
             'session'
@@ -124,7 +125,7 @@ class TestManualNavigationWritesNothingInTheGui:
 
         _go_to_step(_make_step())
 
-        assert env.ctx.settings['Green'] == before, 'the GUI wrote a setting itself'
+        assert env.ctx.settings[LED1] == before, 'the GUI wrote a setting itself'
         assert order == ['session']
 
 
@@ -229,13 +230,13 @@ class TestSetStepStateIsAPureWidgetSetter:
         from ui.layer_control import LayerControl
 
         monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx())
-        stand = _LayerStand('Green', _STEP_WIDGETS)
+        stand = _LayerStand(LED1, _STEP_WIDGETS)
         step = _make_step()
 
         LayerControl.set_step_state(stand, step)
 
         ids = stand.ids
-        stim = step['Stim_Config']['Green']
+        stim = step['Stim_Config'][LED1]
         expected = {
             'autofocus': True,
             'false_color': False,
@@ -276,7 +277,7 @@ class TestSetStepStateIsAPureWidgetSetter:
         from ui.layer_control import LayerControl
 
         monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False))
-        stand = _LayerStand('Green', _STEP_WIDGETS)
+        stand = _LayerStand(LED1, _STEP_WIDGETS)
 
         LayerControl.set_step_state(stand, {'Auto_Gain': True})
 
@@ -332,9 +333,9 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         for retired in ('init_autofocus', 'init_acquire', 'sync_camera_widgets_from_settings'):
             assert not hasattr(layer_control.LayerControl, retired), retired
 
-    @pytest.mark.parametrize('layer', ['BF', 'Green'])
+    @pytest.mark.parametrize('layer', ['BF', LED1])
     def test_sync_widgets_from_settings_sets_every_widget(self, monkeypatch, layer):
-        """BF ships with a None stim_config; Green carries one. Both sync
+        """BF ships with a None stim_config; LED 1 carries one. Both sync
         without raising, every widget carries the settings value, the
         auto_gain box carries the effective auto-gain, and the settings
         were read once under the settings lock."""
@@ -350,7 +351,7 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         settings = {
             # A None stim_config is representable and ships that way.
             'BF': _layer_settings(auto_gain=True, acquire='image', sum=2, stim_config=None),
-            'Green': _layer_settings(
+            LED1: _layer_settings(
                 auto_gain=False, acquire=None, stim_config=stim, video_config={'duration': 12}
             ),
         }

@@ -32,6 +32,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
 from modules.scope_session import ShownChannel
+from tests.stock_channels import LED1
 
 
 def _progress(
@@ -109,7 +110,7 @@ def clicked(monkeypatch, centre_posts):
         ),
     )
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
-    session.shown_channel = ShownChannel('Green', lit=False)
+    session.shown_channel = ShownChannel(LED1, lit=False)
     monkeypatch.setattr(zs, 'is_image_saving_enabled', lambda: False)
     linked = []
     monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))
@@ -129,7 +130,7 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
 
     clicked.runner.start_zstack.assert_called_once()
     kwargs = clicked.runner.start_zstack.call_args.kwargs
-    assert kwargs['channel'] == 'Green'
+    assert kwargs['channel'] == LED1
     assert kwargs['enable_image_saving'] is False
     # Nothing else about the run is the button's to say; who started it is
     # the GUI's stamp on the thread that starts it.

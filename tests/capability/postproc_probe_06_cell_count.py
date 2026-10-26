@@ -19,6 +19,7 @@ from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
 from modules.cell_count_method import CellCountMethod
+from tests.stock_channels import LED0
 
 # The panel's default method (6c). Its area and perimeter filters are open, so
 # a simulated frame's regions are not filtered out, and it sets no scale, so
@@ -28,7 +29,7 @@ METHOD = CellCountMethod()
 
 def main() -> int:
     live = probe_dir('cellcount')
-    with headless_session(live, acquiring=('Blue',)) as (session, runner):
+    with headless_session(live, acquiring=(LED0,)) as (session, runner):
         session.scope.motion.move_xy(x_um=40000.0)
         session.scope.motion.move_xy(y_um=30000.0)
         session.scope.motion.move_z(1000.0)

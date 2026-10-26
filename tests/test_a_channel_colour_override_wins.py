@@ -16,6 +16,7 @@ from modules.exceptions import SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_manual_capture_member import _files, _open_session, _settings
+from tests.stock_channels import LED0, LED2
 
 MAGENTA = '#ff00ff'
 
@@ -33,35 +34,35 @@ def session(tmp_path):
 def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(session):
     release = layer_record.release_colors()
 
-    session.update_settings('Red.display_color', MAGENTA)
+    session.update_settings(f'{LED2}.display_color', MAGENTA)
     overridden = session.channel_colors()
-    session.update_settings('Red.display_color', None)
+    session.update_settings(f'{LED2}.display_color', None)
 
-    assert overridden == {**release, 'Red': (1.0, 0.0, 1.0)}
+    assert overridden == {**release, LED2: (1.0, 0.0, 1.0)}
     assert session.channel_colors() == release
 
 
 def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(session):
-    # The board's own Channels block colours Blue cyan; a layer the block
+    # The board's own Channels block colours LED 0's channel cyan; a layer the block
     # leaves out keeps the release's colour, and the override wins over both.
     release = layer_record.release_colors()
     session.scope._motion_driver.motorconfig.update_from_board(
-        {'Channels': {'Blue': {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}}}
+        {'Channels': {LED0: {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}}}
     )
     session.scope.refresh_layer_identity()
 
     from_the_unit = session.channel_colors()
-    session.update_settings('Blue.display_color', MAGENTA)
+    session.update_settings(f'{LED0}.display_color', MAGENTA)
 
-    assert from_the_unit == {**release, 'Blue': (0.0, 1.0, 1.0)}
-    assert session.channel_colors() == {**release, 'Blue': (1.0, 0.0, 1.0)}
+    assert from_the_unit == {**release, LED0: (0.0, 1.0, 1.0)}
+    assert session.channel_colors() == {**release, LED0: (1.0, 0.0, 1.0)}
 
 
 def test_a_colour_the_store_cannot_use_is_refused_at_the_write(session):
     refused = {}
     for value in ([1, 0, 1], 'magenta', '#800080', '#FF00FF'):
         with pytest.raises(SettingRefusedError) as raised:
-            session.update_settings('Red.display_color', value)
+            session.update_settings(f'{LED2}.display_color', value)
         refused[repr(value)] = raised.value.reason
 
     assert refused == {
@@ -70,15 +71,15 @@ def test_a_colour_the_store_cannot_use_is_refused_at_the_write(session):
         "'#800080'": 'out_of_range',
         "'#FF00FF'": 'out_of_range',
     }
-    assert session.get_setting('Red.display_color') is None
+    assert session.get_setting(f'{LED2}.display_color') is None
 
 
 def test_a_still_is_saved_in_its_channels_override(tmp_path):
     # An 8-bit fluorescence still carries its colour in the TIFF's palette:
     # the palette's brightest entry is the colour at full weight.
     with _open_session(_settings(tmp_path)) as session:
-        session.show_channel('Red')
-        session.update_settings('Red.display_color', MAGENTA)
+        session.show_channel(LED2)
+        session.update_settings(f'{LED2}.display_color', MAGENTA)
 
         (path,) = _files(session, false_color_on=True)
 

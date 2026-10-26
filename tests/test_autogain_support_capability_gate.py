@@ -44,6 +44,7 @@ from drivers.camera_profiles import lookup_profile
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 from tests.scope_fakes import build_scope
+from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
@@ -123,8 +124,8 @@ class TestCapabilityMapping:
         motion.get_microscope_model.return_value = 'TEST-MODEL'
         motion.motorconfig = None
         led = MagicMock()
-        led.available_channels.return_value = ('Blue', 'Green', 'Red')
-        led.available_colors.return_value = ('Blue', 'Green', 'Red')
+        led.available_channels.return_value = (LED0, LED1, LED2)
+        led.available_colors.return_value = (LED0, LED1, LED2)
         led.supports_firmware_stim.return_value = False
         camera = SimpleNamespace(
             model_name=model_name,

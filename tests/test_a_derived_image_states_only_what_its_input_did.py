@@ -20,6 +20,7 @@ from PIL import Image
 
 from modules import image_utils
 from modules.layer_record import release_color
+from tests.stock_channels import LED1, LED2
 
 _ACQUISITION_FIELDS = ('plate_pos_mm', 'z_pos_um', 'exposure_time_ms', 'gain_db', 'illumination_ma')
 
@@ -30,7 +31,7 @@ def _write(path, metadata, *, ome=False):
         file_loc=path,
         metadata=metadata,
         ome=ome,
-        color=release_color('Green'),
+        color=release_color(LED1),
         significant_bits=12,
         save_encoding='right_aligned',
         white_bits=None,
@@ -47,7 +48,7 @@ def test_an_input_with_no_metadata_gives_an_output_that_claims_nothing(tmp_path)
     png = tmp_path / 'external.png'
     Image.fromarray(np.zeros((16, 16), dtype=np.uint8)).save(png)
 
-    metadata = image_utils.build_postproc_output_metadata(png, 'Green', significant_bits=8)
+    metadata = image_utils.build_postproc_output_metadata(png, LED1, significant_bits=8)
 
     assert metadata['pixel_size_um'] is None
     for field in _ACQUISITION_FIELDS:
@@ -67,7 +68,7 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
         {
             'objective': {},
             'pixel_size_um': None,
-            'channel': 'Green',
+            'channel': LED1,
             'significant_bits': 12,
             'datetime': '2026-10-04T00:00:00',
             'plate_pos_mm': {'x': 12.5, 'y': 30.25},
@@ -88,7 +89,7 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
     assert back['gain_db'] == 3.0
     assert back['illumination_ma'] == 120.0
 
-    derived = image_utils.build_postproc_output_metadata(capture, 'Green', significant_bits=12)
+    derived = image_utils.build_postproc_output_metadata(capture, LED1, significant_bits=12)
     assert derived['pixel_size_um'] is None
     assert derived['plate_pos_mm'] == {'x': 12.5, 'y': 30.25}
     assert derived['exposure_time_ms'] == 50.0
@@ -97,7 +98,7 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
 def test_an_ome_input_states_only_what_its_xml_carries():
     ome = (
         '<OME><Image><Pixels SizeX="16" SizeY="16">'
-        '<Channel Name="Green"/><Plane/>'
+        f'<Channel Name="{LED1}"/><Plane/>'
         '</Pixels></Image></OME>'
     )
 
@@ -111,7 +112,7 @@ def test_an_ome_input_states_only_what_its_xml_carries():
 def test_an_ome_input_keeps_the_scale_and_exposure_it_states():
     ome = (
         '<OME><Image><Pixels SizeX="16" SizeY="16" PhysicalSizeX="0.65">'
-        '<Channel Name="Green"/><Plane ExposureTime="50.0"/>'
+        f'<Channel Name="{LED1}"/><Plane ExposureTime="50.0"/>'
         '</Pixels></Image></OME>'
     )
 
@@ -129,7 +130,7 @@ def test_a_composite_states_no_per_channel_acquisition_setting(tmp_path):
         {
             'objective': {},
             'pixel_size_um': 0.65,
-            'channel': 'Red',
+            'channel': LED2,
             'significant_bits': 12,
             'datetime': '2026-10-04T00:00:00',
             'exposure_time_ms': 50.0,
@@ -158,7 +159,7 @@ def test_an_ome_file_stating_a_zero_scale_reads_as_no_scale(tmp_path):
         ome=True,
         metadata={
             'PhysicalSizeX': 0.0,
-            'Channel': {'Name': ['Green']},
+            'Channel': {'Name': [LED1]},
             'Plane': {'ExposureTime': 5.0},
         },
     )

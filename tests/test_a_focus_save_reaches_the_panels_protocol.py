@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 
 from modules.app_context import AppContext
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from tests.stock_channels import LED0
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
@@ -59,7 +60,7 @@ def _panel_with(protocol, selected_step):
         'logger': MagicMock(),
         'run_reported': lambda call, redraw, label: call(),
     }
-    me = SimpleNamespace(layer='Blue', _refresh_step_views=MagicMock())
+    me = SimpleNamespace(layer=LED0, _refresh_step_views=MagicMock())
     return me, globals_, session
 
 
@@ -73,7 +74,7 @@ def test_save_focus_hands_the_session_the_panels_protocol_and_selected_step():
 
     _compile('save_focus', globals_)(me)
 
-    session.save_focus.assert_called_once_with(protocol, 'Blue', step_index=0)
+    session.save_focus.assert_called_once_with(protocol, LED0, step_index=0)
 
 
 def test_save_focus_with_no_step_selected_names_no_step():
@@ -82,7 +83,7 @@ def test_save_focus_with_no_step_selected_names_no_step():
 
     _compile('save_focus', globals_)(me)
 
-    session.save_focus.assert_called_once_with(protocol, 'Blue', step_index=None)
+    session.save_focus.assert_called_once_with(protocol, LED0, step_index=None)
 
 
 def test_apply_focus_hands_the_session_the_panels_protocol():
@@ -91,7 +92,7 @@ def test_apply_focus_hands_the_session_the_panels_protocol():
 
     _compile('apply_focus_to_channel_steps', globals_)(me)
 
-    session.apply_focus_to_channel_steps.assert_called_once_with(protocol, 'Blue')
+    session.apply_focus_to_channel_steps.assert_called_once_with(protocol, LED0)
 
 
 def test_both_focus_actions_redraw_the_stage_and_step_editor_inside_the_boundary():

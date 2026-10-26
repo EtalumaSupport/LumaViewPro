@@ -34,6 +34,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
 from modules.scope_session import ControlsLock, ShownChannel
+from tests.stock_channels import LED1
 
 
 class _Button(vc.VerticalControl):
@@ -96,7 +97,7 @@ def pressed(monkeypatch, held, centre_posts):
         ),
     )
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
-    session.shown_channel = ShownChannel('Green', lit=False)
+    session.shown_channel = ShownChannel(LED1, lit=False)
     return SimpleNamespace(
         member=member,
         engine=engine,
@@ -132,7 +133,7 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
 
     pressed.member.start_autofocus.assert_called_once()
     kwargs = pressed.member.start_autofocus.call_args.kwargs
-    assert kwargs['channel'] == 'Green'
+    assert kwargs['channel'] == LED1
     assert kwargs['save_characterization_data'] is True, (
         'in engineering mode the sweep saves its characterization data'
     )

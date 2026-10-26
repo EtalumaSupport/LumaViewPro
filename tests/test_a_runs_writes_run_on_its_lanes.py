@@ -33,6 +33,7 @@ from tests.protocol_drives import held_run_claim
 from tests.test_a_run_waits_for_the_camera_lane import RESULT_TIMEOUT_S, _LaneHold, lane_session  # noqa: F401
 from tests.test_protocol_cleanup_extinguish import _make_runner_stub
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0
 
 # The driver calls that change the instrument, per driver. Reads, grabs and
 # the simulator's own focus coupling are not writes.
@@ -148,7 +149,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
     IO lane is still busy -- a move holds the worker until it arrives, and
     a darken queued behind it would leave the sample lit for as long."""
     scope = sim_session.scope
-    layer = 'Blue'
+    layer = LED0
     scope.illumination.led_on(layer, 10.0)
     assert scope.illumination.get_led_state(layer).state is LedState.LIT, 'precondition: lit'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())

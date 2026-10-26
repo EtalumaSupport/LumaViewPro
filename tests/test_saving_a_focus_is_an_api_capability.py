@@ -24,13 +24,14 @@ from modules.lumascope_api import AxisState
 from modules.scope_session import SavedFocus, ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 LAYER_FOCUS = 7000.0
 
 
 def _session(tmp_path, microscope):
     settings = complete_settings(live_folder=str(tmp_path), microscope=microscope)
-    for layer in ('BF', 'Blue'):
+    for layer in ('BF', LED0):
         settings[layer]['acquire'] = 'image'
         settings[layer]['focus'] = LAYER_FOCUS
     return ScopeSession.create(settings, simulate=True)
@@ -52,7 +53,7 @@ def session(tmp_path):
 
 
 def _protocol_bf_bf_blue(session):
-    """Three steps, all at the layer focus: BF, BF, Blue.
+    """Three steps, all at the layer focus: BF, BF, LED0.
 
     Add takes the live Z, so the stage is put at the layer focus first.
     """
@@ -60,13 +61,13 @@ def _protocol_bf_bf_blue(session):
     _go_to_z(session, LAYER_FOCUS)
     for x_um in (10000, 20000):
         session.scope.motion.move_xy(x_um=x_um)
-        session.set_channel_acquire('Blue', None)
+        session.set_channel_acquire(LED0, None)
         session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
-    session.set_channel_acquire('Blue', 'image')
+    session.set_channel_acquire(LED0, 'image')
     session.set_channel_acquire('BF', None)
     session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     session.set_channel_acquire('BF', 'image')
-    assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', 'Blue']
+    assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', LED0]
     assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
     return protocol
 

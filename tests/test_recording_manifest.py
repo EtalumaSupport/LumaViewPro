@@ -14,6 +14,7 @@ none (the host-timestamp fps fallback).
 import datetime
 
 from modules.recording_manifest import build_session_manifest
+from tests.stock_channels import LED2
 
 _TICK_HZ = 1_000_000_000
 _T0 = datetime.datetime(2026, 7, 23, 12, 0, 0, 100000)
@@ -74,11 +75,11 @@ def test_manifest_none_tail_on_host_timestamp_fallback():
         tick_freq_hz=None,
         captured_frames=2,
         video_duration=1.0,
-        channel_color='Red',
+        channel_color=LED2,
     )
     rec = manifest['recording']
     assert rec['frames_captured'] == 2
     assert rec['end_iso'] == _T1.isoformat(timespec='microseconds')
     # The video builder reads recording.channel_color to false-color a mono
     # video; the crash previously lost the sidecar and the color with it.
-    assert rec['channel_color'] == 'Red'
+    assert rec['channel_color'] == LED2

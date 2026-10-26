@@ -43,6 +43,7 @@ from tests.protocol_drives import (
 )
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -616,15 +617,15 @@ class TestSingleScanAutoGainAndAutoFocus:
 
 
 class TestSingleScanFluorescence:
-    """Test 5: Single scan with fluorescence channel (Red)."""
+    """Test 5: Single scan with fluorescence channel (LED2)."""
 
     def test_completes_with_red_channel(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='Red')
+        protocol = _make_single_step_protocol(color=LED2)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_led_uses_correct_channel(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='Red', illumination=100.0)
+        protocol = _make_single_step_protocol(color=LED2, illumination=100.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # A scan ends with every LED off --
@@ -632,7 +633,7 @@ class TestSingleScanFluorescence:
 
     # Every layer of the suite's scope (an LS850T: no Lumi). A luminescence
     # run is a Lumi-model run: test_composite_run_leds.TestLuminescence.
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'PC', 'DF'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'PC', 'DF'])
     def test_completes_for_all_channels(self, executor, scope, tmp_path, color):
         protocol = _make_single_step_protocol(color=color)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -734,7 +735,7 @@ class TestMultiStepMultiChannel:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 50.0, 'exposure_ms': 10.0},
-                {'color': 'Red', 'illumination_ma': 100.0, 'exposure_ms': 50.0},
+                {'color': LED2, 'illumination_ma': 100.0, 'exposure_ms': 50.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -744,8 +745,8 @@ class TestMultiStepMultiChannel:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF'},
-                {'color': 'Red'},
-                {'color': 'Green'},
+                {'color': LED2},
+                {'color': LED1},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -814,12 +815,12 @@ class TestFalseColor:
     """Protocol with false color enabled."""
 
     def test_false_color_completes(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='Red', false_color=True)
+        protocol = _make_single_step_protocol(color=LED2, false_color=True)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_false_color_off_completes(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='Red', false_color=False)
+        protocol = _make_single_step_protocol(color=LED2, false_color=False)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -847,7 +848,7 @@ class TestSeparateFolderPerChannel:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF'},
-                {'color': 'Red'},
+                {'color': LED2},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path, separate_folder_per_channel=True)
@@ -979,7 +980,7 @@ class TestTilingMultiChannel:
 
     def test_2x2_bf_and_red(self, executor, scope, tmp_path):
         bf_tiles = _make_tile_grid_steps(rows=2, cols=2, color='BF')
-        red_tiles = _make_tile_grid_steps(rows=2, cols=2, color='Red')
+        red_tiles = _make_tile_grid_steps(rows=2, cols=2, color=LED2)
         steps = bf_tiles + red_tiles
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1100,7 +1101,7 @@ class TestMultiWell:
         steps = []
         for well, x, y in wells:
             steps.append({'color': 'BF', 'well': well, 'x': float(x), 'y': float(y)})
-            steps.append({'color': 'Red', 'well': well, 'x': float(x), 'y': float(y)})
+            steps.append({'color': LED2, 'well': well, 'x': float(x), 'y': float(y)})
         protocol = _make_multi_step_protocol(steps)
         assert protocol.num_steps() == 12
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1210,7 +1211,7 @@ class TestFullProtocolMultiScanMultiChannel:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF'},
-                {'color': 'Red'},
+                {'color': LED2},
             ]
         )
         protocol.modify_time_params(
@@ -1238,7 +1239,7 @@ class TestVideoWithStimulation:
 
     def test_completes_with_stim(self, executor, scope, tmp_path):
         stim_config = {
-            'Blue': {
+            LED0: {
                 'enabled': True,
                 'illumination_ma': 100,
                 'frequency': 5,
@@ -1257,7 +1258,7 @@ class TestVideoWithStimulation:
 
     def test_completes_with_disabled_stim(self, executor, scope, tmp_path):
         stim_config = {
-            'Blue': {
+            LED0: {
                 'enabled': False,
                 'illumination_ma': 100,
                 'frequency': 5,
@@ -1313,7 +1314,7 @@ class TestFalseColorWithTiling:
     """False color across a fluorescence tile grid."""
 
     def test_1x3_red_false_color(self, executor, scope, tmp_path):
-        steps = _make_tile_grid_steps(rows=1, cols=3, color='Red', false_color=True)
+        steps = _make_tile_grid_steps(rows=1, cols=3, color=LED2, false_color=True)
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1455,7 +1456,7 @@ class TestBackToBackRuns:
         assert completed2, 'Second run did not complete'
 
     def test_three_sequential_runs_different_configs(self, executor, scope, tmp_path):
-        for i, color in enumerate(['BF', 'Red', 'Green']):
+        for i, color in enumerate(['BF', LED2, LED1]):
             protocol = _make_single_step_protocol(color=color)
             completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
             assert completed, f'Run {i} ({color}) did not complete'
@@ -1597,7 +1598,7 @@ class TestAllFeaturesEnabled:
                 for z_idx in range(3):
                     steps.append(
                         {
-                            'color': 'Red',
+                            'color': LED2,
                             'x': 10.0 + c * 1.0,
                             'y': 20.0 + r * 1.0,
                             'z': 4000.0 + z_idx * 100.0,
@@ -1616,10 +1617,10 @@ class TestAllFeaturesEnabled:
         assert completed
 
     def test_multi_well_multi_channel_tiling_separate_folders(self, executor, scope, tmp_path):
-        """2 wells, BF+Red channels, 1x3 tiles, separate folders."""
+        """2 wells, BF+LED2 channels, 1x3 tiles, separate folders."""
         steps = []
         for well, wx, wy in [('A1', 10.0, 20.0), ('B1', 10.0, 40.0)]:
-            for color in ['BF', 'Red']:
+            for color in ['BF', LED2]:
                 for c in range(3):
                     steps.append(
                         {
@@ -1764,9 +1765,9 @@ class TestCleanupConcurrency:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF'},
-                {'color': 'Red'},
-                {'color': 'Green'},
-                {'color': 'Blue'},
+                {'color': LED2},
+                {'color': LED1},
+                {'color': LED0},
                 {'color': 'BF'},
             ]
         )
@@ -1905,8 +1906,8 @@ class TestCaptureFailure:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF'},
-                {'color': 'Red'},
-                {'color': 'Green'},
+                {'color': LED2},
+                {'color': LED1},
             ]
         )
 
@@ -1967,8 +1968,8 @@ class TestCameraStateRestoration:
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF', 'gain_db': 5.0, 'exposure_ms': 50.0},
-                {'color': 'Red', 'gain_db': 10.0, 'exposure_ms': 100.0},
-                {'color': 'Green', 'gain_db': 15.0, 'exposure_ms': 200.0},
+                {'color': LED2, 'gain_db': 10.0, 'exposure_ms': 100.0},
+                {'color': LED1, 'gain_db': 15.0, 'exposure_ms': 200.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1987,7 +1988,7 @@ class TestCameraStateRestoration:
         protocol = _make_multi_step_protocol(
             [
                 {'color': c, 'gain_db': 12.0, 'exposure_ms': 80.0}
-                for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
+                for c in ['BF', LED2, LED1, LED0, 'BF']
             ]
         )
 
@@ -2044,7 +2045,7 @@ class TestCleanupCorrectness:
     def test_leds_off_after_protocol_abort(self, executor, scope, tmp_path):
         """All LEDs are off after aborting a multi-step protocol."""
         protocol = _make_multi_step_protocol(
-            [{'color': c, 'illumination_ma': 100.0} for c in ['BF', 'Red', 'Green', 'Blue', 'BF']]
+            [{'color': c, 'illumination_ma': 100.0} for c in ['BF', LED2, LED1, LED0, 'BF']]
         )
         done = threading.Event()
         plan = executor.prepare(
@@ -2079,7 +2080,7 @@ class TestCleanupCorrectness:
         # Run B: change gain before second run
         scope.camera.set_gain_db(2.0)
         scope.camera.set_exposure_ms(20.0)
-        protocol_b = _make_single_step_protocol(color='Red', gain=12.0, exposure=120.0)
+        protocol_b = _make_single_step_protocol(color=LED2, gain=12.0, exposure=120.0)
         completed_b, _ = _run_and_wait(executor, protocol_b, tmp_path / 'run2')
         assert completed_b
         # Should restore to 2.0/20.0, NOT to 8.0/80.0 from run A
@@ -2099,8 +2100,8 @@ class TestProtocolLedNoFlash:
     ):
         # A stray channel lit before the run (e.g. a Live-mode LED left on a
         # different color when the user pressed Scan).
-        scope.illumination.led_on('Red', 80)
-        assert scope.illumination.get_led_state('Red').state is LedState.LIT
+        scope.illumination.led_on(LED2, 80)
+        assert scope.illumination.get_led_state(LED2).state is LedState.LIT
 
         events = []
         scope.illumination.add_led_listener(
@@ -2109,15 +2110,15 @@ class TestProtocolLedNoFlash:
             )
         )
 
-        protocol = _make_single_step_protocol(color='Green', illumination=60.0)
+        protocol = _make_single_step_protocol(color=LED1, illumination=60.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        green_on = next((i for i, (c, e) in enumerate(events) if c == 'Green' and e), None)
-        red_off = next((i for i, (c, e) in enumerate(events) if c == 'Red' and not e), None)
-        assert green_on is not None, f'Green never lit during the scan: {events}'
+        green_on = next((i for i, (c, e) in enumerate(events) if c == LED1 and e), None)
+        red_off = next((i for i, (c, e) in enumerate(events) if c == LED2 and not e), None)
+        assert green_on is not None, f'{LED1} never lit during the scan: {events}'
         assert red_off is not None and red_off < green_on, (
-            'the stray Red LED must be turned off as the step lights Green '
+            f'the stray {LED2} LED must be turned off as the step lights {LED1} '
             f'(exclusive capture), not left double-illuminating the step: {events}'
         )
 
@@ -2127,7 +2128,7 @@ class TestProtocolLedNoFlash:
         blink at run start. The pre-step nuclear leds_off used to clear the
         cache and force the re-light; this is the protocol/Z-stack flash.
         """
-        color, illumination_ma = 'Green', 60.0
+        color, illumination_ma = LED1, 60.0
         scope.illumination.led_on(channel=color, illumination_ma=illumination_ma)
         assert scope.illumination.get_led_state(color).state is LedState.LIT
 

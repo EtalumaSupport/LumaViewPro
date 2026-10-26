@@ -3058,7 +3058,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
     or when no LED controller is connected; ``'axis_absent'`` when the
     scope does not have the part -- a Z-only scope asked for X, a scope
     with no turret asked for one, a manual scope asked for any motion, an
-    LS560 asked to light Red, a motor controller without fan control asked
+    LS560 asked to light Ex589, a motor controller without fan control asked
     to drive the fan. Nothing was driven. So does a move whose drive needs a
     position the controller did not report (``'position_unread'``): the
     relative base, or Z for the backlash approach. Nothing was driven and

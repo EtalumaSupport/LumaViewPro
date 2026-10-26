@@ -45,6 +45,7 @@ from modules.config_helpers import (
     layer_max_exposure_ms_for_ui,
 )
 from modules.layer_record import release_catalogue
+from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -287,7 +288,7 @@ class TestManualExposurePolicy:
         assert layer_max_exposure_ms_for_ui(120.0, 'DF') == 120.0
 
     def test_fluorescence_stops_at_its_own_ceiling(self):
-        for layer in ('Blue', 'Green', 'Red'):
+        for layer in (LED0, LED1, LED2):
             assert layer_max_exposure_ms_for_ui(10_000.0, layer) == 1000.0, layer
 
     def test_luminescence_alone_gets_the_camera_cap(self):
@@ -309,7 +310,7 @@ class TestManualExposurePolicy:
             assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
         assert layer_max_exposure_ms_for_ui(178.0, 'BF') == 50.0
         assert layer_max_exposure_ms_for_ui(178.0, 'PC') == 178.0
-        assert layer_max_exposure_ms_for_ui(178.0, 'Red') == 178.0
+        assert layer_max_exposure_ms_for_ui(178.0, LED2) == 178.0
         assert layer_max_exposure_ms_for_ui(178.0, 'Lumi') == 178.0
 
     def test_the_manual_ceiling_is_not_the_auto_ceiling(self):

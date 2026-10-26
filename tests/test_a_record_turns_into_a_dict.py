@@ -19,6 +19,7 @@ import pathlib
 from modules.api_surface import api_fields
 from modules.lumascope_api.protocols import StepTargets
 from modules.operation import Operation
+from tests.stock_channels import LED0
 
 
 class _Shade(enum.StrEnum):
@@ -55,7 +56,7 @@ def test_a_record_answers_plain_data_keeping_the_live_objects():
         handle=handle,
         running=running,
         level=math.nan,
-        by_channel={3: 'Blue'},
+        by_channel={3: LED0},
         steps=(1, 2),
     )
 
@@ -67,7 +68,7 @@ def test_a_record_answers_plain_data_keeping_the_live_objects():
     assert answer['handle'] is handle
     assert answer['running'] is running
     assert math.isnan(answer['level'])
-    assert answer['by_channel'] == {3: 'Blue'}
+    assert answer['by_channel'] == {3: LED0}
     assert answer['steps'] == [1, 2]
 
 

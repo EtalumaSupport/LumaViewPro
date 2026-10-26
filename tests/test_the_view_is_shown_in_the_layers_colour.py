@@ -23,6 +23,7 @@ from modules.scope_session import ShownChannel
 from ui.layer_control import LayerControl
 from ui.microscope_settings import MicroscopeSettings
 from ui.shader import ShaderViewer
+from tests.stock_channels import LED0, LED2
 
 
 def _view():
@@ -70,8 +71,8 @@ def viewer(monkeypatch):
 @pytest.mark.parametrize(
     ('layer', 'false_color', 'shown'),
     [
-        ('Blue', True, (0.0, 0.0, 1.0)),
-        ('Blue', False, layer_record.GREY),
+        (LED0, True, (0.0, 0.0, 1.0)),
+        (LED0, False, layer_record.GREY),
         ('BF', True, layer_record.GREY),
     ],
 )
@@ -93,10 +94,10 @@ def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypa
         viewer=viewer,
         scope_display=SimpleNamespace(use_bullseye=False),
         session=SimpleNamespace(
-            shown_channel=ShownChannel('Red', lit=False),
+            shown_channel=ShownChannel(LED2, lit=False),
             channel_colors=layer_record.release_colors,
         ),
-        image_settings=SimpleNamespace(layer_lookup=lambda layer: {'Red': shown_layer}[layer]),
+        image_settings=SimpleNamespace(layer_lookup=lambda layer: {LED2: shown_layer}[layer]),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     button = SimpleNamespace(state='down')

@@ -62,7 +62,7 @@ class SettingsFileError(Fault, ValueError):
 
 # Layer sub-keys whose names changed when the storage dict became the L2 API
 # surface. Old name -> new name. `stim_config.illumination` lives one level
-# down and is handled alongside; only Blue/Green/Red carry a stim_config.
+# down and is handled alongside; only the fluorescence channels carry a stim_config.
 _RENAMED_LAYER_KEYS = {
     'ill_ma': 'illumination_ma',
     'exp_ms': 'exposure_ms',

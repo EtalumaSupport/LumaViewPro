@@ -14,6 +14,7 @@ import numpy as np
 import modules.image_utils as image_utils
 from modules.image_utils import convert_12bit_to_8bit
 from tests.ast_seams import REPO_ROOT
+from tests.stock_channels import LED0
 
 
 class TestConvert12to8OutBuffer:
@@ -159,7 +160,7 @@ class TestTiffDiscovery:
         assert len(found) == len(set(found)), 'find_tiff_files must not return a path twice'
 
     def test_recursive_flag(self, tmp_path):
-        sub = tmp_path / 'Blue'
+        sub = tmp_path / LED0
         sub.mkdir()
         self._touch(tmp_path, 'top.tiff')
         self._touch(sub, 'nested.ome.tiff')

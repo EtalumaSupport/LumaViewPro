@@ -16,12 +16,13 @@ import pytest
 from modules.coord_transformations import PlateLocation
 from modules.protocol import ProtocolScheduleRefusedError, StepNotFoundError
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.stock_channels import LED0
 
 
 def _two_steps(session):
     protocol = session.create_empty_protocol()
     session.add_step(
-        protocol, channels=('BF', 'Blue'), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
+        protocol, channels=('BF', LED0), at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
     )
     return protocol
 

@@ -22,6 +22,7 @@ from modules.tech_support_report import (
     video_recording_inventory,
 )
 from modules.video_recording import MANIFEST_FILENAME
+from tests.stock_channels import LED1
 
 
 def _make_protocol_recording(
@@ -51,7 +52,7 @@ def _make_manual_recording(manual_root, ts='20260810_120000', frames=3):
 def test_finds_protocol_manual_and_manifestless_recordings(tmp_path):
     run = tmp_path / 'run_A'
     with_manifest = _make_protocol_recording(run, color='BF')
-    manifestless = _make_protocol_recording(run, color='Green', manifest=False)
+    manifestless = _make_protocol_recording(run, color=LED1, manifest=False)
     manual = _make_manual_recording(tmp_path / 'Manual')
     (tmp_path / 'unrelated').mkdir()
 

@@ -2429,7 +2429,7 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
 
         src = np.full((4, 4), 100, dtype=np.uint16)
         buf = np.full((4, 4, 3), 999, dtype=np.uint16)
-        result = add_false_color(src, release_color('Blue'), output=buf)
+        result = add_false_color(src, release_color(LED0), output=buf)
         assert result is buf, 'PF-3: add_false_color should return the supplied buffer.'
         np.testing.assert_array_equal(result[:, :, 2], src)
         assert np.all(result[:, :, 1] == 0), 'PF-3: green channel should be zeroed.'
@@ -2556,9 +2556,9 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
     #617): the OpenGL shader's false-color white_point also needs a
     run-end restore.
 
-    Bug shape (sim repro 2026-05-23): protocol step on Red layer calls
-    Red_LayerControl.apply_settings() which calls
-    ShaderViewer.update_shader('Red'), writing
+    Bug shape (sim repro 2026-05-23): protocol step on the LED 2 layer calls
+    its LayerControl.apply_settings() which calls
+    ShaderViewer.update_shader(LED2), writing
     `white_point = (white, 0.0, 0.0, 1.0)` to the canvas shader.
     Subsequent rendered frames are red-tinted via this multiplier.
     When the protocol stops, the run restores LEDs, AF, camera state,
@@ -2590,8 +2590,8 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
         return ctx, synced
 
     def test_the_shown_channels_shader_is_reapplied(self, monkeypatch):
-        ctx, synced = self._restore_with(monkeypatch, 'Green')
-        ctx.image_settings.layer_lookup.assert_called_once_with(layer='Green')
+        ctx, synced = self._restore_with(monkeypatch, LED1)
+        ctx.image_settings.layer_lookup.assert_called_once_with(layer=LED1)
         ctx.image_settings.layer_lookup.return_value.update_shader.assert_called_once_with(dt=0)
         ctx.viewer.update_shader.assert_not_called()
         synced.assert_called_once_with()
@@ -2949,6 +2949,7 @@ from tests.installation_fixtures import copy_installation_files
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -2980,8 +2981,8 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         illum = sim_scope.illumination
         validity = sim_scope.imaging.frame_validity
         mutator_calls = {
-            'led_on': lambda: illum.led_on(channel='Blue', illumination_ma=10),
-            'led_off': lambda: illum.led_off(channel='Blue'),
+            'led_on': lambda: illum.led_on(channel=LED0, illumination_ma=10),
+            'led_off': lambda: illum.led_off(channel=LED0),
             'leds_off': lambda: illum.leds_off(),
         }
         missing = []
@@ -7626,7 +7627,7 @@ class TestSessionLedOnArgNameIsMa:
         # with TypeError the same way a signature check would -- while also
         # proving the value reaches the LED state.
         for method_name in ('led_on',):
-            getattr(sim_scope.illumination, method_name)(channel='Blue', illumination_ma=42.0)
+            getattr(sim_scope.illumination, method_name)(channel=LED0, illumination_ma=42.0)
             assert led_reading(sim_scope, 0).illumination_ma == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
@@ -8131,18 +8132,18 @@ class TestLedSentinelReturnsAreNone:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
-            assert scope.illumination.get_led_state('Blue') is None
+            assert scope.illumination.get_led_state(LED0) is None
         finally:
             scope.disconnect()
 
     def test_get_led_ma_returns_none_when_channel_off(self, sim_scope):
         """A dark channel's reading carries illumination_ma None (was -1.0),
         before it is ever lit and after it is turned off."""
-        assert sim_scope.illumination.get_led_state('Blue').illumination_ma is None
-        sim_scope.illumination.led_on('Blue', 50.0)
-        assert sim_scope.illumination.get_led_state('Blue').illumination_ma == 50.0
-        sim_scope.illumination.led_off('Blue')
-        assert sim_scope.illumination.get_led_state('Blue').illumination_ma is None
+        assert sim_scope.illumination.get_led_state(LED0).illumination_ma is None
+        sim_scope.illumination.led_on(LED0, 50.0)
+        assert sim_scope.illumination.get_led_state(LED0).illumination_ma == 50.0
+        sim_scope.illumination.led_off(LED0)
+        assert sim_scope.illumination.get_led_state(LED0).illumination_ma is None
 
 
 class TestSessionCarriesNoHardwareForwarders:
@@ -8310,8 +8311,8 @@ class TestGetLedStateShape:
 
     def test_get_led_state_off_returns_none_sentinel(self):
         scope = self._scope()
-        state = scope.illumination.get_led_state('Blue')
-        assert state == LedReading(0, 'Blue', LedState.DARK, None)
+        state = scope.illumination.get_led_state(LED0)
+        assert state == LedReading(0, LED0, LedState.DARK, None)
 
     def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
@@ -8332,7 +8333,8 @@ class TestGetLedStateShape:
         # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
         assert (
-            "LedReading(address=0, name='Blue', state=LedState.LIT, illumination_ma=200.0)" in doc
+            f"LedReading(address=0, name='{LED0}', state=LedState.LIT, illumination_ma=200.0)"
+            in doc
         ), 'LumascopeSkills get_led_state example must show the LedReading return shape.'
         assert "{'enabled': True, 'illumination_ma'" not in doc, (
             'The retired dict return shape must be gone from LumascopeSkills.'
@@ -8364,8 +8366,8 @@ class TestProtocolCleanupLedRestoreKey:
         kwargs = _run_cleanup_kwargs(
             led_end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
             original_led_states=(
-                LedReading(2, 'Red', LedState.LIT, 250.0),
-                LedReading(1, 'Green', LedState.DARK, None),
+                LedReading(2, LED2, LedState.LIT, 250.0),
+                LedReading(1, LED1, LedState.DARK, None),
             ),
             scope=scope,
             apply_led_transition_fn=lambda transition, ctx: apply_calls.append((transition, ctx)),
@@ -8374,7 +8376,7 @@ class TestProtocolCleanupLedRestoreKey:
         assert len(apply_calls) == 1
         transition, ctx = apply_calls[0]
         assert transition is LedTransition.RUN_END
-        # Red (address 2) was lit at 250 mA pre-run; Green was dark and
+        # LED 2 was lit at 250 mA pre-run; LED 1 was dark and
         # excluded. The mA value must survive the snapshot read intact.
         assert ctx.snapshot_lit == frozenset({(2, 250.0)})
         captured = _posted(centre_posts, Severity.WARNING, Severity.ERROR, Severity.CRITICAL)
@@ -9104,7 +9106,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
                 if ((r // 4) + (c // 4)) % 2 == 0:
                     blue[r : r + 4, c : c + 4] = 180
 
-        channel_images = {'Red': red, 'Green': green, 'Blue': blue}
+        channel_images = {LED2: red, LED1: green, LED0: blue}
 
         # Path A: manual composite path. build_composite -> tifffile.
         manual_rgb = build_composite(
@@ -9197,8 +9199,8 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = pathlib.Path(tmpdir)
             arr = np.full((8, 8), 100, dtype=np.uint8)
-            tf.imwrite(str(tmp / 'Red.tiff'), arr, compression='lzw')
-            df = pd.DataFrame([{'Filepath': 'Red.tiff', 'Color': 'Red'}])
+            tf.imwrite(str(tmp / f'{LED2}.tiff'), arr, compression='lzw')
+            df = pd.DataFrame([{'Filepath': f'{LED2}.tiff', 'Color': LED2}])
 
             result = CompositeGeneration._create_composite_image(
                 path=tmp,

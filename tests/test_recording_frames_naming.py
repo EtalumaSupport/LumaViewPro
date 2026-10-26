@@ -19,6 +19,7 @@ from modules import recording_frames
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.video_builder import VideoBuilder
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 
 class TestFrameNameShapes:
@@ -72,7 +73,7 @@ class TestFramePredicates:
 
     def test_still_capture_names_are_not_frames(self):
         assert not recording_frames.is_video_frame('A1_BF_0003.tiff')
-        assert not recording_frames.is_video_frame('B2_Green_0001_stitched.tiff')
+        assert not recording_frames.is_video_frame(f'B2_{LED1}_0001_stitched.tiff')
 
     def test_recording_dir_name_tests_the_final_component_only(self):
         assert recording_frames.is_video_recording_dir_name('A1_BF_0003_video')

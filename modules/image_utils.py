@@ -1317,7 +1317,7 @@ def build_postproc_output_metadata(
 
     Args:
         input_path: First-input TIFF; metadata is read from here.
-        channel: Layer color for the derived output (Blue / Green / Red
+        channel: Layer key for the derived output (Ex405 / Ex488 / Ex589
             / Lumi / BF / PC / DF).
         plate_pos_mm_override: Optional plate_pos_mm dict to override
             the value read from the input.

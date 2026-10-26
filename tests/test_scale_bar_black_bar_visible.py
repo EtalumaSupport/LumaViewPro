@@ -21,6 +21,7 @@ import pytest
 
 import modules.image_utils as image_utils
 from tests.objective_records import objective
+from tests.stock_channels import LED2
 
 _OBJECTIVE = objective(focal_length_mm=10.0, magnification=20)
 
@@ -69,7 +70,7 @@ def test_white_bar_still_drawn():
     # A non-bright channel on a dark image -> white bar (value 255) must
     # still appear (guards against regressing the path that already worked).
     image = np.zeros((400, 400), dtype=np.uint8)
-    result = _add(image, color='Red')
+    result = _add(image, color=LED2)
     assert (result == 255).any(), 'white scale bar regressed'
 
 
@@ -90,15 +91,15 @@ def test_white_bar_value_tracks_significant_bits():
     # it maps to full white after the depth-keyed 8-bit downconvert. A summed
     # 16-bit-container frame must get 65535, not the 12-bit 4095 (which would
     # downconvert to a dim ~16/255 gray bar).
-    r12 = _add_depth(np.zeros((400, 400), dtype=np.uint16), color='Red', significant_bits=12)
+    r12 = _add_depth(np.zeros((400, 400), dtype=np.uint16), color=LED2, significant_bits=12)
     assert int(r12.max()) == 4095
 
-    r16 = _add_depth(np.zeros((400, 400), dtype=np.uint16), color='Red', significant_bits=16)
+    r16 = _add_depth(np.zeros((400, 400), dtype=np.uint16), color=LED2, significant_bits=16)
     assert int(r16.max()) == 65535
 
 
 def test_uint8_bar_value_unchanged():
-    r = _add_depth(np.zeros((400, 400), dtype=np.uint8), color='Red', significant_bits=8)
+    r = _add_depth(np.zeros((400, 400), dtype=np.uint8), color=LED2, significant_bits=8)
     assert int(r.max()) == 255
 
 
@@ -108,7 +109,7 @@ def test_the_bar_is_drawn_on_a_copy_of_a_read_only_frame():
     image = np.zeros((400, 400), dtype=np.uint8)
     image.flags.writeable = False
 
-    result = _add(image, color='Red')
+    result = _add(image, color=LED2)
 
     assert (result == 255).any(), 'no bar was drawn'
     assert not image.any(), 'the frame the bar was drawn from was changed'

@@ -24,7 +24,7 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 
 ### Capabilities
 
-- **LED Illumination** -- Up to 6 channels: Blue, Green, Red fluorescence; Brightfield, Phase Contrast, Darkfield; Luminescence mode
+- **LED Illumination** -- Up to 6 channels: three fluorescence channels, each named for its excitation (405 / 488 / 589 nm on the stock filterset); Brightfield, Phase Contrast, Darkfield; Luminescence mode
 - **Motion Control** -- Motorized X/Y stage, Z focus, and 4-position objective turret (model-dependent)
 - **Camera** -- Basler (Pylon) camera with 12-bit depth, configurable ROI, binning, gain, and exposure
 

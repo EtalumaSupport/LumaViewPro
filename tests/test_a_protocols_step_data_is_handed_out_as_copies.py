@@ -26,6 +26,7 @@ from modules.protocol import Protocol
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
 from modules.coord_transformations import PlateLocation
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED0
 
 DICT_COLUMNS = ['Stim_Config', 'Video Config']
 
@@ -35,7 +36,7 @@ def protocol() -> Protocol:
     return _build_protocol(
         [
             _make_step(name='A1_BF', color='BF', acquire='image'),
-            _make_step(name='A1_Blue', color='Blue', acquire='video'),
+            _make_step(name=f'A1_{LED0}', color=LED0, acquire='video'),
         ]
     )
 
@@ -146,7 +147,7 @@ class TestEveryStoredCellIsReadOnly:
             },
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
-            stim_configs={'Blue': {'enabled': False}},
+            stim_configs={LED0: {'enabled': False}},
         )
 
         with pytest.raises(TypeError):

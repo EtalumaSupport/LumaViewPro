@@ -2382,7 +2382,7 @@ class Protocol:
         state and never evidence of user intent.
 
         Args:
-            layer: Color/layer name (BF, Blue, Green, Red, Lumi, etc.).
+            layer: Color/layer name (BF, Ex405, Ex488, Ex589, Lumi, etc.).
             z: The Z position to write to every step of the layer.
 
         Returns:
@@ -3392,21 +3392,21 @@ class Protocol:
 
     """
     stim_config = {
-        "Red": {
+        "Ex589": {
             "enabled": True,
             "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 1,
         },
-        "Green": {
+        "Ex488": {
             "enabled": True,
             "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 1,
         },
-        "Blue": {
+        "Ex405": {
             "enabled": True,
             "illumination_ma": 100,
             "frequency": 1,

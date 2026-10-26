@@ -32,6 +32,7 @@ from modules.composite_generation import CompositeGeneration
 from tests.ast_seams import parse_module
 from modules.layer_record import GREY
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED2
 
 RGB_MODE = '12bit_false_color_rgb'
 
@@ -76,11 +77,11 @@ def _channel_files(tmp_path, colors):
 
 
 def _merge(tmp_path):
-    df = _channel_files(tmp_path, ('BF', 'Red'))
+    df = _channel_files(tmp_path, ('BF', LED2))
     result = CompositeGeneration._create_composite_image(
         path=tmp_path,
         df=df,
-        brightness_thresholds_percent={'Red': 25},
+        brightness_thresholds_percent={LED2: 25},
         output_file_loc=tmp_path / 'composite.tiff',
         channel_colors=release_colors(),
     )
@@ -123,7 +124,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             output_file_loc=pathlib.Path('stitched.tiff'),
             image=np.full((8, 8), 3000, dtype=np.uint16),
             first_tile_path=tile,
-            color='Blue',
+            color=LED0,
             center={'x': 0.0, 'y': 0.0},
             significant_bits=16,
             algorithm='test',
@@ -144,7 +145,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             output_file_loc=pathlib.Path('stitched.tiff'),
             image=np.full((8, 8), 3000, dtype=np.uint16),
             first_tile_path=tile,
-            color='Blue',
+            color=LED0,
             center={'x': 0.0, 'y': 0.0},
             significant_bits=16,
             algorithm='test',
@@ -161,9 +162,9 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
 
         rows = []
         for z in range(2):
-            name = f'A1_Blue_Z{z}.tiff'
+            name = f'A1_{LED0}_Z{z}.tiff'
             tf.imwrite(str(tmp_path / name), np.full((8, 8), 3000 + z, dtype=np.uint16))
-            rows.append({'Color': 'Blue', 'Filepath': name})
+            rows.append({'Color': LED0, 'Filepath': name})
 
         ZProjector(has_turret=False)._zproject(
             path=tmp_path,

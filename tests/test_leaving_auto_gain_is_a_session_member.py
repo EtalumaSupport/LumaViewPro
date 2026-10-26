@@ -34,6 +34,7 @@ from modules.lumascope_api.camera import (
 )
 from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
 from tests.scope_fakes import identity_with_layers
+from tests.stock_channels import LED0, LED1, LED2
 
 _MEMBERS = (
     'set_channel_auto_gain',
@@ -43,7 +44,7 @@ _MEMBERS = (
 )
 
 
-def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Red'), shown=None):
+def _session(settings, lock=None, layers=('BF', 'PC', 'DF', LED0, LED1, LED2), shown=None):
     """A Session showing ``shown`` (the first layer in ``settings`` when
     None), whose camera holds the shown layer's settings."""
     shown = shown or next(iter(settings))
@@ -88,9 +89,9 @@ def _settings(layer, exposure_ms=999.0, gain_db=0.0):
         ('BF', AutoGainConvergence.AT_MINIMUM, 0.03, 0.0, 0.1),  # the transmitted floor
         ('PC', AutoGainConvergence.AT_MINIMUM, 0.05, 0.0, 0.1),
         ('DF', AutoGainConvergence.AT_MINIMUM, 0.05, 0.0, 0.1),
-        ('Blue', AutoGainConvergence.AT_MINIMUM, 0.4, 3.0, 1.0),  # the fluorescence floor
+        (LED0, AutoGainConvergence.AT_MINIMUM, 0.4, 3.0, 1.0),  # the fluorescence floor
         ('Lumi', AutoGainConvergence.AT_MINIMUM, 0.5, 0.0, 1.0),
-        ('Red', AutoGainConvergence.MAXED, 200.0, 20.0, 200.0),
+        (LED2, AutoGainConvergence.MAXED, 200.0, 20.0, 200.0),
     ],
 )
 def test_turning_off_stores_what_the_lock_reached(layer, state, achieved_ms, gain, stored_ms):
@@ -175,15 +176,15 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
     layer's to take, and the shown layer stays armed."""
     settings = {
         'BF': {'exposure_ms': 2.0, 'gain_db': 1.0, 'auto_gain': True},
-        'Green': {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': True},
+        LED1: {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': True},
     }
     session = _session(settings, _lock('BF', AutoGainConvergence.CONVERGED, 2.0, 10.0))
 
-    session.set_channel_auto_gain('Green', False)
+    session.set_channel_auto_gain(LED1, False)
 
     session.scope.camera.lock_auto_gain.assert_not_called()
     session.apply_layer_camera.assert_not_called()
-    assert settings['Green'] == {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': False}
+    assert settings[LED1] == {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': False}
 
 
 @pytest.mark.parametrize(
@@ -196,7 +197,7 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
             ArgumentRefusedError,
             'channel_unknown',
         ),  # not a layer of this release
-        ('Blue', True, ('BF', 'Green'), HardwareCommandRefusedError, 'axis_absent'),  # no Blue here
+        (LED0, True, ('BF', LED1), HardwareCommandRefusedError, 'axis_absent'),  # no LED0 here
         ('BF', 'off', ('BF',), ArgumentTypeRefusedError, 'wrong_argument_type'),  # not a bool
     ],
 )
@@ -214,12 +215,12 @@ def test_a_refused_request_changes_nothing(layer, enabled, layers, refused, reas
 
 
 def test_turning_off_a_layer_this_scope_lacks_is_admitted():
-    settings = _settings('Blue')
+    settings = _settings(LED0)
     session = _session(settings, AutoGainLock(state=None), layers=('BF',))
 
-    session.set_channel_auto_gain('Blue', False)
+    session.set_channel_auto_gain(LED0, False)
 
-    assert settings['Blue']['auto_gain'] is False
+    assert settings[LED0]['auto_gain'] is False
 
 
 # ---------------------------------------------------------------------------
@@ -317,11 +318,11 @@ def test_over_rest_a_hidden_layers_turning_off_reads_a_lock_with_no_state(client
     """A layer the camera does not hold locks nothing: its read answers a lock
     whose state is None, where before any turning off it answered null."""
     _session, client = client
-    assert _lock_read(client, 'Blue') is None
+    assert _lock_read(client, LED0) is None
 
-    client.put('/api/v1/channel_auto_gain', json={'channel': 'Blue', 'enabled': False})
+    client.put('/api/v1/channel_auto_gain', json={'channel': LED0, 'enabled': False})
 
-    assert _lock_read(client, 'Blue')['state'] is None
+    assert _lock_read(client, LED0)['state'] is None
 
 
 def test_over_rest_the_lock_of_no_layer_is_refused(client):

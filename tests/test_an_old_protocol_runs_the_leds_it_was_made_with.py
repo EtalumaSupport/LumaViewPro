@@ -12,8 +12,8 @@ key, which the scope's refusals then name. A name nothing knows is refused
 as unknown, not as missing hardware. The run refuses an enabled
 stimulation on a channel the unit lacks.
 
-Each test runs on a release in excitation keys
-(``excitation_key_installation``).
+Each test runs on the shipped release, whose keys are named for their
+excitation.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from modules.path_utils import read_installation_file
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
-from tests.installation_fixtures import SHIPPED_DATA, excitation_key_installation, non_stock_block
+from tests.installation_fixtures import SHIPPED_DATA, non_stock_block, write_installation
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
@@ -56,7 +56,7 @@ def _transmitted_rows() -> list[dict]:
 
 def _session(root: pathlib.Path, monkeypatch, *, microscope: str, non_stock: bool = False):
     board_block = non_stock_block(_transmitted_rows()) if non_stock else None
-    excitation_key_installation(root, monkeypatch, board_block=board_block)
+    write_installation(root, board_block=board_block)
     settings = complete_settings(
         microscope=microscope,
         live_folder=str(root / 'live'),

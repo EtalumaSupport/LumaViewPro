@@ -12,6 +12,7 @@ import numpy as np
 
 from modules.video_writer import VideoWriter
 from modules.layer_record import release_color
+from tests.stock_channels import LED2
 
 
 def _write_one_mono_frame(tmp_path, **color):
@@ -40,6 +41,6 @@ class TestGrayEncodeUniformity:
         assert writer._is_color is False
 
     def test_chromatic_label_still_widens_and_colors(self, tmp_path):
-        writer = _write_one_mono_frame(tmp_path, color=release_color('Red'))
+        writer = _write_one_mono_frame(tmp_path, color=release_color(LED2))
         assert writer._is_color is True
         assert writer.output_path.exists()

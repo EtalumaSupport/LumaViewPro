@@ -25,6 +25,7 @@ from tests.scope_fakes import build_scope
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1
 
 
 def _runner(acquiring=('BF',)):
@@ -140,8 +141,8 @@ class TestTheButtonRunsThroughThisMember:
 class TestTheLayerIsTheCallersToName:
     def test_the_named_layer_is_the_only_one_configured(self):
         runner = _runner(acquiring=())
-        runner.start_autofocus(channel='Green')
-        assert list(_built_config(runner)['layer_configs']) == ['Green']
+        runner.start_autofocus(channel=LED1)
+        assert list(_built_config(runner)['layer_configs']) == [LED1]
 
     def test_autofocus_is_on_for_that_layer_whatever_settings_say(self):
         # The layer's stored flag is a leftover from whatever the user
@@ -219,7 +220,7 @@ class TestTheExistingFamilyIsUnchanged:
         assert prepared['save_autofocus_data'] is False
 
     def test_a_composite_still_saves_its_artifacts_and_asks_for_no_data(self):
-        runner = _runner(acquiring=('BF', 'Blue'))
+        runner = _runner(acquiring=('BF', LED0))
         runner.start_composite()
         prepared = _prepared(runner)
         assert prepared['disable_saving_artifacts'] is False
@@ -362,8 +363,8 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
         assert self._protocol_from().num_steps() == 1
 
     def test_the_step_is_the_named_layer_with_autofocus_on(self):
-        steps = self._protocol_from(layer='Green').steps()
-        assert steps['Color'].tolist() == ['Green']
+        steps = self._protocol_from(layer=LED1).steps()
+        assert steps['Color'].tolist() == [LED1]
         assert bool(steps['Auto_Focus'].iloc[0]) is True
 
     def test_the_step_sits_at_the_position_it_was_given(self):

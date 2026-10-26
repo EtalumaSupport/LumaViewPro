@@ -44,6 +44,7 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
 
 from modules.run_outcome import RunEnding
 from tests.scope_fakes import swap_lanes
+from tests.stock_channels import LED2
 
 
 def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch, centre_posts):
@@ -167,7 +168,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, led_end_policy):
         scan_in_progress=threading.Event(),
         forced_dark=forced_dark,
         led_end_policy=led_end_policy,
-        original_led_states=(LedReading(2, 'Blue', LedState.LIT, 42.0),),
+        original_led_states=(LedReading(2, LED2, LedState.LIT, 42.0),),
         saved_camera_state=None,
         show_pre_run_layer_fn=None,
         return_to_position=None,

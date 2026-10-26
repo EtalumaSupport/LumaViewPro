@@ -170,10 +170,10 @@ class ChannelRecord:
     field by the one row reader.
 
     `excitation_nm` is the excitation wavelength -- named for what it
-    holds, because the layer NAME is the emission colour the operator
-    sees on screen, and an ambiguous "wavelength" on a layer called
-    Green invites silently wrong metadata. None is the truth for
-    broadband transmitted light and for LED-less layers.
+    holds, since an ambiguous "wavelength" invites silently wrong
+    metadata -- and the number a fluorescence key names (``Ex<nm>``).
+    None is the truth for broadband transmitted light and for LED-less
+    layers.
 
     `modality` and `background` are the layer's catalogue record's
     (`CatalogueLayer`). `display_color` is the unit's colour for the layer:
@@ -533,10 +533,19 @@ def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Co
     return color if false_color_on else GREY
 
 
-# The keys a model's layer row may carry; each but the colour is required.
-# A row's colour is optional: without one the layer takes the release's.
-_REQUIRED_ROW_FIELDS = ('key_name', 'display_name', 'led_channel', 'excitation_nm')
-_ROW_FIELDS = frozenset(_REQUIRED_ROW_FIELDS) | {'display_color'}
+# The keys a model's layer row may carry, by its layer's modality; each but
+# the colour is required. A row's colour is optional: without one the layer
+# takes the release's. A fluorescence layer is labelled by its excitation, so
+# its row stores no name to publish beside the label.
+_REQUIRED_ROW_FIELDS = ('key_name', 'led_channel', 'excitation_nm')
+_NAMED_ROW_FIELDS = (*_REQUIRED_ROW_FIELDS, 'display_name')
+
+
+def _row_fields(modality: Modality) -> tuple[tuple[str, ...], frozenset[str]]:
+    """The fields a model row for a layer of ``modality`` must carry, and every
+    field it may."""
+    required = _REQUIRED_ROW_FIELDS if modality == Modality.FLUORESCENCE else _NAMED_ROW_FIELDS
+    return required, frozenset(required) | {'display_color'}
 
 
 class LedBoardFamily(enum.StrEnum):
@@ -862,8 +871,8 @@ def _record(
     Channels block: the LED address, the excitation, the name, and an
     optional colour. A fluorescence channel is labelled by its excitation,
     so it must carry one and needs no name; any other channel is labelled by
-    its name. A fluorescence key named for its excitation (``Ex<nm>``) states
-    that excitation a second time, so a row whose ``excitation_nm`` is
+    its name. A fluorescence key is named for its excitation (``Ex<nm>``) and
+    states that excitation a second time, so a row whose ``excitation_nm`` is
     another describes no channel. A row's colour is held to the one stored
     form and full brightness (`parse_display_color`); without one the
     channel takes the catalogue's.
@@ -894,7 +903,7 @@ def _record(
     if release.modality == Modality.FLUORESCENCE:
         if excitation is None:
             return 'has no excitation_nm'
-        if key_name.startswith('Ex') and key_name != f'Ex{excitation:g}':
+        if key_name != f'Ex{excitation:g}':
             return f'has excitation_nm {excitation:g}, not the excitation its key names'
         label = f'{excitation:g} nm'
     elif display is None:
@@ -960,13 +969,14 @@ def _model_layers(
         key_name = row.get('key_name')
         if not isinstance(key_name, str) or key_name not in by_key:
             raise refuse(f'the layer {key_name!r}, not one of this release {tuple(by_key)}')
-        missing = [k for k in _REQUIRED_ROW_FIELDS if k not in row]
+        position, release = by_key[key_name]
+        required, declared = _row_fields(release.modality)
+        missing = [k for k in required if k not in row]
         if missing:
             raise refuse(f'a {key_name} layer row with no {missing[0]!r}')
-        undeclared = sorted(set(row) - _ROW_FIELDS)
+        undeclared = sorted(set(row) - declared)
         if undeclared:
             raise refuse(f'a {key_name} layer row with the undeclared key {undeclared[0]!r}')
-        position, release = by_key[key_name]
         record = _record(key_name, row, release, position)
         if isinstance(record, str):
             raise refuse(f'a {key_name} layer row that {record}')

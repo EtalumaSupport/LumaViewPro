@@ -2,8 +2,7 @@
 
 """Adding a layer's IDENTITY is one catalogue row and one model row.
 
-The receipt: with an eighth layer present in the (fixture) release
-catalogue and a model's row list, identity resolution, the layer
+The receipt: with a layer added to the (fixture) release catalogue and a model's row list, identity resolution, the layer
 vocabulary, protocol Color validation, and saved-image metadata all
 accept it with ZERO code edits. Every place that would have needed a
 hand edit before -- the seven-name literals, the enum-derived validation
@@ -26,25 +25,26 @@ from modules.protocol import Protocol
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
 
-# The shipped catalogue's records and one more.
-EIGHT_LAYERS = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder'] + [
+# The shipped catalogue's records and one more, a fluorescence channel
+# named for its excitation as every one is.
+ADDED_LAYERS = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder'] + [
     {
-        'key': 'NIR',
+        'key': 'Ex780',
         'modality': 'fluorescence',
         'background': 'dark',
         'manual_max_exposure_ms': 1000,
         'display_color': '#ff00ff',
-        'step_order': 7,
+        'step_order': 9,
         'sim_light_per_ma_s': 0.0126,
     }
 ]
 
 
 @pytest.fixture
-def eighth_layer_release(tmp_path, monkeypatch):
-    """A release whose catalogue and LS850T model carry an eighth layer."""
+def added_layer_release(tmp_path, monkeypatch):
+    """A release whose catalogue and LS850T model carry an added layer."""
     data = {
-        'LayerOrder': EIGHT_LAYERS,
+        'LayerOrder': ADDED_LAYERS,
         'Models': {
             'LS850T': {
                 'Layers': [
@@ -55,8 +55,7 @@ def eighth_layer_release(tmp_path, monkeypatch):
                         'excitation_nm': None,
                     },
                     {
-                        'key_name': 'NIR',
-                        'display_name': 'NIR',
+                        'key_name': 'Ex780',
                         'led_channel': 6,
                         'excitation_nm': 780,
                     },
@@ -74,12 +73,12 @@ def eighth_layer_release(tmp_path, monkeypatch):
     return str(path)
 
 
-def test_vocabulary_and_validation_accept_the_eighth_layer(eighth_layer_release):
-    assert 'NIR' in common_utils.get_layers()
-    assert 'NIR' in Protocol.valid_colors()
+def test_vocabulary_and_validation_accept_an_added_layer(added_layer_release):
+    assert 'Ex780' in common_utils.get_layers()
+    assert 'Ex780' in Protocol.valid_colors()
 
 
-def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
+def test_metadata_accepts_an_added_layer(added_layer_release, sim_scope):
     bind_settings_like_a_session(
         sim_scope,
         objective_id='20x Oly',
@@ -88,7 +87,7 @@ def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
     )
     metadata = generate_image_metadata(
         sim_scope,
-        channel='NIR',
+        channel='Ex780',
         plate_x_mm=0,
         plate_y_mm=0,
         stage_z_um=0,
@@ -97,7 +96,7 @@ def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
         labware=plate(),
         well_label=None,
     )
-    assert metadata['channel'] == 'NIR'
+    assert metadata['channel'] == 'Ex780'
 
 
 def test_shipped_categories_partition_the_shipped_catalogue():

@@ -21,6 +21,7 @@ from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
+from tests.stock_channels import LED0, LED2
 
 
 class _FakeStream:
@@ -188,7 +189,7 @@ class TestEagerInitColorDeferral:
                 fps=30,
                 width=32,
                 height=24,
-                color=release_color('Red'),
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
             writer.close()
@@ -215,7 +216,7 @@ class TestPyavEncoderThreadCap:
                 fps=30,
                 width=32,
                 height=24,
-                color=release_color('Red'),
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
 
@@ -232,7 +233,7 @@ class TestPyavEncoderThreadCap:
                 fps=30,
                 width=32,
                 height=24,
-                color=release_color('Red'),
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
 
@@ -350,7 +351,7 @@ class TestProtocolVideoDropNotification:
             scope=scope,
             step={
                 'Video Config': {'fps': 5, 'duration': 1},
-                'Color': 'Blue',
+                'Color': LED0,
                 'False_Color': False,
                 'Auto_Gain': False,
                 'Exposure': 10.0,
@@ -408,10 +409,10 @@ class TestProtocolVideoDropNotification:
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
         (kwargs,) = self.written
         metadata = kwargs['metadata']
-        assert metadata['channel'] == 'Blue'
+        assert metadata['channel'] == LED0
         assert metadata['stage_moving'] is False
         assert 'plate_pos_mm' not in metadata and 'z_pos_um' not in metadata
-        assert kwargs['channel'] == 'Blue', 'rendered as the channel the frame records'
+        assert kwargs['channel'] == LED0, 'rendered as the channel the frame records'
 
 
 class TestVideoBuilderDropAccounting:
@@ -538,7 +539,7 @@ class TestSubOneFpsRate:
                 fps=0.3,  # 3 frames over 10 seconds
                 width=32,
                 height=24,
-                color=release_color('Red'),
+                color=release_color(LED2),
                 include_timestamp_overlay=False,
             )
 

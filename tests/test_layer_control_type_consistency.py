@@ -41,6 +41,7 @@ import numpy as np
 import pytest
 
 from tests.settings_fixtures import settings_writer
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).parent.parent
@@ -132,7 +133,7 @@ def handler_globals():
 def settings(handler_globals):
     """Reset the shared settings dict each test, via the stub app_ctx."""
     s = {
-        'Blue': {
+        LED0: {
             'stim_config': {
                 'pulse_count': 5,
                 'pulse_width': 10,
@@ -166,12 +167,12 @@ class TestPulseCountSliderWritesInt:
     # Within the writer's 1..300: a slider never delivers a value past its own range.
     @pytest.mark.parametrize('slider_val', [7.5, 10.3, 1.9, 42.0, 299.999])
     def test_slider_stores_int_type(self, settings, pulse_count_handler, slider_val):
-        fake = _make_fake_self('Blue')
+        fake = _make_fake_self(LED0)
         fake.ids['stim_pulse_count_slider'] = _make_slider_mock(slider_val)
 
         pulse_count_handler(fake)
 
-        stored = settings['Blue']['stim_config']['pulse_count']
+        stored = settings[LED0]['stim_config']['pulse_count']
         assert type(stored) is int, (
             f'slider wrote {type(stored).__name__} ({stored!r}); '
             f'expected int. Float would desync from text-path cast=int.'
@@ -183,12 +184,12 @@ class TestPulseWidthSliderWritesInt:
     # Within the writer's 5..25 ms: a slider never delivers a value past its own range.
     @pytest.mark.parametrize('slider_val', [7.5, 10.3, 5.9, 12.0, 24.999])
     def test_slider_stores_int_type(self, settings, pulse_width_handler, slider_val):
-        fake = _make_fake_self('Blue')
+        fake = _make_fake_self(LED0)
         fake.ids['stim_pulse_width_slider'] = _make_slider_mock(slider_val)
 
         pulse_width_handler(fake)
 
-        stored = settings['Blue']['stim_config']['pulse_width']
+        stored = settings[LED0]['stim_config']['pulse_width']
         assert type(stored) is int
         assert stored == int(slider_val)
 
@@ -209,27 +210,27 @@ class TestCrossPathConsistency:
     """
 
     def test_slider_then_simulated_text(self, settings, pulse_count_handler):
-        fake = _make_fake_self('Blue')
+        fake = _make_fake_self(LED0)
         fake.ids['stim_pulse_count_slider'] = _make_slider_mock(7.9)
 
         pulse_count_handler(fake)
-        assert type(settings['Blue']['stim_config']['pulse_count']) is int
+        assert type(settings[LED0]['stim_config']['pulse_count']) is int
 
         # Simulate the text path's final write (cast=int, see
         # _validate_and_apply_text_input lines 119+127 in layer_control.py)
-        settings['Blue']['stim_config']['pulse_count'] = int(float('12'))
-        assert type(settings['Blue']['stim_config']['pulse_count']) is int
+        settings[LED0]['stim_config']['pulse_count'] = int(float('12'))
+        assert type(settings[LED0]['stim_config']['pulse_count']) is int
 
     def test_simulated_text_then_slider(self, settings, pulse_width_handler):
         # Text path first (simulated cast=int write)
-        settings['Blue']['stim_config']['pulse_width'] = int(float('15'))
-        assert type(settings['Blue']['stim_config']['pulse_width']) is int
+        settings[LED0]['stim_config']['pulse_width'] = int(float('15'))
+        assert type(settings[LED0]['stim_config']['pulse_width']) is int
 
-        fake = _make_fake_self('Blue')
+        fake = _make_fake_self(LED0)
         fake.ids['stim_pulse_width_slider'] = _make_slider_mock(22.7)
         pulse_width_handler(fake)
-        assert type(settings['Blue']['stim_config']['pulse_width']) is int
-        assert settings['Blue']['stim_config']['pulse_width'] == 22
+        assert type(settings[LED0]['stim_config']['pulse_width']) is int
+        assert settings[LED0]['stim_config']['pulse_width'] == 22
 
 
 # ---------------------------------------------------------------------------
@@ -239,13 +240,13 @@ class TestCrossPathConsistency:
 
 class TestAStimulationWriteShowsNothingAgain:
     def test_pulse_count_writes_and_shows_nothing(self, settings, pulse_count_handler):
-        fake = _make_fake_self('Blue')
+        fake = _make_fake_self(LED0)
         fake.ids['stim_pulse_count_slider'] = _make_slider_mock(3.0)
         pulse_count_handler(fake)
         fake.apply_settings.assert_not_called()
 
     def test_pulse_width_writes_and_shows_nothing(self, settings, pulse_width_handler):
-        fake = _make_fake_self('Blue')
+        fake = _make_fake_self(LED0)
         fake.ids['stim_pulse_width_slider'] = _make_slider_mock(12.0)
         pulse_width_handler(fake)
         fake.apply_settings.assert_not_called()

@@ -11,7 +11,7 @@ again, and the record keeps one row for it.
 
 Each test runs the real builds through ``session.post_processing`` on the
 run folder of ``test_a_derived_image_says_how_it_was_made``: a 2x2 tiled
-scan, a 3-slice Z-stack at each tile, BF and Blue.
+scan, a 3-slice Z-stack at each tile, BF and LED 0 (``LED0``).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from tests.test_a_derived_image_says_how_it_was_made import (  # noqa: F401 -- f
     run_folder,
     session,
 )
+from tests.stock_channels import LED0
 
 
 def _record_rows(folder: pathlib.Path, name: str) -> int:
@@ -40,10 +41,10 @@ def _projections(session, folder) -> list[pathlib.Path]:
 
 
 def test_a_stitch_missing_one_projection_fails_that_mosaic_and_builds_the_rest(session, run_folder):
-    """One Blue projection deleted: the Blue mosaic of projections is not
+    """One LED 0 projection deleted: the LED 0 mosaic of projections is not
     built -- never a mosaic with a hole -- and the failure names the
     projection and the build that restores it; BF's is built."""
-    gone = next(path for path in _projections(session, run_folder) if '_Blue_' in path.name)
+    gone = next(path for path in _projections(session, run_folder) if f'_{LED0}_' in path.name)
     gone.unlink()
 
     with pytest.raises(PostProcessingFailedError) as failed:
@@ -54,9 +55,9 @@ def test_a_stitch_missing_one_projection_fails_that_mosaic_and_builds_the_rest(s
     assert 'build Z-Projection again' in error
     mosaics = sorted(pathlib.Path(path).name for path in failed.value.produced_paths)
     assert 'custom0000_BF_0000_zproj_max_stitched.tiff' in mosaics
-    assert not any('Blue_0000_zproj_max_stitched' in name for name in mosaics)
+    assert not any(f'{LED0}_0000_zproj_max_stitched' in name for name in mosaics)
     assert not (
-        run_folder / 'Stitched-ZProject' / 'custom0001_Blue_0000_zproj_max_stitched.tiff'
+        run_folder / 'Stitched-ZProject' / f'custom0001_{LED0}_0000_zproj_max_stitched.tiff'
     ).exists()
 
 
@@ -92,7 +93,7 @@ def test_a_build_whose_inputs_were_all_removed_is_complete_and_names_them(sessio
 def test_a_selected_folder_missing_one_projection_fails_that_mosaic(session, run_folder):
     """The projections' folder selected, one projection deleted: the group
     that needs it fails, named, as with the whole run folder selected."""
-    gone = next(path for path in _projections(session, run_folder) if '_Blue_' in path.name)
+    gone = next(path for path in _projections(session, run_folder) if f'_{LED0}_' in path.name)
     gone.unlink()
 
     with pytest.raises(PostProcessingFailedError) as failed:

@@ -41,6 +41,7 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
+from tests.stock_channels import LED1
 
 MODELS = ('LS850', 'LS850T', 'LS820', 'Lumi', 'LS620', 'LS560')
 FX2_MODELS = ('LS620', 'LS560')
@@ -321,7 +322,7 @@ def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, mon
     session = _camera_less(make_session, monkeypatch, 'LS850')
     before = _camera_store(session)
 
-    _assert_names_the_camera(_refused(lambda: session.show_channel('Green')))
+    _assert_names_the_camera(_refused(lambda: session.show_channel(LED1)))
 
     assert _camera_store(session) == before
 

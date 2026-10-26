@@ -11,9 +11,9 @@ unit_key``); where none is, a stored old name reads as its stock key for
 its colour, modality and settings and keeps its own name
 (``stored_key``), so an old run folder builds in its old names.
 
-Each test runs against a release in excitation keys
-(``write_release_in_excitation_keys``): the shipped release once its keys
-change, plus the non-stock filterset's channels.
+Each test runs against the shipped release, whose keys are named for
+their excitation and whose catalogue carries the non-stock filterset's
+channels.
 """
 
 from __future__ import annotations
@@ -41,14 +41,20 @@ from modules.layer_record import (
 from modules.post_processing_api import Stitch, ZProject
 from modules.path_utils import read_installation_file
 from tests.case_walk import failing_cases
-from tests.installation_fixtures import excitation_key_installation, non_stock_block
-from tests.test_a_derived_image_says_how_it_was_made import run_folder  # noqa: F401 -- fixture
+from tests.installation_fixtures import non_stock_block, write_installation
+from tests.test_a_derived_image_says_how_it_was_made import write_run_folder
 
 
 @pytest.fixture
-def installation(tmp_path, monkeypatch):
-    """An installation folder whose release is in excitation keys, installed as the process's."""
-    return excitation_key_installation(tmp_path / 'installation', monkeypatch)
+def run_folder(tmp_path):
+    """A BF and ``Blue`` run folder, as a release before the keys changed saved it."""
+    return write_run_folder(tmp_path, 'Blue')
+
+
+@pytest.fixture
+def installation(tmp_path):
+    """An installation folder of the shipped files."""
+    return write_installation(tmp_path / 'installation')
 
 
 def _release(installation: pathlib.Path) -> dict:

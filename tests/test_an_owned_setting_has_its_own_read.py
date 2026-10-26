@@ -24,6 +24,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1
 
 
 def _shutdown(session):
@@ -71,13 +72,13 @@ def test_each_read_answers_what_its_setter_wrote(session):
             40,
         ),
         'channel_acquire': (
-            lambda: session.set_channel_acquire('Blue', 'video'),
-            lambda: session.channel_acquire('Blue'),
+            lambda: session.set_channel_acquire(LED0, 'video'),
+            lambda: session.channel_acquire(LED0),
             'video',
         ),
         'channel_auto_gain': (
-            lambda: session.set_channel_auto_gain('Green', True),
-            lambda: session.channel_auto_gain('Green'),
+            lambda: session.set_channel_auto_gain(LED1, True),
+            lambda: session.channel_auto_gain(LED1),
             True,
         ),
     }
@@ -140,7 +141,7 @@ def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
     # is refused, naming it; an action's setting and a host's are answered.
     wrong = {}
     for pattern, member in settings_paths.SETTINGS_WITH_A_MEMBER.items():
-        path = pattern.replace('*', 'Blue', 1)
+        path = pattern.replace('*', LED0, 1)
         owner = ScopeSession if member.owner == 'ScopeSession' else CameraAPI
         read = sets_of(getattr(owner, member.name))
         try:

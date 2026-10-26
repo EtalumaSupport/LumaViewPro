@@ -24,6 +24,7 @@ from modules.sequential_io_executor import IOTask, SequentialIOExecutor, inline_
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0
 
 _WAIT_S = 2.0
 
@@ -268,11 +269,11 @@ class TestTheLaneForm:
     def test_a_refusal_names_the_gesture_not_the_wrapper(self, centre_posts, headless, lane, claim):
         held = claim.try_claim('protocol', run=run_identity())
         try:
-            submit_reported(lambda: None, None, 'LED_Blue', lane=lane)
+            submit_reported(lambda: None, None, f'LED_{LED0}', lane=lane)
         finally:
             held.release()
         self._settle(lane)
-        assert [n.category for n in centre_posts] == ['Task:UI:LED_Blue']
+        assert [n.category for n in centre_posts] == [f'Task:UI:LED_{LED0}']
 
 
 def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch):

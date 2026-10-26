@@ -14,9 +14,10 @@ from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedE
 from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
 from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
-def _metadata(significant_bits: int, channel: str = 'Green') -> dict:
+def _metadata(significant_bits: int, channel: str = LED1) -> dict:
     return {
         'pixel_size_um': 1.0,
         'channel': channel,
@@ -31,7 +32,7 @@ def _metadata(significant_bits: int, channel: str = 'Green') -> dict:
     }
 
 
-def _write_source(path, data: np.ndarray, significant_bits: int, channel: str = 'Green') -> None:
+def _write_source(path, data: np.ndarray, significant_bits: int, channel: str = LED1) -> None:
     image_utils.write_tiff(
         data=data,
         file_loc=path,
@@ -90,7 +91,7 @@ def test_rgb_images_use_one_shared_tone_curve_without_changing_shape_or_dtype():
 def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(tmp_path):
     fixtures = {
         'bf': (np.arange(256, dtype=np.uint16).reshape(16, 16), 'BF', (16, 16)),
-        'green': (np.arange(256, dtype=np.uint16).reshape(16, 16), 'Green', (16, 16, 3)),
+        'green': (np.arange(256, dtype=np.uint16).reshape(16, 16), LED1, (16, 16, 3)),
         'composite': (
             np.dstack([np.arange(256, dtype=np.uint16).reshape(16, 16)] * 3),
             'Composite',
@@ -348,7 +349,7 @@ def test_rgba_composite_png_drops_alpha_before_rgb_tiff_export(tmp_path):
 
 @pytest.mark.parametrize(
     ('channel', 'color_index'),
-    [('Red', 0), ('Green', 1), ('Blue', 2)],
+    [(LED2, 0), (LED1, 1), (LED0, 2)],
 )
 def test_fluorescence_mono_output_is_false_colored_without_changing_bf_rules(channel, color_index):
     enhancer = QuickEnhancer()
@@ -370,7 +371,7 @@ def test_fluorescence_mono_output_is_false_colored_without_changing_bf_rules(cha
 def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     source = tmp_path / 'green_sample.tiff'
     source_data = np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8)
-    _write_source(source, source_data, 12, channel='Green')
+    _write_source(source, source_data, 12, channel=LED1)
     enhancer = QuickEnhancer()
 
     first = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
@@ -385,7 +386,7 @@ def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     assert output[..., 1].any()
     assert not output[..., 0].any()
     assert not output[..., 2].any()
-    assert metadata['channel'] == 'Green'
+    assert metadata['channel'] == LED1
 
 
 def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_path):

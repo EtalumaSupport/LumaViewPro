@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 from tests.protocol_drives import run_identity
+from tests.stock_channels import LED0, LED1, LED2
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
@@ -426,23 +427,23 @@ class TestIntegrationMultiChannel:
     """Multi-channel protocols with real simulated hardware."""
 
     def test_two_channel_completes(self, executor, scope, tmp_path):
-        """BF + Green two-channel protocol completes."""
+        """BF + LED 1 two-channel protocol completes."""
         protocol = _make_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 100.0},
-                {'color': 'Green', 'illumination_ma': 75.0},
+                {'color': LED1, 'illumination_ma': 75.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_three_channel_completes(self, executor, scope, tmp_path):
-        """BF + Green + Red three-channel protocol completes."""
+        """BF + LED 1 + LED 2 three-channel protocol completes."""
         protocol = _make_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 100.0},
-                {'color': 'Green', 'illumination_ma': 75.0},
-                {'color': 'Red', 'illumination_ma': 50.0},
+                {'color': LED1, 'illumination_ma': 75.0},
+                {'color': LED2, 'illumination_ma': 50.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -453,8 +454,8 @@ class TestIntegrationMultiChannel:
         protocol = _make_protocol(
             [
                 {'color': 'BF', 'illumination_ma': 100.0},
-                {'color': 'Green', 'illumination_ma': 75.0},
-                {'color': 'Red', 'illumination_ma': 50.0},
+                {'color': LED1, 'illumination_ma': 75.0},
+                {'color': LED2, 'illumination_ma': 50.0},
             ]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -581,7 +582,7 @@ class TestIntegrationAutofocus:
             scope=scope,
         )
 
-        # Simulate the multi-channel scenario: camera is at Green settings
+        # Simulate the multi-channel scenario: camera is at LED 1's settings
         # when BF AF starts with its own explicit targets.
         scope.camera.set_gain_db(20.0)
         scope.camera.set_exposure_ms(100.0)
@@ -713,9 +714,9 @@ class TestHeadlessSession:
         try:
             scope = session.scope
             scope.illumination.led_on_by_address(0, 100)
-            assert scope.illumination.get_led_state('Blue').illumination_ma == 100
+            assert scope.illumination.get_led_state(LED0).illumination_ma == 100
             scope.illumination.led_off_by_address(0)
-            assert scope.illumination.get_led_state('Blue').state is LedState.DARK
+            assert scope.illumination.get_led_state(LED0).state is LedState.DARK
         finally:
             session.shutdown()
 

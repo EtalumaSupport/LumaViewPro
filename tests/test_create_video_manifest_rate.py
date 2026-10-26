@@ -19,6 +19,7 @@ import pytest
 
 from modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _make_manual_folder(tmp_path, n=3):
@@ -50,12 +51,13 @@ def _built_rate(tmp_path, frame_rate_fps):
 def test_auto_uses_engine_manifest_measured_rate(tmp_path):
     _make_manual_folder(tmp_path)
     (tmp_path / 'recording_manifest.json').write_text(
-        json.dumps({'measured_fps': 9.5, 'channel_color': 'Blue'})
+        json.dumps({'measured_fps': 9.5, 'channel_color': LED0})
     )
     assert _built_rate(tmp_path, None) == pytest.approx(9.5)
 
 
 def test_auto_uses_legacy_manifest_measured_rate(tmp_path):
+    # A pre-engine folder's manifest, as an earlier release wrote it: old channel names.
     _make_manual_folder(tmp_path)
     (tmp_path / 'session_manifest.json').write_text(
         json.dumps({'recording': {'channel_color': 'Red', 'actual_fps': {'mean': 3.25}}})
@@ -92,19 +94,19 @@ def test_a_manifest_names_its_channel_and_whether_it_was_false_coloured(tmp_path
         folder = tmp_path / str(false_color)
         folder.mkdir()
         (folder / 'recording_manifest.json').write_text(
-            json.dumps({'channel': 'Red', 'false_color': false_color, 'measured_fps': 2.0})
+            json.dumps({'channel': LED2, 'false_color': false_color, 'measured_fps': 2.0})
         )
         read.append(builder._read_recording_manifest(folder)['channel_color'])
-    assert read == ['Red', None]
+    assert read == [LED2, None]
 
 
 def test_channel_color_read_from_either_manifest_generation(tmp_path):
     builder = VideoBuilder(has_turret=False)
     (tmp_path / 'recording_manifest.json').write_text(
-        json.dumps({'channel_color': 'Green', 'measured_fps': 2.0})
+        json.dumps({'channel_color': LED1, 'measured_fps': 2.0})
     )
     info = builder._read_recording_manifest(tmp_path)
-    assert info == {'channel_color': 'Green', 'measured_fps': 2.0}
+    assert info == {'channel_color': LED1, 'measured_fps': 2.0}
 
     legacy_dir = tmp_path / 'legacy'
     legacy_dir.mkdir()

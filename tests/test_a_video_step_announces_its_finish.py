@@ -29,6 +29,7 @@ from tests.camera_fakes import delivered_frame
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
+from tests.stock_channels import LED0
 
 WAIT_S = 10.0
 
@@ -78,7 +79,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
         scope=_scope(listeners),
         step={
             'Video Config': {'fps': 5, 'duration': 1},
-            'Color': 'Blue',
+            'Color': LED0,
             'False_Color': False,
             'Auto_Gain': False,
             'Exposure': 10.0,

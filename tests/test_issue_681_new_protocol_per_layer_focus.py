@@ -20,6 +20,7 @@ import pytest
 
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
+from tests.stock_channels import LED1, LED2
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -44,7 +45,7 @@ def _layer(focus: float) -> dict:
 
 
 def _build_input_config(previous_well_z=None):
-    """input_config with three channels at distinct focus (BF/Green/Red)."""
+    """input_config with three channels at distinct focus (BF / LED 1 / LED 2)."""
     cfg = {
         'labware_id': '96 well microplate',
         'objective_id': '4x Oly',
@@ -53,8 +54,8 @@ def _build_input_config(previous_well_z=None):
         'tiling': '1x1',
         'layer_configs': {
             'BF': _layer(100.0),
-            'Green': _layer(200.0),
-            'Red': _layer(300.0),
+            LED1: _layer(200.0),
+            LED2: _layer(300.0),
         },
         'period': None,
         'duration': None,
@@ -76,7 +77,7 @@ def test_new_protocol_keeps_each_channel_tuned_z(scale_capabilities):
     """Per-(well, channel) carry-over: each channel keeps its own tuned Z."""
     from modules.protocol import Protocol
 
-    prev = {('A1', 'BF'): 7000.0, ('A1', 'Green'): 8000.0, ('A1', 'Red'): 9000.0}
+    prev = {('A1', 'BF'): 7000.0, ('A1', LED1): 8000.0, ('A1', LED2): 9000.0}
     cfg = _build_input_config(previous_well_z=prev)
     df = Protocol.from_config(
         input_config=cfg,
@@ -87,8 +88,8 @@ def test_new_protocol_keeps_each_channel_tuned_z(scale_capabilities):
     ).steps()
 
     assert _well_channel_z(df, 'A1', 'BF') == pytest.approx(7000.0, abs=1e-6)
-    assert _well_channel_z(df, 'A1', 'Green') == pytest.approx(8000.0, abs=1e-6)
-    assert _well_channel_z(df, 'A1', 'Red') == pytest.approx(9000.0, abs=1e-6)
+    assert _well_channel_z(df, 'A1', LED1) == pytest.approx(8000.0, abs=1e-6)
+    assert _well_channel_z(df, 'A1', LED2) == pytest.approx(9000.0, abs=1e-6)
 
 
 def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
@@ -96,7 +97,7 @@ def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
     the other channels -- untuned channels keep their own focus default."""
     from modules.protocol import Protocol
 
-    # Only BF tuned in A1; Green/Red were never focused there.
+    # Only BF tuned in A1; LED 1 / LED 2 were never focused there.
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 7000.0})
     df = Protocol.from_config(
         input_config=cfg,
@@ -108,8 +109,8 @@ def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
 
     assert _well_channel_z(df, 'A1', 'BF') == pytest.approx(7000.0, abs=1e-6)
     # Pre-fix these were 7000 (clobbered); now each keeps its focus default.
-    assert _well_channel_z(df, 'A1', 'Green') == pytest.approx(200.0, abs=1e-6)
-    assert _well_channel_z(df, 'A1', 'Red') == pytest.approx(300.0, abs=1e-6)
+    assert _well_channel_z(df, 'A1', LED1) == pytest.approx(200.0, abs=1e-6)
+    assert _well_channel_z(df, 'A1', LED2) == pytest.approx(300.0, abs=1e-6)
 
 
 def test_no_carry_over_uses_each_channels_focus(scale_capabilities):
@@ -126,8 +127,8 @@ def test_no_carry_over_uses_each_channels_focus(scale_capabilities):
     ).steps()
 
     assert (df[df['Color'] == 'BF']['Z'] == 100.0).all()
-    assert (df[df['Color'] == 'Green']['Z'] == 200.0).all()
-    assert (df[df['Color'] == 'Red']['Z'] == 300.0).all()
+    assert (df[df['Color'] == LED1]['Z'] == 200.0).all()
+    assert (df[df['Color'] == LED2]['Z'] == 300.0).all()
 
 
 def _new_protocol_src() -> str:

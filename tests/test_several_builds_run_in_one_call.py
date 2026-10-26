@@ -10,7 +10,7 @@ failure stops the call as that build's own outcome.
 
 Each test runs the real builds on the run folder of
 ``test_a_derived_image_says_how_it_was_made``: a 2x2 tiled scan, a 3-slice
-Z-stack at each tile, BF and Blue -- 24 images.
+Z-stack at each tile, BF and LED 0 (``LED0``) -- 24 images.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from tests.test_a_derived_image_says_how_it_was_made import (  # noqa: F401 -- f
     run_folder,
     session,
 )
+from tests.stock_channels import LED0, LED1
 
 
 def _made(result) -> dict[PostProcessingOperation, list[str]]:
@@ -61,7 +62,7 @@ def test_zproject_stitch_composite_make_the_chains_product_and_its_inputs(sessio
     assert len(made[PostProcessingOperation.Z_PROJECTION]) == 8
     assert made[PostProcessingOperation.STITCH] == [
         'Stitched-ZProject/custom0000_BF_0000_zproj_max_stitched.tiff',
-        'Stitched-ZProject/custom0001_Blue_0000_zproj_max_stitched.tiff',
+        f'Stitched-ZProject/custom0001_{LED0}_0000_zproj_max_stitched.tiff',
     ]
     (product,) = made[PostProcessingOperation.COMPOSITE]
     assert product.startswith('Composite-Stitched-ZProject/')
@@ -90,16 +91,16 @@ def test_an_earlier_derivation_in_the_folder_is_no_input_of_the_chain(session, r
 
     assert _made(result)[PostProcessingOperation.STITCH] == [
         'Stitched-ZProject/custom0000_BF_0000_zproj_max_stitched.tiff',
-        'Stitched-ZProject/custom0001_Blue_0000_zproj_max_stitched.tiff',
+        f'Stitched-ZProject/custom0001_{LED0}_0000_zproj_max_stitched.tiff',
     ]
 
 
 def _add_an_ordinary_step(folder: pathlib.Path) -> None:
-    """One more Add beside the tiled stack: BF and Blue at one place, no
+    """One more Add beside the tiled stack: BF and LED 0 at one place, no
     tiles, no slices -- an image each that z-project and stitch pass over."""
     protocol = folder / 'run.tsv'
     rows = []
-    for color, false_color in (('BF', 'False'), ('Blue', 'True')):
+    for color, false_color in (('BF', 'False'), (LED0, 'True')):
         rows.append(
             [
                 f'custom0002_{color}', '12.0000', '12.0000', '5000.0', 'False', color,
@@ -112,7 +113,7 @@ def _add_an_ordinary_step(folder: pathlib.Path) -> None:
     record = folder / 'protocol_record.tsv'
     lines = record.read_text()
     rng = np.random.default_rng(19)
-    for offset, (color, _) in enumerate((('BF', 'False'), ('Blue', 'True'))):
+    for offset, (color, _) in enumerate((('BF', 'False'), (LED0, 'True'))):
         name = f'custom0002_{color}'
         image_utils.write_tiff(
             data=(rng.random((64, 64)) * 80).astype(np.uint8),
@@ -181,7 +182,7 @@ def test_a_build_that_fails_stops_the_call_as_its_own_outcome(session, run_folde
     """A raw slice missing: z-project fails that tile's projection, and the
     call stops there, raised as z-project's failure -- the stitch after it
     would build a mosaic short of a tile."""
-    next(run_folder.glob('custom0001_Blue_TA1_Z1_*.tiff')).unlink()
+    next(run_folder.glob(f'custom0001_{LED0}_TA1_Z1_*.tiff')).unlink()
 
     with pytest.raises(PostProcessingFailedError) as failed:
         session.post_processing.build(run_folder, zproject=ZProject(), stitch=Stitch())
@@ -205,13 +206,11 @@ def test_the_live_work_names_the_build_the_call_is_on(session, run_folder):
 
 
 def _stills_and_a_recording():
-    """BF and Green stills and a Blue recording, all at one place."""
+    """BF and LED 1 stills and an LED 0 recording, all at one place."""
     from tests.test_a_late_write_records_its_frame import _step
 
     steps = []
-    for index, (color, acquire) in enumerate(
-        (('BF', 'image'), ('Green', 'image'), ('Blue', 'video'))
-    ):
+    for index, (color, acquire) in enumerate((('BF', 'image'), (LED1, 'image'), (LED0, 'video'))):
         step = _step('P1', index, x=20.0, gain=1.0)
         step['Color'] = color
         step['Acquire'] = acquire
@@ -242,4 +241,4 @@ def test_a_recordings_frames_pass_the_stills_builds_to_the_video(tmp_path):
     composite, _video = result.built
     assert composite.result.excluded_inputs == ()
     (video,) = _made(result)[PostProcessingOperation.VIDEO]
-    assert video.startswith('Video/P1_Blue_10xOly_Z0_0000_video'), video
+    assert video.startswith(f'Video/P1_{LED0}_10xOly_Z0_0000_video'), video

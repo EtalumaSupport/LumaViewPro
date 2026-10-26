@@ -44,6 +44,7 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
 
 
 class TestStitchLoudDegradeOnMissingPixelSize:
@@ -271,7 +272,7 @@ class TestSimplePositionStitcher:
                     'X': x,
                     'Y': y,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Well': 'B2',
                     'Tile Group ID': 2,
                 }
@@ -486,7 +487,7 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Well': 'A1',
                     'Tile Group ID': 3,
                 },
@@ -495,7 +496,7 @@ class TestSimplePositionStitcher:
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Well': 'A1',
                     'Tile Group ID': 3,
                 },
@@ -535,7 +536,7 @@ class TestSimplePositionStitcher:
 
         assert result['status'] is True
         assert result['metadata']['fallback_from'] == 'quality_local_ncc'
-        assert 'using stage_position_stitcher for well=A1 color=Green tile_group=3' in caplog.text
+        assert f'using stage_position_stitcher for well=A1 color={LED1} tile_group=3' in caplog.text
 
     def test_fluorescence_route_uses_overlap_then_stage_then_simple(
         self,
@@ -549,14 +550,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
             ]
         )
@@ -618,14 +619,14 @@ class TestSimplePositionStitcher:
                     'X': 0.0,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
                 {
                     'Filepath': 'b.tiff',
                     'X': 0.05,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Green',
+                    'Color': LED1,
                 },
             ]
         )
@@ -1137,13 +1138,13 @@ class TestPositionAwareStitcher:
         half_fov_mm = fov['width'] / 2 / 1000
         df = pd.DataFrame(
             [
-                {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+                {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': LED2},
                 {
                     'Filepath': 'r1.tiff',
                     'X': -half_fov_mm,
                     'Y': 0.0,
                     'Objective': '10x Oly',
-                    'Color': 'Red',
+                    'Color': LED2,
                 },
             ]
         )

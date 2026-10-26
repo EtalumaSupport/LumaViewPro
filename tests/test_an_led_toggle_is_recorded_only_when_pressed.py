@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import modules.app_context as _app_ctx
+from tests.stock_channels import LED1
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -40,7 +41,7 @@ def layer(monkeypatch):
     monkeypatch.setattr(_app_ctx, 'ctx', context)
     monkeypatch.setattr(layer_control, 'submit_reported', lambda call, *a, **kw: call())
     widget = SimpleNamespace(
-        layer='Green',
+        layer=LED1,
         _initializing=False,
         ids={'enable_led_btn': SimpleNamespace(state='down')},
         show_as_shown=MagicMock(),
@@ -57,7 +58,7 @@ def test_an_apply_records_no_toggle(layer, caplog):
         layer.cls.apply_settings(layer.widget)
 
     assert _toggles(caplog) == []
-    layer.session.show_channel.assert_called_once_with('Green')
+    layer.session.show_channel.assert_called_once_with(LED1)
 
 
 @pytest.mark.parametrize('state, word', [('down', 'ON'), ('normal', 'OFF')])
@@ -67,7 +68,7 @@ def test_a_press_records_one_toggle_and_drives_the_led(layer, caplog, state, wor
     with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
         press()
 
-    assert _toggles(caplog) == [f'TOGGLE LED_Green {word}']
+    assert _toggles(caplog) == [f'TOGGLE LED_{LED1} {word}']
     layer.session.light_shown_channel.assert_called_once_with(state == 'down')
 
 

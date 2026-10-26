@@ -65,6 +65,7 @@ from tests.guards.test_every_member_states_its_contract import (
 )
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 # The members whose valid call waits on a fixture this walk does not yet have.
 _VALID_PENDING = {
@@ -303,7 +304,7 @@ def _saved(live: pathlib.Path, start: Callable[[], object]) -> pathlib.Path:
 
 @pytest.fixture(scope='module')
 def run_folders(tmp_path_factory):
-    """Run folders the simulator saved: a 2x2 BF and Blue scan, a three-slice BF Z-stack, a three-scan time-lapse.
+    """Run folders the simulator saved: a 2x2 BF and LED 0 scan, a three-slice BF Z-stack, a three-scan time-lapse.
 
     Made on a session of their own, so the walk's scope keeps its settings.
     """
@@ -313,7 +314,7 @@ def run_folders(tmp_path_factory):
         home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         session.set_channel_acquire('BF', 'image')
-        session.set_channel_acquire('Blue', 'image')
+        session.set_channel_acquire(LED0, 'image')
 
         def scan(tiling: str) -> object:
             config = session.get_sequenced_capture_config(tiling=tiling, use_zstacking=False)

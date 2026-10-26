@@ -27,6 +27,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api._lumascope import Lumascope
 from modules.lumascope_api.camera import AppliedGain, cap_stored_value
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
+from tests.stock_channels import LED0
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -99,7 +100,7 @@ class TestTheCappedValueIsWhatReachesTheDriver:
         camera._driver.gain = lambda v: (seen.append(('gain', v)), original_gain(v))[1]
         camera._driver.exposure_t = lambda v: (seen.append(('exp', v)), original_exposure(v))[1]
 
-        camera._apply_settings_impl(48.0, 500.0, layer='Blue')
+        camera._apply_settings_impl(48.0, 500.0, layer=LED0)
 
         assert seen == [('gain', 20.0), ('exp', 200.0)]
 

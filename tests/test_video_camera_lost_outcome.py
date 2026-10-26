@@ -20,6 +20,7 @@ from modules.run_events import RunEvents
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
+from tests.stock_channels import LED0
 
 
 def _make_recorder(tmp_path, clock, active=True):
@@ -160,7 +161,7 @@ class TestStartFailureEndsTheStep:
         # open its container at construction; with it off the encoder init
         # defers and there is no artifact to leave behind, so the unlink
         # would go unexercised.
-        recorder._step['Color'] = 'Blue'
+        recorder._step['Color'] = LED0
         recorder._step['False_Color'] = True
         recorder._scope.imaging.add_frame_listener.side_effect = RuntimeError(
             'scripted registration failure'

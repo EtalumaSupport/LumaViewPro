@@ -22,6 +22,7 @@ from modules.exceptions import Notice, ProtocolRunRefusedError
 from modules.notification_center import NotificationCenter, OutcomeKind, notifications
 from modules.scope_session import ScopeSession, _scheduler_callback_error
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED2
 
 
 @pytest.fixture
@@ -223,7 +224,7 @@ class TestABrokenListenerIsLoud:
             (
                 lambda s, cb: s.scope.illumination.add_led_listener(cb),
                 lambda s: s.scope.illumination._fire_led_listeners(
-                    LedReading(2, 'Red', LedState.LIT, 10.0)
+                    LedReading(2, LED2, LedState.LIT, 10.0)
                 ),
             ),
             (

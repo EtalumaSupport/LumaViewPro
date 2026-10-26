@@ -24,6 +24,7 @@ from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1, LED2
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -90,7 +91,7 @@ def test_video_well_stack_is_schema_valid_with_ruled_axes(tmp_path):
 
 def test_two_channel_video_well_carries_both_channels(tmp_path):
     rows = []
-    for color in ('Green', 'Red'):
+    for color in (LED1, LED2):
         rows += [(_frame_path('A1', color, 0, n), 0, color, 0) for n in range(2)]
     df = _stack_df(rows)
     _write_timestamped_frames(tmp_path, df)
@@ -100,7 +101,7 @@ def test_two_channel_video_well_carries_both_channels(tmp_path):
     ome = ome_types.from_xml(ome_xml)
     pixels = ome.images[0].pixels
     assert (pixels.size_t, pixels.size_c) == (2, 2)
-    assert sorted(c.name for c in pixels.channels) == ['Green', 'Red']
+    assert sorted(c.name for c in pixels.channels) == [LED1, LED2]
     assert len(pixels.planes) == 4, 'T x C planes, one per source frame'
 
 

@@ -14,13 +14,14 @@ import pandas as pd
 
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1
 
 
 def _rows(*, well=None):
     rows = []
     for t in range(3):
-        for color in ('Blue', 'Green'):
-            if color == 'Green' and t == 0:
+        for color in (LED0, LED1):
+            if color == LED1 and t == 0:
                 continue  # one channel missing at one T: not rectangular
             row = {
                 'Filepath': f'f_{t}_{color}.tiff',

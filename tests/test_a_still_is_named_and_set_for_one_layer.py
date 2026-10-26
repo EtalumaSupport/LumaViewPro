@@ -24,6 +24,7 @@ from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0, LED1
 
 # Distinct from each other and from the simulated camera's default (10 ms, 1 dB).
 _BF = {'exposure_ms': 2.0, 'gain_db': 1.0, 'auto_gain': False}
@@ -36,8 +37,7 @@ def session(tmp_path):
     built = ScopeSession.create(
         complete_settings(
             BF=_BF,
-            Blue=_BLUE,
-            Green=_GREEN,
+            **{LED0: _BLUE, LED1: _GREEN},
             live_folder=str(tmp_path),
             separate_folder_per_channel=False,
         ),
@@ -63,26 +63,26 @@ def _settings_of(record) -> tuple[float, float]:
 
 
 def _stored(layer) -> tuple[float, float]:
-    values = {'BF': _BF, 'Blue': _BLUE, 'Green': _GREEN}[layer]
+    values = {'BF': _BF, LED0: _BLUE, LED1: _GREEN}[layer]
     return values['exposure_ms'], values['gain_db']
 
 
 def test_a_raw_led_names_the_still_and_the_camera_takes_its_layer(session):
-    session.scope.illumination.led_on('Blue', 100.0)
+    session.scope.illumination.led_on(LED0, 100.0)
 
     name, record = _still(session)
 
-    assert '_Blue_' in name
-    assert _settings_of(record) == _stored('Blue')
-    assert record.held_channel == 'Blue'
+    assert f'_{LED0}_' in name
+    assert _settings_of(record) == _stored(LED0)
+    assert record.held_channel == LED0
 
 
 def test_a_still_after_a_run_is_one_layers(session, tmp_path):
-    """BF shown before a one-step Blue scan: the still after it is named for
+    """BF shown before a one-step LED 0 scan: the still after it is named for
     the layer shown and taken at that layer's settings, whichever it is."""
     for layer in session.get_layer_configs():
         session.set_channel_acquire(layer, None)
-    session.set_channel_acquire('Blue', 'image')
+    session.set_channel_acquire(LED0, 'image')
     protocol = session.new_protocol()
     while protocol.num_steps() > 1:
         session.delete_step(protocol, protocol.num_steps() - 1)
@@ -120,14 +120,14 @@ def test_a_still_pressed_as_the_shown_layer_changes_is_one_layers(session):
 
     session.add_shown_channel_listener(press)
     try:
-        session.show_channel('Blue')
+        session.show_channel(LED0)
     finally:
         session.remove_shown_channel_listener(press)
     (still,) = pressed[0].result(timeout=30)
     record = still.frame
 
-    assert '_Blue_' in still.file.name
-    assert _settings_of(record) == _stored('Blue')
+    assert f'_{LED0}_' in still.file.name
+    assert _settings_of(record) == _stored(LED0)
 
 
 def test_a_raw_camera_write_stands_and_the_record_says_no_layer(session):
@@ -145,7 +145,7 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     whether its settings were a layer's, and whose."""
     from modules.image_utils import read_postproc_input_metadata
 
-    session.scope.illumination.led_on('Blue', 100.0)
+    session.scope.illumination.led_on(LED0, 100.0)
     held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
     session.scope.illumination.leds_off()
     session.scope.camera.set_exposure_ms(30.0)
@@ -155,7 +155,7 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     raw_saved = read_postproc_input_metadata(raw)
     assert (held_saved.get('camera_held_a_channel'), held_saved.get('camera_held_channel')) == (
         True,
-        'Blue',
+        LED0,
     ), held_saved
     assert (raw_saved.get('camera_held_a_channel'), 'camera_held_channel' in raw_saved) == (
         False,
@@ -166,7 +166,7 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
 def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
     recording = session.manual_recording.start(false_color_on=False)
     try:
-        session.scope.illumination.led_on('Blue', 100.0)
+        session.scope.illumination.led_on(LED0, 100.0)
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.manual_capture.capture(false_color_on=False).result(timeout=30)
@@ -197,7 +197,7 @@ def test_a_light_that_never_settles_fails_the_still_within_one_budget(session, m
 
     # a stand-in by design: an LED toggled faster than a capture takes is a
     # race the simulated board cannot be made to win on every run
-    lights = iter(['Blue', 'Green'] * 1000)
+    lights = iter([LED0, LED1] * 1000)
     real = manual_capture.common_utils.resolve_channel_identity
     monkeypatch.setattr(
         manual_capture.common_utils,
@@ -230,7 +230,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
         return real_shown_layer()
 
     monkeypatch.setattr(controller, '_shown_layer', shown_layer_after_the_scope_is_taken)
-    session.scope.illumination.led_on('Blue', 100.0)
+    session.scope.illumination.led_on(LED0, 100.0)
     try:
         (still,) = controller.capture(false_color_on=False).result(timeout=30)
     finally:
@@ -238,5 +238,5 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
     record = still.frame
 
     assert taken[0] is not None
-    assert '_Blue_' in still.file.name
-    assert _settings_of(record) == _stored('Blue')
+    assert f'_{LED0}_' in still.file.name
+    assert _settings_of(record) == _stored(LED0)

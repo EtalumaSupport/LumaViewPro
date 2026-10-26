@@ -71,7 +71,7 @@ class StepNameComponents:
 
     well: str = ''  # 'A2'; the base when no custom_prefix is set
     custom_prefix: str = ''  # step label (user text or 'custom0001'); renders as the base when set
-    channel: str | None = None  # 'BF' | 'Green' | 'Composite' | None
+    channel: str | None = None  # 'BF' | 'Ex488' | 'Composite' | None
     tile: str | None = None  # tile label, rendered '_T<tile>'
     objective: str | None = None  # short objective name (turret builds)
     turret_position: int | None = None  # rendered '_Turret<n>'

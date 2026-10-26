@@ -32,6 +32,7 @@ from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 from tests.case_walk import failing_cases
+from tests.stock_channels import LED0, LED2
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
@@ -106,10 +107,10 @@ def test_the_module_constant_is_gone():
 def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
     sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=840)
     with pytest.raises(ArgumentRefusedError) as refused:
-        sim_scope.illumination.led_on('Blue', 841)
+        sim_scope.illumination.led_on(LED0, 841)
     assert (refused.value.reason, refused.value.limits) == ('illumination_out_of_range', (0, 840))
-    sim_scope.illumination.led_on('Blue', 840)
-    sim_scope.illumination.led_off('Blue')
+    sim_scope.illumination.led_on(LED0, 840)
+    sim_scope.illumination.led_off(LED0)
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ def _protocol_with(illumination) -> Protocol:
                     'Y': 10.0,
                     'Z': 100.0,
                     'Auto_Focus': False,
-                    'Color': 'Blue',
+                    'Color': LED0,
                     'False_Color': False,
                     'Illumination': float(illumination),
                     'Gain': 0.0,
@@ -196,8 +197,8 @@ def _fake_caps(cap):
 def test_slider_bound_is_the_cap_narrowed_by_transmitted_policy():
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'BF') == 50
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'PC') == 50
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'Blue') == 840
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(1000), 'Red') == 1000
+    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), LED0) == 840
+    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(1000), LED2) == 1000
 
 
 def _calls_in(fn_node) -> set[str]:

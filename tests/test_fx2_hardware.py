@@ -95,7 +95,7 @@ class TestFX2(unittest.TestCase):
 # anything that returns a mid-grey frame.
 # ---------------------------------------------------------------------------
 
-_BLUE = 0
+_LED0_ADDRESS = 0
 _SATURATED = 250.0
 
 
@@ -136,14 +136,14 @@ class _FX2BenchCase(unittest.TestCase):
         time.sleep(0.5)
 
     def _light_to_mid_grey(self):
-        """Light Blue at the first current whose frame is mid-grey; return the mA."""
+        """Light LED 0 at the first current whose frame is mid-grey; return the mA."""
         self.camera.exposure_t(50)
         self.camera.gain(0)
         for ma in (5, 10, 20, 50, 100, 200, 400):
-            self.led.led_on(_BLUE, ma)
+            self.led.led_on(_LED0_ADDRESS, ma)
             mean, peak = _settled_mean(self.camera)
             logger.info(
-                '[FX2 bench] light: Blue %d mA at 50 ms / 0 dB -> mean %.1f max %d', ma, mean, peak
+                '[FX2 bench] light: LED 0 %d mA at 50 ms / 0 dB -> mean %.1f max %d', ma, mean, peak
             )
             if mean >= 40:
                 return ma
@@ -179,14 +179,14 @@ class TestFX2Characterization(_FX2BenchCase):
         """Row 3, lit: does the frame mean keep scaling with exposure above 178 ms?"""
         self.camera.set_frame_size(1900, 1900)
         self.camera.gain(0)
-        self.led.led_on(_BLUE, 20)
+        self.led.led_on(_LED0_ADDRESS, 20)
         for ms in (50, 178, 250, 400, 800):
             applied_us = self.camera.exposure_t(ms)
             _new_frames(self.camera, 3, timeout_s=10.0)
             frames = _new_frames(self.camera, 3, timeout_s=10.0)
             means = [round(m, 1) for _s, m, _x in frames]
             logger.info(
-                '[FX2 bench] lit exposure (Blue 20 mA, 0 dB): asked %d ms, applied %.1f ms -> '
+                '[FX2 bench] lit exposure (LED 0 20 mA, 0 dB): asked %d ms, applied %.1f ms -> '
                 'means %s, max %s, mean per ms %.3f',
                 ms,
                 applied_us / 1000,
@@ -197,7 +197,7 @@ class TestFX2Characterization(_FX2BenchCase):
 
     def test_measure_the_shifted_frames_at_1896(self):
         """Row 6 follow-up: the sizes of the frames the parser discards at 1896x1896."""
-        self.led.led_on(_BLUE, 200)
+        self.led.led_on(_LED0_ADDRESS, 200)
         self.camera.exposure_t(50)
         for w, h in ((1900, 1900), (1896, 1896)):
             self.camera.set_frame_size(w, h)
@@ -229,7 +229,7 @@ class TestFX2Characterization(_FX2BenchCase):
             mean, peak = _settled_mean(self.camera)
             exposure_means.append((ms, mean))
             logger.info(
-                '[FX2 bench] exposure sweep (Blue %d mA, 0 dB): asked %d ms, applied %.4f ms, '
+                '[FX2 bench] exposure sweep (LED 0 %d mA, 0 dB): asked %d ms, applied %.4f ms, '
                 'read back %.4f ms -> mean %.1f max %d',
                 ma,
                 ms,
@@ -245,7 +245,7 @@ class TestFX2Characterization(_FX2BenchCase):
             mean, peak = _settled_mean(self.camera)
             gain_means.append((db, mean))
             logger.info(
-                '[FX2 bench] gain sweep (Blue %d mA, 20 ms): asked %.1f dB, applied %.4f dB, '
+                '[FX2 bench] gain sweep (LED 0 %d mA, 20 ms): asked %.1f dB, applied %.4f dB, '
                 'read back %.4f dB -> mean %.1f max %d',
                 ma,
                 db,
@@ -266,8 +266,16 @@ class TestFX2Characterization(_FX2BenchCase):
         """Row 5: stored frames after a write that still show the old value."""
         ma = self._light_to_mid_grey()
         steps = (
-            ('LED off', lambda: self.led.led_off(_BLUE), lambda: self.led.led_on(_BLUE, ma)),
-            ('LED on', lambda: self.led.led_on(_BLUE, ma), lambda: self.led.led_off(_BLUE)),
+            (
+                'LED off',
+                lambda: self.led.led_off(_LED0_ADDRESS),
+                lambda: self.led.led_on(_LED0_ADDRESS, ma),
+            ),
+            (
+                'LED on',
+                lambda: self.led.led_on(_LED0_ADDRESS, ma),
+                lambda: self.led.led_off(_LED0_ADDRESS),
+            ),
             (
                 'exposure 50 -> 100 ms',
                 lambda: self.camera.exposure_t(100),
@@ -443,11 +451,11 @@ class TestFX2Timing(_FX2BenchCase):
         self.camera.exposure_t(_LONG_MS)
         ma = None
         for candidate in (3, 5, 10, 20, 40):
-            self.led.led_on(_BLUE, candidate)
+            self.led.led_on(_LED0_ADDRESS, candidate)
             self._settle()
             mean = _mean_of(_timed_frames(self.camera, 2, timeout_s=10.0))
             logger.info(
-                '[FX2 bench] timing A1 light: Blue %d mA at %d rows -> mean %.1f',
+                '[FX2 bench] timing A1 light: LED 0 %d mA at %d rows -> mean %.1f',
                 candidate,
                 _LONG_ROWS,
                 mean,
@@ -462,16 +470,16 @@ class TestFX2Timing(_FX2BenchCase):
             # The driver keeps the exposure across a window, not the rows;
             # this measures the period at fixed rows, so it writes them.
             self.camera._fx2.sensor_reg_write(REG_EXPOSURE, _LONG_ROWS)
-            self.led.led_on(_BLUE, ma)
+            self.led.led_on(_LED0_ADDRESS, ma)
             self._settle()
             period, intervals = _frame_period_s(self.camera, 5, timeout_s=20.0)
             lit = _mean_of(_timed_frames(self.camera, 2, timeout_s=10.0))
-            self.led.led_off(_BLUE)
+            self.led.led_off(_LED0_ADDRESS)
             self._settle()
             dark = _mean_of(_timed_frames(self.camera, 2, timeout_s=10.0))
             logger.info(
                 '[FX2 bench] timing A1 window %d: period %s s, intervals %s, lit %.1f, dark %.1f, '
-                'lit - dark %.1f (Blue %d mA, %d rows, 0 dB)',
+                'lit - dark %.1f (LED 0 %d mA, %d rows, 0 dB)',
                 w,
                 period,
                 intervals,
@@ -489,7 +497,7 @@ class TestFX2Timing(_FX2BenchCase):
         baseline = None
         for p1 in (13, 12, 11, 10, 9, 8):
             _set_p1(self.camera, p1)
-            clean, jumps = self._run_step(f'A2 P1={p1} (Blue {ma} mA, 50 ms, 0 dB)', baseline)
+            clean, jumps = self._run_step(f'A2 P1={p1} (LED 0 {ma} mA, 50 ms, 0 dB)', baseline)
             if baseline is None:
                 baseline = jumps
             self._long_period(f'A2 P1={p1}')
@@ -506,7 +514,7 @@ class TestFX2Timing(_FX2BenchCase):
             _set_p1(self.camera, p1)
             for w in (1000, 500, 1896, 1880):
                 self.camera.set_frame_size(w, w)
-                self._run_step(f'A3 P1={p1} window {w} (Blue {ma} mA, 50 ms, 0 dB)')
+                self._run_step(f'A3 P1={p1} window {w} (LED 0 {ma} mA, 50 ms, 0 dB)')
 
     def test_measure_horizontal_blanking_at_the_failing_clock(self):
         """A4: extra horizontal blanking at the step the sweep stopped on."""
@@ -517,7 +525,7 @@ class TestFX2Timing(_FX2BenchCase):
         _set_p1(self.camera, _HBLANK_P1)
         for extra in _HBLANK_STEPS:
             self.camera._fx2.sensor_reg_write(_REG_HBLANK, extra)
-            self._run_step(f'A4 P1={_HBLANK_P1} R0x05={extra} (Blue {ma} mA, 50 ms, 0 dB)')
+            self._run_step(f'A4 P1={_HBLANK_P1} R0x05={extra} (LED 0 {ma} mA, 50 ms, 0 dB)')
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +722,7 @@ class TestFX2PhaseBP0(_FX2BenchCase):
                 glued = sum(n for size, n in sizes if size in (2 * common, 2 * common + 4))
                 s = self.camera.stream_stats.summary()
                 logger.info(
-                    '[FX2 bench] P0 Column_Size window %d %s (R0x04=%d, Blue %d mA, 50 ms): %d wire frames, '
+                    '[FX2 bench] P0 Column_Size window %d %s (R0x04=%d, LED 0 %d mA, 50 ms): %d wire frames, '
                     'commonest %d bytes (residue mod 1024 %d), glued two-frame chunks %d, sizes %s; '
                     'parser %d good / %d partial / %d shifted',
                     w,
@@ -779,7 +787,7 @@ class TestFX2PhaseBP0(_FX2BenchCase):
                 frames = _timed_frames(self.camera, 5, timeout_s=15.0)
                 s = self.camera.stream_stats.summary()
                 logger.info(
-                    '[FX2 bench] P0 window change %d -> %d, synchronized %s (Blue %d mA, 50 ms): '
+                    '[FX2 bench] P0 window change %d -> %d, synchronized %s (LED 0 %d mA, 50 ms): '
                     'first frame after %.2f s; frames %s; %d partial / %d shifted, sizes %s / %s',
                     w_from,
                     w_to,
@@ -842,13 +850,13 @@ class TestFX2PhaseBBench(_FX2BenchCase):
         lit = {}
         for w in _BENCH_WIDTHS:
             self.camera.set_frame_size(w, w)
-            self.led.led_on(_BLUE, ma)
+            self.led.led_on(_LED0_ADDRESS, ma)
             lit_mean, peak = _settled_mean(self.camera, skip=4, count=5)
-            self.led.led_off(_BLUE)
+            self.led.led_off(_LED0_ADDRESS)
             dark_mean, _ = _settled_mean(self.camera, skip=4, count=5)
             lit[w] = lit_mean - dark_mean
             logger.info(
-                '[FX2 bench] 21.7 row 1, %d wide (Blue %d mA, %.0f ms asked): exposure in effect '
+                '[FX2 bench] 21.7 row 1, %d wide (LED 0 %d mA, %.0f ms asked): exposure in effect '
                 '%.4f ms, lit %.2f (max %d), dark %.2f, lit - dark %.2f, ratio to 1900 %.3f',
                 w,
                 ma,
@@ -885,20 +893,20 @@ class TestFX2PhaseBBench(_FX2BenchCase):
 
     def test_bench_row3_sixty_seconds_at_five_windows(self):
         """Row 3: 60 s per window; partial and shifted frames, 1896's and 1880's glue."""
-        self.led.led_on(_BLUE, 200)
+        self.led.led_on(_LED0_ADDRESS, 200)
         self.camera.exposure_t(_BENCH_MS)
         for w in (1900, 1000, 500, 1896, 1880):
             self.camera.set_frame_size(w, w)
             time.sleep(2.0)
             self.camera.stream_stats.reset()
             time.sleep(60.0)
-            self._stream_line(f'row 3, {w} wide (Blue 200 mA)', self.camera.stream_stats.summary())
+            self._stream_line(f'row 3, {w} wide (LED 0 200 mA)', self.camera.stream_stats.summary())
 
     def test_bench_row4_the_exposure_ladder_at_500_wide(self):
         """Row 4: the stream and the lit mean through exposures that stretch the frame."""
         self.camera.set_frame_size(500, 500)
         self.camera.gain(0)
-        self.led.led_on(_BLUE, 5)
+        self.led.led_on(_LED0_ADDRESS, 5)
         for ms in (50, 178, 400, 800, 2000, 3900, 178, 50):
             applied_us = self.camera.exposure_t(ms)
             _new_frames(self.camera, 3, timeout_s=3 * ms / 1000 + 10.0)
@@ -907,7 +915,7 @@ class TestFX2PhaseBBench(_FX2BenchCase):
             s = self.camera.stream_stats.summary()
             means = [round(m, 1) for _s, m, _x in frames]
             logger.info(
-                '[FX2 bench] 21.7 row 4, 500 wide (Blue 5 mA, 0 dB): asked %d ms, in effect '
+                '[FX2 bench] 21.7 row 4, 500 wide (LED 0 5 mA, 0 dB): asked %d ms, in effect '
                 '%.3f ms, model period %.4f s -> means %s, max %s, mean per ms %.4f',
                 ms,
                 applied_us / 1000,
@@ -974,7 +982,7 @@ class TestFX2HostFramingBench(_FX2BenchCase):
 
     def test_h1_row1_sixty_seconds_at_eight_windows(self):
         """Row 1: no frame lost at any window; the delimiter faults counted, not glued."""
-        self.led.led_on(_BLUE, 200)
+        self.led.led_on(_LED0_ADDRESS, 200)
         self.camera.exposure_t(_BENCH_MS)
         for w in (1900, 1896, 1880, 1860, 1852, 1844, 1000, 500):
             self.camera.set_frame_size(w, w)
@@ -982,7 +990,7 @@ class TestFX2HostFramingBench(_FX2BenchCase):
             self.camera.stream_stats.reset()
             time.sleep(_STEP_S)
             s = self.camera.stream_stats.summary()
-            self._stream_line(f'row 1, {w} wide (Blue 200 mA, 50 ms)', s)
+            self._stream_line(f'row 1, {w} wide (LED 0 200 mA, 50 ms)', s)
             logger.info(
                 '[FX2 bench] H1 row 1, %d wide: %.3f fps stored against the model %.3f (%+.2f%%)',
                 w,
@@ -993,7 +1001,7 @@ class TestFX2HostFramingBench(_FX2BenchCase):
 
     def test_h1_row2_five_window_changes(self):
         """Row 2: the old window's frames in flight discarded, every stored frame the new shape."""
-        self.led.led_on(_BLUE, 200)
+        self.led.led_on(_LED0_ADDRESS, 200)
         self.camera.exposure_t(_BENCH_MS)
         for w in (1896, 1880, 1000, 500, 1900):
             _ok, _img, _at, _bits, before = self.camera.grab_latest()
@@ -1146,7 +1154,7 @@ class TestFX2CapBench(_FX2BenchCase):
         cap_ms = self.camera.max_exposure
         logger.info('[FX2 bench] cap: the camera publishes %.1f ms', cap_ms)
         self.camera.gain(0)
-        self.led.led_on(_BLUE, 5)
+        self.led.led_on(_LED0_ADDRESS, 5)
         for w in (1900, 500):
             self.camera.set_frame_size(w, w)
             for ms in (50, 400, cap_ms, 50):
@@ -1160,7 +1168,7 @@ class TestFX2CapBench(_FX2BenchCase):
                 s = self.camera.stream_stats.summary()
                 means = [round(m, 1) for _s, m, _x in frames]
                 logger.info(
-                    '[FX2 bench] cap, %d wide (Blue 5 mA, 0 dB): asked %.0f ms, in effect %.3f ms, '
+                    '[FX2 bench] cap, %d wide (LED 0 5 mA, 0 dB): asked %.0f ms, in effect %.3f ms, '
                     'period %s s against the model %.4f s, means %s, mean per ms %.4f; %.1f s, '
                     '%d good / %d partial / %d shifted, %d USB errors, delimiters %d missing / '
                     '%d wrong',

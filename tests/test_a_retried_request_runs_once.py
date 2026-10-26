@@ -25,6 +25,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -107,10 +108,10 @@ def test_a_body_is_the_same_body_whatever_its_keys_order(client, session):
     path = '/api/v1/scope/illumination/led_on'
     sent = {'Content-Type': 'application/json', **_keyed('k3')}
     first = client.post(
-        path, content=json.dumps({'channel': 'Blue', 'illumination_ma': 10.0}), headers=sent
+        path, content=json.dumps({'channel': LED0, 'illumination_ma': 10.0}), headers=sent
     )
     again = client.post(
-        path, content=json.dumps({'illumination_ma': 10.0, 'channel': 'Blue'}), headers=sent
+        path, content=json.dumps({'illumination_ma': 10.0, 'channel': LED0}), headers=sent
     )
 
     assert again.headers['Idempotent-Replayed'] == 'true'
@@ -120,7 +121,7 @@ def test_a_body_is_the_same_body_whatever_its_keys_order(client, session):
 def test_the_same_key_with_another_body_is_refused(client, counted):
     client.post('/api/v1/scope/illumination/leds_off', headers=_keyed('k4'))
     other = client.post(
-        '/api/v1/scope/illumination/led_off', json={'channel': 'Blue'}, headers=_keyed('k4')
+        '/api/v1/scope/illumination/led_off', json={'channel': LED0}, headers=_keyed('k4')
     )
 
     assert (other.status_code, other.json()['reason']) == (422, 'idempotency_key_reused')

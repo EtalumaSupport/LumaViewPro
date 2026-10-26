@@ -3,7 +3,7 @@
 
 Bug history
 -----------
-Bench 2026-09-03, LS850T: a Green layer with autofocus on and a 3-slice
+Bench 2026-09-03, LS850T: an LED 1 layer with autofocus on and a 3-slice
 5 um z-stack ran a sweep at EVERY slice. Each slice was moved to its
 nominal Z, autofocused from there, and captured at the sweep's result --
 so all three landed within 0.5 um of each other while the files kept
@@ -43,6 +43,7 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.scope_fakes import home_sim_scope, swap_lanes
+from tests.stock_channels import LED0, LED1
 
 
 _WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=100_000.0)}
@@ -56,7 +57,7 @@ RUNNER_SRC = REPO / 'modules' / 'protocol_step_runner.py'
 
 def _stacked(auto_focus: bool = True):
     proto = _build_protocol(
-        [_make_step(name='A1_Green', z=_LAYER_FOCUS, z_slice=-1, auto_focus=auto_focus)]
+        [_make_step(name=f'A1_{LED1}', z=_LAYER_FOCUS, z_slice=-1, auto_focus=auto_focus)]
     )
     proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     return proto
@@ -109,7 +110,7 @@ def test_placing_the_group_preserves_spacing_for_every_reference_mode():
         ('top', [5005.0, 5010.0, 5015.0]),
     ):
         proto = _build_protocol(
-            [_make_step(name='A1_Green', z=_LAYER_FOCUS, z_slice=-1, auto_focus=True)]
+            [_make_step(name=f'A1_{LED1}', z=_LAYER_FOCUS, z_slice=-1, auto_focus=True)]
         )
         proto.apply_zstacking(
             zstack_params={**_ZSTACK, 'z_reference': reference}, axis_limits=_WIDE_Z
@@ -244,20 +245,20 @@ def one_position_session():
 def test_a_groups_sweep_runs_in_its_reference_slices_light(one_position_session, tmp_path):
     """A group holds every channel at its position in Z order, so its first
     slice -- the one that fires the sweep -- can be another channel's. The
-    sweep runs in the reference slice's light all the same: Blue saved 10 um
+    sweep runs in the reference slice's light all the same: LED 0 saved 10 um
     below BF sorts first here, and BF is the channel that autofocuses."""
     session = one_position_session
     session.set_channel_acquire('BF', 'image')
     session.save_channel_focus('BF', 5000.0)
     session.update_settings('BF.autofocus', True)
-    session.set_channel_acquire('Blue', 'image')
-    session.save_channel_focus('Blue', 4990.0)
+    session.set_channel_acquire(LED0, 'image')
+    session.save_channel_focus(LED0, 4990.0)
     session.update_settings('zstack.step_size', 10.0)
     session.update_settings('zstack.range', 20.0)
     protocol = session.new_protocol(use_zstacking=True)
     first = protocol.step_row(step_index=0)
     reference = protocol.step_row(step_index=protocol.zstack_group_focus_anchor(step_index=0))
-    assert (first['Color'], reference['Color']) == ('Blue', 'BF')
+    assert (first['Color'], reference['Color']) == (LED0, 'BF')
 
     lit = []
 

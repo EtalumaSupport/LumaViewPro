@@ -18,6 +18,7 @@ from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.test_protocol_roundtrip import TILING_CONFIGS
+from tests.stock_channels import LED0
 
 
 # Real objective names from data/objectives.json -- must match for validation
@@ -49,12 +50,12 @@ def _make_protocol(
 def _valid_step(**overrides) -> dict:
     """Return a minimal valid step dict, with optional field overrides."""
     step = {
-        'Name': 'A1_Blue_T1',
+        'Name': f'A1_{LED0}_T1',
         'X': 0.0,
         'Y': 0.0,
         'Z': 0.0,
         'Auto_Focus': False,
-        'Color': 'Blue',
+        'Color': LED0,
         'False_Color': False,
         'Illumination': 100.0,
         'Gain': 1.0,
@@ -249,11 +250,11 @@ class TestValidateVideoConfig:
 
 class TestValidateStimulation:
     def test_a_stimulation_outside_its_range_is_refused(self):
-        stim = {'Blue': {'enabled': True, 'frequency': 60.0, 'pulse_width': 10, 'pulse_count': 5}}
+        stim = {LED0: {'enabled': True, 'frequency': 60.0, 'pulse_width': 10, 'pulse_count': 5}}
         p = _make_protocol([_valid_step(Stim_Config=stim)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         assert [e.partition(': ')[2] for e in errors] == [
-            'Stim_Config Blue frequency: it must be between 0.5 and 6.0, not 60.0'
+            f'Stim_Config {LED0} frequency: it must be between 0.5 and 6.0, not 60.0'
         ]
 
 

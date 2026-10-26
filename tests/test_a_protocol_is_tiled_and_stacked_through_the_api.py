@@ -25,6 +25,7 @@ from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -225,11 +226,11 @@ class TestZStacking:
 
 
 def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
-    """New with the stack ticked: BF autofocusing, Blue not, each at its own saved focus."""
+    """New with the stack ticked: BF autofocusing, LED 0 not, each at its own saved focus."""
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
         session.settings[layer]['autofocus'] = False
-    for layer, focus in (('BF', bf_focus), ('Blue', blue_focus)):
+    for layer, focus in (('BF', bf_focus), (LED0, blue_focus)):
         session.settings[layer]['acquire'] = 'image'
         session.save_channel_focus(layer, focus)
     session.settings['BF']['autofocus'] = True
@@ -256,7 +257,7 @@ class TestNewStacksAsApplyDoes:
         wells = steps['Well'].nunique()
         groups = steps.groupby('Z-Stack Group ID')
         assert groups.ngroups == wells
-        assert all(set(group['Color']) == {'BF', 'Blue'} for _, group in groups)
+        assert all(set(group['Color']) == {'BF', LED0} for _, group in groups)
         flagged = steps[steps['Auto_Focus']]
         assert flagged.groupby('Z-Stack Group ID').size().tolist() == [1] * wells
         assert set(flagged['Color']) == {'BF'}
@@ -282,10 +283,10 @@ def wide_field_session():
 
 
 def _new_bf_and_blue_tiled(session, tiling):
-    """New tiled: BF saved at 5000, Blue below it at 4990."""
+    """New tiled: BF saved at 5000, LED 0 below it at 4990."""
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
-    for layer, focus in (('BF', 5000.0), ('Blue', 4990.0)):
+    for layer, focus in (('BF', 5000.0), (LED0, 4990.0)):
         session.set_channel_acquire(layer, 'image')
         session.save_channel_focus(layer, focus)
     return session.new_protocol(tiling=tiling)
@@ -308,7 +309,7 @@ class TestNewTilesAsApplyDoes:
         steps = _new_bf_and_blue_tiled(wide_field_session, '2x2').steps()
 
         first_tile = steps[(steps['Well'] == 'A1') & (steps['Tile'] == 'A1')]
-        assert first_tile['Color'].tolist() == ['Blue', 'BF']
+        assert first_tile['Color'].tolist() == [LED0, 'BF']
         assert first_tile['Z'].tolist() == pytest.approx([4990.0, 5000.0])
         assert not steps['Custom Step'].any()
         assert steps.groupby('Well')['Tile'].nunique().eq(4).all()

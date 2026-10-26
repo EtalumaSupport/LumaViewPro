@@ -16,6 +16,7 @@ import pytest
 from drivers.exceptions import BoardPortFailedError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ def test_a_refused_led_write_raises_the_led_board_fault(ls620):
     ls620.scope.simulation.refuse_led_write()
 
     with pytest.raises(BoardPortFailedError, match='LED board') as caught:
-        ls620.scope.illumination.led_on('Blue', 10.0)
+        ls620.scope.illumination.led_on(LED0, 10.0)
 
     assert caught.value.reason == 'board_port_failed'
 
@@ -39,7 +40,7 @@ def test_a_refused_led_write_raises_the_led_board_fault(ls620):
 def test_the_led_stays_connected_and_takes_the_next_command(ls620):
     ls620.scope.simulation.refuse_led_write()
     with pytest.raises(BoardPortFailedError):
-        ls620.scope.illumination.led_on('Blue', 10.0)
+        ls620.scope.illumination.led_on(LED0, 10.0)
 
     assert ls620.scope.led_connected is True
-    assert ls620.scope.illumination.led_on('Blue', 10.0) > 0
+    assert ls620.scope.illumination.led_on(LED0, 10.0) > 0

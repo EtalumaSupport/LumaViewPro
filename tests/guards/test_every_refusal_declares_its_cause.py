@@ -43,6 +43,7 @@ from modules.exceptions import (
 from tests import ast_seams
 from tests.guards.test_every_refusal_states_its_reason import _base_name, _classes
 from tests.case_walk import failing_cases
+from tests.stock_channels import LED2
 
 
 def _types_mixing_in(mixin):
@@ -161,7 +162,7 @@ def test_a_mixed_types_cause_follows_its_reason():
 
 def _missing_part_reasons():
     parts = [p for p in vars(MissingPart).values() if isinstance(p, MissingPart)]
-    parts += [MissingPart.led('Red'), MissingPart.led_address(1)]
+    parts += [MissingPart.led(LED2), MissingPart.led_address(1)]
     return {p.reason for p in parts}
 
 

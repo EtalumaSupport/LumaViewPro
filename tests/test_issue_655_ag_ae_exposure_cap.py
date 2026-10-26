@@ -46,6 +46,7 @@ from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
+from tests.stock_channels import LED0, LED1, LED2
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -65,9 +66,9 @@ def test_the_shipped_ceilings_per_channel_class():
         'BF': 50.0,
         'PC': 50.0,
         'DF': 50.0,
-        'Blue': 200.0,
-        'Green': 200.0,
-        'Red': 200.0,
+        LED0: 200.0,
+        LED1: 200.0,
+        LED2: 200.0,
         'Lumi': 1000.0,
     }
     for layer, cap in expected.items():
@@ -81,7 +82,7 @@ def test_each_layer_takes_its_class_from_the_map():
     dict that holds it, and answers each layer with its class's entry."""
     ceilings = {'transmitted': 11.0, 'fluorescence': 123.0, 'luminescence': 456.0}
     assert config_helpers.get_ag_ae_max_exposure_ms('BF', ceilings) == 11.0
-    assert config_helpers.get_ag_ae_max_exposure_ms('Red', ceilings) == 123.0
+    assert config_helpers.get_ag_ae_max_exposure_ms(LED2, ceilings) == 123.0
     assert config_helpers.get_ag_ae_max_exposure_ms('Lumi', ceilings) == 456.0
 
 
@@ -226,7 +227,7 @@ def test_a_run_arms_the_camera_at_the_ceiling_the_settings_hold(tmp_path, monkey
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    step = dict(_make_single_step_protocol(color='Blue').step_row(0))
+    step = dict(_make_single_step_protocol(color=LED0).step_row(0))
     step['Auto_Gain'] = True
     session = ScopeSession.create(
         complete_settings(
@@ -279,7 +280,7 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
     from tests.protocol_drives import protocol_step, scan_ready_runner
 
     runner = scan_ready_runner(
-        protocol_step(Auto_Gain=True, Color='Blue'),
+        protocol_step(Auto_Gain=True, Color=LED0),
         _ag_ae_max_exposure_ms={'fluorescence': 123.0},
     )
     runner._step_executor.scan_iterate()

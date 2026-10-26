@@ -22,6 +22,7 @@ from modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_composite_run_failures import _info_lines
+from tests.stock_channels import LED0, LED1
 
 WAIT_S = 60.0
 
@@ -213,7 +214,7 @@ class TestACompositeMissingAChannel:
     def test_it_merges_nothing_and_says_which_is_missing(self, tmp_path):
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
-        step_colors = ('BF', _FAILING, 'Green')
+        step_colors = ('BF', _FAILING, LED1)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with (
             _reports_of(RunIncompleteError) as reported,
@@ -236,7 +237,7 @@ class TestACompositeMissingAChannel:
         from modules.notification_center import notifications
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
-        step_colors = ('BF', _FAILING, 'Green')
+        step_colors = ('BF', _FAILING, LED1)
         settings = headless_settings(tmp_path, acquiring=step_colors)
         states_at_report = []
         report = notifications.report_outcome
@@ -503,7 +504,7 @@ class TestTheFilesLineAndItsReport:
             files_done.set()
 
         monkeypatch.setattr(sequenced_capture_runner, 'send_files_written', _sent)
-        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == 'Blue')
+        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == LED0)
         with (
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),

@@ -6,18 +6,17 @@ import traceback
 import numpy as np
 import harness
 from tests.frame_records import frame_record, plate
+from tests.stock_channels import LED0
 
 s, live = harness.make_session('p6')
 scope = s.scope
 try:
     # 1) settable through the Session's settings store?
-    before = s.get_settings_snapshot()['Blue']['false_color']
-    s.update_settings('Blue.false_color', not before)
-    after = s.get_settings_snapshot()['Blue']['false_color']
+    before = s.get_settings_snapshot()[LED0]['false_color']
+    s.update_settings(f'{LED0}.false_color', not before)
+    after = s.get_settings_snapshot()[LED0]['false_color']
     print('1: false_color via session.update_settings:', before, '->', after)
-    print(
-        '1: session.get_layer_configs sees:', s.get_layer_configs(['Blue'])['Blue']['false_color']
-    )
+    print('1: session.get_layer_configs sees:', s.get_layer_configs([LED0])[LED0]['false_color'])
 
     # 2) does it change the bytes on disk?
     from modules.image_save import save_image
@@ -32,7 +31,7 @@ try:
             save_folder=live,
             file_root='fc_',
             append=f'{fc}',
-            channel='Blue',
+            channel=LED0,
             false_color_on=fc,
             channel_colors=release_colors(),
             save_encoding='rgb',

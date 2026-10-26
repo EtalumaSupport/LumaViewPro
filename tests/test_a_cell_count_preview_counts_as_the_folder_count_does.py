@@ -26,6 +26,7 @@ from modules.layer_record import release_color
 from modules.post_processing import read_cell_count_image
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED1
 
 _FIELD = np.zeros((64, 64), dtype=np.uint8)
 _FIELD[8:20, 8:20] = 255  # a 12 x 12 square
@@ -49,12 +50,12 @@ def _capture(path, pixel_size_um):
         metadata={
             'objective': {},
             'pixel_size_um': pixel_size_um,
-            'channel': 'Green',
+            'channel': LED1,
             'significant_bits': 8,
             'datetime': '2026-10-21T00:00:00',
         },
         ome=False,
-        color=release_color('Green'),
+        color=release_color(LED1),
         significant_bits=8,
         save_encoding='right_aligned',
         white_bits=None,

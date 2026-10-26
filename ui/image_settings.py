@@ -135,7 +135,7 @@ class ImageSettings(BoxLayout):
         and none for the others.
 
         Visibility, titles and controls are per layer from the identity, so a
-        filterset carrying only some channels (a Green-only unit) shows
+        filterset carrying only some channels (an Ex488-only unit) shows
         exactly what the unit has. A drawer is titled by its layer's label
         beside a swatch of its colour, and has illumination controls where
         the unit's row drives an LED. A layer the unit lacks stops being

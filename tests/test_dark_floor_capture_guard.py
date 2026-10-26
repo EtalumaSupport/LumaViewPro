@@ -34,6 +34,7 @@ import pytest
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.camera_fakes import frames_carrying
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
+from tests.stock_channels import LED0, LED2
 
 
 @pytest.fixture
@@ -98,7 +99,7 @@ class TestDarkFrameDelivery:
         count, not mean, and this floor must not move."""
         sparse = np.zeros((100, 100), dtype=np.uint8)
         sparse.flat[:4] = 200  # 4e-4 lit fraction, just above the minimum
-        dark_scope.illumination.led_on('Blue', 100)
+        dark_scope.illumination.led_on(LED0, 100)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: sparse)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
@@ -136,7 +137,7 @@ class TestDarkFrameDelivery:
 
         Both calls return the frame; only the recorded fact differs, and
         that difference is the whole remaining meaning of the argument."""
-        dark_scope.illumination.led_on('Blue', 100)
+        dark_scope.illumination.led_on(LED0, 100)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         measured = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
@@ -156,7 +157,7 @@ class TestDarkFrameDelivery:
         arrives. The lit peer is why the darkness is worth recording --
         something was commanded to emit and the frame carries no signal --
         but that is a fact about the frame, not grounds to destroy it."""
-        dark_scope.illumination.led_on('Red', 150)
+        dark_scope.illumination.led_on(LED2, 150)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)

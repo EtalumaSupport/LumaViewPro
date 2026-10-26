@@ -2325,7 +2325,7 @@ class ImagingAPI:
         (``ScopeSession.set_scale_bar``), which this never changes.
 
         Args:
-            color: Scale bar colour, e.g. a layer name ("BF", "Red").
+            color: Scale bar colour, e.g. a layer name ("BF", "Ex589").
 
         Raises:
             Nothing.

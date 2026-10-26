@@ -23,6 +23,7 @@ from modules.protocol_time_estimator import (
     AUTOGAIN_MAX_DURATION_S,
 )
 from tests.objective_records import objective
+from tests.stock_channels import LED0
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
@@ -61,12 +62,12 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None,
 def _valid_step(**overrides) -> dict:
     """Return a minimal valid step dict."""
     step = {
-        'Name': 'A1_Blue',
+        'Name': f'A1_{LED0}',
         'X': 0.0,
         'Y': 0.0,
         'Z': 5000.0,
         'Auto_Focus': False,
-        'Color': 'Blue',
+        'Color': LED0,
         'False_Color': False,
         'Illumination': 100.0,
         'Gain': 1.0,

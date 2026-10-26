@@ -74,7 +74,7 @@ def write_video_frame(
         frame: One captured frame -- mono uint8/uint16, or already-colored RGB.
         file_loc: Output .tiff path.
         metadata: Per-frame metadata dict (must include 'datetime').
-        channel: Acquiring channel ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
+        channel: Acquiring channel ('Ex405'/'Ex488'/'Ex589'/'Lumi'/'BF'/...).
         false_color_on: Whether the layer's false-color toggle was on.
         channel_colors: Every layer's colour as the recording began.
         save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
@@ -315,7 +315,7 @@ def generate_image_metadata(
             written: the objective catalogue, the scope's identity and its
             pixel-size capabilities, and the motor board's serial and
             firmware.
-        channel (str): Channel the frame was acquired on (e.g. "Blue", "BF").
+        channel (str): Channel the frame was acquired on (e.g. "Ex405", "BF").
         plate_x_mm (float): Plate X position in mm (or None).
         plate_y_mm (float): Plate Y position in mm (or None).
         stage_z_um (float): Stage Z position in um (or None).

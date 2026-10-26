@@ -12,6 +12,7 @@ the builder's half, the precondition that refusal exists for.
 from __future__ import annotations
 
 import pathlib
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -65,7 +66,7 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
     tiling_configs = REPO / 'data' / 'tiling.json'
 
     all_disabled = Protocol.from_config(
-        input_config=_from_config_input({'BF': 'none', 'Blue': 'none'}),
+        input_config=_from_config_input({'BF': 'none', LED0: 'none'}),
         tiling_configs_file_loc=tiling_configs,
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),
@@ -77,7 +78,7 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
     )
 
     one_enabled = Protocol.from_config(
-        input_config=_from_config_input({'BF': 'image', 'Blue': 'none'}),
+        input_config=_from_config_input({'BF': 'image', LED0: 'none'}),
         tiling_configs_file_loc=tiling_configs,
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),

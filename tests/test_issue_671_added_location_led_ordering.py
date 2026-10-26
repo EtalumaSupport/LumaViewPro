@@ -2,15 +2,15 @@
 from a TSV-loaded last step to a `Protocol.insert_step()`-added step.
 
 User repro (the beta tester, beta12, 2026-05-19):
-  1. Load an 8-step TSV (A1+A2 well, 4 channels each: BF, Blue, Green,
-     Red, in that order).
+  1. Load an 8-step TSV (A1+A2 well, 4 channels each: BF, LED 0, LED 1,
+     LED 2, in that order).
   2. Use the UI to add a 4-channel location at a 3rd X/Y. The UI
      loops calling `protocol.insert_step()` for each channel.
   3. Run the protocol.
 
 Observed in `Firmware/build/issue671_2026-05-19/api.log`:
 
-    07:33:17.895  led_on ch=2  illumination_ma=350.0  owner='protocol'   <-- A2 Red
+    07:33:17.895  led_on ch=2  illumination_ma=350.0  owner='protocol'   <-- A2 LED 2
     07:33:19.090  move_abs X=19856.9um                       <-- move WITHOUT leds_off!
     07:33:19.150  move_abs Y=57899.3um
     07:33:19.231  move_abs Z=6247.4um wait
@@ -21,7 +21,7 @@ Observed in `Firmware/build/issue671_2026-05-19/api.log`:
     07:33:21.109  set_exposure 1.0ms
     07:33:21.171  led_on ch=0  illumination_ma=250.0  owner='protocol'    <-- step 9 (added BF)
 
-The Red LED stays lit during the well-to-well move from A2 to the
+LED 2 stays lit during the well-to-well move from A2 to the
 3rd location. Two structural anomalies:
   (a) `leds_off` should fire BEFORE the first move_abs at the
       transition (canonical convention; intra-TSV transitions follow
@@ -61,6 +61,7 @@ from modules.sequenced_capture_runner import (
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -70,10 +71,10 @@ A1_X, A1_Y, A1_Z = 24.55, 24.0, 6247.3684
 A2_X, A2_Y, A2_Z = 63.75, 24.0, 6247.3684
 ADDED_X, ADDED_Y, ADDED_Z = 100.0, 60.0, 6247.3684
 
-CHANNEL_ORDER = ['BF', 'Blue', 'Green', 'Red']
-CHANNEL_EXPOSURE = {'BF': 0.1, 'Blue': 1.0, 'Green': 6.76, 'Red': 600.0}
-CHANNEL_ILLUMINATION = {'BF': 5.0, 'Blue': 250.0, 'Green': 250.0, 'Red': 350.0}
-CHANNEL_GAIN = {'BF': 14.4, 'Blue': 20.0, 'Green': 20.0, 'Red': 20.0}
+CHANNEL_ORDER = ['BF', LED0, LED1, LED2]
+CHANNEL_EXPOSURE = {'BF': 0.1, LED0: 1.0, LED1: 6.76, LED2: 600.0}
+CHANNEL_ILLUMINATION = {'BF': 5.0, LED0: 250.0, LED1: 250.0, LED2: 350.0}
+CHANNEL_GAIN = {'BF': 14.4, LED0: 20.0, LED1: 20.0, LED2: 20.0}
 
 
 def _step_dict(name, x, y, z, color, idx):
@@ -297,7 +298,7 @@ def _run_protocol(executor, protocol, tmp_path):
 
 
 class TestAddedLocationLedOrdering:
-    """At the boundary between the last TSV step (A2 Red) and the
+    """At the boundary between the last TSV step (A2 LED 2) and the
     first user-added step (added BF), the canonical convention
     requires the LED-off BEFORE the first `move_abs` of the next
     step, so the previous step's LED is not lit during well-to-well
@@ -338,23 +339,23 @@ class TestAddedLocationLedOrdering:
 
         assert completed, 'Protocol did not complete within timeout'
 
-        # Find the api-log index for the A2_Red led_on (step 8).
-        # The protocol has THREE Red led_ons -- A1_Red (step 4),
-        # A2_Red (step 8), ADDED_Red (step 12). #671 is about the
+        # Find the api-log index for the A2 LED 2 led_on (step 8).
+        # The protocol has THREE LED 2 led_ons -- A1 LED 2 (step 4),
+        # A2 LED 2 (step 8), ADDED LED 2 (step 12). #671 is about the
         # transition AFTER step 8 (the last TSV step), not after
         # step 12 (the last added step), so we want index [1] in
-        # the list of Red led_ons (0=A1, 1=A2, 2=ADDED).
+        # the list of LED 2 led_ons (0=A1, 1=A2, 2=ADDED).
         all_red_led_ons = [
             i
             for i, (_, msg) in enumerate(capture.records)
             if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "lease='protocol'" in msg
         ]
         assert len(all_red_led_ons) >= 3, (
-            f'Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw '
+            f'Expected >=3 LED 2 led_on calls (A1 + A2 + ADDED); saw '
             f'{len(all_red_led_ons)}. Records sample:\n'
             + '\n'.join(f'  {m}' for _, m in capture.records[:50])
         )
-        last_a2_red_led_on = all_red_led_ons[1]  # A2_Red at step 8
+        last_a2_red_led_on = all_red_led_ons[1]  # A2 LED 2 at step 8
 
         first_move_after_a2_red = None
         first_boundary_off_after_a2_red = None
@@ -373,20 +374,20 @@ class TestAddedLocationLedOrdering:
                 break
 
         assert first_move_after_a2_red is not None, (
-            'Did not see any move_abs after A2 Red led_on. '
+            'Did not see any move_abs after A2 LED 2 led_on. '
             'Did the protocol abort before transitioning to step 9?'
         )
         assert first_boundary_off_after_a2_red is not None, (
-            'Did not see the boundary LED-off after A2 Red led_on.'
+            'Did not see the boundary LED-off after A2 LED 2 led_on.'
         )
 
         # THE ASSERTION: the boundary LED-off must precede the first move_abs
         # at the TSV->added-location boundary. With the bug unfixed, the move
-        # fires first (Red LED stays on during the move).
+        # fires first (LED 2 stays on during the move).
         assert first_boundary_off_after_a2_red < first_move_after_a2_red, (
             f'#671 reproduced: the boundary LED-off (idx '
             f'{first_boundary_off_after_a2_red}) fired AFTER first move_abs '
-            f'following A2 Red (idx {first_move_after_a2_red}). At the '
+            f'following A2 LED 2 (idx {first_move_after_a2_red}). At the '
             f'TSV->added-location boundary, the LED-off must precede the '
             f"move so the previous step's LED isn't lit during "
             f'well-to-well motion.\n'

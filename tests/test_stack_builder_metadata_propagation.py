@@ -35,6 +35,7 @@ from modules import image_utils
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED0, LED1, LED2
 
 
 def _write_structured_input(
@@ -105,7 +106,7 @@ class TestStackBuilderPropagatesPlanePositions:
             fname = f'frame_t0_z{z_idx}_c0.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Green',
+                channel=LED1,
                 plate_pos_mm=plate_pos,
                 z_pos_um=z_val,
                 value=50 + z_idx * 10,
@@ -113,7 +114,7 @@ class TestStackBuilderPropagatesPlanePositions:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': plate_pos['x'],
@@ -165,14 +166,14 @@ class TestStackBuilderPropagatesPlanePositions:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Green',
+                channel=LED1,
                 plate_pos_mm={'x': x, 'y': y},
                 z_pos_um=z,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': x,
@@ -217,14 +218,14 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Red',
+                channel=LED2,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Red',
+                    'Color': LED2,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -256,7 +257,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
 
     def test_channel_names_in_ome_xml(self, tmp_path):
         rows = []
-        for channel in ('Green', 'Red'):
+        for channel in (LED1, LED2):
             for z_idx in range(2):
                 fname = f'frame_{channel}_z{z_idx}.tiff'
                 _write_structured_input(
@@ -288,8 +289,12 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
 
-        assert 'Name="Green"' in ome_xml, 'Green channel name must reach OME-XML <Channel> element.'
-        assert 'Name="Red"' in ome_xml, 'Red channel name must reach OME-XML <Channel> element.'
+        assert f'Name="{LED1}"' in ome_xml, (
+            f'{LED1} channel name must reach OME-XML <Channel> element.'
+        )
+        assert f'Name="{LED2}"' in ome_xml, (
+            f'{LED2} channel name must reach OME-XML <Channel> element.'
+        )
 
 
 class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
@@ -311,7 +316,7 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -350,14 +355,14 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Green',
+                channel=LED1,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -401,14 +406,14 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Green',
+                channel=LED1,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -438,14 +443,14 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Green',
+                channel=LED1,
                 plate_pos_mm={'x': 12.5, 'y': 8.25},
                 z_pos_um=float(z_idx) * 10,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 12.5,
@@ -487,7 +492,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -544,14 +549,14 @@ class TestHyperstackChannelColor:
         ref = tmp_path / 'ref.tiff'
         _write_structured_input(
             ref,
-            channel='Green',
+            channel=LED1,
             plate_pos_mm={'x': 0.0, 'y': 0.0},
             z_pos_um=0.0,
         )
         metadata = image_utils.build_hyperstack_output_metadata(
             reference_input_path=ref,
-            channel_names=['Green', 'BF', 'Red', 'Blue'],
-            channel_colors=[release_color(name) for name in ['Green', 'BF', 'Red', 'Blue']],
+            channel_names=[LED1, 'BF', LED2, LED0],
+            channel_colors=[release_color(name) for name in [LED1, 'BF', LED2, LED0]],
             plane_positions={
                 'PositionX': [0.0, 0.0, 0.0, 0.0],
                 'PositionY': [0.0, 0.0, 0.0, 0.0],
@@ -581,7 +586,7 @@ class TestHyperstackChannelColor:
         # confirm Color attribute on each Channel element. This is what
         # FIJI's Bioformats reader picks up to auto-color the hyperstack.
         rows = []
-        for channel in ('Green', 'Red'):
+        for channel in (LED1, LED2):
             for z_idx in range(2):
                 fname = f'frame_{channel}_z{z_idx}.tiff'
                 _write_structured_input(
@@ -634,14 +639,14 @@ class TestHyperstackChannelColor:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Green',
+                channel=LED1,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -665,7 +670,7 @@ class TestHyperstackChannelColor:
         # writes it; the sidecar strips only LUTs). That's fine -- it does
         # not bloat the sidecar (one int per channel) and round-trips
         # cleanly via JSON.
-        assert recovered['Channel']['Name'] == ['Green']
+        assert recovered['Channel']['Name'] == [LED1]
         assert recovered['Channel']['Color'] == [0x00FF00FF]
 
 
@@ -687,14 +692,14 @@ class TestHyperstackScaleComesFromTheInput:
             fname = f'frame_z{z_idx}.tiff'
             _write_structured_input(
                 tmp_path / fname,
-                channel='Red',
+                channel=LED2,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Red',
+                    'Color': LED2,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -738,7 +743,7 @@ class TestHyperstackScaleComesFromTheInput:
             rows.append(
                 {
                     'Filepath': fname,
-                    'Color': 'Green',
+                    'Color': LED1,
                     'Scan Count': 0,
                     'Z-Slice': z_idx,
                     'X': 0.0,
@@ -787,8 +792,8 @@ def test_write_hyperstack_streams_a_plane_iterator(tmp_path):
     tf.imwrite(reference, plane_a)
     metadata = image_utils.build_hyperstack_output_metadata(
         reference_input_path=reference,
-        channel_names=['Green'],
-        channel_colors=[release_color('Green')],
+        channel_names=[LED1],
+        channel_colors=[release_color(LED1)],
         plane_positions={
             'PositionX': [1.0, 1.0],
             'PositionY': [2.0, 2.0],
@@ -829,7 +834,7 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
         fname = f'frame_s{scan}.tiff'
         _write_structured_input(
             tmp_path / fname,
-            channel='Green',
+            channel=LED1,
             plate_pos_mm=plate_pos,
             z_pos_um=10.0,
             value=value,
@@ -837,7 +842,7 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
         rows.append(
             {
                 'Filepath': fname,
-                'Color': 'Green',
+                'Color': LED1,
                 'Scan Count': scan,
                 'Z-Slice': 0,
                 'X': plate_pos['x'],
@@ -876,7 +881,7 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
 
     plate_pos = {'x': 1.0, 'y': 2.0}
     _write_structured_input(
-        tmp_path / 'frame_s0.tiff', channel='Green', plate_pos_mm=plate_pos, z_pos_um=10.0
+        tmp_path / 'frame_s0.tiff', channel=LED1, plate_pos_mm=plate_pos, z_pos_um=10.0
     )
     # A bare float32 TIFF simulates a foreign frame landing in the same well
     # folder.
@@ -885,7 +890,7 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
     rows = [
         {
             'Filepath': f'frame_s{scan}.tiff',
-            'Color': 'Green',
+            'Color': LED1,
             'Scan Count': scan,
             'Z-Slice': 0,
             'X': plate_pos['x'],
@@ -917,14 +922,12 @@ def test_hyperstack_output_uses_strips(tmp_path):
     still path while breaking native open."""
     plate_pos = {'x': 1.0, 'y': 2.0}
     fname = 'frame_t0_z0_c0.tiff'
-    _write_structured_input(
-        tmp_path / fname, channel='Green', plate_pos_mm=plate_pos, z_pos_um=10.0
-    )
+    _write_structured_input(tmp_path / fname, channel=LED1, plate_pos_mm=plate_pos, z_pos_um=10.0)
     df = pd.DataFrame(
         [
             {
                 'Filepath': fname,
-                'Color': 'Green',
+                'Color': LED1,
                 'Scan Count': 0,
                 'Z-Slice': 0,
                 'X': plate_pos['x'],

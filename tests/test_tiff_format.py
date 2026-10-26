@@ -23,6 +23,7 @@ import tifffile as tf
 
 from modules import image_utils
 from modules.layer_record import GREY, release_catalogue, release_color
+from tests.stock_channels import LED0, LED1, LED2
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ def _make_metadata():
     """Build minimal metadata dict that write_tiff / generate_tiff_data require."""
     return {
         'pixel_size_um': 0.5,
-        'channel': 'Green',
+        'channel': LED1,
         'significant_bits': 8,
         'objective': '10x',
         'exposure_time_ms': 50.0,
@@ -170,7 +171,7 @@ class TestTiff8BitBrightfield:
 class TestTiff8BitFluorescence:
     """8-bit fluorescence should be PALETTE with colormap (false color in Windows + FIJI)."""
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_photometric_palette(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -186,7 +187,7 @@ class TestTiff8BitFluorescence:
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.PALETTE
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_has_colormap(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -205,7 +206,7 @@ class TestTiff8BitFluorescence:
             assert page.colormap is not None, '8-bit fluorescence must have colormap'
             assert page.colormap.shape[1] == 256, 'Colormap should have 256 entries'
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_single_channel(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -228,7 +229,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,
@@ -247,7 +248,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=release_color('Red'),
+            color=release_color(LED2),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,
@@ -335,7 +336,7 @@ class TestTiff16BitBrightfield:
 class TestTiff16BitFluorescenceDefault:
     """16-bit fluorescence (default setting): MINISBLACK, single channel, Windows-compatible."""
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_photometric_minisblack(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -351,7 +352,7 @@ class TestTiff16BitFluorescenceDefault:
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
         """Windows Preview requires no tag 320 on uint16 images."""
         path = tmp_tiff()
@@ -370,7 +371,7 @@ class TestTiff16BitFluorescenceDefault:
             'uint16 must not have colormap tag 320 (breaks Windows Preview)'
         )
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_single_channel(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -386,7 +387,7 @@ class TestTiff16BitFluorescenceDefault:
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_imagej_format(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -402,7 +403,7 @@ class TestTiff16BitFluorescenceDefault:
         info = _read_tiff(path)
         assert info['is_imagej']
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_imagej_has_lut_metadata(self, img_16bit, metadata, tmp_tiff, color):
         """ImageJ LUT metadata should be present (even though FIJI ignores it for single images)."""
         path = tmp_tiff()
@@ -436,7 +437,7 @@ class TestTiff16BitFalseColorOn:
         mock_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
         return mock.patch('modules.app_context.ctx', mock_ctx)
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
+    @pytest.mark.parametrize('color', [LED2, LED1, LED0, 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
         # save_encoding='rgb' drives the false-color widening: 16-bit
         # fluorescence widens to 3-channel RGB for Windows-Preview color.
@@ -485,7 +486,7 @@ class TestTiff16BitFalseColorOn:
 class TestOmeTiff:
     """OME-TIFF format tests."""
 
-    @pytest.mark.parametrize('color', ['BF', 'Green', 'Red'])
+    @pytest.mark.parametrize('color', ['BF', LED1, LED2])
     def test_is_ome(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
@@ -538,7 +539,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
             white_bits=None,
@@ -553,7 +554,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
             white_bits=None,
@@ -835,11 +836,11 @@ class TestWindowsPreviewCompat:
 
 class TestGetTiffColormap:
     def test_green_colormap_shape(self):
-        cmap = image_utils.get_tiff_colormap(release_color('Green'), np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color(LED1), np.uint8)
         assert cmap.shape == (3, 256)
 
     def test_green_only_green_channel(self):
-        cmap = image_utils.get_tiff_colormap(release_color('Green'), np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color(LED1), np.uint8)
         assert cmap[0].sum() == 0  # Red = 0
         assert cmap[1].sum() > 0  # Green has values
         assert cmap[2].sum() == 0  # Blue = 0
@@ -851,14 +852,14 @@ class TestGetTiffColormap:
 
     def test_rejects_uint16(self):
         with pytest.raises(NotImplementedError):
-            image_utils.get_tiff_colormap(release_color('Green'), np.uint16)
+            image_utils.get_tiff_colormap(release_color(LED1), np.uint16)
 
     @pytest.mark.parametrize(
         'colormap',
         [
-            release_color('Red'),
-            release_color('Green'),
-            release_color('Blue'),
+            release_color(LED2),
+            release_color(LED1),
+            release_color(LED0),
             GREY,
         ],
     )
@@ -873,7 +874,7 @@ class TestGetTiffColormap:
         assert cmap.max() == 65535, f'{colormap}: ramp must reach TIFF full scale'
 
     def test_green_ramp_steps_by_257(self):
-        cmap = image_utils.get_tiff_colormap(release_color('Green'), np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color(LED1), np.uint8)
         np.testing.assert_array_equal(cmap[1], np.arange(256, dtype=np.uint16) * 257)
 
 
@@ -895,7 +896,7 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,
@@ -910,7 +911,7 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,
@@ -942,11 +943,11 @@ class TestTiffStripsAndPaletteScale:
 
 class TestGetImagejLut:
     def test_green_lut_shape(self):
-        lut = image_utils.get_imagej_lut(release_color('Green'))
+        lut = image_utils.get_imagej_lut(release_color(LED1))
         assert lut.shape == (3, 256)
 
     def test_green_lut_correct(self):
-        lut = image_utils.get_imagej_lut(release_color('Green'))
+        lut = image_utils.get_imagej_lut(release_color(LED1))
         assert lut[0].sum() == 0  # Red = 0
         assert lut[1].sum() > 0  # Green has values
         assert lut[2].sum() == 0  # Blue = 0
@@ -960,7 +961,7 @@ class TestGetImagejLut:
 class TestAddFalseColor:
     def test_green_produces_3ch(self):
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, release_color('Green'))
+        result = image_utils.add_false_color(data, release_color(LED1))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 1].sum() > 0
         assert result[:, :, 0].sum() == 0
@@ -973,13 +974,13 @@ class TestAddFalseColor:
 
     def test_already_rgb_passthrough(self):
         data = np.ones((10, 10, 3), dtype=np.uint8) * 128
-        result = image_utils.add_false_color(data, release_color('Green'))
+        result = image_utils.add_false_color(data, release_color(LED1))
         assert result.shape == (10, 10, 3)
 
     def test_red_indexed_at_0(self):
         """RGB convention: Red channel data lands at index 0."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, release_color('Red'))
+        result = image_utils.add_false_color(data, release_color(LED2))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() > 0, 'Red channel (index 0) should have data'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -988,7 +989,7 @@ class TestAddFalseColor:
     def test_blue_indexed_at_2(self):
         """RGB convention: Blue channel data lands at index 2."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, release_color('Blue'))
+        result = image_utils.add_false_color(data, release_color(LED0))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() == 0, 'Red channel (index 0) should be zero'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -1017,7 +1018,7 @@ class TestOmeMetadataReadback:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
             white_bits=None,
@@ -1136,7 +1137,7 @@ class TestResolutionRationalOwner:
             file_loc=path,
             metadata=meta,
             ome=True,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=16,
             save_encoding='right_aligned',
             white_bits=None,
@@ -1156,7 +1157,7 @@ class TestFalseColorRgbDepth:
     """
 
     def test_false_color_rgb_fills_container(self, tmp_tiff):
-        # A bright 12-bit Green frame (right-aligned 0..4095) in false-color RGB
+        # A bright 12-bit LED 1 frame (right-aligned 0..4095) in false-color RGB
         # mode must brighten to fill the 16-bit container (4095 << 4 = 65520),
         # not stay dark at 4095.
         raw = np.full((64, 64), 4095, dtype=np.uint16)
@@ -1168,7 +1169,7 @@ class TestFalseColorRgbDepth:
             file_loc=path,
             metadata=meta,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='rgb',
             white_bits=None,
@@ -1194,7 +1195,7 @@ class TestFalseColorRgbDepth:
             file_loc=path,
             metadata=meta,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=12,
             save_encoding='right_aligned',
             white_bits=None,
@@ -1228,7 +1229,7 @@ class TestReportedDepthMatchesFile:
             file_loc=path,
             metadata={**metadata, 'significant_bits': capture_depth},
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=capture_depth,
             save_encoding=save_encoding,
             white_bits=None,
@@ -1274,7 +1275,7 @@ class TestPostprocMetadataRoundTrip:
         assert result is not None
         assert result['pixel_size_um'] == 0.5
         assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
-        assert result['channel'] == 'Green'
+        assert result['channel'] == LED1
         assert result['objective'] == '10x'
 
     def test_shaped_8bit(self, img_8bit, metadata, tmp_tiff):
@@ -1318,7 +1319,7 @@ class TestPostprocMetadataRoundTrip:
         assert result is not None
         assert result['pixel_size_um'] == 0.5
         assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
-        assert result['channel'] == 'Green'
+        assert result['channel'] == LED1
 
     def test_timestamp_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
         # The per-frame timestamp reader shared the same ImageJ blindness.

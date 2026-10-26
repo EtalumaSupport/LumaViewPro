@@ -34,6 +34,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.server import Server
 from tests.settings_fixtures import complete_settings
+from tests.stock_channels import LED0
 
 
 @pytest.fixture
@@ -115,7 +116,7 @@ def test_a_signal_closes_the_session_with_its_clients_connected(session):
         httpx.Client(base_url=client.base_url, timeout=10) as connected,
     ):
         lit = connected.post(
-            '/api/v1/scope/illumination/led_on', json={'channel': 'Blue', 'illumination_ma': 10.0}
+            '/api/v1/scope/illumination/led_on', json={'channel': LED0, 'illumination_ma': 10.0}
         )
         assert lit.status_code == 200
         try:
@@ -142,7 +143,7 @@ def test_a_signal_closes_the_session_with_its_clients_connected(session):
     assert (refused.status_code, refused.json()['reason']) == (503, 'server_closing')
     assert jobs.status_code == 200
     # The close's own report reached the stream before closing: the LED it turned off.
-    assert {'address': 0, 'name': 'Blue', 'state': 'dark', 'illumination_ma': None} in [
+    assert {'address': 0, 'name': LED0, 'state': 'dark', 'illumination_ma': None} in [
         e['data'] for e in told if e['event'] == 'led'
     ]
     assert after == []
@@ -260,7 +261,7 @@ def test_the_hosts_close_closes_the_session_through_the_server_with_its_clients_
         assert (
             client.post(
                 '/api/v1/scope/illumination/led_on',
-                json={'channel': 'Blue', 'illumination_ma': 10.0},
+                json={'channel': LED0, 'illumination_ma': 10.0},
             ).status_code
             == 200
         )
@@ -275,7 +276,7 @@ def test_the_hosts_close_closes_the_session_through_the_server_with_its_clients_
 
     assert answered == [True]
     assert len(shut) == 1 and shut[0] is not closer
-    assert {'address': 0, 'name': 'Blue', 'state': 'dark', 'illumination_ma': None} in [
+    assert {'address': 0, 'name': LED0, 'state': 'dark', 'illumination_ma': None} in [
         e['data'] for e in told if e['event'] == 'led'
     ]
     assert after == []

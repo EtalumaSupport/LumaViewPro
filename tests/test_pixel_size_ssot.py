@@ -25,6 +25,7 @@ from modules.scope_capabilities import (
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.stock_channels import LED1
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -328,7 +329,7 @@ class TestReadPixelSizeUm:
     def test_recovers_scale_from_a_still(self, tmp_path):
         metadata = {
             'pixel_size_um': 0.41423,
-            'channel': 'Green',
+            'channel': LED1,
             'significant_bits': 8,
             'objective': '20x',
             'exposure_time_ms': 50.0,
@@ -348,7 +349,7 @@ class TestReadPixelSizeUm:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,
@@ -366,7 +367,7 @@ class TestSaveWithoutScale:
 
         metadata = {
             'pixel_size_um': None,
-            'channel': 'Green',
+            'channel': LED1,
             'significant_bits': 8,
             'objective': '10x',
             'exposure_time_ms': 50.0,
@@ -387,7 +388,7 @@ class TestSaveWithoutScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=release_color('Green'),
+            color=release_color(LED1),
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,

@@ -24,12 +24,13 @@ from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
 from tests.settings_fixtures import complete_settings, shipped_template
 from tests.case_walk import failing_cases
+from tests.stock_channels import LED0
 
 TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 
 # One value outside each range. The keys are asserted equal to ``_RANGES``'s:
 # the table mirrors the owner on purpose, and that assertion is what keeps
-# the mirror from drifting. ``*`` is any layer; the tests walk it as Blue, the
+# the mirror from drifting. ``*`` is any layer; the tests walk it as LED0, the
 # layer the template gives every block (a stimulation config among them).
 _OUT_OF_RANGE = {
     'binning.size': '2x4',
@@ -90,7 +91,7 @@ _A_FRACTION = {
 }
 
 _CASES = sorted(
-    (pattern.replace('*', 'Blue', 1), value)
+    (pattern.replace('*', LED0, 1), value)
     for table in (_OUT_OF_RANGE, _A_FRACTION)
     for pattern, value in table.items()
 )

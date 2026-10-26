@@ -26,6 +26,7 @@ from __future__ import annotations
 import pathlib
 
 import pandas as pd
+from tests.stock_channels import LED0
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -60,7 +61,7 @@ class TestApplyFocusAllLayerSteps:
             [
                 {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
                 {'Name': 'B1_BF', 'Color': 'BF', 'Z': 6500.0, 'X': 1, 'Y': 1},
-                {'Name': 'A1_Blue', 'Color': 'Blue', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': f'A1_{LED0}', 'Color': LED0, 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
         count = proto.apply_focus_all_layer_steps(layer='BF', z=5000.0)

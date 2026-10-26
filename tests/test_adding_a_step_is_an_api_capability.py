@@ -29,6 +29,7 @@ from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protoco
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
 from modules.coord_transformations import PlateLocation
+from tests.stock_channels import LED0, LED1
 
 PLATE_POSITION = PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0)
 OBJECTIVE = '4x Oly'
@@ -153,13 +154,13 @@ class TestTheApiAdds:
         names = _add(
             scope,
             protocol,
-            _layer_configs(BF='image', Blue='image'),
-            channel_order=['Blue', 'BF'],
+            _layer_configs(BF='image', **{LED0: 'image'}),
+            channel_order=[LED0, 'BF'],
             before_step_index=0,
         )
 
         assert len(names) == 2
-        assert protocol.steps()['Color'].tolist() == ['Blue', 'BF']
+        assert protocol.steps()['Color'].tolist() == [LED0, 'BF']
         assert protocol.steps()['Name'].tolist() == names
         assert protocol.steps()['Objective'].tolist() == [OBJECTIVE, OBJECTIVE]
 
@@ -169,14 +170,14 @@ class TestTheApiAdds:
         _add(
             scope,
             protocol,
-            _layer_configs(BF='image', Blue='image', Green='image'),
-            channel_order=['Green'],
+            _layer_configs(BF='image', **{LED0: 'image', LED1: 'image'}),
+            channel_order=[LED1],
             before_step_index=0,
         )
 
         colors = protocol.steps()['Color'].tolist()
-        assert colors[0] == 'Green'
-        assert set(colors) == {'BF', 'Blue', 'Green'}
+        assert colors[0] == LED1
+        assert set(colors) == {'BF', LED0, LED1}
 
 
 @pytest.fixture
@@ -211,7 +212,7 @@ class TestAScriptAddsAStepThroughTheSession:
     def test_every_channel_takes_the_current_z_and_keeps_its_saved_focus(self, session):
         # The viewed channel's focus is the better guess for every channel,
         # and each saved focus stays where New starts the next protocol.
-        saved = {'BF': 7000.0, 'Blue': 8000.0, 'Green': 9000.0}
+        saved = {'BF': 7000.0, LED0: 8000.0, LED1: 9000.0}
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None
         for layer, focus in saved.items():
@@ -238,11 +239,11 @@ class TestAScriptAddsAStepThroughTheSession:
         protocol = session.create_empty_protocol()
         at = PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
 
-        names = session.add_step(protocol, channels=('Blue', 'BF'), at=at)
+        names = session.add_step(protocol, channels=(LED0, 'BF'), at=at)
 
         steps = protocol.steps()
         assert len(names) == 2
-        assert steps['Color'].tolist() == ['Blue', 'BF']
+        assert steps['Color'].tolist() == [LED0, 'BF']
         assert steps['Acquire'].tolist() == ['image', 'image']
         assert steps[['X', 'Y', 'Z']].values.tolist() == [[20.0, 15.0, 6000.0]] * 2
         assert config_helpers.get_layer_configs(session.settings) == before
@@ -292,7 +293,7 @@ class TestAnAddCanBeAZStack:
         session.add_step(protocol)
         earlier = protocol.step_row(step_index=0).to_dict()
 
-        _only_acquiring(session, 'BF', 'Blue')
+        _only_acquiring(session, 'BF', LED0)
         _stack_settings(session, range_um=10.0, step_size_um=5.0)
         names = session.add_step(protocol, use_zstacking=True)
 
@@ -300,7 +301,7 @@ class TestAnAddCanBeAZStack:
         assert steps.iloc[0].to_dict() == earlier
         added = steps.iloc[1:]
         assert added['Name'].tolist() == names
-        for color in ('BF', 'Blue'):
+        for color in ('BF', LED0):
             stack = added[added['Color'] == color].sort_values('Z-Slice')
             assert stack['Z-Slice'].tolist() == [0, 1, 2]
             assert stack['Z'].tolist() == pytest.approx([4995.0, 5000.0, 5005.0])
@@ -322,7 +323,7 @@ class TestAnAddCanBeAZStack:
         assert protocol.num_steps() == 0
 
     def test_a_stack_past_the_z_travel_adds_nothing(self, session):
-        _only_acquiring(session, 'BF', 'Blue')
+        _only_acquiring(session, 'BF', LED0)
         _stack_settings(session, range_um=10.0, step_size_um=5.0)
         z_max = session.scope.motion.get_axis_limits('Z').max_um
         session.scope.motion.move_z(z_max - 1.0)

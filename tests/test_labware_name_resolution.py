@@ -22,6 +22,7 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.case_walk import failing_cases
 from tests.scope_fakes import stock_unit
+from tests.stock_channels import LED0, LED1, LED2
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -43,10 +44,10 @@ _STEP_HEADER = (
 _STEP_ROW = (
     's0\t0\t0\t0\tFalse\tBF\tFalse\t100.0\t0.0\tFalse\t40.0\t1\t'
     "20x Oly\t\t\t-1\tTrue\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t"
-    "{'Blue': {'enabled': False, 'illumination': 100, 'frequency': 1, "
-    "'pulse_width': 10, 'pulse_count': 1}, 'Green': {'enabled': False, "
+    f"{{'{LED0}': {{'enabled': False, 'illumination': 100, 'frequency': 1, "
+    f"'pulse_width': 10, 'pulse_count': 1}}, '{LED1}': {{'enabled': False, "
     "'illumination': 100, 'frequency': 1, 'pulse_width': 10, "
-    "'pulse_count': 1}, 'Red': {'enabled': False, 'illumination': 100, "
+    f"'pulse_count': 1}}, '{LED2}': {{'enabled': False, 'illumination': 100, "
     "'frequency': 1, 'pulse_width': 10, 'pulse_count': 1}}\t0\n"
 )
 
