@@ -131,6 +131,27 @@ def write_release_in_excitation_keys(data: pathlib.Path) -> pathlib.Path:
     return path
 
 
+def excitation_key_installation(
+    root: pathlib.Path, monkeypatch, *, board_block: dict | None = None
+) -> pathlib.Path:
+    """An installation at ``root`` whose release is in excitation keys, made the process's.
+
+    ``board_block`` is a per-unit block its motor board carries (as
+    ``non_stock_block`` gives), in the motor config every simulated board
+    of the installation starts from.
+    """
+    data = pathlib.Path(root) / 'data'
+    data.mkdir(parents=True)
+    copy_installation_files(data)
+    if board_block is not None:
+        defaults = json.loads((data / 'motorconfig_defaults.json').read_text(encoding='utf-8'))
+        (data / 'motorconfig_defaults.json').write_text(
+            json.dumps({**defaults, **board_block}), encoding='utf-8'
+        )
+    use_release(monkeypatch, write_release_in_excitation_keys(data))
+    return pathlib.Path(root)
+
+
 def use_release(monkeypatch, scopes: pathlib.Path) -> None:
     """Make ``scopes`` the process's release: its layer catalogue and its old names.
 

@@ -41,23 +41,14 @@ from modules.layer_record import (
 from modules.post_processing_api import Stitch, ZProject
 from modules.path_utils import read_installation_file
 from tests.case_walk import failing_cases
-from tests.installation_fixtures import (
-    copy_installation_files,
-    non_stock_block,
-    use_release,
-    write_release_in_excitation_keys,
-)
+from tests.installation_fixtures import excitation_key_installation, non_stock_block
 from tests.test_a_derived_image_says_how_it_was_made import run_folder  # noqa: F401 -- fixture
 
 
 @pytest.fixture
 def installation(tmp_path, monkeypatch):
     """An installation folder whose release is in excitation keys, installed as the process's."""
-    data = tmp_path / 'installation' / 'data'
-    data.mkdir(parents=True)
-    copy_installation_files(data)
-    use_release(monkeypatch, write_release_in_excitation_keys(data))
-    return data.parent
+    return excitation_key_installation(tmp_path / 'installation', monkeypatch)
 
 
 def _release(installation: pathlib.Path) -> dict:

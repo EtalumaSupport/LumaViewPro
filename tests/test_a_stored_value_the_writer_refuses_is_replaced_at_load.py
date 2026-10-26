@@ -163,9 +163,11 @@ def test_values_in_range_are_kept_and_nothing_is_told(tmp_path):
     assert told == []
 
 
-def test_a_stored_step_order_that_is_not_the_releases_takes_the_derived_one_and_is_told(tmp_path):
+def test_a_stored_step_order_that_is_not_the_releases_takes_the_derived_one_untold(tmp_path):
     """The step order is derived from the catalogue when the template is read,
-    so a stored one that differs is no person's choice: no write reaches it."""
+    so a stored one that differs is no person's choice -- no write reaches it
+    -- but an earlier release's derivation, which the load re-derives without
+    telling anyone of a value they never set."""
     template = settings_init.load_template(logging.getLogger(__name__), str(TEMPLATE))
     derived = template['step_channel_order']
     stored = list(reversed(derived))
@@ -173,5 +175,4 @@ def test_a_stored_step_order_that_is_not_the_releases_takes_the_derived_one_and_
     settings, told = _prepare(tmp_path, lambda current: current.update(step_channel_order=stored))
 
     assert settings['step_channel_order'] == derived
-    (notice,) = told
-    assert notice.replacements == [('step_channel_order', stored, derived)]
+    assert told == []

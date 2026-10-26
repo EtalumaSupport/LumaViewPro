@@ -1570,6 +1570,10 @@ class ScopeSession:
         settings = settings_init.prepare_loaded(
             logger, settings, template, str(root), source='settings', handed=True
         )
+        # Taken before the dict is any session's store: the preparation's
+        # record of the old channel blocks it renamed, for the bring-up to
+        # place by the unit.
+        old_channel_blocks = settings_init.take_old_channel_blocks(settings)
         _apply_logging(settings)
         if warn_pre_release:
             _fire_pre_release_warning()
@@ -1645,7 +1649,7 @@ class ScopeSession:
                 raise
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
-            cls._bring_up(session, replaced)
+            cls._bring_up(session, replaced, old_channel_blocks)
             if sim_file_stall is not None:
                 session._hold_the_file_lane(sim_file_stall)
             if settings_file is not None:
@@ -1799,14 +1803,20 @@ class ScopeSession:
             notifications.report_outcome(e, solicited=False, category='Hardware')
 
     @classmethod
-    def _bring_up(cls, session: 'ScopeSession', replaced: list) -> None:
+    def _bring_up(
+        cls, session: 'ScopeSession', replaced: list, old_channel_blocks: dict[str, str]
+    ) -> None:
         """Configure the scope a factory built; ``initialize`` releases the
         camera start gate last, after the capture pixel format. A raise
         anywhere in here leaves the caller with no session object to tear
         down, so this tears down what the factory started before it lets
         the raise out. What the bring-up replaces is added to ``replaced``,
-        the load's list, for the factory to tell once."""
+        the load's list, for the factory to tell once.
+
+        The old channel settings are placed first, so the configuration and
+        the absent-layer check judge each where this unit holds it."""
         try:
+            session._place_old_channel_blocks(old_channel_blocks)
             session._configure_scope(replaced)
         except BaseException:
             # Before the teardown, which takes back the listeners that hear it.
@@ -2176,6 +2186,43 @@ class ScopeSession:
     def _layers_on_scope(self) -> set[str]:
         """The layers this scope has, by key name: none when unresolved."""
         return {record.key_name for record in self.scope.channel_identity.channels}
+
+    def _place_old_channel_blocks(self, moved: dict[str, str]) -> None:
+        """Place the settings preparation renamed from old channel names by this unit's LEDs.
+
+        An old name meant an LED: preparation, before any scope existed,
+        moved each old block to its stock key (``settings_init.
+        fold_old_channel_blocks``; ``moved`` is its record, each old name
+        and its stock key), and that is this unit's key for the LED
+        only where its LEDs are the stock filterset's. Where the unit's key
+        differs (``ChannelIdentity.unit_key``: a unit whose own block puts
+        488 nm on LED 0), the block the stock key holds becomes the unit's
+        key's, every source read before any is written, and a stock key no
+        LED of this unit now claims takes the template's block. Logged, not
+        told: no value is lost, and the moves happen only on a unit whose
+        block is its own.
+        """
+        if not moved:
+            return
+        identity = self.scope.channel_identity
+        placed = {stock: identity.unit_key(old) for old, stock in moved.items()}
+        if all(unit == stock for stock, unit in placed.items()):
+            return
+        template = self.scope.settings_template
+        with self.settings_lock:
+            blocks = {stock: copy.deepcopy(self.settings[stock]) for stock in placed}
+            for stock, unit in placed.items():
+                self._store_setting(unit, blocks[stock])
+            for stock in set(placed) - set(placed.values()):
+                self._store_setting(stock, template[stock])
+        logger.info(
+            "[Session   ] Placed the old channel settings on this unit's LEDs: "
+            + ', '.join(
+                f'{old} -> {placed[stock]}'
+                for old, stock in moved.items()
+                if placed[stock] != stock
+            )
+        )
 
     def _stop_acquiring_absent_layers(self) -> None:
         """Turn acquiring off on every layer this scope does not have.

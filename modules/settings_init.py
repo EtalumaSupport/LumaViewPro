@@ -547,6 +547,61 @@ def take_stored_replacements() -> list[StoredSettingReplacedNotice]:
     return taken
 
 
+# The reserved top-level key the stock rename leaves in the dict it
+# prepared: each old channel name it moved, and the stock key it moved to --
+# names only. The session's factory takes it out before the dict is any
+# session's store (``take_old_channel_blocks``), so it never reaches a file;
+# the shape and range checks walk the template, which has no such key.
+OLD_CHANNEL_BLOCKS = '_old_channel_blocks'
+
+
+def take_old_channel_blocks(settings_dict: dict) -> dict[str, str]:
+    """The old channel names the stock rename moved, each with its stock key,
+    taken out of the prepared ``settings_dict``; empty when it moved none."""
+    return settings_dict.pop(OLD_CHANNEL_BLOCKS, {})
+
+
+def fold_old_channel_blocks(logger: logging.Logger, settings_dict: dict) -> None:
+    """Rename each old channel block to its stock key, before any reader of a block.
+
+    A file an earlier release wrote keys its fluorescence blocks by the old
+    colour names. Every reader before the scope exists -- the validation,
+    the focus retirement, the repairs, the merge, the range check -- reads
+    the release's keys, so each old block becomes its stock key's here
+    (``layer_record.release_old_names``) and is read there; the unit is not
+    known yet, and its bring-up places them by its own LEDs
+    (``ScopeSession._place_old_channel_blocks``), from the record this
+    leaves under ``OLD_CHANNEL_BLOCKS``. Run again on its own result it
+    changes nothing, and keeps the record.
+
+    An old block whose stock key already holds one (a file written across a
+    rollback, or by hand) is dropped, the stock key's kept, and the drop is
+    told with the load's replacements: the release has no setting of that
+    name.
+    """
+    from modules.layer_record import release_old_names
+
+    moved = {}
+    dropped = []
+    for old in release_old_names():
+        if old.name not in settings_dict:
+            continue
+        block = settings_dict.pop(old.name)
+        if old.stock_key in settings_dict:
+            dropped.append((old.name, block, None))
+            continue
+        settings_dict[old.stock_key] = block
+        moved[old.name] = old.stock_key
+    if moved:
+        settings_dict.setdefault(OLD_CHANNEL_BLOCKS, {}).update(moved)
+        logger.info(
+            '[Settings ] Renamed the old channel settings to their stock keys: '
+            + ', '.join(f'{old} -> {stock}' for old, stock in moved.items())
+        )
+    if dropped:
+        _stored_replacements.append(StoredSettingReplacedNotice(dropped))
+
+
 def _apply_load_migrations(logger, settings_dict: dict) -> None:
     """Every fold that must run on a loaded dict before the default merge.
 
@@ -557,6 +612,7 @@ def _apply_load_migrations(logger, settings_dict: dict) -> None:
     """
     from modules import image_mode
 
+    fold_old_channel_blocks(logger, settings_dict)
     if image_mode.migrate_settings_dict(settings_dict):
         logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
     if migrate_video_settings_dict(settings_dict):
@@ -583,8 +639,13 @@ def _retire_shipped_values(logger, settings_dict: dict) -> None:
 
 
 def _load_and_validate(logger, filepath: str) -> dict:
-    """Read one settings file and check it carries the keys the app needs."""
+    """Read one settings file and check it carries the keys the app needs.
+
+    Its old channel blocks are renamed first, so the check, and every
+    reader after it, sees them under the release's keys.
+    """
     loaded = read_settings_json(filepath, logger)
+    fold_old_channel_blocks(logger, loaded)
     _validate_settings(loaded, filepath, logger)
     return loaded
 
@@ -614,8 +675,9 @@ def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
     a key added there takes its place without an edit here. A template that
     states its own order would be a second, unread source of it, and is
     refused. A stored order is not a person's either: no write reaches it
-    (``settings_paths.DERIVED``), and one that differs is replaced at load
-    by this one and told.
+    (``settings_paths.DERIVED``), so one that differs is an earlier
+    release's derivation, re-derived at load (``prepare_loaded``) and not
+    told.
 
     Raises:
         InstallationFileError: the template states ``step_channel_order``.
@@ -822,7 +884,8 @@ def prepare_loaded(
     afterwards the template's string keys would sit beside the stored int
     keys and the normalization that followed would let the template's
     ``None`` win over every stored assignment; the keys newer releases
-    added are merged in; the values are held to the writer's ranges; the
+    added are merged in; a stored derived value is made the release's
+    derivation; the values are held to the writer's ranges; the
     live folder is brought up. Run again on its own result it changes
     nothing, so a dict the file's preparation already made usable goes
     through a session's door unchanged.
@@ -875,11 +938,25 @@ def prepare_loaded(
     if added:
         logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
     # Imported here: settings_paths' own imports reach this module (lvp_logger).
-    from modules.settings_paths import refuse_handed_values, replace_refused_stored_values
+    from modules.settings_paths import (
+        DERIVED,
+        refuse_handed_values,
+        replace_refused_stored_values,
+    )
 
     if handed:
         refuse_handed_values(loaded, template)
     else:
+        # A stored derived value is the release's, never a person's: no write
+        # reaches one, so one that differs is an earlier release's
+        # derivation (a step order in its own keys), re-derived and not told.
+        # A handed one is a write of it, refused as a write is.
+        for path in DERIVED:
+            *blocks, leaf = path.split('.')
+            stored, shipped = loaded, template
+            for block in blocks:
+                stored, shipped = stored[block], shipped[block]
+            stored[leaf] = copy.deepcopy(shipped[leaf])
         replaced = replace_refused_stored_values(loaded, template)
         if replaced is not None:
             _stored_replacements.append(replaced)
