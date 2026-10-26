@@ -12,7 +12,11 @@ in is itself published.
 ``@api(in_process=True)`` marks a member that is kept off the wire --
 hosting a session, returning a function, or held back by policy -- so a
 wire client skips it while an in-process client (Python, MATLAB calling
-Python) uses it like any other.
+Python) uses it like any other. ``@api(in_process_arguments=(...))`` keeps
+named parameters of a wire member off the wire the same way: a wire
+client cannot send them, so each one's default stands for every wire call,
+while an in-process caller passes them as it likes. Each is a parameter
+with a default, refused at decoration otherwise.
 
 A parameter that takes a file-system path is annotated ``FilePath``, so a
 wire client can tell a path from a string. One that takes a progress
@@ -113,6 +117,8 @@ READS_ATTRIBUTE = '_lvp_api_reads'
 SETS_ATTRIBUTE = '_lvp_api_sets'
 STOP_ATTRIBUTE = '_lvp_api_stop'
 ENGINEERING_ATTRIBUTE = '_lvp_api_engineering'
+# The attribute a member's off-wire parameters are recorded under, by name.
+IN_PROCESS_ARGUMENTS_ATTRIBUTE = '_lvp_api_in_process_arguments'
 
 API = 'api'
 IN_PROCESS = 'in_process'
@@ -189,19 +195,34 @@ def api[M](
     sets: str | None = None,
     stop: str | None = None,
     engineering: bool = False,
+    in_process_arguments: tuple[str, ...] = (),
 ) -> M | Callable[[M], M]:
     """Mark a member as API; used bare (``@api``) or as ``@api(in_process=True)``.
 
     ``event`` is the record of the event a listener member delivers.
-    ``reads``, ``sets``, ``stop`` and ``engineering`` are the marks the
-    module docstring describes.
+    ``reads``, ``sets``, ``stop``, ``engineering`` and
+    ``in_process_arguments`` are the marks the module docstring describes.
     Goes outermost in a decorator stack. A member that takes an argument is
     returned behind its argument door, which refuses a value of another
     type than its annotation declares (``modules.api_arguments``); one that
     takes none is returned unchanged.
+
+    Raises:
+        TypeError: a name in ``in_process_arguments`` is not a parameter of
+            the member, or is one with no default, which a wire call could
+            then never fill.
     """
 
     def mark(target: M) -> M:
+        if in_process_arguments:
+            parameters = inspect.signature(_function_of(target)).parameters
+            for name in in_process_arguments:
+                parameter = parameters.get(name)
+                if parameter is None or parameter.default is inspect.Parameter.empty:
+                    raise TypeError(
+                        f'{_function_of(target).__qualname__}: in-process argument {name!r} '
+                        'is not a parameter with a default'
+                    )
         target = _guarded(target)
         function = _function_of(target)
         setattr(function, MARK_ATTRIBUTE, IN_PROCESS if in_process else API)
@@ -215,6 +236,8 @@ def api[M](
             setattr(function, STOP_ATTRIBUTE, stop)
         if engineering:
             setattr(function, ENGINEERING_ATTRIBUTE, True)
+        if in_process_arguments:
+            setattr(function, IN_PROCESS_ARGUMENTS_ATTRIBUTE, tuple(in_process_arguments))
         return target
 
     if member is None:
@@ -429,6 +452,11 @@ def stop_of(member: object) -> str | None:
 def is_engineering(member: object) -> bool:
     """Whether *member* is marked as a bench or support member."""
     return getattr(_function_of(member), ENGINEERING_ATTRIBUTE, False)
+
+
+def in_process_arguments_of(member: object) -> tuple[str, ...]:
+    """The names of *member*'s parameters a wire client does not send."""
+    return getattr(_function_of(member), IN_PROCESS_ARGUMENTS_ATTRIBUTE, ())
 
 
 def event_metadata(record: type) -> dict[str, type]:

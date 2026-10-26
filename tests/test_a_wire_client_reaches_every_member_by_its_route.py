@@ -388,6 +388,60 @@ def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client,
             assert ask(f'/api/v1/scope/illumination/{seam}').status_code == 404, seam
 
 
+@pytest.mark.parametrize(
+    'path, body',
+    [
+        ('move_z', lambda limits: {'z_um': limits['Z'].max_um + 100.0}),
+        ('move_xy', lambda limits: {'y_um': limits['Y'].max_um + 100.0}),
+    ],
+    ids=['move_z', 'move_xy'],
+)
+def test_a_wire_move_that_sends_ignore_limits_is_422_and_drives_nothing(
+    client, session, path, body
+):
+    """``ignore_limits`` is in-process only, so a wire client cannot drive
+    an axis past its travel: sent, it is a key the body does not take."""
+    motion = session.scope.motion
+    # Homed, so the axes know where they are and travel is the only gate left.
+    motion.home()
+    limits = {axis: motion.get_axis_limits(axis) for axis in ('Y', 'Z')}
+    before = {axis: motion.get_current_position(axis) for axis in ('Y', 'Z')}
+
+    answer = client.post(
+        f'/api/v1/scope/motion/{path}', json={**body(limits), 'ignore_limits': True}
+    )
+
+    assert answer.status_code == 422, answer.text
+    assert answer.json()['reason'] == 'invalid_request'
+    assert {axis: motion.get_current_position(axis) for axis in ('Y', 'Z')} == before
+
+
+def test_no_wire_move_takes_ignore_limits(client):
+    schemas = client.get('/api/v1/openapi.json').json()['components']['schemas']
+    moves = ('start_move_xy', 'move_xy', 'start_move_z', 'move_z')
+
+    assert {m: sorted(schemas[f'MotionAPI_{m}']['properties']) for m in moves} == {
+        'start_move_xy': ['x_um', 'y_um'],
+        'move_xy': ['x_um', 'y_um'],
+        'start_move_z': ['overshoot_enabled', 'z_um'],
+        'move_z': ['overshoot_enabled', 'z_um'],
+    }
+
+
+def test_an_in_process_argument_must_be_a_parameter_with_a_default():
+    def no_such(self, a: int = 0) -> None: ...
+
+    def no_default(self, a: int) -> None: ...
+
+    refused = []
+    for member, name in ((no_such, 'b'), (no_default, 'a')):
+        try:
+            api(in_process_arguments=(name,))(member)
+        except TypeError as e:
+            refused.append(f'{name!r} is not a parameter with a default' in str(e))
+    assert refused == [True, True]
+
+
 def test_a_number_for_a_bool_is_422_and_reaches_nothing(client, session):
     motion = session.scope.motion
     before = motion.get_current_position('Z')

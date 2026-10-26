@@ -1781,6 +1781,10 @@ scope.motion.move_xy_by(dx_um=500)               # added to X's board target; Y 
 # Z on its own: a move to a place approaches it from below, so the backlash
 # is always taken the same way; a move by a distance does not.
 # overshoot_enabled=True or False is a bench script's own choice.
+# ignore_limits=True, on move_xy, move_z and their started forms, drives
+# past an axis's configured travel, never past the motor's safety limit. It
+# is in-process only: over REST a request that sends it is refused
+# invalid_request (422), and the move keeps to the travel.
 scope.motion.move_z(5000)
 scope.motion.move_z_by(-10)
 

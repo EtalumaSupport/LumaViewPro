@@ -72,7 +72,15 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping
 
 from lib.lumascope_error import Fault
-from modules.api_surface import API, fields_of, is_record, mark_of, reads_of, sets_of
+from modules.api_surface import (
+    API,
+    fields_of,
+    in_process_arguments_of,
+    is_record,
+    mark_of,
+    reads_of,
+    sets_of,
+)
 from modules.exceptions import Refusal
 from modules.notification_center import outcome_of
 from modules.operation import Operation
@@ -875,7 +883,8 @@ def wire_members(
     """Each member of *cls* a wire client reaches, sorted by name.
 
     Given ``handed_out``, a parameter with a default that takes only a live
-    object no wire member hands out is not sent: its default stands.
+    object no wire member hands out is not sent: its default stands. Nor is
+    a parameter the member marks in-process (``in_process_arguments``).
 
     Raises:
         NoWireFormError: a parameter's type has no inbound form, a return
@@ -898,8 +907,9 @@ def wire_members(
         parameters = []
         progress = None
         run_events = None
+        off_wire = in_process_arguments_of(member)
         for p in inspect.signature(function).parameters.values():
-            if p.name in ('self', 'cls'):
+            if p.name in ('self', 'cls') or p.name in off_wire:
                 continue
             if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
                 raise TypeError(

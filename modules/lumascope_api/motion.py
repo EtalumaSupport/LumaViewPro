@@ -2756,7 +2756,7 @@ class MotionAPI:
         with self.one_command(tuple(stage), then='move on the plate'):
             return self._move_xy_impl(member, stage.get('X'), stage.get('Y'), False)
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', in_process_arguments=('ignore_limits',))
     def start_move_xy(
         self,
         x_um: float | None = None,
@@ -2769,6 +2769,10 @@ class MotionAPI:
         a refusal of one moves neither. An axis that is None is left as it
         is, still, travelling or unknown, and is not read. With neither
         given nothing moves and the move is done at once.
+
+        ``ignore_limits`` drives past the configured travel, never past the
+        motor's safety limit. It is in-process only: a wire request that
+        sends it is refused as ``invalid_request``.
 
         Returns:
             One ``Operation`` for the axes given, done once every one is
@@ -2801,7 +2805,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api
+    @api(in_process_arguments=('ignore_limits',))
     def move_xy(
         self,
         x_um: float | None = None,
@@ -2811,6 +2815,7 @@ class MotionAPI:
         """Move X and Y to a place, in um, each that is given, and return once they have arrived.
 
         ``start_move_xy`` followed by its operation's ``result()``.
+        ``ignore_limits`` is in-process only, as ``start_move_xy``'s.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as ``start_move_xy``.
@@ -2897,7 +2902,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', in_process_arguments=('ignore_limits',))
     def start_move_z(
         self,
         z_um: float,
@@ -2910,6 +2915,10 @@ class MotionAPI:
         is always taken the same way. ``overshoot_enabled`` is for a bench
         script that measures the backlash: None is the API's approach,
         True or False the script's own.
+
+        ``ignore_limits`` drives past Z's configured travel, never past the
+        motor's safety limit. It is in-process only: a wire request that
+        sends it is refused as ``invalid_request``.
 
         Returns:
             The move's ``Operation``. It is done once Z has been set at
@@ -2949,7 +2958,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api
+    @api(in_process_arguments=('ignore_limits',))
     def move_z(
         self,
         z_um: float,
@@ -2959,6 +2968,7 @@ class MotionAPI:
         """Move Z to a place, in um, and return once it has arrived.
 
         ``start_move_z`` followed by its operation's ``result()``.
+        ``ignore_limits`` is in-process only, as ``start_move_z``'s.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as ``start_move_z``.
