@@ -105,16 +105,26 @@ def test_a_run_given_no_layer_is_told_none_is_selected(session, member):
     assert refused.value.argument == 'channel'
 
 
-def test_a_union_takes_each_of_its_types_and_nothing_else(session):
-    illumination = session.scope.illumination
-    channel = session.scope.illumination.color2ch('BF')
-    illumination.led_off(np.int64(channel))
-    illumination.led_off('BF')
+def test_a_union_takes_each_of_its_types_and_nothing_else():
+    """No member of the surface takes a two-type union today, so the door
+    is held on a member marked here."""
+
+    class Holder:
+        def take(self, value: int | str) -> int | str:
+            return value
+
+    take = api(Holder.take)
+    holder = Holder()
+    assert take(holder, np.int64(3)) == 3
+    assert take(holder, 'BF') == 'BF'
     for value in (True, 2.5, None):
-        refused = _refused(
-            lambda value=value: illumination.led_off(value), 'IlluminationAPI.led_off', 'channel'
+        with pytest.raises(ArgumentTypeRefusedError) as refused:
+            take(holder, value)
+        assert (refused.value.reason, refused.value.argument, refused.value.declared) == (
+            'wrong_argument_type',
+            'value',
+            'int | str',
         )
-        assert refused.declared == 'int | str'
 
 
 def test_a_class_is_taken_only_as_itself(session):

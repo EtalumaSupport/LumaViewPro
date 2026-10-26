@@ -1559,6 +1559,7 @@ still states the major version.
 | level 35 | The image mode is an `ImageMode` (`modules.image_mode`: `EIGHT_BIT`, `SCIENTIFIC`, `SCALED`, `FALSE_COLOR_RGB`): `scope.camera.set_image_mode` takes a member or its plain string and refuses any other value `not_offered` (`ArgumentRefusedError`) before anything is applied; `scope.camera.image_mode` answers a member. The `IMAGE_MODE_*` names are the members until the plugin release that names the members, then go. |
 | level 36 | An LED is lit by its board address on the engineering members `scope.illumination.led_on_by_address(address, illumination_ma)` and `led_off_by_address(address)`; an address off the board is refused `led_address_unknown` (`argument` `address`), and one no channel of the model drives `axis_absent` with `MissingPart.led_address(address)`. `led_on` / `led_off` still take an address until the plugin release that lights through these, then take a channel's name only. |
 | level 37 | An LED's board addresses are `led_addresses`: `scope.capabilities.led_addresses` (the installed board's, None without one) and a `ChannelRecord`'s `led_addresses` (the addresses the channel drives, `()` for none). A model's and a board's file still name a row's addresses `led_channel`. The old names read until the plugin release that reads the new ones, then go. |
+| level 38 | An LED is lit by its channel's name: `scope.illumination.led_on(channel, illumination_ma)` and `led_off(channel)` take a name only, a number refused at the door (`wrong_argument_type`); a board address is `led_on_by_address` / `led_off_by_address`'s. `ch2color` and `color2ch` are not on the surface (no route); a channel's addresses are its record's `led_addresses`. `ScopeCapabilities.led_channels` and `ChannelRecord.led_channel` are gone, with no alias. |
 
 ### Configuration queries
 
@@ -1921,8 +1922,8 @@ Channels available depend on the scope — the layers it lights are the records 
 a driver detail and is NOT portable: an FX2 board carries four channels and an
 RP2040 board six, so the same integer means different LEDs, or none, depending
 on the board. Ask `scope.channel_identity.channels` for what a given scope can actually drive.
-Passing an integer still works today as a legacy compatibility form, but it is
-not the supported contract and will not be part of the REST surface.
+`led_on` and `led_off` take the name; a number is refused at the `@api` door
+(`wrong_argument_type`).
 
 **By address, for the bench**: `led_on_by_address(address, illumination_ma)` and
 `led_off_by_address(address)` are engineering members, in process only, for a bench
@@ -1933,7 +1934,7 @@ installed board's table is `led_address_unknown` (`argument` `address`), and an
 address no channel of a known model drives is `axis_absent`
 (`MissingPart.led_address(address)`); each refusal names the member called.
 
-**LEDs the scope cannot drive**: `led_on` asks, in order, whether the channel is one at all, whether an LED controller is connected, and whether this model has the LED. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`) offering the catalogue, and an address outside the installed board's table `led_address_unknown` offering the board's addresses, at the door, whatever the scope is doing. A current outside 0 to the board's maximum is `illumination_out_of_range`, its `limits` holding both. With no LED controller connected it raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.LED_CONTROLLER`). An LED this model does not have -- a layer it lacks (an LS560's `'Red'`), a layer that drives no LED (`'Lumi'`), or an address no layer of the model drives (an LS560's `2`) -- raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.led(name)`, or `MissingPart.led_address(address)` for an address), and nothing lights; it never maps to a substitute channel. A model this release does not know (its layer identity unresolved) takes the board's addresses. `led_off` of an LED the scope does not have is an idempotent no-op — a channel the scope does not have is already off.
+**LEDs the scope cannot drive**: `led_on` asks, in order, whether the channel is one at all, whether an LED controller is connected, and whether this model has the LED. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`) offering the catalogue, at the door, whatever the scope is doing. A current outside 0 to the board's maximum is `illumination_out_of_range`, its `limits` holding both. With no LED controller connected it raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.LED_CONTROLLER`). An LED this model does not have -- a layer it lacks (an LS560's `'Red'`), or a layer that drives no LED (`'Lumi'`) -- raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.led(name)`), and nothing lights; it never maps to a substitute channel. `led_off` of an LED the scope does not have is an idempotent no-op — a channel the scope does not have is already off.
 
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
@@ -1941,11 +1942,6 @@ address no channel of a known model drives is `axis_absent`
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
-
-# Channel mapping. Numbers are a DRIVER detail -- these exist to read the
-# board's own wire vocabulary, not to address channels from L2.
-scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
-scope.illumination.ch2color(0)                         # 'Blue'
 
 ```
 
@@ -1955,7 +1951,7 @@ scope.illumination.ch2color(0)                         # 'Blue'
 
 ### State queries — read from the API, never the driver
 
-`scope.illumination` (`IlluminationAPI`) holds the authoritative LED state, by LED address; its `get_led_state()` / `get_led_states()` read from that store. A driver holds no LED state and names no address: which layer an address lights is the unit's layer identity's (`ch2color` / `color2ch`), read at the moment of the reading.
+`scope.illumination` (`IlluminationAPI`) holds the authoritative LED state, by LED address; its `get_led_state()` / `get_led_states()` read from that store. A driver holds no LED state and names no address: which layer an address lights is the unit's layer identity's (each record's `led_addresses`), read at the moment of the reading.
 
 Each read answers an `LedReading`: the `address`, the layer `name` the identity gives it (`None` when it names none -- the address is still reported, never hidden), its `state` (`LedState.LIT`, `DARK` or `UNKNOWN`; `'lit'`, `'dark'`, `'unknown'` on the wire) and its `illumination_ma` (the commanded current when lit, else `None`).
 
@@ -3305,8 +3301,6 @@ Reached through `session.scope.motion`.
 Reached through `session.scope.illumination`.
 
 - `add_led_listener` (in-process)
-- `ch2color`
-- `color2ch`
 - `get_led_state`
 - `get_led_states`
 - `led_off`

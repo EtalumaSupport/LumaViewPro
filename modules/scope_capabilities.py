@@ -455,16 +455,6 @@ class ScopeCapabilities:
     pulse train inside the LED firmware with sub-microsecond pulse-edge
     accuracy. Caller gates with `caps.has_firmware_stim`."""
 
-    @property
-    def led_channels(self) -> tuple[int, ...] | None:
-        """``led_addresses`` by its old name, unpublished.
-
-        Read by the engineering plugin releases before the one that reads
-        ``led_addresses``; it goes when ``MINIMUM_PLUGIN_VERSIONS`` rises
-        past them.
-        """
-        return self.led_addresses
-
     @classmethod
     def from_drivers(
         cls,

@@ -793,8 +793,7 @@ class TestLedStateAtEnd:
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before the run so the executor captures it as the
         # original state. A one-position run hands the LEDs back as found.
-        bf_ch = scope.illumination.color2ch(color='BF')
-        scope.illumination.led_on(bf_ch, 25)
+        scope.illumination.led_on('BF', 25)
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(
             executor, protocol, tmp_path, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
@@ -2100,8 +2099,7 @@ class TestProtocolLedNoFlash:
     ):
         # A stray channel lit before the run (e.g. a Live-mode LED left on a
         # different color when the user pressed Scan).
-        stray = scope.illumination.color2ch('Red')
-        scope.illumination.led_on(channel=stray, illumination_ma=80)
+        scope.illumination.led_on('Red', 80)
         assert scope.illumination.get_led_state('Red').state is LedState.LIT
 
         events = []
@@ -2130,9 +2128,7 @@ class TestProtocolLedNoFlash:
         cache and force the re-light; this is the protocol/Z-stack flash.
         """
         color, illumination_ma = 'Green', 60.0
-        scope.illumination.led_on(
-            channel=scope.illumination.color2ch(color), illumination_ma=illumination_ma
-        )
+        scope.illumination.led_on(channel=color, illumination_ma=illumination_ma)
         assert scope.illumination.get_led_state(color).state is LedState.LIT
 
         events = []

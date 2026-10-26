@@ -32,7 +32,7 @@ def scope():
 def test_restore_does_not_blink_channel_already_at_target(scope):
     """restore_led_state leaves a channel already at its snapshot target lit,
     without an off->on blink -- the autofocus scan-end case."""
-    scope.illumination.led_on(channel=0, illumination_ma=100)
+    scope.illumination.led_on_by_address(0, 100)
     snapshot = scope.illumination.save_led_state('autofocus')
 
     events = []
@@ -74,7 +74,7 @@ def _preview(scope_io, ch, illumination_ma):
 def test_manual_preview_skips_already_lit_channel(scope_io):
     """Manual-nav preview on a channel already at the target current emits
     no driver command -- the manual same-color step no longer blinks."""
-    scope_io.illumination.led_on(channel=3, illumination_ma=200)
+    scope_io.illumination.led_on_by_address(3, 200)
 
     events = []
     scope_io.illumination.add_led_listener(lambda a, n, st, m: events.append((a, st)))
@@ -87,7 +87,7 @@ def test_manual_preview_skips_already_lit_channel(scope_io):
 def test_manual_preview_turns_off_other_channels(scope_io):
     """Manual-nav preview offs other lit channels and lights the target --
     the manual switch-to-a-new-color step."""
-    scope_io.illumination.led_on(channel=0, illumination_ma=100)
+    scope_io.illumination.led_on_by_address(0, 100)
     _preview(scope_io, 3, 200)
 
     assert led_reading(scope_io, 0).state is LedState.DARK

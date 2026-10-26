@@ -176,7 +176,7 @@ def test_external_led_off_during_lease_is_refused(scope):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.illumination.led_off(channel=0)  # live UI off
+        scope.illumination.led_off_by_address(0)  # live UI off
     assert refused.value.reason == 'exclusive_activity_running'
     assert _lit(scope, 0)
 

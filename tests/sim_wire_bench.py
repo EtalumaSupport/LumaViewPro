@@ -132,9 +132,9 @@ def _call(scope, record):
 
 
 def led_on_args(record) -> tuple[int, float]:
-    """The channel and current an `led_on` record lit."""
-    channel, ma = _LED_ON.fullmatch(record['command']).groups()
-    return int(channel), float(ma)
+    """The board address and current an `led_on` record lit."""
+    address, ma = _LED_ON.fullmatch(record['command']).groups()
+    return int(address), float(ma)
 
 
 def _led_call(scope, record):
@@ -153,9 +153,9 @@ def _led_call(scope, record):
             diag.send_diagnostic_command, 'led', command, timeout_s=_LED_QUERY_TIMEOUT_S
         )
     if kind == 'led_on':
-        return functools.partial(illumination.led_on, *led_on_args(record))
+        return functools.partial(illumination.led_on_by_address, *led_on_args(record))
     if kind == 'led_off':
-        return functools.partial(illumination.led_off, record['channel'])
+        return functools.partial(illumination.led_off_by_address, record['channel'])
     if kind == 'leds_off':
         return illumination.leds_off
     raise AssertionError(f'no replay for an LED {kind!r} record')

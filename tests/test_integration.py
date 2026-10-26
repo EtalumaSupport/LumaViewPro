@@ -712,9 +712,9 @@ class TestHeadlessSession:
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             scope = session.scope
-            scope.illumination.led_on(channel=0, illumination_ma=100)
+            scope.illumination.led_on_by_address(0, 100)
             assert scope.illumination.get_led_state('Blue').illumination_ma == 100
-            scope.illumination.led_off(channel=0)
+            scope.illumination.led_off_by_address(0)
             assert scope.illumination.get_led_state('Blue').state is LedState.DARK
         finally:
             session.shutdown()

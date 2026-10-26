@@ -187,7 +187,7 @@ class TestDisconnectShutsTheLanesFirst:
 
         def turn_on():
             try:
-                outcome['result'] = scope.illumination.led_on(channel=0, illumination_ma=10.0)
+                outcome['result'] = scope.illumination.led_on_by_address(0, 10.0)
             except BaseException as ex:
                 outcome['error'] = ex
 

@@ -101,16 +101,21 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
     assert _led_lines(caplog) == []
 
 
-@pytest.mark.parametrize(
-    ('led', 'part'), [(2, MissingPart.led_address(2)), ('Red', MissingPart.led('Red'))]
-)
+_LIGHTS = {
+    'the name Red': (lambda il: il.led_on('Red', 10.0), MissingPart.led('Red')),
+    'the address 2': (lambda il: il.led_on_by_address(2, 10.0), MissingPart.led_address(2)),
+}
+
+
+@pytest.mark.parametrize('led', _LIGHTS)
 def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
-    make_session, monkeypatch, led, part
+    make_session, monkeypatch, led
 ):
     scope = make_session('LS560').scope
     sent = _spy_led_writes(monkeypatch, scope)
+    light, part = _LIGHTS[led]
 
-    refusal = _refused(lambda: scope.illumination.led_on(led, 10.0))
+    refusal = _refused(lambda: light(scope.illumination))
 
     assert (refusal.reason, refusal.missing) == ('axis_absent', part)
     assert sent == []
@@ -143,25 +148,34 @@ def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):
     assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.led('Red'))
 
 
-@pytest.mark.parametrize(('model', 'led'), [('LS560', 'Red'), ('LS560', 2), ('Lumi', 'Lumi')])
+_OFFS = {
+    'Red': lambda il: il.led_off('Red'),
+    'address 2': lambda il: il.led_off_by_address(2),
+    'Lumi': lambda il: il.led_off('Lumi'),
+}
+
+
+@pytest.mark.parametrize(
+    ('model', 'led'), [('LS560', 'Red'), ('LS560', 'address 2'), ('Lumi', 'Lumi')]
+)
 def test_an_off_of_an_led_the_model_lacks_is_silent(make_session, monkeypatch, caplog, model, led):
     scope = make_session(model).scope
     sent = _spy_led_writes(monkeypatch, scope)
 
-    scope.illumination.led_off(led)
+    _OFFS[led](scope.illumination)
 
     assert sent == []
     assert _led_lines(caplog) == []
 
 
-def test_a_name_that_is_no_layer_and_a_number_off_the_board_are_the_requests(make_session):
-    """Neither is absent hardware: no scope has a Purple layer, and an FX2 board has no channel 5."""
+def test_a_name_that_is_no_layer_and_an_address_off_the_board_are_the_requests(make_session):
+    """Neither is absent hardware: no scope has a Purple layer, and an FX2 board has no address 5."""
     illumination = make_session('LS620').scope.illumination
 
     with pytest.raises(ArgumentRefusedError) as purple:
         illumination.led_on('Purple', 10.0)
     with pytest.raises(ArgumentRefusedError) as five:
-        illumination.led_on(5, 10.0)
+        illumination.led_on_by_address(5, 10.0)
 
     assert purple.value.reason == 'channel_unknown'
     assert (five.value.reason, five.value.offered) == ('led_address_unknown', (0, 1, 2, 3))

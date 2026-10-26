@@ -61,7 +61,8 @@ IMPL_RESULT = object()
 # Every family's dispatcher is its only public form: the fire-and-forget
 # tiers were deleted, so there is no second spelling of a command to pin.
 FAMILIES = [
-    ('illumination', 'led_on', {'channel': 0, 'illumination_ma': 10.0}, 'io'),
+    ('illumination', 'led_on', {'channel': 'BF', 'illumination_ma': 10.0}, 'io'),
+    ('illumination', 'led_on_by_address', {'address': 3, 'illumination_ma': 10.0}, 'io'),
     ('camera', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
     (
         'motion',
@@ -145,9 +146,12 @@ _PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning':
 # move bodies with the waited members, and the image mode and the high
 # conversion gain are applied by the pixel-format and conversion-gain
 # bodies; the camera's apply body is named apart from the LED lease's
-# _apply_impl.
+# _apply_impl; a name's light resolves its address in its own body, and an
+# address's light is the lane's body itself.
 _BODY_OF = {
     'apply': '_apply_settings_impl',
+    'led_on': '_led_on_by_name_impl',
+    'led_on_by_address': '_led_on_impl',
     'start_move_z': '_move_z_impl',
     'set_image_mode': '_set_pixel_format_impl',
     'set_high_conversion_gain': '_set_conversion_gain_mode_impl',

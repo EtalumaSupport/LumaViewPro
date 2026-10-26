@@ -407,7 +407,7 @@ class TestLumascopeLedAPI:
         # assertion -- a dispatcher that submitted without waiting would
         # find the channel still dark.
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on(channel=1, illumination_ma=75)
+        scope.illumination.led_on_by_address(1, 75)
         assert len(io_ex.submitted) == 1
         assert led_reading(scope, 1).illumination_ma == 75.0
 
@@ -420,7 +420,7 @@ class TestLumascopeLedAPI:
 
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            scope.illumination.led_on(0, 50)
+            scope.illumination.led_on_by_address(0, 50)
         assert (refused.value.reason, refused.value.missing) == (
             'not_connected',
             MissingPart.LED_CONTROLLER,
@@ -430,14 +430,14 @@ class TestLumascopeLedAPI:
 
     def test_led_off_blocks_until_the_write_lands(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on(channel=1, illumination_ma=75)
-        scope.illumination.led_off(1)
+        scope.illumination.led_on_by_address(1, 75)
+        scope.illumination.led_off_by_address(1)
         assert len(io_ex.submitted) == 2
         assert led_reading(scope, 1).state is LedState.DARK
 
     @pytest.mark.parametrize(
         'turn_off',
-        [lambda ill: ill.led_off(0), lambda ill: ill.leds_off()],
+        [lambda ill: ill.led_off('BF'), lambda ill: ill.leds_off()],
         ids=['led_off', 'leds_off'],
     )
     def test_led_off_and_leds_off_are_satisfied_when_no_led(self, turn_off):
@@ -458,7 +458,7 @@ class TestLumascopeLedAPI:
         still drive hardware."""
         scope = build_scope(simulate=True)
         try:
-            scope.illumination.led_on(channel=0, illumination_ma=30)
+            scope.illumination.led_on_by_address(0, 30)
             assert led_reading(scope, 0).illumination_ma == 30.0
             scope.illumination.leds_off()
             assert led_reading(scope, 0).state is LedState.DARK

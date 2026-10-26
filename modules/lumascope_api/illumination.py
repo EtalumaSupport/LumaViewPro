@@ -496,25 +496,6 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
-    def _refuse_not_a_channel(self, channel: int | str) -> None:
-        """Refuse a channel that names no LED channel of any scope with this board.
-
-        Asked at the door of every LED command, before the lane, so a
-        caller is told so whatever the scope is doing. A channel is a layer
-        of this release, by name, or a number on the attached board's
-        table; the ``@api`` door has refused any other type, a ``bool``
-        among them, though ``True == 1``.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'`` for a name,
-                ``'led_address_unknown'`` for an address not on the board's
-                table.
-        """
-        if isinstance(channel, str):
-            refuse_unknown_layer(channel, argument='channel')
-        else:
-            self._refuse_not_a_board_address(channel, 'channel')
-
     def _refuse_not_a_board_address(self, address: int, argument: str) -> None:
         """Refuse an address that is not on the attached board's table.
 
@@ -571,7 +552,7 @@ class IlluminationAPI:
         """The board address a light of ``channel`` writes, or the refusal that says why not.
 
         Asked on the lane of a name the door has judged
-        (``_refuse_not_a_channel``), in the address lane's order: the
+        (``refuse_unknown_layer``), in the address lane's order: the
         board, then the model, so an LED this model does not have is
         ``axis_absent`` named as the command named it.
 
@@ -1030,37 +1011,30 @@ class IlluminationAPI:
     @api
     def led_on(
         self,
-        channel: int | str,
+        channel: str,
         illumination_ma: float,
     ) -> float:
-        """Turn on an LED channel at the specified current, and wait for it.
+        """Turn on a channel's LED at the specified current, and wait for it.
 
-        Returns the current commanded on the board's step. ``channel`` is a
-        channel's name, lit at its LED's address, or the address itself. See
-        ``_led_on_impl`` for the return and the errors it raises; this adds
-        only the name's resolution and the dispatch described on
-        ``_dispatch_led``.
+        Returns the current commanded on the board's step. The channel is
+        lit at its LED's address (``led_on_by_address`` takes the address
+        itself). See ``_led_on_impl`` for the return and the errors it
+        raises; this adds only the name's resolution and the dispatch
+        described on ``_dispatch_led``.
 
         Raises:
-            ArgumentRefusedError: ``'channel_unknown'`` or
-                ``'led_address_unknown'``, ``channel`` names no channel (see
-                ``_refuse_not_a_channel``); nothing was sent.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
+                channel of this release, refused at the door whatever the
+                scope is doing; nothing was sent.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs; nothing was
                 sent.
             BoardNoReplyError: the board did not answer; what it wrote is
                 unknown (``_write``).
         """
-        self._refuse_not_a_channel(channel)
-        if isinstance(channel, str):
-            return self._dispatch_led(
-                self._led_on_by_name_impl, 'led_on', args=(channel, illumination_ma)
-            )
+        refuse_unknown_layer(channel, argument='channel')
         return self._dispatch_led(
-            self._led_on_impl,
-            'led_on',
-            args=(channel, illumination_ma),
-            kwargs={'member': 'led_on'},
+            self._led_on_by_name_impl, 'led_on', args=(channel, illumination_ma)
         )
 
     def _led_on_by_name_impl(self, channel: str, illumination_ma: float) -> float:
@@ -1069,28 +1043,25 @@ class IlluminationAPI:
         return self._led_on_impl(address, illumination_ma, member='led_on')
 
     @api
-    def led_off(self, channel: int | str) -> None:
-        """Turn off an LED channel, and wait for it.
+    def led_off(self, channel: str) -> None:
+        """Turn off a channel's LED, and wait for it.
 
-        ``channel`` is a channel's name, darkened at its LED's address, or
-        the address itself. See ``_led_off_impl`` for the off's contract.
+        The channel is darkened at its LED's address (``led_off_by_address``
+        takes the address itself). See ``_led_off_impl`` for the off's
+        contract.
 
         Raises:
-            ArgumentRefusedError: ``'channel_unknown'`` or
-                ``'led_address_unknown'``, ``channel`` names no channel (see
-                ``_refuse_not_a_channel``); nothing was sent.
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
+                channel of this release, refused at the door whatever the
+                scope is doing; nothing was sent.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs; nothing was
                 sent.
             BoardNoReplyError: the board did not answer; what it wrote is
                 unknown (``_write``).
         """
-        self._refuse_not_a_channel(channel)
-        if isinstance(channel, str):
-            return self._dispatch_led(self._led_off_by_name_impl, 'led_off', args=(channel,))
-        return self._dispatch_led(
-            self._led_off_impl, 'led_off', args=(channel,), kwargs={'member': 'led_off'}
-        )
+        refuse_unknown_layer(channel, argument='channel')
+        return self._dispatch_led(self._led_off_by_name_impl, 'led_off', args=(channel,))
 
     def _led_off_by_name_impl(self, channel: str) -> None:
         """``led_off``'s body for a name: its address, then the address lane.
@@ -1718,12 +1689,15 @@ class IlluminationAPI:
     # recordable and extinguishable even when the identity cannot name it
     # (a mid-session identity change must never strand a lit LED or drop
     # it from a restore set).
-    @api(reads=True)
     def ch2color(self, channel: int) -> str | None:
         """The stable layer name whose record drives *channel*, else None.
 
         Answers from the unit's resolved layer identity -- the same
         records `scope.channel_identity` exposes.
+
+        A consult seam, not part of the L2 API surface: an L2 caller names
+        a channel, and reads which addresses it drives from its record's
+        ``led_addresses``.
 
         Raises:
             ArgumentRefusedError: ``'led_address_unknown'``, *channel* is
@@ -1732,7 +1706,6 @@ class IlluminationAPI:
         self._refuse_not_a_board_address(channel, 'channel')
         return self._identity_name(channel)
 
-    @api(reads=True)
     def color2ch(self, color: str) -> int | None:
         """The LED board address of the layer named *color*, else None.
 
@@ -1740,6 +1713,9 @@ class IlluminationAPI:
         `key_name`. None means the layer is unknown to this unit's
         identity OR drives no LED (luminescence): on-paths turn that
         into a named refusal at `_address_to_light`, off-paths no-op.
+
+        A consult seam, not part of the L2 API surface: an L2 caller names
+        the channel itself.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, *color* is not a layer.

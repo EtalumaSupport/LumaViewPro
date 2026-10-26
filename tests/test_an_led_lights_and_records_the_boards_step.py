@@ -82,8 +82,8 @@ def test_the_simulated_serial_board_steps_as_the_board_does():
             sent.append(command),
             exchange(command, *a, **k),
         )[1]
-        assert illumination.led_on(0, 0.5) == 1.0
-        assert illumination.led_on(0, 0) == 0.0
+        assert illumination.led_on_by_address(0, 0.5) == 1.0
+        assert illumination.led_on_by_address(0, 0) == 0.0
         assert sent == ['LED0_1', 'LED0_OFF']
     finally:
         session.shutdown()
@@ -122,7 +122,7 @@ def _dac(board, channel: int) -> int:
 @_firmware_tier
 def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
     illumination, board = serial
-    commanded = illumination.led_on(0, 0.5)
+    commanded = illumination.led_on_by_address(0, 0.5)
     # The field firmware's mA_to_dac: int(60.936 * 1 + 890).
     assert _dac(board, 0) == 950
     assert illumination.get_led_state('Blue').illumination_ma == 1.0
@@ -133,7 +133,7 @@ def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
 def test_a_blocking_serial_request_off_the_step_is_confirmed_at_once(serial):
     illumination, board = serial
     started = time.monotonic()
-    commanded = illumination.led_on(0, 1.7)
+    commanded = illumination.led_on_by_address(0, 1.7)
     assert _dac(board, 0) == 1011
     assert time.monotonic() - started < 1.0
     assert commanded == 2.0
@@ -142,8 +142,8 @@ def test_a_blocking_serial_request_off_the_step_is_confirmed_at_once(serial):
 @_firmware_tier
 def test_a_serial_request_of_0_ma_is_dark_and_stays_on_at_0(serial):
     illumination, board = serial
-    illumination.led_on(0, 10)
-    commanded = illumination.led_on(0, 0)
+    illumination.led_on_by_address(0, 10)
+    commanded = illumination.led_on_by_address(0, 0)
     assert _dac(board, 0) == 0
     blue = illumination.get_led_state('Blue')
     assert (blue.state, blue.illumination_ma) == (LedState.LIT, 0.0)

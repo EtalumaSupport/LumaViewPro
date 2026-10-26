@@ -389,9 +389,7 @@ def _recorded_run(
     if prelit:
         # A pre-run Live LED so a one-position run has something to
         # restore (the snapshot is taken at lease acquire).
-        scope.illumination.led_on(
-            channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1]
-        )
+        scope.illumination.led_on(channel=prelit[0], illumination_ma=prelit[1])
     scope.illumination.add_led_listener(sub)
     protocol = _build_protocol(specs)
     completed, _ = _run_protocol(
@@ -546,9 +544,9 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
     # so if the lease did not refuse it Green would go dark and the assertions
     # below would fail -- the refusal is what keeps Green lit.
     with pytest.raises(HardwareCommandRefusedError) as refused_on:
-        ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0)
+        ill.led_on(channel='Red', illumination_ma=350.0)
     with pytest.raises(HardwareCommandRefusedError) as refused_off:
-        ill.led_off(channel=ill.color2ch('Green'))
+        ill.led_off(channel='Green')
     assert refused_on.value.reason == refused_off.value.reason == 'exclusive_activity_running'
 
     assert ill.get_led_state('Green').state is LedState.LIT, (
@@ -721,7 +719,7 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     restores the pre-AF Live channel on exit -- no stale AF channel, original
     Live state back (pins #695 restore path)."""
     ill = scope.illumination
-    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0)
+    ill.led_on(channel='Blue', illumination_ma=120.0)
 
     sub = LedSubstream()
     ill.add_led_listener(sub)
@@ -988,7 +986,7 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
     ill.add_led_listener(sub)
 
     for color, illumination_ma in (('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)):
-        ill.led_on(channel=ill.color2ch(color), illumination_ma=illumination_ma)
+        ill.led_on(channel=color, illumination_ma=illumination_ma)
     assert sub.final_lit() == {'Blue', 'Green', 'Red'}, (
         'multi-channel illumination is API-legal; if this fails the premise of '
         f'the test is gone, not the diff\n{sub.render()}'
@@ -1017,7 +1015,7 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
     ill.add_led_listener(sub)
 
     for color, illumination_ma in (('Blue', 100.0), ('Green', 250.0)):
-        ill.led_on(channel=ill.color2ch(color), illumination_ma=illumination_ma)
+        ill.led_on(channel=color, illumination_ma=illumination_ma)
 
     ill._emit_led_diff(
         frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),

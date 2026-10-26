@@ -57,6 +57,6 @@ def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):
     # apply chain issues a bare UI led_off. While AF holds the lease this is
     # refused, so the AF channel stays lit and the scan does not go dark.
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.illumination.led_off(channel=3)
+        scope.illumination.led_off_by_address(3)
     assert refused.value.reason == 'exclusive_activity_running'
     assert _lit(scope, 3), 'live UI off darkened an AF-owned channel (#695 regression)'

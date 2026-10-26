@@ -414,8 +414,8 @@ def spec_scope(**attrs):
 
     Example:
         scope = spec_scope(camera_connected=True)
-        scope.illumination.led_on(channel=0, mA=100)   # ok
-        scope.led_on_fast(channel=0, mA=100)           # AttributeError
+        scope.illumination.led_on(channel='BF', illumination_ma=100)   # ok
+        scope.led_on_fast(channel='BF', illumination_ma=100)           # AttributeError
     """
     real = build_real_sim_scope()
     try:
@@ -589,7 +589,7 @@ def identity_with_layers(keys, *, model=None, filterset=''):
     channels = {
         key: {
             'display_name': shipped[key].display_name,
-            'led_channel': list(shipped[key].led_channel) or None,
+            'led_channel': list(shipped[key].led_addresses) or None,
             'excitation_nm': shipped[key].excitation_nm,
         }
         for key in keys

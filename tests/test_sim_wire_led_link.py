@@ -95,7 +95,7 @@ def _driven(board) -> dict:
 def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     illumination, board, posts, simulation = scope
     simulation.drop_replies('led')
-    illumination.led_on(0, 10)
+    illumination.led_on_by_address(0, 10)
     assert board.replies_dropped == 1, 'the drop must have taken the echo'
     assert _believed(illumination) == {0: 10.0}
     # The firmware's mA_to_dac: int(60.936 * 10 + 890).
@@ -113,7 +113,7 @@ def test_a_write_the_board_did_not_answer_raises_and_its_led_is_unknown(scope):
     illumination, board, posts, simulation = scope
     simulation.delay_reply('led', 0.5)
     with pytest.raises(BoardNoReplyError):
-        illumination.led_on(1, 10)
+        illumination.led_on_by_address(1, 10)
     assert 1 in _driven(board)
     assert _state(illumination, 1) is LedState.UNKNOWN
     # The raise is the report: nothing below the GUI posts one.
@@ -132,7 +132,7 @@ def test_a_garbled_reply_does_not_confirm_a_write(scope):
     # Which fault an unconfirmed write raises is K84's to decide; what is
     # pinned is that the write is not believed.
     with contextlib.suppress(Fault):
-        illumination.led_on(0, 10)
+        illumination.led_on_by_address(0, 10)
     assert _state(illumination, 0) is not LedState.LIT
 
 
@@ -142,7 +142,7 @@ def test_a_write_the_board_never_got_is_refused_and_not_believed(scope):
     illumination, board, posts, simulation = scope
     simulation.unplug('led')
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        illumination.led_on(1, 10)
+        illumination.led_on_by_address(1, 10)
     assert refused.value.reason == 'not_connected'
     assert isinstance(refused.value.__cause__, BoardNoReplyError)
     assert _driven(board) == {}
@@ -155,9 +155,9 @@ def test_a_write_to_a_lost_board_fails_out_loud(scope):
     illumination, _board, _posts, simulation = scope
     simulation.unplug('led')
     with pytest.raises(HardwareCommandRefusedError):
-        illumination.led_on(1, 10)
+        illumination.led_on_by_address(1, 10)
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        illumination.led_on(2, 10)
+        illumination.led_on_by_address(2, 10)
     assert refused.value.reason == 'not_connected'
 
 
@@ -169,10 +169,10 @@ def test_a_write_to_a_lost_board_fails_out_loud(scope):
 )
 def test_after_a_reboot_the_api_does_not_believe_a_channel_lit(scope):
     illumination, board, _posts, simulation = scope
-    illumination.led_on(0, 10)
+    illumination.led_on_by_address(0, 10)
     simulation.reboot('led')
     with pytest.raises(HardwareCommandRefusedError):
-        illumination.led_on(1, 10)  # the write that finds the link gone
+        illumination.led_on_by_address(1, 10)  # the write that finds the link gone
     # The firmware's boot clears the DAC.
     deadline = time.monotonic() + 10
     while _driven(board):
@@ -187,7 +187,7 @@ def _states(illumination) -> set:
 
 def test_an_all_off_the_board_did_not_answer_raises_and_every_led_is_unknown(scope):
     illumination, _board, _posts, simulation = scope
-    illumination.led_on(0, 10)
+    illumination.led_on_by_address(0, 10)
     simulation.delay_reply('led', 0.5)
     with pytest.raises(BoardNoReplyError):
         illumination.leds_off()
@@ -196,7 +196,7 @@ def test_an_all_off_the_board_did_not_answer_raises_and_every_led_is_unknown(sco
 
 def test_the_safety_off_the_board_did_not_answer_says_so_without_raising(scope):
     illumination, _board, _posts, simulation = scope
-    illumination.led_on(0, 10)
+    illumination.led_on_by_address(0, 10)
     simulation.delay_reply('led', 0.5)
     assert illumination.force_off() is False
     assert _states(illumination) == {LedState.UNKNOWN}

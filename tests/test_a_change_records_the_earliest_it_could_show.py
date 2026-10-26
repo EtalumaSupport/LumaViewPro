@@ -61,7 +61,7 @@ def test_an_led_writes_change_is_earliest_at_the_writes_start():
         scope = session.scope
         scope.simulation.delay_reply('led', 0.15)
         before = time.monotonic_ns()
-        scope.illumination.led_on(1, 10)
+        scope.illumination.led_on_by_address(1, 10)
         change = scope.imaging.recorded_changes()['led']
         assert before <= change.earliest_ns
         assert change.written_ns - change.earliest_ns >= 0.15e9

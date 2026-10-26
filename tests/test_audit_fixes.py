@@ -124,7 +124,7 @@ class TestLedOnValidation:
     """Verify led_on() rejects bad inputs."""
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.illumination.led_on(channel=0, illumination_ma=50)
+        sim_scope.illumination.led_on_by_address(0, 50)
 
 
 # ===========================================================================
@@ -2977,8 +2977,8 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         illum = sim_scope.illumination
         validity = sim_scope.imaging.frame_validity
         mutator_calls = {
-            'led_on': lambda: illum.led_on(channel=0, illumination_ma=10),
-            'led_off': lambda: illum.led_off(channel=0),
+            'led_on': lambda: illum.led_on(channel='Blue', illumination_ma=10),
+            'led_off': lambda: illum.led_off(channel='Blue'),
             'leds_off': lambda: illum.leds_off(),
         }
         missing = []
@@ -7623,7 +7623,7 @@ class TestSessionLedOnArgNameIsMa:
         # with TypeError the same way a signature check would -- while also
         # proving the value reaches the LED state.
         for method_name in ('led_on',):
-            getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
+            getattr(sim_scope.illumination, method_name)(channel='Blue', illumination_ma=42.0)
             assert led_reading(sim_scope, 0).illumination_ma == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )

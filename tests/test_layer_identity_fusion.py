@@ -77,7 +77,7 @@ class TestTwoResolverSplit:
         scope.illumination.led_on(channel='Green', illumination_ma=50)
         scope.refresh_layer_identity(override_model='LS850-0')
         assert LedReading(1, None, LedState.LIT, 50.0) in scope.illumination.get_led_states()
-        scope.illumination.led_off(channel=1)
+        scope.illumination.led_off_by_address(1)
         assert led_reading(scope, 1).state is LedState.DARK
 
     def test_an_address_no_identity_names_is_reported_lit_by_address(self, scope):
@@ -87,7 +87,7 @@ class TestTwoResolverSplit:
         scope.channel_identity = UNRESOLVED  # a unit with no resolvable layers
         heard = []
         scope.illumination.add_led_listener(lambda *reading: heard.append(LedReading(*reading)))
-        scope.illumination.led_on(channel=6, illumination_ma=50)
+        scope.illumination.led_on_by_address(6, 50)
         lit = LedReading(6, None, LedState.LIT, 50.0)
         assert lit in scope.illumination.get_led_states()
         assert heard == [lit]
@@ -101,7 +101,7 @@ class TestTwoResolverSplit:
         scope.illumination.led_off(channel='Green')
         scope.refresh_layer_identity(override_model='LS850-0')
         for light in (
-            lambda: scope.illumination.led_on(channel=1, illumination_ma=50),
+            lambda: scope.illumination.led_on_by_address(1, 50),
             lambda: scope.illumination.restore_led_state(snapshot),
         ):
             with pytest.raises(HardwareCommandRefusedError) as refused:

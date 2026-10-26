@@ -581,7 +581,6 @@ _SOURCE = 'the module or function a post came from'
 _CATEGORY = "composed from the GUI's label and the executor's action, the dedup identity"
 _KEY = "an outcome's operation key, the caller's"
 _HEADER = "the protocol file format's header line"
-_LED_D = "part D: an LED by its channel's name or its address"
 
 OPEN_STRINGS: dict[str, str] = {
     'ArgumentRefusedError.argument field': _MEMBER,
@@ -635,11 +634,9 @@ OPEN_STRINGS: dict[str, str] = {
     'GraphResult.message field': _PROSE,
     'HardwareCommandRefusedError.control_session field': _CONTROL,
     'IlluminationAPI.add_led_listener parameter listener': _CHANNEL,
-    'IlluminationAPI.ch2color return': _LED_D,
-    'IlluminationAPI.color2ch parameter color': _LED_D,
     'IlluminationAPI.get_led_state parameter channel': _CHANNEL,
-    'IlluminationAPI.led_off parameter channel': _LED_D,
-    'IlluminationAPI.led_on parameter channel': _LED_D,
+    'IlluminationAPI.led_off parameter channel': _CHANNEL,
+    'IlluminationAPI.led_on parameter channel': _CHANNEL,
     'IlluminationAPI.remove_led_listener parameter listener': _CHANNEL,
     'IlluminationAPI.save_led_state parameter tag': _TAG,
     'ImagingAPI.add_frame_listener parameter name': _LISTENER,

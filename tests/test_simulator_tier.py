@@ -206,7 +206,7 @@ class TestTheSessionReadsTheTier:
         try:
             led = session.scope._led_driver
             assert isinstance(led, LEDBoard)
-            session.scope.illumination.led_on(3, 100)
+            session.scope.illumination.led_on_by_address(3, 100)
             # The firmware answered the write, or it would have raised, and
             # the API's store reads the address lit at 100 mA.
             reading = led_reading(session.scope, 3)

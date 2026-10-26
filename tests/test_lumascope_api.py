@@ -471,10 +471,10 @@ class TestLEDChannelDiscovery:
 
         scope._led_driver = FourChannelLED()
 
-        scope.illumination.led_on(0, 100)  # Blue -- valid on 4-channel driver
+        scope.illumination.led_on_by_address(0, 100)  # Blue -- valid on 4-channel driver
         for channel in (5, 4):  # DF, PC -- off the 4-channel driver's table
             with pytest.raises(ArgumentRefusedError) as refused:
-                scope.illumination.led_on(channel, 100)
+                scope.illumination.led_on_by_address(channel, 100)
             assert refused.value.reason == 'led_address_unknown'
 
     def test_api_validation_error_message_reflects_actual_channels(self):
@@ -490,7 +490,7 @@ class TestLEDChannelDiscovery:
         scope._led_driver = TwoChannelLED()
 
         with pytest.raises(ArgumentRefusedError) as refused:
-            scope.illumination.led_on(3, 100)
+            scope.illumination.led_on_by_address(3, 100)
         assert refused.value.offered == (0, 1)
 
     def test_no_hardcoded_LED_VALID_CHANNELS_constant(self):

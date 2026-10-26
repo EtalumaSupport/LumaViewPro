@@ -374,6 +374,23 @@ def test_a_body_that_does_not_fit_is_422_and_reaches_nothing(client, session, bo
     assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
 
 
+def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client, session):
+    """C11: a board address is the in-process engineering members', so a
+    number for ``channel`` is refused and the address-to-name seams have no
+    route."""
+    answer = client.post(
+        '/api/v1/scope/illumination/led_on', json={'channel': 3, 'illumination_ma': 10.0}
+    )
+
+    assert answer.status_code == 422, answer.text
+    assert [
+        r for r in session.scope.illumination.get_led_states() if r.state != LedState.DARK
+    ] == []
+    for seam in ('ch2color', 'color2ch'):
+        for ask in (client.get, client.post):
+            assert ask(f'/api/v1/scope/illumination/{seam}').status_code == 404, seam
+
+
 def test_a_number_for_a_bool_is_422_and_reaches_nothing(client, session):
     motion = session.scope.motion
     before = motion.get_current_position('Z')

@@ -45,23 +45,23 @@ class TestLEDListener:
     def test_listener_fires_on_led_on(self, scope):
         events = []
         scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         assert len(events) == 1
         address, _name, state, illumination_ma = events[0]
         assert (address, state, illumination_ma) == (0, LedState.LIT, 100.0)
 
     def test_listener_fires_on_led_off(self, scope):
         events = []
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
-        scope.illumination.led_off(channel=0)
+        scope.illumination.led_off_by_address(0)
         assert len(events) == 1
         assert (events[0][0], events[0][2]) == (0, LedState.DARK)
 
     def test_listener_fires_on_leds_off(self, scope):
         events = []
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.led_on(channel=1, illumination_ma=50)
+        scope.illumination.led_on_by_address(0, 100)
+        scope.illumination.led_on_by_address(1, 50)
         scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
         scope.illumination.leds_off()
         # One event per board address, every one dark.
@@ -71,10 +71,10 @@ class TestLEDListener:
 
     def test_listener_not_fired_on_skip(self, scope):
         """When led_on is called with same params (skip-check), no listener fires."""
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         events = []
         scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
-        scope.illumination.led_on(channel=0, illumination_ma=100)  # redundant -- should skip
+        scope.illumination.led_on_by_address(0, 100)  # redundant -- should skip
         assert len(events) == 0
 
     def test_remove_listener(self, scope):
@@ -82,7 +82,7 @@ class TestLEDListener:
         listener = lambda a, n, st, m: events.append((a, n, st, m))
         scope.illumination.add_led_listener(listener)
         scope.illumination.remove_led_listener(listener)
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         assert len(events) == 0
 
     def test_listener_exception_does_not_propagate(self, scope):
@@ -93,7 +93,7 @@ class TestLEDListener:
 
         scope.illumination.add_led_listener(bad_listener)
         # Should not raise
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         assert led_reading(scope, 0).state is LedState.LIT
 
     def test_listener_fires_from_multiple_threads(self, scope):
@@ -110,7 +110,7 @@ class TestLEDListener:
         scope.illumination.add_led_listener(listener)
 
         def turn_on(ch, illumination_ma):
-            scope.illumination.led_on(channel=ch, illumination_ma=illumination_ma)
+            scope.illumination.led_on_by_address(ch, illumination_ma)
 
         t1 = threading.Thread(target=turn_on, args=(0, 100), name='thread-A')
         t2 = threading.Thread(target=turn_on, args=(1, 50), name='thread-B')
@@ -141,7 +141,7 @@ class TestLEDOwnership:
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
         lease.release(leave_on=True)
-        scope.illumination.led_off(channel=0)  # no lease = unconditional
+        scope.illumination.led_off_by_address(0)  # no lease = unconditional
         assert led_reading(scope, 0).state is LedState.DARK
 
     def test_leds_off_nuclear_clears_all(self, scope):
@@ -166,8 +166,8 @@ class TestLEDSaveRestore:
 
     def test_save_restore_roundtrip(self, scope):
         """Save state with LEDs on, turn all off, restore, verify original."""
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.led_on(channel=1, illumination_ma=50)
+        scope.illumination.led_on_by_address(0, 100)
+        scope.illumination.led_on_by_address(1, 50)
         snapshot = scope.illumination.save_led_state('test')
         scope.illumination.leds_off()
         assert led_reading(scope, 0).state is LedState.DARK
@@ -179,14 +179,14 @@ class TestLEDSaveRestore:
         """A snapshot holds every address, so one taken with nothing lit
         restores every address dark."""
         snapshot = scope.illumination.save_led_state('dark')
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         scope.illumination.restore_led_state(snapshot)
         assert led_reading(scope, 0).state is LedState.DARK
 
     def test_af_pattern_save_restore(self, scope):
         """Simulate the AF pattern: save -> own LED on -> do work -> release -> restore."""
         # User has Blue LED on
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         # AF starts
         snapshot = scope.illumination.save_led_state('autofocus')
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())

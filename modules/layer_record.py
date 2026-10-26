@@ -194,16 +194,6 @@ class ChannelRecord:
     display_color: str
     label: str
 
-    @property
-    def led_channel(self) -> tuple[int, ...]:
-        """``led_addresses`` by its old name, unpublished.
-
-        Read by the engineering plugin releases before the one that reads
-        ``led_addresses``; it goes when ``MINIMUM_PLUGIN_VERSIONS`` rises
-        past them.
-        """
-        return self.led_addresses
-
 
 class IdentitySource(enum.StrEnum):
     """Which rung of the identity resolver answered."""

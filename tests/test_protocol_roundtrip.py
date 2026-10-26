@@ -2147,9 +2147,9 @@ class TestLumascapeAPILed:
     """Direct tests on Lumascope LED API with simulated hardware."""
 
     def test_led_on_off(self, scope):
-        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on_by_address(0, 100)
         assert scope.illumination.get_led_state('Blue').state is LedState.LIT
-        scope.illumination.led_off(channel=0)
+        scope.illumination.led_off_by_address(0)
         assert scope.illumination.get_led_state('Blue').state is LedState.DARK
 
     def test_led_on_by_color_name(self, scope):

@@ -91,15 +91,31 @@ def test_a_name_that_is_no_layer_is_refused_offering_the_catalogue(session, memb
     assert _lit(session) == []
 
 
-@pytest.mark.parametrize('channel', [99, -1, np.int64(99)])
-def test_a_number_off_the_boards_table_lights_nothing(session, channel):
+@pytest.mark.parametrize('address', [99, -1, np.int64(99)])
+def test_an_address_off_the_boards_table_lights_nothing(session, address):
     refusal = _refused(
-        lambda: session.scope.illumination.led_on(channel, 10.0), 'led_address_unknown'
+        lambda: session.scope.illumination.led_on_by_address(address, 10.0),
+        'led_address_unknown',
     )
 
     assert refusal.offered == (0, 1, 2, 3, 4, 5, 6, 7)
     assert _lit(session) == []
-    _refused(lambda: session.scope.illumination.ch2color(channel), 'led_address_unknown')
+    _refused(lambda: session.scope.illumination.ch2color(address), 'led_address_unknown')
+
+
+@pytest.mark.parametrize('member', ['led_on', 'led_off'])
+def test_an_led_is_lit_and_darkened_by_its_channels_name_not_a_board_address(session, member):
+    """C11: an address is the engineering members' (``led_on_by_address``)."""
+    call = {
+        'led_on': lambda: session.scope.illumination.led_on(3, 10.0),
+        'led_off': lambda: session.scope.illumination.led_off(3),
+    }[member]
+
+    with pytest.raises(ArgumentTypeRefusedError) as refused:
+        call()
+
+    assert (refused.value.reason, refused.value.argument) == ('wrong_argument_type', 'channel')
+    assert _lit(session) == []
 
 
 def test_one_leds_read_takes_its_channels_name_not_a_board_address(session):
