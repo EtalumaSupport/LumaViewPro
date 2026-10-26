@@ -1309,16 +1309,14 @@ class ProtocolImageWriter:
                 #
                 # The apply runs both writes even when one is not taken, so the
                 # camera is left at the step's other value; the step is then
-                # not captured (below). No auto-gain settings, so the auto-gain
-                # mode is not written: an auto-gain write and the resync after
-                # it, which can leave the exposure unknown, would run for every
-                # manual step.
+                # not captured (below). The auto-gain mode is left as it is:
+                # an auto-gain write and the resync after it, which can leave
+                # the exposure unknown, would run for every manual step.
                 try:
                     self._scope.camera.apply(
                         gain_db=step['Gain'],
                         exposure_ms=step['Exposure'],
-                        auto_gain=False,
-                        auto_gain_settings=None,
+                        auto_gain=None,
                         channel=step['Color'],
                     )
                 except CameraSettingRejected as rejected:

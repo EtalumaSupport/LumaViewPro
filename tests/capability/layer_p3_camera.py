@@ -38,9 +38,7 @@ try:
     step('lock_auto_gain()', lambda: im_camera.lock_auto_gain())
     step(
         f'camera.apply({LED0})',
-        lambda: im_camera.apply(
-            channel=LED0, gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
-        ),
+        lambda: im_camera.apply(channel=LED0, gain_db=3.0, exposure_ms=50.0, auto_gain=None),
     )
     print(
         'after apply: gain',

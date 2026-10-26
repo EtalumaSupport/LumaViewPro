@@ -1487,7 +1487,7 @@ class CameraAPI:
         )
 
     def _set_auto_gain_impl(
-        self, state: bool, settings: dict, *, resume_after_capture: bool = True
+        self, state: bool, settings: dict | None, *, resume_after_capture: bool = True
     ) -> bool | None:
         """Enable or disable automatic gain adjustment.
 
@@ -1501,6 +1501,7 @@ class CameraAPI:
                 and optionally 'max_exposure_ms' / 'min_exposure_ms' (the
                 per-channel-class bounds of the exposure AG/AE may settle
                 in; the caller supplies them since it knows the layer).
+                Read only to arm: turning auto-gain off reads none.
             resume_after_capture: with ``state=True``, whether a capture
                 that locks this arm re-arms it afterwards (live view) or
                 leaves the camera at the locked values (a protocol step).
@@ -1536,6 +1537,8 @@ class CameraAPI:
             return True
 
         def _write_auto_gain():
+            if not state:
+                return self._driver.auto_gain(False)
             return self._driver.auto_gain(
                 state,
                 target_brightness=settings['target_brightness'],
@@ -3636,19 +3639,24 @@ class CameraAPI:
         self,
         gain_db: float,
         exposure_ms: float,
-        auto_gain: bool = False,
+        auto_gain: bool | None = None,
         auto_gain_settings: dict | None = None,
         resume_after_capture: bool = True,
         channel: str = '(unspecified)',
     ) -> dict | None:
-        """Apply per-layer camera settings in one batched call, and wait.
+        """Apply a gain, an exposure and an auto-gain mode in one batched call, and wait.
 
-        See ``_apply_settings_impl`` for the contract; this
-        adds only the dispatch described on ``_dispatch_camera``. The
-        batch is one dispatched task, so the three writes stay atomic on
-        the camera lane.
+        See ``_apply_settings_impl`` for the contract; this adds the range
+        refusals ``set_gain_db`` and ``set_exposure_ms`` make, and the
+        dispatch described on ``_dispatch_camera``. The batch is one
+        dispatched task, so the three writes stay atomic on the camera lane.
 
         Args:
+            auto_gain: The mode the camera is left in. True arms auto-gain
+                from ``auto_gain_settings``; False turns it off; None, the
+                default, leaves the mode as it is and writes none.
+            auto_gain_settings: The arm's settings, read only when
+                ``auto_gain`` is True, which needs them.
             channel: The channel these settings belong to, for the log line.
                 Optional here and required on the impl: this member is the
                 external-caller surface, where an omitted channel should not
@@ -3656,19 +3664,45 @@ class CameraAPI:
                 self-describing in api.log rather than anonymous.
 
         Raises:
-            ArgumentRefusedError: ``'missing_key'``, ``auto_gain_settings``
-                lacks a key the auto-gain write reads; ``'not_a_number'``,
-                one is not a number; ``'key_unknown'``, it holds a key the
-                write does not take; ``'gain_range_inverted'``, its minimum
-                gain is above its maximum.
+            ArgumentRefusedError: ``'missing_key'``, ``auto_gain`` is True
+                and ``auto_gain_settings`` is None or lacks a key the
+                auto-gain write reads; ``'not_a_number'``, one of its values,
+                the gain or the exposure is not a finite number;
+                ``'key_unknown'``, it holds a key the write does not take;
+                ``'gain_range_inverted'``, its minimum gain is above its
+                maximum. Nothing was written.
+            CameraSettingOutOfRangeError: ``'gain_db_out_of_range'`` or
+                ``'exposure_ms_out_of_range'``, the gain or the exposure is
+                outside the range the camera declares; nothing was written.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera refused the gain, the
                 exposure or the auto-gain change, as
                 ``_apply_settings_impl`` says.
         """
-        if auto_gain_settings is not None:
+        if auto_gain:
+            if auto_gain_settings is None:
+                raise ArgumentRefusedError('missing_key', argument='auto_gain_settings', value=None)
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
+        # The range is the connected camera's, as for the single setters.
+        self.refuse_camera_not_connected('apply')
+        limits = self._scope.capabilities.camera_limits
+        self._refuse_out_of_range(
+            'gain_db',
+            gain_db,
+            limits.gain_min_db if limits else None,
+            limits.gain_max_db if limits else None,
+            noun='gain',
+            unit='dB',
+        )
+        self._refuse_out_of_range(
+            'exposure_ms',
+            exposure_ms,
+            limits.exposure_min_ms if limits else None,
+            limits.exposure_max_ms if limits else None,
+            noun='exposure',
+            unit='ms',
+        )
         return self._dispatch_camera(
             self._no_layers_write(self._apply_settings_impl),
             'apply',
@@ -3688,7 +3722,7 @@ class CameraAPI:
         exposure_ms: float,
         *,
         layer: str,
-        auto_gain: bool = False,
+        auto_gain: bool | None = None,
         auto_gain_settings: dict | None = None,
         resume_after_capture: bool = True,
     ) -> dict | None:
@@ -3714,11 +3748,12 @@ class CameraAPI:
                 keyword-only: two layers sharing a gain and an exposure
                 otherwise write identical log lines, and one apply becomes
                 indistinguishable from two. Every caller already holds it.
-            auto_gain: The layer's stored auto-gain preference. A camera
-                without hardware auto-gain applies it as manual
-                (``applied_auto_gain_for``); the store keeps it.
-            auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db
-                               (required if auto_gain is True).
+            auto_gain: The auto-gain mode to leave the camera in: True arms
+                it, False turns it off, None leaves the mode as it is and
+                writes none. A camera without hardware auto-gain applies
+                True as manual (``applied_auto_gain_for``); the store keeps it.
+            auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db;
+                               read only when auto_gain is True, which needs it.
 
         Returns:
             dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
@@ -3743,7 +3778,7 @@ class CameraAPI:
         # divergence is why the cap cannot be left to the driver.
         gain = self.applied_gain_db_for(gain_db)
         exposure = self.applied_exposure_ms_for(exposure_ms)
-        auto = self.applied_auto_gain_for(auto_gain)
+        auto = None if auto_gain is None else self.applied_auto_gain_for(auto_gain)
 
         def _write_mode():
             return self._set_auto_gain_impl(
@@ -3765,11 +3800,11 @@ class CameraAPI:
                 refused.append(rejected)
                 return None
 
-        if auto_gain_settings is not None and not auto.applied:
+        if auto is not None and not auto.applied:
             _attempt(_write_mode)
         gain_result = _attempt(lambda: self._set_gain_db_impl(gain.applied_db))
         exposure_result = _attempt(lambda: self._set_exposure_ms_impl(exposure.applied_ms))
-        if auto_gain_settings is not None and auto.applied:
+        if auto is not None and auto.applied:
             _attempt(_write_mode)
         # Both numbers when the camera held one down, so a bundle shows the
         # intent that was stored next to the value the sensor took; one
@@ -3777,11 +3812,12 @@ class CameraAPI:
         capped_note = ''
         if gain.capped or exposure.capped:
             capped_note = f' capped(stored gain={gain.stored_db}dB exp={exposure.stored_ms}ms)'
-        if auto.capped:
+        if auto is not None and auto.capped:
             capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
+        mode = 'unchanged' if auto is None else auto.applied
         _api_log.info(
             f'camera.apply layer={layer} gain={gain.applied_db}dB '
-            f'exp={exposure.applied_ms}ms auto_gain={auto.applied}{capped_note}'
+            f'exp={exposure.applied_ms}ms auto_gain={mode}{capped_note}'
         )
         if len(refused) == 1:
             raise refused[0]

@@ -105,3 +105,24 @@ def test_a_value_in_range_is_applied(sim_camera):
     camera, _cam = sim_camera
     maximum = camera._scope.capabilities.camera_limits.gain_max_db
     assert camera.set_gain_db(maximum) == pytest.approx(maximum)
+
+
+def test_the_layer_apply_refuses_what_the_single_setters_refuse(sim_scope, monkeypatch):
+    """``apply`` is a public door to the same gain and exposure, so it refuses
+    the same values before anything reaches the camera."""
+    camera = sim_scope.camera
+    limits = sim_scope.capabilities.camera_limits
+    written = []
+    monkeypatch.setattr(sim_scope._camera_driver, 'gain', lambda v: written.append(v) or v)
+    monkeypatch.setattr(sim_scope._camera_driver, 'exposure_t', lambda v: written.append(v) or v)
+
+    for gain_db, exposure_ms, reason in (
+        (limits.gain_max_db + 5.0, 20.0, 'gain_db_out_of_range'),
+        (5.0, limits.exposure_max_ms + 1.0, 'exposure_ms_out_of_range'),
+        (5.0, limits.exposure_min_ms / 2, 'exposure_ms_out_of_range'),
+    ):
+        with pytest.raises(CameraSettingOutOfRangeError) as refused:
+            camera.apply(gain_db, exposure_ms, channel='BF')
+        assert refused.value.reason == reason, (gain_db, exposure_ms)
+
+    assert written == [], 'a refused apply writes neither value'
