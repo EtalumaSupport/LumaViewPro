@@ -89,14 +89,14 @@ class TestGetImageFromBufferUsesFrameDepth:
         cam.start_grabbing()
 
         # The switch race: the buffered frame is a 12-bit white frame (stamped 12
-        # at capture), but the driver's LIVE significant_bits has already flipped
-        # to 8. grab hands back the frame WITH its own depth (12); the live
-        # query (8) is the stale value the consumer must NOT use.
+        # at capture), but the camera is already in Mono8, its format's depth 8.
+        # grab hands back the frame WITH its own depth (12); the camera's
+        # current depth (8) is the stale value the consumer must NOT use.
         mono12_white = delivered_frame(
             np.full((64, 64), 4095, dtype=np.uint16), significant_bits=12
         )
         monkeypatch.setattr(cam, 'grab', lambda: mono12_white)
-        monkeypatch.setattr(SimulatedCamera, 'significant_bits', property(lambda self: 8))
+        assert cam.get_pixel_format() == 'Mono8'
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)

@@ -176,14 +176,10 @@ class TestDepthContract:
     def test_native_bit_depth_is_container_width_16(self):
         assert IDSCamera.native_bit_depth == 16
 
-    @pytest.mark.parametrize(
-        'wire,expected',
-        [('Mono12g24IDS', 12), ('Mono10g40IDS', 8), ('Mono8', 8)],
-    )
-    def test_significant_bits_property_tracks_format(self, wire, expected):
+    def test_the_delivered_depth_follows_the_wire_format(self):
         cam = bare_ids_camera()
-        cam._pixel_format_cache = wire
-        assert cam.significant_bits == expected
+        expected = {'Mono12g24IDS': 12, 'Mono10g40IDS': 8, 'Mono8': 8}
+        assert {wire: cam.significant_bits_for_format(wire) for wire in expected} == expected
 
 
 class TestFrameRateCap:

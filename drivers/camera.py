@@ -1107,23 +1107,6 @@ class Camera(ABC):
         """
         return self.format_significant_bits(pixel_format, self.native_bit_depth)
 
-    @property
-    def significant_bits(self) -> int:
-        """Meaningful low bits of a delivered frame (payload, not container).
-
-        Derived from the active pixel format: ``Mono12`` -> 12, ``Mono10`` ->
-        10, ``Mono8`` -> 8 (the leading bit-count in the GenICam format name).
-        Right-aligned, so a value of ``(1 << significant_bits) - 1`` is full
-        scale. Distinct from ``native_bit_depth`` (the container width): a
-        Mono12 frame is significant_bits 12 in a 16-wide container. A summed
-        capture is promoted to a 16-bit container by the imaging layer and is
-        not described by this field. Drivers whose delivered depth does not
-        follow the format name override the rule -- IDS delivers its Mono10
-        wire as 8 bits, FX2 is Mono8-only. Falls back
-        to the container width when the format name carries no bit count.
-        """
-        return self.significant_bits_for_format(self.get_pixel_format())
-
     @abstractmethod
     def exposure_t(self, exposure_ms: float) -> float | bool | None:
         """Set exposure time and report the value actually in effect.

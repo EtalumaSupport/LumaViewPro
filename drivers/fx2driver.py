@@ -2204,7 +2204,6 @@ class FX2Camera(Camera):
     # default so capability consumers (buffer sizing, save-format selection)
     # treat FX2 frames as 8-bit from the start, matching IDSCamera.
     native_bit_depth = 8
-    significant_bits = 8
 
     def significant_bits_for_format(self, pixel_format: str | None) -> int:
         """FX2 delivers 8-bit payloads regardless of any format string."""

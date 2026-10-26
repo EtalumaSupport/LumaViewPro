@@ -72,16 +72,15 @@ class ScriptedCameraDriver:
     the final entry repeats forever. A RAISE entry raises RuntimeError (the
     raising-driver failure class the API boundary must contain).
 
-    The depth surface reuses the REAL base-class rule and properties
-    (Camera.format_significant_bits / significant_bits), so the tests
-    exercise the one
+    The depth surface reuses the REAL base-class rule
+    (Camera.format_significant_bits / significant_bits_for_format), so the
+    tests exercise the one
     canonical format-name-to-depth path, not a re-implementation.
     """
 
     native_bit_depth = 16
     format_significant_bits = staticmethod(Camera.format_significant_bits)
     significant_bits_for_format = Camera.significant_bits_for_format
-    significant_bits = Camera.significant_bits
     # Reuses the real rule: the ordinal comes from the attached handler, and
     # is 0 when there is none -- nothing has been delivered.
     frames_delivered = Camera.frames_delivered

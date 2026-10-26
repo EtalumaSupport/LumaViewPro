@@ -862,7 +862,10 @@ class SimulatedCamera(Camera):
                 in_flight.append(started)
                 exposure = in_flight.popleft()
                 image = self._generate_image(exposure)
-                bits = self.significant_bits
+                # The depth is the format the frame was made under, as a real
+                # camera's comes from its grab result; never a read of the
+                # camera's node, which an injected read fault replaces.
+                bits = self.significant_bits_for_format(self._pixel_format)
                 chunks = {
                     'FrameID': exposure.frame_id,
                     'Timestamp': exposure.started_ticks,

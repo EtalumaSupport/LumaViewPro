@@ -13,6 +13,10 @@ step's read fell through to the scan's transient retry (a run that
 completed, or ``consecutive_scan_failures`` blaming the cable) and the
 snapshot's to the run loop's catch-all (``run_loop_crashed``).
 
+A read that fails is met by a reader, never by the simulated camera's own
+frame loop, so an armed pixel-format read leaves the frames coming and a run
+past it goes on.
+
 Driven end to end on the simulated scope, the fault armed through
 ``scope.simulation.refuse_camera_read``.
 """
@@ -22,6 +26,7 @@ import threading
 
 import pytest
 
+from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import CaptureFailedError
 from modules.lumascope_api.illumination import LedState
 from modules.notification_center import Severity, notifications
@@ -35,6 +40,10 @@ from tests.test_composite_run_e2e import headless_settings, open_composite_sessi
 EVERY_TIME = 50
 # A bound on the wait for the run thread's telling, which follows its cleanup.
 TOLD_WAIT_S = 30.0
+# Frames the feed delivers after the arming, as proof it still streams; and
+# a bound on the wait for them, far past the fast tier's frame interval.
+FRAMES_AFTER = 3
+FRAMES_WAIT_S = 10.0
 
 
 @pytest.fixture
@@ -81,6 +90,51 @@ def _armed_at_scan_start(session, node, count):
             session.scope.simulation.refuse_camera_read(node, 'raise', count=count)
 
     return RunEvents(scan_started=arm)
+
+
+class TestTheSimulatorsOwnFeed:
+    """An injected failed read is met by a reader, never by the simulated
+    camera's frame loop: a real driver tags a frame from the frame, not by
+    reading a node."""
+
+    def test_an_armed_pixel_format_read_is_the_next_reader_s_and_the_frames_keep_coming(
+        self, sim_scope
+    ):
+        camera = sim_scope.camera
+        arrived = threading.Event()
+        after = []
+
+        def count(_frame):
+            after.append(True)
+            if len(after) >= FRAMES_AFTER:
+                arrived.set()
+
+        sim_scope.simulation.refuse_camera_read('pixel_format', 'raise', count=1)
+        sim_scope.imaging.add_frame_listener(count, name='frames after the arming')
+        try:
+            assert arrived.wait(FRAMES_WAIT_S), (
+                f'the feed stopped: {len(after)} frames after the arming'
+            )
+        finally:
+            sim_scope.imaging.remove_frame_listener(count)
+
+        # Frames were made past the arming, and the fault is still the reader's.
+        with pytest.raises(CameraReadFailedError, match='pixel format'):
+            camera.read_pixel_format()
+        assert camera.read_pixel_format() == 'Mono8', 'the one failed read was not one'
+
+    def test_a_run_goes_on_past_one_failed_pixel_format_read(self, run_session):
+        session, runner, run_parent = run_session
+
+        outcome = _run(
+            runner, run_parent, _four_steps(), _armed_at_scan_start(session, 'pixel_format', 1)
+        )
+
+        assert outcome.status == 'completed', outcome
+        assert outcome.captures.captured == 4, outcome.captures
+        # No capture reads the format; the run-end restore does, so the one
+        # failed read is the restore's, listed by cleanup.
+        assert outcome.cleanup_failures, outcome
 
 
 class TestInsideAStep:
