@@ -1557,6 +1557,7 @@ still states the major version.
 | level 33 | A channel is a `channel` on the whole surface: `scope.channel_identity` (`ChannelIdentity`, its `channels` of `ChannelRecord`), `ScopeModel.channels`, `ShownChannel.channel` and `FrameRecord.held_channel`; `set_channel_acquire` / `channel_acquire`, `set_channel_auto_gain` / `channel_auto_gain` / `channel_auto_gain_lock`, `save_channel_focus`, `apply_focus_to_channel_steps` and `apply_channel_settings`; every member that takes a channel takes `channel` (`channels` on `add_step`); the reasons `channel_unknown` and `no_channel_selected`. The old names are gone, with no alias. |
 | level 34 | A quantity's unit is the last part of its name: the camera's limits are `capabilities.camera_limits.gain_min_db`, `gain_max_db`, `analog_gain_max_db`, `exposure_min_ms` and `exposure_max_ms`; `scope.camera.read_frame_rate_fps()` and `read_exposure_min_ms()`; `run_grab_lifecycle_benchmark(inter_cycle_delay_s=...)` takes the delay in seconds, 0 to 60, and its result names it `inter_cycle_delay_s`. The old names are gone, with no alias. |
 | level 35 | The image mode is an `ImageMode` (`modules.image_mode`: `EIGHT_BIT`, `SCIENTIFIC`, `SCALED`, `FALSE_COLOR_RGB`): `scope.camera.set_image_mode` takes a member or its plain string and refuses any other value `not_offered` (`ArgumentRefusedError`) before anything is applied; `scope.camera.image_mode` answers a member. The `IMAGE_MODE_*` names are the members until the plugin release that names the members, then go. |
+| level 36 | An LED is lit by its board address on the engineering members `scope.illumination.led_on_by_address(address, illumination_ma)` and `led_off_by_address(address)`; an address off the board is refused `led_address_unknown` (`argument` `address`), and one no channel of the model drives `axis_absent` with `MissingPart.led_address(address)`. `led_on` / `led_off` still take an address until the plugin release that lights through these, then take a channel's name only. |
 
 ### Configuration queries
 
@@ -1921,6 +1922,15 @@ RP2040 board six, so the same integer means different LEDs, or none, depending
 on the board. Ask `scope.channel_identity.channels` for what a given scope can actually drive.
 Passing an integer still works today as a legacy compatibility form, but it is
 not the supported contract and will not be part of the REST surface.
+
+**By address, for the bench**: `led_on_by_address(address, illumination_ma)` and
+`led_off_by_address(address)` are engineering members, in process only, for a bench
+tool and for a model this release does not know. They light and darken a board address on the
+lane `led_on` and `led_off` use, judged in the same order, and the address reads
+back and is reported by its address as a channel's is. An address outside the
+installed board's table is `led_address_unknown` (`argument` `address`), and an
+address no channel of a known model drives is `axis_absent`
+(`MissingPart.led_address(address)`); each refusal names the member called.
 
 **LEDs the scope cannot drive**: `led_on` asks, in order, whether the channel is one at all, whether an LED controller is connected, and whether this model has the LED. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`) offering the catalogue, and an address outside the installed board's table `led_address_unknown` offering the board's addresses, at the door, whatever the scope is doing. A current outside 0 to the board's maximum is `illumination_out_of_range`, its `limits` holding both. With no LED controller connected it raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.LED_CONTROLLER`). An LED this model does not have -- a layer it lacks (an LS560's `'Red'`), a layer that drives no LED (`'Lumi'`), or an address no layer of the model drives (an LS560's `2`) -- raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.led(name)`, or `MissingPart.led_address(address)` for an address), and nothing lights; it never maps to a substitute channel. A model this release does not know (its layer identity unresolved) takes the board's addresses. `led_off` of an LED the scope does not have is an idempotent no-op — a channel the scope does not have is already off.
 
@@ -3299,7 +3309,9 @@ Reached through `session.scope.illumination`.
 - `get_led_state`
 - `get_led_states`
 - `led_off`
+- `led_off_by_address` (in-process)
 - `led_on`
+- `led_on_by_address` (in-process)
 - `leds_off`
 - `remove_led_listener` (in-process)
 - `restore_led_state`

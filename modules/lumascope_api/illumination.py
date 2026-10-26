@@ -1105,6 +1105,61 @@ class IlluminationAPI:
             return
         self._led_off_impl(address, member='led_off')
 
+    @api(in_process=True, engineering=True)
+    def led_on_by_address(self, address: int, illumination_ma: float) -> float:
+        """Light an LED board address at the specified current, and wait for it.
+
+        For the bench and for a model this release does not know; every
+        other caller lights a channel by its name (``led_on``). The address
+        is lit on the lane ``led_on`` lights a name's address on, judged in
+        the same order, and read back and reported by its address as a
+        name's is. Returns the current commanded on the board's step; see
+        ``_led_on_impl`` for the return and the errors it raises.
+
+        Raises:
+            ArgumentRefusedError: ``'led_address_unknown'``, ``address`` is
+                not on the attached board's table, offering its addresses;
+                nothing was sent.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'`` (``MissingPart.led_address``) or
+                ``'exclusive_activity_running'``, as ``_led_on_impl`` says;
+                nothing was sent.
+            BoardNoReplyError: the board did not answer; what it wrote is
+                unknown (``_write``).
+        """
+        self._refuse_not_a_board_address(address, 'address')
+        return self._dispatch_led(
+            self._led_on_impl,
+            'led_on_by_address',
+            args=(address, illumination_ma),
+            kwargs={'member': 'led_on_by_address'},
+        )
+
+    @api(in_process=True, engineering=True)
+    def led_off_by_address(self, address: int) -> None:
+        """Darken an LED board address, and wait for it.
+
+        The engineering counterpart of ``led_off``, as ``led_on_by_address``
+        is of ``led_on``. See ``_led_off_impl`` for the off's contract.
+
+        Raises:
+            ArgumentRefusedError: ``'led_address_unknown'``, ``address`` is
+                not on the attached board's table, offering its addresses;
+                nothing was sent.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'exclusive_activity_running'``, as ``_led_off_impl`` says;
+                nothing was sent.
+            BoardNoReplyError: the board did not answer; what it wrote is
+                unknown (``_write``).
+        """
+        self._refuse_not_a_board_address(address, 'address')
+        return self._dispatch_led(
+            self._led_off_impl,
+            'led_off_by_address',
+            args=(address,),
+            kwargs={'member': 'led_off_by_address'},
+        )
+
     @api
     def leds_off(self) -> None:
         """Turn off all LEDs, and wait for it.
