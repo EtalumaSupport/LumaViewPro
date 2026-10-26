@@ -134,16 +134,17 @@ class TestTheController:
         made = _capture_engine_and_writer(monkeypatch)
         real_thread = threading.Thread
 
-        class _Unstartable(real_thread):
+        # a stand-in by design: thread exhaustion is the host's, not the
+        # simulator's. A subclass, not a function: the patch is the process's
+        # one threading module, and a module first imported under it
+        # evaluates `threading.Thread | None`.
+        class _FinishThreadCannotStart(real_thread):
             def start(self):
-                raise RuntimeError("can't start new thread")
+                if self.name == 'ManualRecordingFinish':
+                    raise RuntimeError("can't start new thread")
+                super().start()
 
-        def _thread(*args, **kwargs):
-            if kwargs.get('name') == 'ManualRecordingFinish':
-                return _Unstartable(*args, **kwargs)
-            return real_thread(*args, **kwargs)
-
-        monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
+        monkeypatch.setattr(manual_recording_module.threading, 'Thread', _FinishThreadCannotStart)
         controller, _scope, _clock = make_controller(tmp_path, post_processing=post_processing)
 
         with pytest.raises(RuntimeError):

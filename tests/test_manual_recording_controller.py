@@ -500,15 +500,20 @@ def _fail_the_finish_thread(monkeypatch):
     that exercises the unwind's listener removal. Keyed on the thread's
     production name: the engine's writer lane is constructed in the same
     window and must still start, or the claim could never be released.
+    The stand-in is a ``Thread`` subclass, not a function: the patch is the
+    process's one ``threading`` module, and a module first imported under
+    it evaluates ``threading.Thread | None``.
     """
     real_thread = threading.Thread
 
-    def _thread(*args, **kwargs):
-        if kwargs.get('name') == 'ManualRecordingFinish':
-            raise RuntimeError('scripted thread exhaustion')
-        return real_thread(*args, **kwargs)
+    # a stand-in by design: thread exhaustion is the host's, not the simulator's
+    class _FinishThreadCannotStart(real_thread):
+        def start(self):
+            if self.name == 'ManualRecordingFinish':
+                raise RuntimeError('scripted thread exhaustion')
+            super().start()
 
-    monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
+    monkeypatch.setattr(manual_recording_module.threading, 'Thread', _FinishThreadCannotStart)
 
 
 class TestFailedStartUnwind:

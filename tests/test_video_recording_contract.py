@@ -748,6 +748,19 @@ class _QueueThatFailsToRead:
         raise RuntimeError('scripted queue read failure')
 
 
+class _NoThreadStarts(threading.Thread):
+    """Thread exhaustion: every start raises, as the host's does.
+
+    A stand-in by design: thread exhaustion is the host's, not the
+    simulator's. A subclass, not a function: the patch is the process's one
+    ``threading`` module, and a module first imported under it evaluates
+    ``threading.Thread | None``.
+    """
+
+    def start(self):
+        raise RuntimeError('scripted thread exhaustion')
+
+
 class TestClaimLifetime:
     """The claim is freed on every end path, including the failing ones.
 
@@ -820,11 +833,7 @@ class TestClaimLifetime:
         # if start() strands the claim no caller can free it.
         engine, _writer, _clock, claim = make_engine(tmp_path)
         real_thread = threading.Thread
-
-        def _no_threads(*args, **kwargs):
-            raise RuntimeError('scripted thread exhaustion')
-
-        monkeypatch.setattr(threading, 'Thread', _no_threads)
+        monkeypatch.setattr(threading, 'Thread', _NoThreadStarts)
         with pytest.raises(RuntimeError):
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         monkeypatch.setattr(threading, 'Thread', real_thread)
@@ -832,12 +841,8 @@ class TestClaimLifetime:
 
     def test_start_failure_leaves_engine_startable_again(self, tmp_path, monkeypatch):
         engine, _writer, clock, claim = make_engine(tmp_path)
-
-        def _no_threads(*args, **kwargs):
-            raise RuntimeError('scripted thread exhaustion')
-
         real_thread = threading.Thread
-        monkeypatch.setattr(threading, 'Thread', _no_threads)
+        monkeypatch.setattr(threading, 'Thread', _NoThreadStarts)
         with pytest.raises(RuntimeError):
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         monkeypatch.setattr(threading, 'Thread', real_thread)
