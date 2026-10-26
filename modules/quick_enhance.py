@@ -21,7 +21,7 @@ import numpy as np
 
 from lvp_logger import logger
 from modules import image_utils
-from modules.layer_record import GREY, ChannelColors, Color
+from modules.layer_record import GREY, ChannelColors, Color, stored_key
 from modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -130,9 +130,10 @@ class QuickEnhancer:
     @staticmethod
     def _channel_color(channel: str | None, channel_colors: ChannelColors) -> Color:
         """The colour a derived image of ``channel`` is shown in: a layer's
-        colour in ``channel_colors``, and grey for a source that names none
-        (a foreign file, a composite, an unrecognised token)."""
-        return channel_colors.get(channel, GREY)
+        colour in ``channel_colors`` (a stored old name's is its stock key's),
+        and grey for a source that names none (a foreign file, a composite,
+        an unrecognised token)."""
+        return channel_colors.get(stored_key(channel), GREY)
 
     @staticmethod
     def colorize_mono_for_visual_output(

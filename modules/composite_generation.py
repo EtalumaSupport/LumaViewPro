@@ -75,13 +75,16 @@ class CompositeGeneration(ProtocolPostProcessor):
         thresholds = kwargs['brightness_thresholds_percent']
         settings = [('format', kwargs.get('output_format', image_mode.OutputFormat.TIFF))]
         for layer in sorted(set(group['Color']) - set(transmitted)):
+            # Named as the run stored it; an old name's colour and threshold
+            # are its stock key's.
+            key = layer_record.stored_key(layer)
             settings.append(
-                (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][layer]))
+                (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][key]))
             )
             if blended:
                 # A missing threshold is refused by the build itself, before
                 # anything is written; this only names the group's output.
-                settings.append((f'{layer}.threshold', str(thresholds.get(layer))))
+                settings.append((f'{layer}.threshold', str(thresholds.get(key))))
         return post_derivation.Step(PostFunction.COMPOSITE, tuple(settings))
 
     def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
@@ -230,6 +233,11 @@ class CompositeGeneration(ProtocolPostProcessor):
 
         BF_present = False
         BF_channel = ''
+
+        # Every layer is read by the key it reads as -- its kind, colour and
+        # threshold -- so an old run's colour names build as their stock keys.
+        # Nothing below writes a layer's name.
+        df = df.assign(Color=df['Color'].map(layer_record.stored_key))
 
         allowed_BF_layers = common_utils.get_transmitted_layers()
         allowed_layers = [

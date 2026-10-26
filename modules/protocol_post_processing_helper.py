@@ -70,7 +70,9 @@ class ProtocolPostProcessingHelper:
 
         raw_image_names = []
         post_image_names = []
-        raw_image_dirs = ['.', *common_utils.get_layers()]
+        # A run saved a folder per channel under the names it stored, an old
+        # run's under its old names.
+        raw_image_dirs = ['.', *common_utils.get_stored_channel_names()]
 
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
             raise Exception('Specify only include_subpaths OR exclude_subpaths. Not both.')

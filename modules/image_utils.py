@@ -19,7 +19,7 @@ import tifffile as tf
 
 from modules.api_surface import api_fields
 from modules.exceptions import FrameDepthError, InputFramesUnusableError
-from modules.layer_record import GREY, Color
+from modules.layer_record import GREY, Color, stored_key
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -2667,11 +2667,13 @@ def generate_tiff_data(
         # channel -- the same value Channel.Name carries. Deriving it from the
         # render color instead made a false-color-off fluorescence frame record
         # itself as brightfield, contradicting its own Channel.Name in the same
-        # file and tracking a viewer checkbox into permanent metadata.
+        # file and tracking a viewer checkbox into permanent metadata. A
+        # stored old name is its stock key's kind.
         identity_channel = metadata['channel']
-        if identity_channel in common_utils.get_transmitted_layers():
+        identity_key = stored_key(identity_channel)
+        if identity_key in common_utils.get_transmitted_layers():
             modality = identity_channel
-        elif identity_channel in common_utils.get_image_layers():
+        elif identity_key in common_utils.get_image_layers():
             modality = 'MIF'
         elif identity_channel == 'Unknown':
             # A derived output whose source channel could not be determined

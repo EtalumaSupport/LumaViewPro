@@ -21,7 +21,7 @@ from modules.acquire_mode import AcquireMode
 from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
 
     import pandas as pd
 
@@ -181,7 +181,11 @@ def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
     return True
 
 
-def parse_legacy_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
+def parse_legacy_step_name(
+    name: str,
+    known_layers: 'Iterable[str] | None' = None,
+    known_objectives: 'Iterable[str]' = (),
+) -> StepNameComponents:
     """Recover the components from a rendered step name, by SHAPE not position.
 
     LEGACY LOAD BOUNDARY ONLY: the run-time pipeline never decodes a name --
@@ -201,7 +205,7 @@ def parse_legacy_step_name(name, known_layers=None, known_objectives=()) -> Step
     boundary and never trusted with user-typed text.
     """
     if known_layers is None:
-        known_layers = get_layers()
+        known_layers = get_stored_channel_names()
     layers = set(known_layers)
     objectives = set(known_objectives)
 
@@ -302,7 +306,7 @@ def step_components(step, **overrides) -> StepNameComponents:
     return dataclasses.replace(base, **overrides) if overrides else base
 
 
-def recover_step_label(step) -> tuple[str, bool]:
+def recover_step_label(step: 'pd.Series | Mapping[str, object]') -> tuple[str, bool]:
     """Recover (label, is_auto) for a legacy row that predates the Label column.
 
     Load-boundary classification, run once per row when migrating a pre-Label
@@ -351,7 +355,7 @@ def recover_step_label(step) -> tuple[str, bool]:
     else:
         anchored = re.fullmatch(r'custom\d+', segs[0]) is not None
         machine_base = segs[0]
-    if anchored and _machine_tokens_only(segs[1:], set(get_layers()), set()):
+    if anchored and _machine_tokens_only(segs[1:], set(get_stored_channel_names()), set()):
         return machine_base, True
 
     return name, False
@@ -463,6 +467,14 @@ def get_layers() -> list[str]:
     from modules.layer_record import release_catalogue
 
     return list(release_catalogue())
+
+
+def get_stored_channel_names() -> list[str]:
+    """Every channel name a saved file may hold: the release's keys, then the
+    old names earlier releases stored (``layer_record.stored_channel_names``)."""
+    from modules.layer_record import stored_channel_names
+
+    return list(stored_channel_names())
 
 
 def _layers_of_modality(modality: 'Modality') -> list[str]:

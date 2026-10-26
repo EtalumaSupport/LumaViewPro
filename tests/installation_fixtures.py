@@ -69,6 +69,87 @@ FLUORESCENCE_UNITS = {
 }
 
 
+# The release once its fluorescence keys are named for their excitation: each
+# old colour key's record under its stock filterset's key, every field
+# unchanged, and the non-stock filterset's two other channels after them.
+EXCITATION_KEYS = {'Blue': 'Ex405', 'Green': 'Ex488', 'Red': 'Ex589'}
+OLD_CHANNEL_NAMES = {
+    'Blue': {'led_address': 0, 'stock_key': 'Ex405'},
+    'Green': {'led_address': 1, 'stock_key': 'Ex488'},
+    'Red': {'led_address': 2, 'stock_key': 'Ex589'},
+}
+NON_STOCK_CHANNELS = (
+    _fluorescence_record('Ex550', '#00ff00', 7),
+    _fluorescence_record('Ex640', '#ff0000', 8),
+)
+
+
+def non_stock_block(transmitted: list[dict]) -> dict:
+    """A board's Channels block for the 488 / 550 / 640 filterset on LEDs 0 / 1 / 2,
+    shown blue, green and red, beside the unit's ``transmitted`` model rows."""
+    channels = {
+        row['key_name']: {k: v for k, v in row.items() if k != 'key_name'} for row in transmitted
+    }
+    for key, led, nm, color in (
+        ('Ex488', 0, 488, '#0000ff'),
+        ('Ex550', 1, 550, '#00ff00'),
+        ('Ex640', 2, 640, '#ff0000'),
+    ):
+        channels[key] = {
+            'display_name': None,
+            'led_channel': led,
+            'excitation_nm': nm,
+            'display_color': color,
+        }
+    return {'Channels': channels, 'Filterset': '488/550/640'}
+
+
+def write_release_in_excitation_keys(data: pathlib.Path) -> pathlib.Path:
+    """Write ``data/scopes.json``: the shipped release with ``EXCITATION_KEYS``
+    for its colour keys, ``NON_STOCK_CHANNELS`` added, and the old names in its
+    ``OldChannelNames``.
+
+    The caller installs it as the process's release (``use_release``).
+    """
+    scopes = json.loads((SHIPPED_DATA / 'scopes.json').read_text(encoding='utf-8'))
+    scopes['LayerOrder'] = [
+        {**record, 'key': EXCITATION_KEYS.get(record['key'], record['key'])}
+        for record in scopes['LayerOrder']
+    ] + list(NON_STOCK_CHANNELS)
+    for entry in scopes['Models'].values():
+        entry['Layers'] = [
+            {
+                **row,
+                'key_name': EXCITATION_KEYS.get(row['key_name'], row['key_name']),
+                'display_name': EXCITATION_KEYS.get(row['display_name'], row['display_name']),
+            }
+            for row in entry['Layers']
+        ]
+    scopes['OldChannelNames'] = OLD_CHANNEL_NAMES
+    path = pathlib.Path(data) / 'scopes.json'
+    path.write_text(json.dumps(scopes), encoding='utf-8')
+    return path
+
+
+def use_release(monkeypatch, scopes: pathlib.Path) -> None:
+    """Make ``scopes`` the process's release: its layer catalogue and its old names.
+
+    Both are read once per process from the installation's own folder, so a
+    test replaces the two caches for its own duration.
+    """
+    from modules import layer_record
+    from modules.path_utils import read_installation_file
+
+    contents = read_installation_file(scopes)
+    catalogue = layer_record.load_layer_catalogue(contents, scopes)
+    monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', catalogue)
+    monkeypatch.setattr(
+        layer_record,
+        '_OLD_NAMES_CACHE',
+        layer_record.load_old_channel_names(contents, scopes, catalogue),
+    )
+
+
 def write_release_with_added_channels(data: pathlib.Path) -> pathlib.Path:
     """Write ``data/scopes.json``: the shipped release plus ``ADDED_CHANNELS``
     and the ``FLUORESCENCE_UNITS`` models, each an LS850 with its own rows.

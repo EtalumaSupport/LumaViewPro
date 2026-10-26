@@ -122,7 +122,7 @@ def resolve(data_file, **kwargs):
     data = read_installation_file(data_file)
     catalogue = load_layer_catalogue(data, data_file)
     return resolve_layer_identity(
-        models=read_scope_models(data, data_file, catalogue),
+        models=read_scope_models(data, data_file, catalogue, old_names=()),
         catalogue=catalogue,
         report=REPORTED.append,
         **defaults,
@@ -423,7 +423,7 @@ class TestRowParsing:
             data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
             catalogue = load_layer_catalogue(data, 'scopes.json')
             with pytest.raises(InstallationFileError) as refused:
-                read_scope_models(data, 'scopes.json', catalogue)
+                read_scope_models(data, 'scopes.json', catalogue, old_names=())
             assert "model 'M'" in str(refused.value) and words in str(refused.value)
 
         failed = failing_cases(cases, check)
@@ -441,7 +441,7 @@ class TestRowParsing:
         }
         data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
         catalogue = load_layer_catalogue(data, 'scopes.json')
-        model = read_scope_models(data, 'scopes.json', catalogue)['M']
+        model = read_scope_models(data, 'scopes.json', catalogue, old_names=())['M']
         assert (model.has_focus, model.has_xy_stage, model.has_turret) == (False, False, False)
         assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
         assert type(model.led_board) is LedBoardFamily

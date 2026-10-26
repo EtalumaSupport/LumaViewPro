@@ -26,7 +26,7 @@ import enum
 import os
 import re
 import types
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, fields
 
 from lvp_logger import logger
@@ -271,6 +271,22 @@ class ChannelIdentity:
             f'so {channel} cannot {then}',
         )
 
+    def unit_key(self, name: str) -> str:
+        """The key this unit holds a stored ``name``'s channel under.
+
+        An old name meant an LED, not a wavelength: it is this unit's
+        fluorescence channel on that LED address, else -- a unit with no LED
+        there -- its stock key, a key this unit lacks, which the refusals then
+        name in their own words. Any other name is returned as it is.
+        """
+        old = _old_name(name)
+        if old is None:
+            return name
+        for record in self.channels:
+            if record.modality == Modality.FLUORESCENCE and old.led_address in record.led_addresses:
+                return record.key_name
+        return old.stock_key
+
 
 UNRESOLVED = ChannelIdentity(
     channels=(), filterset='', source=IdentitySource.UNRESOLVED, model=None
@@ -281,6 +297,25 @@ UNRESOLVED = ChannelIdentity(
 # runtime. Tests hand the resolver a catalogue explicitly and may
 # replace this cache to exercise a different one.
 _CATALOGUE_CACHE: tuple[CatalogueLayer, ...] | None = None
+# The release's old names, loaded once per process beside the catalogue and
+# replaced by tests the same way.
+_OLD_NAMES_CACHE: tuple[OldChannelName, ...] | None = None
+
+
+@dataclass(frozen=True)
+class OldChannelName:
+    """A fluorescence key an earlier release stored, and the LED it meant.
+
+    Earlier releases named the fluorescence channels for their colour, and
+    every unit that stored one drove it on the same LED address, so the
+    address is what an old name means. `stock_key` is the release key of
+    the stock filterset's LED on that address: what a stored old name reads
+    as where no unit is known.
+    """
+
+    name: str
+    led_address: int
+    stock_key: str
 
 
 def refuse_unknown_layer(layer: object, argument: str = 'channel') -> None:
@@ -337,6 +372,101 @@ def release_layers() -> tuple[CatalogueLayer, ...]:
     return _CATALOGUE_CACHE
 
 
+def release_old_names() -> tuple[OldChannelName, ...]:
+    """The fluorescence keys earlier releases stored, from the release's own file.
+
+    Read from the installation's own folder, as the catalogue is: a stored
+    name is read where no scope is known (an old step name, an old run
+    folder).
+
+    Raises:
+        InstallationFileError: as ``load_old_channel_names``, or as
+            ``release_layers``. Nothing is cached, so the next call reads the
+            file again.
+    """
+    global _OLD_NAMES_CACHE
+    if _OLD_NAMES_CACHE is None:
+        path = resolve_data_file('scopes.json')
+        _OLD_NAMES_CACHE = load_old_channel_names(
+            read_installation_file(path), path, release_layers()
+        )
+    return _OLD_NAMES_CACHE
+
+
+def load_old_channel_names(
+    scopes_data: dict, path: str | os.PathLike, catalogue: tuple[CatalogueLayer, ...]
+) -> tuple[OldChannelName, ...]:
+    """``scopes_data``'s ``OldChannelNames`` as records, or a refusal naming ``path``.
+
+    Each entry maps an old name to its LED address and its stock key. The
+    table is a fact of history the release states once, so a table that
+    cannot be true refuses: an old name that is also a key of this release
+    would be read two ways, a stock key that is no fluorescence key of this
+    release gives an old name nothing to read as, and two old names on one
+    address cannot both be that LED.
+
+    Raises:
+        InstallationFileError: the table is missing or not a mapping; or an
+            entry is as above, or not an ``led_address`` and a ``stock_key``.
+    """
+    raw = scopes_data.get('OldChannelNames')
+    if not isinstance(raw, dict):
+        raise InstallationFileError(path, f'has no usable OldChannelNames (found {raw!r})')
+    fluorescence = {layer.key for layer in catalogue if layer.modality == Modality.FLUORESCENCE}
+    keys = {layer.key for layer in catalogue}
+    names: list[OldChannelName] = []
+    for name, entry in raw.items():
+
+        def refuse(why: str, name=name) -> InstallationFileError:
+            return InstallationFileError(path, f'has an OldChannelNames entry {name!r} {why}')
+
+        if name in keys:
+            raise refuse('that is also a key of this release')
+        if not isinstance(entry, dict) or set(entry) != {'led_address', 'stock_key'}:
+            raise refuse('that is not an led_address and a stock_key')
+        address = entry['led_address']
+        if not isinstance(address, int) or isinstance(address, bool) or address < 0:
+            raise refuse(f'whose led_address {address!r} is not an LED address')
+        if entry['stock_key'] not in fluorescence:
+            raise refuse(
+                f'whose stock_key {entry["stock_key"]!r} is not a fluorescence key of this release'
+            )
+        names.append(OldChannelName(name=name, led_address=address, stock_key=entry['stock_key']))
+    shared = _shared_address((old.name, (old.led_address,)) for old in names)
+    if shared is not None:
+        raise InstallationFileError(path, f'has OldChannelNames where {shared}')
+    return tuple(names)
+
+
+def _old_name(name: object) -> OldChannelName | None:
+    return next((old for old in release_old_names() if old.name == name), None)
+
+
+def stored_key(name: object) -> object:
+    """The release key a stored channel name reads as where no unit is known.
+
+    An old name reads as its stock key, any other name as itself. For a file
+    read with no unit -- post-processing an old run folder: the colour,
+    modality and settings of its ``Blue`` are the stock key's, and the name
+    it is read and written under stays ``Blue``. Nothing measured is ever
+    taken from the stock key's record; the file states its own.
+
+    Raises:
+        InstallationFileError: as ``release_old_names``.
+    """
+    old = _old_name(name)
+    return name if old is None else old.stock_key
+
+
+def stored_channel_names() -> tuple[str, ...]:
+    """Every channel name a saved file may hold: this release's keys, then the old names.
+
+    Raises:
+        InstallationFileError: as ``release_old_names``.
+    """
+    return (*release_catalogue(), *(old.name for old in release_old_names()))
+
+
 def release_layer(key: object) -> CatalogueLayer:
     """The release catalogue's record for ``key``.
 
@@ -375,18 +505,20 @@ def output_color(name: object, colors: ChannelColors) -> Color:
     """The colour an image named for ``name`` is written in: the layer's
     colour in ``colors``, and ``GREY`` for a composite
     (``PostFunction.COMPOSITE``), which is RGB and carries its own -- and is
-    grey once collapsed into a stack.
+    grey once collapsed into a stack. A stored old name is its stock key's
+    colour (``stored_key``).
 
     Raises:
-        ArgumentRefusedError: ``name`` is neither a layer of this release
-            nor a composite (``refuse_unknown_layer``).
+        ArgumentRefusedError: ``name`` is neither a layer of this release,
+            an old name nor a composite (``refuse_unknown_layer``).
     """
     from modules.common_utils import PostFunction
 
     if name == PostFunction.COMPOSITE.value:
         return GREY
-    refuse_unknown_layer(name)
-    return colors[name]
+    key = stored_key(name)
+    refuse_unknown_layer(key)
+    return colors[key]
 
 
 def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Color:
@@ -507,11 +639,16 @@ def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:
             vocabulary is unusable (``release_layers``).
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')
-    return read_scope_models(read_installation_file(path), path, release_layers())
+    return read_scope_models(
+        read_installation_file(path), path, release_layers(), release_old_names()
+    )
 
 
 def read_scope_models(
-    scopes_data: dict, path: str | os.PathLike, catalogue: tuple[CatalogueLayer, ...]
+    scopes_data: dict,
+    path: str | os.PathLike,
+    catalogue: tuple[CatalogueLayer, ...],
+    old_names: tuple[OldChannelName, ...],
 ) -> Mapping[str, ScopeModel]:
     """``scopes_data``'s models as a read-only mapping of records by name, or a refusal naming ``path``.
 
@@ -532,12 +669,19 @@ def read_scope_models(
             path, f'has no usable Models section (found {type(models).__name__})'
         )
     return types.MappingProxyType(
-        {model: _scope_model(model, entry, path, catalogue) for model, entry in models.items()}
+        {
+            model: _scope_model(model, entry, path, catalogue, old_names)
+            for model, entry in models.items()
+        }
     )
 
 
 def _scope_model(
-    model: str, entry: object, path: str | os.PathLike, catalogue: tuple[CatalogueLayer, ...]
+    model: str,
+    entry: object,
+    path: str | os.PathLike,
+    catalogue: tuple[CatalogueLayer, ...],
+    old_names: tuple[OldChannelName, ...],
 ) -> ScopeModel:
     """The record for one model entry, or a refusal naming the file, the model and the key."""
 
@@ -586,7 +730,7 @@ def _scope_model(
         **flags,
         led_board=text['LEDBoard'],
         motor_board=text['MotorBoard'],
-        channels=_model_layers(entry.get('Layers'), catalogue, refuse),
+        channels=_model_layers(entry.get('Layers'), catalogue, old_names, refuse),
         filterset=text['Filterset'],
         **{
             field: float(optics[key]) if key in optics else None
@@ -774,20 +918,22 @@ def _record(
     )
 
 
-def _shared_address(records: list[ChannelRecord]) -> str | None:
-    """Why ``records`` cannot all be one unit's: two of them on one LED address."""
+def _shared_address(named: Iterable[tuple[str, tuple[int, ...]]]) -> str | None:
+    """Why ``named`` -- each a name and its LED addresses -- cannot all be one
+    unit's: two of them on one LED address."""
     holders: dict[int, str] = {}
-    for record in records:
-        for address in record.led_addresses:
+    for name, addresses in named:
+        for address in addresses:
             if address in holders:
-                return f'{holders[address]} and {record.key_name} both name LED address {address}'
-            holders[address] = record.key_name
+                return f'{holders[address]} and {name} both name LED address {address}'
+            holders[address] = name
     return None
 
 
 def _model_layers(
     rows: object,
     catalogue: tuple[CatalogueLayer, ...],
+    old_names: tuple[OldChannelName, ...],
     refuse: Callable[[str], InstallationFileError],
 ) -> tuple[ChannelRecord, ...]:
     """A model's layer rows as records, in id order, or ``refuse``'s refusal.
@@ -796,7 +942,9 @@ def _model_layers(
     whose key is not in the release's vocabulary, that misses a field or
     carries an undeclared one, that ``_record`` cannot read, or that shares
     an LED address with another. Each record takes its key's catalogue
-    fields from ``catalogue``.
+    fields from ``catalogue``. A row keyed by an old name's stock key sits
+    on that old name's address: a unit of the model stored its old name for
+    that LED, and on any other address its old data would light another.
     """
     by_key = {layer.key: (position, layer) for position, layer in enumerate(catalogue)}
     if not isinstance(rows, list):
@@ -818,8 +966,15 @@ def _model_layers(
         record = _record(key_name, row, release, position)
         if isinstance(record, str):
             raise refuse(f'a {key_name} layer row that {record}')
+        for old in old_names:
+            if old.stock_key == key_name and record.led_addresses != (old.led_address,):
+                on = ', '.join(map(str, record.led_addresses)) or 'none'
+                raise refuse(
+                    f'a {key_name} layer row on LED address {on}, where '
+                    f'{old.name}, which reads as {key_name}, was LED address {old.led_address}'
+                )
         records.append(record)
-    shared = _shared_address(records)
+    shared = _shared_address((r.key_name, r.led_addresses) for r in records)
     if shared is not None:
         raise refuse(f'layer rows where {shared}')
     return tuple(sorted(records, key=lambda r: r.id))
@@ -856,7 +1011,7 @@ def _parse_channel_block(
         records.append(record)
     if skipped:
         report(ChannelRowsSkippedNotice(skipped))
-    shared = _shared_address(records)
+    shared = _shared_address((r.key_name, r.led_addresses) for r in records)
     if shared is not None:
         report(ChannelBlockUnusableNotice(shared))
         return ()

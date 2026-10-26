@@ -7,7 +7,9 @@ computed from the release catalogue's records. A literal list of channel
 keys written in a module is a second list, which a channel the catalogue
 adds is missing from: its drawer, settings, composite membership or sweep
 silently leave it out. This walk over every production module refuses a
-tuple, list, set or mapping naming three or more catalogue keys.
+tuple, list, set or mapping naming three or more catalogue keys or old
+channel names (``OldChannelNames``): the old names are the release's one
+table too, and a list of them is a second one.
 
 Two tables read other programs' files and stay: Quick Enhance's legacy
 one-plane colour order (an old RGB TIFF's plane is red, green or blue) and
@@ -18,7 +20,7 @@ from __future__ import annotations
 
 import ast
 
-from modules.layer_record import release_catalogue
+from modules.layer_record import stored_channel_names
 from tests.ast_seams import iter_package_modules, production_modules, walk_defs
 
 _MINIMUM = 3
@@ -62,7 +64,7 @@ def _lists(tree: ast.Module, keys: frozenset[str]):
 
 
 def _found():
-    keys = frozenset(release_catalogue())
+    keys = frozenset(stored_channel_names())
     for rel_path, tree in _all_production_modules():
         for qualname, lineno in _lists(tree, keys):
             yield rel_path, qualname, lineno
@@ -83,5 +85,17 @@ def test_no_production_module_lists_channels_by_name():
 def test_the_guard_sees_the_tables_it_exempts():
     # Each exemption must name a real table, or a rename would leave the
     # guard exempting nothing while the check above still passed.
+    seen = {(rel_path, qualname) for rel_path, qualname, _lineno in _found()}
+    assert seen >= _FOREIGN_FILE_TABLES
+
+
+def test_the_guard_sees_old_names_once_the_keys_change(tmp_path, monkeypatch):
+    # Once the colour keys are named for their excitation, Quick Enhance's
+    # tables name only old names; the guard reads those too, so it still sees
+    # them, and would see any other list of them.
+    from tests.installation_fixtures import use_release, write_release_in_excitation_keys
+
+    use_release(monkeypatch, write_release_in_excitation_keys(tmp_path))
+
     seen = {(rel_path, qualname) for rel_path, qualname, _lineno in _found()}
     assert seen >= _FOREIGN_FILE_TABLES

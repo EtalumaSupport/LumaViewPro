@@ -473,7 +473,8 @@ class StackBuilder(ProtocolPostProcessor):
                     # A layer's plane was baked in its colour; a composite's
                     # is a colour image, read by luminance.
                     image = image_utils.rgb_image_to_gray(
-                        image=image, baked=row['Color'] in common_utils.get_layers()
+                        image=image,
+                        baked=layer_record.stored_key(row['Color']) in common_utils.get_layers(),
                     )
 
                 # Each plane must share the hyperstack's canvas; a per-plane

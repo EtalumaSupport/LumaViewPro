@@ -8,6 +8,7 @@
         {"key": "Red", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 5, "sim_light_per_ma_s": 0.0126},
         {"key": "Lumi", "modality": "luminescence", "background": "dark", "manual_max_exposure_ms": null, "display_color": "#0000ff", "step_order": 6, "sim_light_per_ma_s": null}
     ],
+    "OldChannelNames": {},
     "Models": {
         "Lumi": {
             "Focus": true,
