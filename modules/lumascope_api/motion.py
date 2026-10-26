@@ -37,6 +37,7 @@ import time
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 from collections.abc import Callable, Iterable, Iterator, Mapping
 
+from drivers import host_clock
 from drivers.exceptions import HardwareError, MotionInterlockError, MotionNotCompletedError
 from drivers.null_motorboard import NullMotionBoard
 from lib import profile_trace
@@ -1704,7 +1705,7 @@ class MotionAPI:
                 closed = self._commands_open == 0
                 moving_seen_ns = self._command_moving_seen_ns
             if closed:
-                closed_ns = time.monotonic_ns()
+                closed_ns = host_clock.steady_ns()
                 frame_validity = self._scope.frame_validity
                 for source, change in frame_validity.changes().items():
                     # motion_settled stamps only a change that waits on an
@@ -3416,7 +3417,7 @@ class MotionAPI:
                 self._arrival_events[axis].set()
                 # Taken in the hold, so it is the moment the settle check
                 # began to see this state, not when the stamp lands.
-                settled_ns = time.monotonic_ns()
+                settled_ns = host_clock.steady_ns()
         # The ended move's operation is the only thing that ends its waiters,
         # so it settles on every exit from here.
         try:
@@ -3775,7 +3776,7 @@ class MotionAPI:
                         # clock runs on and, at the bound, the move is
                         # given up as unread.
                         arrived: bool | None = None
-                        read_began_ns = time.monotonic_ns()
+                        read_began_ns = host_clock.steady_ns()
                         try:
                             arrived = self._read_target_status(ax)
                             if arrived is False:

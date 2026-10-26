@@ -29,7 +29,7 @@ except ImportError as _fx2_exc:
     # Same silent-degradation shape as the IDS guard below: without this
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
-from drivers import camera_profiles
+from drivers import camera_profiles, host_clock
 from drivers.camera import Camera
 from drivers.exceptions import (
     BoardNoReplyError,
@@ -1555,6 +1555,21 @@ class Lumascope:
             Nothing.
         """
         return self._simulation
+
+    @api(in_process=True)
+    def host_steady_ns(self) -> int:
+        """The host's steady time now, in nanoseconds, on the clock of every steady stamp the scope takes.
+
+        A frame's ``arrived_ns``, a change's ``written_ns``, ``earliest_ns``
+        and ``in_force_ns``, and a clock mapping's ``host_ns`` are read from
+        this clock (``drivers.host_clock.steady_ns``); a caller setting its
+        own "now" against them reads it here, never from a clock of its own.
+        In-process only: a steady time means nothing in another process.
+
+        Raises:
+            Nothing.
+        """
+        return host_clock.steady_ns()
 
     @api
     @property

@@ -66,6 +66,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report, void
+from drivers import host_clock
 
 EXPOSURE_MS = 5
 WINDOW_S = 10
@@ -345,7 +346,7 @@ def _timed_drain(driver, n_frames):
                     (
                         _member(buffer, 'FrameID'),
                         _member(buffer, 'Timestamp_ns'),
-                        time.monotonic_ns(),
+                        host_clock.steady_ns(),
                         _member(buffer, 'IsIncomplete'),
                     )
                 )

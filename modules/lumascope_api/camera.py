@@ -29,6 +29,7 @@ from modules.image_mode import ImageMode
 from modules.closed_sets import refuse_unless_offered
 from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
+from drivers import host_clock
 from drivers.camera import Frame
 from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
 from lib import profile_trace
@@ -915,7 +916,7 @@ class CameraAPI:
         """
         # The register may change anywhere from the first try's start: a
         # try the camera did not answer may still have taken it.
-        began_ns = time.monotonic_ns()
+        began_ns = host_clock.steady_ns()
         try:
             try:
                 result = write_fn()

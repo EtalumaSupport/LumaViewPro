@@ -18,6 +18,7 @@ import time
 from types import MappingProxyType
 from unittest.mock import MagicMock
 
+from drivers import host_clock
 from drivers.camera import Camera, Frame
 
 
@@ -464,7 +465,7 @@ def delivered_frame(
         image=view,
         seq=seq,
         timestamp=timestamp if timestamp is not None else datetime.datetime.now(),
-        arrived_ns=arrived_ns if arrived_ns is not None else time.monotonic_ns(),
+        arrived_ns=arrived_ns if arrived_ns is not None else host_clock.steady_ns(),
         significant_bits=(
             significant_bits if significant_bits is not None else image.dtype.itemsize * 8
         ),

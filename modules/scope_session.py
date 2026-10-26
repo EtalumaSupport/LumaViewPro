@@ -4766,6 +4766,18 @@ class ScopeSession:
         """
         return PLUGIN_API_LEVEL
 
+    @api(in_process=True)
+    def host_steady_ns(self) -> int:
+        """The host's steady time now, in nanoseconds: ``scope.host_steady_ns()``.
+
+        The clock every steady stamp the scope takes is on, for an
+        in-process caller setting its own "now" against them.
+
+        Raises:
+            Nothing.
+        """
+        return self.scope.host_steady_ns()
+
     @api(reads=True)
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?

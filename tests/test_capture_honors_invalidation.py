@@ -26,11 +26,11 @@ derivation pass (the defect shape that killed two plan drafts).
 
 import dataclasses
 import threading
-import time
 
 import numpy as np
 import pytest
 
+from drivers import host_clock
 from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
@@ -207,7 +207,7 @@ class TestDrainDeadline:
             # time when the axis settles. A move never in force has no frame
             # after it, and the capture rightly keeps none.
             validity.invalidate('turret', began_ns=None)
-            validity.motion_settled('turret', time.monotonic_ns(), moving_seen_ns=None)
+            validity.motion_settled('turret', host_clock.steady_ns(), moving_seen_ns=None)
 
         landed = _during_the_first_grab(live_scope, monkeypatch, a_turret_move_lands, frame=_DARK)
 

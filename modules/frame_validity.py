@@ -59,6 +59,7 @@ import types
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, ClassVar
 
+from drivers import host_clock
 from drivers.camera import Frame
 from lib import profile_trace
 from modules.api_surface import api_fields
@@ -209,16 +210,16 @@ class Change:
             backwards across a DST fall-back, an NTP correction or a host
             resume, and a settle count measured against a timestamp that
             jumped forward never completes. Frame numbers only go up.
-        written_ns: Host ``time.monotonic_ns()`` when the change was
-            recorded. Every recorder calls ``invalidate`` after a camera
-            register or LED write returns, and before a move starts.
-        earliest_ns: Host ``time.monotonic_ns()`` of the earliest moment
-            the change could have reached the hardware: a write's start, as
-            its writer stamped it, since the register may change anywhere
-            inside the write; for a move, once in force, the start of the
-            last read that saw its axis still moving, else ``written_ns``.
-            A delay measured from here is never short; the rule judges
-            from ``written_ns`` or ``in_force_ns``, the latest, so the
+        written_ns: The scope's steady clock (``host_clock.steady_ns``) when
+            the change was recorded. Every recorder calls ``invalidate`` after
+            a camera register or LED write returns, and before a move starts.
+        earliest_ns: The scope's steady clock (``host_clock.steady_ns``) of the
+            earliest moment the change could have reached the hardware: a
+            write's start, as its writer stamped it, since the register may
+            change anywhere inside the write; for a move, once in force, the
+            start of the last read that saw its axis still moving, else
+            ``written_ns``. A delay measured from here is never short; the rule
+            judges from ``written_ns`` or ``in_force_ns``, the latest, so the
             pair never accepts a frame early.
         written_at: Host wall-clock time of the same moment, for a reader.
         skip: The frames the change needed, as the count stood when it was
@@ -229,10 +230,10 @@ class Change:
             ``skip`` was met.
         needs_in_force: A motion source the axis must also settle for: the
             frame count alone does not end its wait.
-        in_force_ns: Host ``time.monotonic_ns()`` when the axis state the
-            settle check reads became settled, stamped by the motion API
-            (``FrameValidity.motion_settled``); None until then, and for a
-            change that does not wait on an axis.
+        in_force_ns: The scope's steady clock (``host_clock.steady_ns``) when
+            the axis state the settle check reads became settled, stamped by
+            the motion API (``FrameValidity.motion_settled``); None until then,
+            and for a change that does not wait on an axis.
     """
 
     source: FrameValiditySource
@@ -330,10 +331,10 @@ class Owed:
         frames: Frames still to be delivered for the changes judged by the
             credit rule, and 1 while a move's axis has not settled; 0 when
             none is owed.
-        until_ns: Host ``time.monotonic_ns()`` after which a frame can start
-            late enough for every change judged by the clock rule (its
-            anchor, its delay and the mapping's uncertainty); None when no
-            such change has one.
+        until_ns: The scope's steady clock (``host_clock.steady_ns``) after
+            which a frame can start late enough for every change judged by the
+            clock rule (its anchor, its delay and the mapping's uncertainty);
+            None when no such change has one.
     """
 
     frames: int
@@ -546,10 +547,10 @@ class FrameValidity:
 
         Args:
             source: What changed.
-            began_ns: Host ``time.monotonic_ns()`` when the write that made
-                the change began, the change's ``earliest_ns``; None for a
-                change recorded before it is made (a move), whose earliest
-                is its record.
+            began_ns: The scope's steady clock (``host_clock.steady_ns``) when
+                the write that made the change began, the change's
+                ``earliest_ns``; None for a change recorded before it is made
+                (a move), whose earliest is its record.
 
         Returns:
             Change: The change as recorded, now the source's last change.
@@ -565,7 +566,7 @@ class FrameValidity:
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,
             # which is this whole class of bug reintroduced by a race.
-            written_ns = time.monotonic_ns()
+            written_ns = host_clock.steady_ns()
             entry = Change(
                 source=source,
                 at_seq=self._frames_delivered(),
@@ -982,10 +983,12 @@ class FrameValidity:
 
         Args:
             source: The motion source of the axis whose state was written.
-            at_ns: Host ``time.monotonic_ns()`` taken where it was written.
-            moving_seen_ns: Host ``time.monotonic_ns()`` at the start of the
-                last read that saw the axis still moving; None when no read
-                did, so the stop could be as early as the change's record.
+            at_ns: The scope's steady clock (``host_clock.steady_ns``) taken
+                where it was written.
+            moving_seen_ns: The scope's steady clock (``host_clock.steady_ns``)
+                at the start of the last read that saw the axis still moving;
+                None when no read did, so the stop could be as early as the
+                change's record.
         """
         with self._lock:
             change = self._changes.get(source)

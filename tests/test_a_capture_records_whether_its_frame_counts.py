@@ -14,11 +14,11 @@ change and keeps the answers in its record, its saved file and one line of
 
 import logging
 import threading
-import time
 
 import numpy as np
 import pytest
 
+from drivers import host_clock
 from modules import image_save, image_utils
 from modules.exceptions import ArgumentTypeRefusedError
 from modules.frame_validity import Counter, FrameRule, FrameValidity, Rule
@@ -123,7 +123,7 @@ def test_a_clock_rule_move_is_judged_from_its_settle():
 
     moving = fv.judge(_frame(2, started_ticks=late), fv.changes()['z_move'], None)
     settled.set()
-    at_ns = time.monotonic_ns()
+    at_ns = host_clock.steady_ns()
     fv.motion_settled('z_move', at_ns, moving_seen_ns=None)
     change = fv.changes()['z_move']
     mapping = _mapping_at(at_ns)
@@ -144,7 +144,7 @@ def test_an_unmeasured_move_on_a_clock_camera_counts_a_frame_started_after_its_s
     fv.use_rules(FrameValidity.rules_from_record(None, has_clock_latch=True))
     fv.invalidate('z_move', began_ns=None)
     settled.set()
-    stop_ns = time.monotonic_ns()
+    stop_ns = host_clock.steady_ns()
     fv.motion_settled('z_move', stop_ns, moving_seen_ns=None)
     change = fv.changes()['z_move']
     mapping = _mapping_at(stop_ns)
@@ -195,7 +195,7 @@ def test_a_move_counts_the_third_frame_to_arrive_after_its_stop():
         arrive()
     moving = fv.judge(_frame(delivered + 1), fv.changes()['z_move'], None)
     settled.set()
-    stop_ns = time.monotonic_ns()
+    stop_ns = host_clock.steady_ns()
     fv.motion_settled('z_move', stop_ns, moving_seen_ns=None)
     after_stop = [arrive() for _ in range(3)]
     stamped = fv.changes()['z_move']

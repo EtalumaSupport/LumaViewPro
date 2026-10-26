@@ -13,10 +13,10 @@ the change as a person says it.
 """
 
 import dataclasses
-import time
 
 import pytest
 
+from drivers import host_clock
 from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import CaptureFailedError
 from modules.frame_validity import FrameRule, FrameValidity, Rule
@@ -106,7 +106,7 @@ def test_a_clock_rule_change_is_waited_out_on_the_cameras_clock(sim_scope):
     assert gain.change.rule.rule is Rule.CLOCK
     assert gain.counts
     assert gain.frame_start_ticks > gain.qualifies_after_ticks
-    assert time.monotonic_ns() - written_ns >= delay_us * 1000
+    assert host_clock.steady_ns() - written_ns >= delay_us * 1000
 
 
 def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monkeypatch):

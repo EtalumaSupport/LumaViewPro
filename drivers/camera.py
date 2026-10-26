@@ -94,9 +94,9 @@ class Frame:
             it was stored. Only goes up, whatever the clocks do.
         timestamp: Host wall-clock time at arrival, for what a person reads
             (file names, logs). It can step backwards; order by ``seq``.
-        arrived_ns: Host ``time.monotonic_ns()`` at arrival, taken where the
-            driver first had the frame: a steady time to set against when a
-            change was made.
+        arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
+            arrival, taken where the driver first had the frame: a steady time
+            to set against when a change was made.
         significant_bits: Payload depth of these pixels (12 for Mono12 in a
             uint16 container), from the frame's own format.
         chunks: The camera's per-frame metadata (``ExposureTime``, ``Gain``,
@@ -273,10 +273,10 @@ class ImageHandlerBase:
             timestamp: datetime when the frame arrived host-side.
             chunks: optional per-frame chunk metadata dict. None for cameras
                 without chunk support.
-            arrived_ns: ``time.monotonic_ns()`` where the driver first had
-                the frame, taken beside ``timestamp`` -- REQUIRED, so no
-                frame is stored without a steady time a change can be set
-                against.
+            arrived_ns: The scope's steady clock (``host_clock.steady_ns``)
+                where the driver first had the frame, taken beside
+                ``timestamp`` -- REQUIRED, so no frame is stored without a
+                steady time a change can be set against.
             significant_bits: payload depth of THIS frame -- REQUIRED, so a frame
                 can never be buffered without the depth needed to interpret it.
                 The subclass derives it from the frame itself (the grab result's

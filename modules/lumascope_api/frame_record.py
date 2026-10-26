@@ -31,14 +31,15 @@ BLOWN_FRACTION = 0.98
 class ClockMapping:
     """The camera's timestamp clock against the host's steady clock, measured once.
 
-    The host latches the camera's clock between two reads of its own
-    ``time.monotonic_ns``; the latch fell somewhere inside that bracket, so
-    its middle is the host time the latched value belongs to and half its
-    width is how far off that can be. The read of the latched value comes
-    after the bracket and is no part of it.
+    The host latches the camera's clock between two reads of the scope's
+    steady clock (``host_clock.steady_ns``); the latch fell somewhere inside
+    that bracket, so its middle is the host time the latched value belongs to
+    and half its width is how far off that can be. The read of the latched
+    value comes after the bracket and is no part of it.
 
     Attributes:
-        host_ns: ``time.monotonic_ns`` at the middle of the bracket.
+        host_ns: The scope's steady clock (``host_clock.steady_ns``) at the
+            middle of the bracket.
         camera_ticks: The camera's clock the latch latched.
         tick_hz: Ticks per second of the camera's clock.
         uncertainty_ns: Half the bracket.

@@ -12,6 +12,7 @@ from typing import Any
 
 from pypylon import genicam, pylon
 
+from drivers import host_clock
 from drivers.camera import (
     Camera,
     Frame,
@@ -4655,7 +4656,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     owned = None
                 try:
                     self._worker.enqueue(
-                        'fail', owned, datetime.datetime.now(), time.monotonic_ns()
+                        'fail', owned, datetime.datetime.now(), host_clock.steady_ns()
                     )
                     _outcome = 'exception_grabsucceeded'
                 except queue.Full:
@@ -4664,7 +4665,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 return
 
             ts = datetime.datetime.now()
-            arrived_ns = time.monotonic_ns()
+            arrived_ns = host_clock.steady_ns()
 
             # H2/H3 diagnostic: Stage A is otherwise silent on the success
             # enqueue path. Log the GrabSucceeded value + grabResult identity
@@ -4914,8 +4915,9 @@ class _PylonImageGrabWorker:
                 NOT access it after this returns (single-thread invariant
                 on CGrabResultData).
             ts: Capture timestamp from Stage A's `datetime.now()`.
-            arrived_ns: Stage A's `time.monotonic_ns()`, taken beside `ts`:
-                the frame's steady arrival time.
+            arrived_ns: Stage A's read of the scope's steady clock
+                (`host_clock.steady_ns`), taken beside `ts`: the frame's steady
+                arrival time.
         """
         if self._stop_event.is_set():
             return

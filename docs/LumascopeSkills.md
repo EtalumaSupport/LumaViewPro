@@ -718,7 +718,7 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # qualifies_after_ticks, and the change's rule and credits, each frame
 # counted toward its wait with who counted it (drain, grab or preview).
 # Beside each grab a capture maps the camera's timestamp clock onto the
-# host's steady clock (time.monotonic_ns): the record's clock_mapping, a
+# scope's steady clock (session.host_steady_ns()): the record's clock_mapping, a
 # ClockMapping (host_ns, camera_ticks, tick_hz, uncertainty_ns, half the
 # latch's bracket), None on a camera without a latch
 # (capabilities.camera_has_clock_latch: Basler yes, IDS and the FX2 no).
@@ -1468,6 +1468,8 @@ health.namespaces                  # each namespace's NamespaceHealth: loaded, l
 health.not_loaded                  # PluginNotLoaded(name, version, reason) for each that did not load
 
 session.plugin_api_level           # int: what this host does that a plugin may rely on ("Plugin API level")
+session.host_steady_ns()           # in-process: the host's steady time now, in ns, on the clock of every steady stamp
+                                   # the scope takes (a frame's arrived_ns, a change's written_ns, a clock mapping's host_ns)
 session.app_version                # the application's version, '4.0.0-beta36'; None where the build has none
 session.app_runtime                # how it was launched: 'source' (Python, a checkout or pip install), 'bundle' (a packaged build not installed) or 'installed'
 ```
@@ -1568,6 +1570,7 @@ still states the major version.
 | level 37 | An LED's board addresses are `led_addresses`: `scope.capabilities.led_addresses` (the installed board's, None without one) and a `ChannelRecord`'s `led_addresses` (the addresses the channel drives, `()` for none). A model's and a board's file still name a row's addresses `led_channel`. The old names read until the plugin release that reads the new ones, then go. |
 | level 38 | An LED is lit by its channel's name: `scope.illumination.led_on(channel, illumination_ma)` and `led_off(channel)` take a name only, a number refused at the door (`wrong_argument_type`); a board address is `led_on_by_address` / `led_off_by_address`'s. `ch2color` and `color2ch` are not on the surface (no route); a channel's addresses are its record's `led_addresses`. `ScopeCapabilities.led_channels` and `ChannelRecord.led_channel` are gone, with no alias. |
 | level 39 | A fluorescence channel is named for its excitation: the release's keys are `BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex550`, `Ex589`, `Ex640` and `Lumi`, and a stock unit's are `Ex405` / `Ex488` / `Ex589` on LEDs 0 / 1 / 2, where `Blue` / `Green` / `Red` were. A fluorescence `ChannelRecord`'s `display_name` is `None` (its `label` is its excitation, `'405 nm'`). A caller's old name is refused, not translated: a channel `channel_unknown`, a settings path `not_a_setting`; a stored file's old names are read by the LED they were made with (see "Color channel reference"). |
+| level 40 | Every steady stamp the scope takes is on one clock, the scope's, read by `session.host_steady_ns()` (in-process; `scope.host_steady_ns()`): a frame's `arrived_ns`, a `Change`'s `written_ns`, `earliest_ns` and `in_force_ns`, `Owed.until_ns`, a `ClockMapping`'s `host_ns`. It resolves to a microsecond or better on every supported Python and platform (`time.perf_counter_ns`), where on Windows under Python 3.12 the stamps were `time.monotonic_ns`, a 15.6 ms step. A plugin sets its own "now" against them by this member only, never by a clock of its own. |
 
 ### Configuration queries
 
@@ -2362,7 +2365,7 @@ scope.imaging.remove_frame_listener(on_frame)
   - `image`: the pixels, cropped to the camera's window;
   - `seq`: the arrival number, which only goes up (order frames by it, not by a clock);
   - `timestamp`: the host's wall-clock time at arrival, for what a person reads;
-  - `arrived_ns`: the host's `time.monotonic_ns()` at arrival, a steady time;
+  - `arrived_ns`: the scope's steady clock at arrival, `session.host_steady_ns()`'s clock, a steady time compared only with that clock and the scope's other steady stamps;
   - `significant_bits`: the payload depth of these pixels (12 for Mono12 in a uint16 container);
   - `chunks`: the camera's per-frame metadata (`ExposureTime`, `Gain`, `FrameID`, `Timestamp` on a Basler), or `None` for a camera that stamps none (IDS, FX2, the simulator).
 - **Read-only frame.** The record is read-only: `frame.image` refuses a write (`ValueError`) and `frame.chunks` is a read-only mapping. Never set the image writeable again (`flags.writeable = True`): every other holder would see the change. Draw on your own copy (`frame.image.copy()`). Keeping the record is safe: no later frame changes it.
@@ -3165,6 +3168,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `go_to_bookmark`
 - `go_to_step`
 - `held_by_other`
+- `host_steady_ns` (in-process)
 - `labware_id`
 - `last_run`
 - `channel_acquire`
@@ -3252,6 +3256,7 @@ Reached through `session.scope`.
 - `capabilities`
 - `channel_identity`
 - `diagnostics`
+- `host_steady_ns` (in-process)
 - `illumination`
 - `imaging`
 - `labware`

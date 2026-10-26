@@ -4,13 +4,13 @@
 import threading
 import sys
 import os
-import time
 
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import numpy as np
 import pytest
+from drivers import host_clock
 from modules.frame_validity import Counter, FrameValidity
 from tests.camera_fakes import delivered_frame
 from tests.scope_fakes import bind_settings_like_a_session
@@ -203,14 +203,14 @@ class TestPendingSourcesDebug:
         assert fv.frames_until_valid() == 2
 
         moving = False
-        fv.motion_settled('z_move', time.monotonic_ns(), moving_seen_ns=None)
+        fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
         assert not fv.is_valid
         fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.frames_until_valid() == 1
         fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
 
-        fv.motion_settled('z_move', time.monotonic_ns(), moving_seen_ns=None)
+        fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
         assert fv.pending_sources == {'z_move': 2}
 
     def test_no_source_ever_reports_a_negative_count(self):

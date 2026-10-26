@@ -24,6 +24,7 @@ import pytest
 # mock so the real SDK loads here. When the flag is NOT set, this import
 # succeeds against the conftest mock and the marker below skips the
 # tests at collection time.
+from drivers import host_clock
 from drivers.pyloncamera import PylonCamera
 
 
@@ -267,9 +268,9 @@ class TestPylon(unittest.TestCase):
     def _latch(self):
         """One latch: the host's steady time at its bracket's middle, the
         bracket's width, and the ticks latched (read after the bracket)."""
-        before = time.monotonic_ns()
+        before = host_clock.steady_ns()
         self.camera.latch_clock()
-        after = time.monotonic_ns()
+        after = host_clock.steady_ns()
         return (before + after) // 2, after - before, self.camera.latched_clock_ticks()
 
     def test_worker_thread_alive_after_connect(self):

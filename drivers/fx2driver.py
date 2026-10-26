@@ -98,6 +98,7 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
+from drivers import host_clock
 from drivers.camera import (
     Camera,
     Frame,
@@ -2618,7 +2619,7 @@ class FX2Camera(Camera):
                     self.cam_image_handler._store_frame(
                         image,
                         datetime.now(),
-                        arrived_ns=time.monotonic_ns(),
+                        arrived_ns=host_clock.steady_ns(),
                         significant_bits=image.dtype.itemsize * 8,
                         wire_bytes=len(FRAME_DELIM) + len(frame_data),
                     )

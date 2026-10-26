@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
+from drivers import host_clock
 from drivers.camera import Camera, Frame, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
 from drivers.exceptions import CameraNoAnswerError, PartAbsentError
@@ -917,7 +918,7 @@ class SimulatedCamera(Camera):
             image,
             datetime.datetime.now(),
             chunks,
-            arrived_ns=time.monotonic_ns(),
+            arrived_ns=host_clock.steady_ns(),
             significant_bits=bits,
             wire_bytes=image.nbytes,
         )
@@ -1208,7 +1209,7 @@ class SimulatedCamera(Camera):
             history = self._input_history.setdefault(name, collections.deque())
             if history and history[-1][1] == value:
                 return
-            now = time.monotonic_ns()
+            now = host_clock.steady_ns()
             at = now if changed_ns is None else min(changed_ns, now)
             if history and at <= history[-1][0]:
                 at = now
@@ -1347,7 +1348,7 @@ class SimulatedCamera(Camera):
 
     def camera_clock_ticks(self) -> int:
         """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
-        return time.monotonic_ns() + self._clock_offset_ns
+        return host_clock.steady_ns() + self._clock_offset_ns
 
     def _start_exposure(self) -> SensorExposure:
         """Start a frame's exposure. Call with ``_lock`` held.
@@ -1361,7 +1362,7 @@ class SimulatedCamera(Camera):
         with no scope around it must.
         """
         self._read_scope_inputs()
-        applied_at = time.monotonic_ns() - self.SENSOR_APPLY_DELAY_US * 1_000
+        applied_at = host_clock.steady_ns() - self.SENSOR_APPLY_DELAY_US * 1_000
         x_um, y_um = self._input_at('stage_xy', applied_at)
         illumination_ma, light = self._input_at('illumination', applied_at)
         if self._depth_of_field_func is None:

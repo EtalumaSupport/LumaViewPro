@@ -39,7 +39,7 @@ _STATE_WORK = frozenset(
         'self._axis_state.values',
         'self._current_move.get',
         'self._position_known',  # a set-membership test on the state
-        'time.monotonic_ns',
+        'host_clock.steady_ns',
     }
 )
 

@@ -15,11 +15,11 @@ import enum
 import functools
 import logging as _logging
 import threading
-import time
 from dataclasses import dataclass
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError
 from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
@@ -937,8 +937,8 @@ class IlluminationAPI:
         that made it fails instead.
 
         Returns:
-            Host ``time.monotonic_ns()`` when the write began, the earliest
-            its change could have lit the sample.
+            The scope's steady clock (``host_clock.steady_ns``) when the write
+            began, the earliest its change could have lit the sample.
 
         Raises:
             BoardNoReplyError: the board did not answer; the listeners
@@ -946,7 +946,7 @@ class IlluminationAPI:
         """
         try:
             with self._led_lock:
-                began_ns = time.monotonic_ns()
+                began_ns = host_clock.steady_ns()
                 write()
         except BoardNoReplyError:
             with self._led_state_lock:

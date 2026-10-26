@@ -16,6 +16,7 @@ import time
 
 import pytest
 
+from drivers import host_clock
 from drivers.simulated_camera import SimulatedCamera
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope, home_sim_scope
@@ -36,7 +37,7 @@ def test_a_camera_writes_change_is_earliest_at_the_writes_start(monkeypatch):
     monkeypatch.setattr(SimulatedCamera, 'gain', slow)
     scope = build_scope(simulate=True, register_atexit=False)
     try:
-        before = time.monotonic_ns()
+        before = host_clock.steady_ns()
         scope.camera.set_gain_db(4.0)
         change = scope.imaging.recorded_changes()['gain']
         assert before <= change.earliest_ns
@@ -60,7 +61,7 @@ def test_an_led_writes_change_is_earliest_at_the_writes_start():
     try:
         scope = session.scope
         scope.simulation.delay_reply('led', 0.15)
-        before = time.monotonic_ns()
+        before = host_clock.steady_ns()
         scope.illumination.led_on_by_address(1, 10)
         change = scope.imaging.recorded_changes()['led']
         assert before <= change.earliest_ns

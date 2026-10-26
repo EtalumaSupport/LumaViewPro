@@ -21,6 +21,7 @@ import numpy as np
 
 from modules.finite_number import refuse_unless_wait_s
 import modules.image_utils as image_utils
+from drivers import host_clock
 from drivers.camera import Frame
 from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
@@ -99,9 +100,9 @@ class _Judged:
     ``mapping`` is the camera's clock as the capture's cycle took it, the one
     its record carries. ``clock_bound_ns`` is how long the grab takes frames
     when a change runs the clock rule: the latest instant a frame must start
-    after, plus one grab window (host ``time.monotonic_ns()``); None when
-    every change runs the credit rule, whose grab keeps the caller's
-    ``timeout_s``.
+    after, plus one grab window (the scope's steady clock,
+    ``host_clock.steady_ns``); None when every change runs the credit rule,
+    whose grab keeps the caller's ``timeout_s``.
     """
 
     mapping: ClockMapping | None
@@ -1025,7 +1026,7 @@ class ImagingAPI:
                     exclude_sources=exclude_sources, uncertainty_ns=uncertainty_ns
                 )
                 if owed.frames == 0 and (
-                    owed.until_ns is None or time.monotonic_ns() >= owed.until_ns
+                    owed.until_ns is None or host_clock.steady_ns() >= owed.until_ns
                 ):
                     break
                 if _deadline_expired():
@@ -1269,9 +1270,9 @@ class ImagingAPI:
         camera = self._scope.capabilities
         if not camera.camera_has_clock_latch:
             return None
-        before = time.monotonic_ns()
+        before = host_clock.steady_ns()
         self._driver.latch_clock()
-        after = time.monotonic_ns()
+        after = host_clock.steady_ns()
         return ClockMapping(
             host_ns=(before + after) // 2,
             camera_ticks=self._driver.latched_clock_ticks(),
@@ -1293,7 +1294,9 @@ class ImagingAPI:
         """
         owed = self.frame_validity.owed(exclude_sources=exclude_sources)
         clock_s = (
-            max(0, owed.until_ns - time.monotonic_ns()) / 1e9 if owed.until_ns is not None else 0.0
+            max(0, owed.until_ns - host_clock.steady_ns()) / 1e9
+            if owed.until_ns is not None
+            else 0.0
         )
         return owed.frames, owed.frames * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN + clock_s
 
@@ -1573,7 +1576,7 @@ class ImagingAPI:
                 unmet = judged.unmet(self.frame_validity, frame) if judged is not None else None
                 if unmet is not None:
                     expired = (
-                        time.monotonic_ns() > judged.clock_bound_ns
+                        host_clock.steady_ns() > judged.clock_bound_ns
                         if judged.clock_bound_ns is not None
                         else datetime.datetime.now() > stop_time
                     )
