@@ -1240,8 +1240,8 @@ class ProtocolImageWriter:
         if not self._is_run_in_progress():
             return False
 
-        # N5 (STALL-1 H5 disambiguator): proto-state trace.
-        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) sec.4 N5.
+        # Proto-state trace: tells a stall inside a capture from the pause
+        # between steps, which looked alike in the profile timeline.
         # Wraps capture body in try/finally -- single row per capture invocation
         # captures duration + outcome + step identity, regardless of return path.
         # Disambiguates "real stall" vs "between-step pause" in the timeline.

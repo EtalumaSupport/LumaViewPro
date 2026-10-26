@@ -21,7 +21,7 @@ Within a relocated body:
       ``self._scope.X``.
 
 See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.1 for the canonical
-method list and docs/WAVE7_PHASE_2_PLAN.md for the multi-commit plan.
+method list.
 """
 
 from __future__ import annotations

@@ -715,8 +715,7 @@ def frame_time_s(column_size: int, row_size: int, shutter_width: int) -> float:
 # ---------------------------------------------------------------------------
 # LVP convention uses integer channels. The FX2 peripheral controller at
 # I2C 0x2A takes ASCII bytes A-D. This mapping lives INSIDE the driver by
-# design (see project memory `project_lvc_product_line.md`): the ASCII
-# byte format must never leak above the driver layer.
+# design: the ASCII byte format must never leak above the driver layer.
 
 _CH_TO_I2C = {
     0: 0x43,  # 'C', the Classic's Blue
@@ -3148,9 +3147,9 @@ class FX2LEDController:
         instead.
 
         NOTE: the 3x 10 ms delays (30 ms total per LED command) are
-        the known root cause of the slider-corruption effect documented
-        in project memory. During streaming, each LED command holds
-        the FX2 USB connection for 30 ms, during which ISO data keeps
+        the known root cause of the slider-corruption effect, a frame
+        corrupted while an LED slider is dragged. During streaming, each
+        LED command holds the FX2 USB connection for 30 ms, during which ISO data keeps
         arriving but cannot be drained. If the UI sends dozens of LED
         writes per second (Kivy slider drags), the ISO buffer can
         desync the frame parser. Stage 3.5 will verify and fix --

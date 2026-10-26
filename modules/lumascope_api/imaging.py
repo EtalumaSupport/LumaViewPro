@@ -192,9 +192,8 @@ _api_log = _logging.getLogger('LVP.api')
 
 
 # Per Firmware/docs/PERFORMANCE_BUDGETS.md plugin_live_processing_handler_ms
-# row + WAVE7_PHASE_4D5_PLAN sec 9 alignment 2026-05-19. Budget anchors to
-# the 30 fps realistic-cap target (per FRAME_VALIDITY_RIG_COMPARISON_2026-
-# 05-19.md: daA3840 max sustained median 17.6 fps; a2A3536 49.9 fps).
+# row. Budget anchors to the 30 fps realistic-cap target (measured on the
+# rigs: daA3840 max sustained median 17.6 fps; a2A3536 49.9 fps).
 # Plugin gets ~70% of the inter-frame window; driver keeps ~10 ms headroom.
 HANDLER_BUDGET_MS = 24
 

@@ -532,9 +532,9 @@ def log_system_metrics(
 
     # --- Long-run stability metrics ---
     # Each block is grep-able and routed through metrics_logger to
-    # metrics.log so errors.log stays signal-only. See
-    # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" for healthy vs
-    # unhealthy patterns.
+    # metrics.log so errors.log stays signal-only. Each count levels off
+    # in the first minutes of a run (threads within 30 s); a leak is a
+    # steady climb across successive hourly blocks.
 
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
     # slow after 24 hours" -- process limit is 10k, desktop degrades at ~5k.

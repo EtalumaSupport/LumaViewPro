@@ -1278,8 +1278,8 @@ def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
 
     Long-run leak detection: GDI/handle/thread/GC counts should plateau
     in steady state. A steady upward trend across successive snapshots
-    indicates a leak. See `docs/LOG_ANALYSIS_GUIDE.md` "Resource Health"
-    section for healthy/unhealthy patterns.
+    indicates a leak; GDI is the one to watch first on Windows, where the
+    desktop degrades near 5,000 objects and a process is capped at 10,000.
     """
     proc = _self_process()
     disk = psutil.disk_usage(path)

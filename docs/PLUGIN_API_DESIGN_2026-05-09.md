@@ -67,7 +67,7 @@ commit and the migration phases reference.
    endpoint), not the hardware they touch.
 5. **REST URL tree mirrors the sub-API tree**:
    `/motion/...`, `/illumination/...`, `/imaging/...`, `/diagnostics/...`,
-   `/capabilities`, `/io/...`, `/plugins/<name>/...`. **Pass-2 C-6 DEFERRED**: REST URL convention conflicts with `REST_API_PLAN.md` flat `/api/v1/{move,led,camera,focus}` and is deferred to a dedicated REST design session. §5 is design-only-not-locked until that session ships.
+   `/capabilities`, `/io/...`, `/plugins/<name>/...`. **Pass-2 C-6 DEFERRED**: the REST server as built (`rest/`) names each route for its member, `/api/v1/<member>`, a sub-object's members below its name (`/api/v1/scope/motion/move_z`), and serves no plugin routes in this release (`ctx.plugins.rest` refuses). §5 is design-only-not-locked.
 6. **Backcompat freedom window (pass-1 amendment)**: Rule 30 (L2 API stability) edit ships with this design + the rule-change commit. Pre-freeze, structural changes are FREE. Freeze triggers when BOTH: (a) a tagged release published to PyPI / a public binary distribution channel, AND (b) at least one external L2 consumer named on `docs/L2_CONSUMERS.md` (created with the rule-change commit; initially empty). Until both conditions hold, this migration runs without forwarders-for-public-API constraint. (Intra-phase forwarders per §6 are still required for code-review reasons, not L2 compat reasons.)
 7. **Pass-3 amendment (2026-05-11) -- Session layer promotion (per Eric locked decision D4; resolves pass-2 C-7 + pass-3 layer-audit §2.1 Option 2)**: `ScopeSession` (`modules/scope_session.py`, 355 lines, 21 methods today) is promoted to its own **Session layer** in the canonical layer chain. Rule 1 edits to: `GUI / Engineering plugin / REST -> Session -> Lumascope API -> Modules -> Drivers -> Hardware`. ScopeSession is the **session-composition-root** (composes Lumascope + settings + executors + protocol runner); Lumascope remains the **hardware-composition-root**. See §2.6 + §2.10 for placement. The rule-edit text itself ships in the rule-change commit; this design records the architectural decision.
 
@@ -460,7 +460,7 @@ implicit contract at `etaluma-engineering/etaluma_engineering/__init__.py`
 | `ctx.plugins.ui` | UI-extending plugins (Kivy widgets, accordion tabs, settings panels, toolbar buttons) | `etaluma_engineering` adds Engineering accordion tab |
 | `ctx.plugins.post_processing` | Operate on saved files (offline batch processing). Inputs: per-step output directories, manifest. Outputs: new artifacts in the same or sibling directory. | (future intern project; pass-3 amendment per D9: today's five built-in `ProtocolPostProcessingExecutor` subclasses -- `composite_generation`, `zprojector`, `stitcher`, `stack_builder`, `video_builder` -- retire into this namespace during 4.1.5) |
 | `ctx.plugins.live_processing` | Subscribe to live frames via `scope.imaging.add_frame_listener`; runs in capture thread (must be fast). **Pass-3 amendment per D1**: namespace name LOCKED in 4.x set; ships EMPTY until Wave 7 Phase 4 builds the per-frame listener registry + driver-side fire sites (Pylon / IDS / FX2 / Sim) + thread contract + drop policy. Roadmap feature F6 (live image processing -- summation, illumination flattening) is the first real consumer. | (future, post-Phase-4) |
-| `ctx.plugins.rest` | Register REST endpoints under `/plugins/<plugin-name>/...`. Pairs with `REST_API_PLAN.md` Phase 1. | (future) |
+| `ctx.plugins.rest` | Register REST endpoints under `/plugins/<plugin-name>/...`. Reserved: the REST server (`rest/`) serves no plugin routes in this release, so `register` refuses. | (future) |
 
 Adding a fifth namespace is a deliberate platform-spec change, not a
 runtime extension. Per Rule 33, the decision to hold the namespace set at
@@ -958,8 +958,8 @@ overlap or follow.
   decision
 - **Plugin auto-discovery via `entry_points`** vs import-by-name: ships
   with discovery only; import-by-name fallback retired
-- **REST plugin endpoint authentication**: `REST_API_PLAN.md` covers; not
-  in scope here
+- **REST plugin endpoint authentication**: with plugin routes, which the
+  REST server (`rest/`) does not serve in this release; not in scope here
 
 ---
 
@@ -991,10 +991,10 @@ The rule-change commit references the following locked names:
 - PluginSpec `capabilities` used by tech-support report + diagnostic
   probe (pass-1 amendment — not informational-only; pass-2 I-10 considered drop-as-redundant + REJECTED per DJ3 -- the field is consumed by support tooling)
 - **Mount points (ONE initial, pass-3 amended per D10)**: `left_sidebar.accordion` only. Additional mount points add when first plugin needs each per §4.2 "deliberate platform change" pattern.
-- REST URL conventions: **DEFERRED 2026-05-11**. Pass-2 C-6 surfaced a
-  conflict with `REST_API_PLAN.md` flat `/api/v1/{move,led,camera}` already
-  locked. Per Eric: defer to a dedicated REST design session; §5 of this
-  doc is design-only-not-locked until that session ships a V2 plan.
+- REST URL conventions: **DEFERRED 2026-05-11**. The REST server as built
+  (`rest/`) names each route for its member, `/api/v1/<member>`, a
+  sub-object's members below its name; it serves no plugin routes in this
+  release. §5 of this doc is design-only-not-locked.
 - REST conflict resolution: duplicate name raises `PluginRegistrationError`,
   second plugin not loaded (pass-1 amendment)
 - **REST middleware shared (pass-3 D11)**: plugin REST routes mount UNDER the same FastAPI app + middleware, NOT around it. `scope.is_command_safe_for_rest` dangerous-command gate applies to plugin endpoints same as core endpoints. No `PluginSpec.requires_unsafe_commands` flag in 4.x.

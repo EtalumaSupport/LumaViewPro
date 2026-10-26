@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import re
 import types
 from unittest.mock import MagicMock, patch
 
@@ -337,15 +338,15 @@ def test_live_processing_register_duplicate_name_raises(harness_ctx):
         harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
 
 
-def test_rest_register_raises_with_design_session_message(harness_ctx):
+def test_rest_register_is_refused_with_what_the_author_can_do(harness_ctx):
+    """The words name the stub-mode opt-in, the one thing a plugin author
+    can do, and point at no document LVP does not ship."""
     spec = _make_spec(name='rest_attempt')
     with pytest.raises(PluginRegistrationError) as exc:
         harness_ctx.plugins.rest.register(spec, MagicMock(name='router'))
     msg = str(exc.value)
-    assert 'rest' in msg.lower()
-    assert 'REST design session' in msg or 'REST_API_PLAN.md' in msg
-    # error message points plugin authors to the stub-mode opt-in
     assert 'enable_stub_mode' in msg
+    assert re.search(r'\.md\b', msg) is None, msg
     outcome = outcome_of(exc.value)
     assert (outcome.kind, outcome.cause, outcome.reason) == (
         OutcomeKind.REFUSAL,

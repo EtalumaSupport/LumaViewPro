@@ -372,11 +372,14 @@ camera connected, registration raises and nothing is registered.
 
 ### The reserved namespace
 
-Calling `ctx.plugins.rest.register(...)` raises
-`PluginRegistrationError` (`rest_namespace_reserved`). Don't catch and
-ignore the raise; let your plugin fail to load, and serve what it needs
-through `post_processing`, `live_processing` or `ui` until the
-namespace ships.
+`ctx.plugins.rest` is reserved, and a plugin cannot add REST routes in
+this release, so a shipped plugin registers none:
+`ctx.plugins.rest.register(...)` raises `PluginRegistrationError`
+(`rest_namespace_reserved`). Don't catch and ignore the raise; let your
+plugin fail to load, and serve what it needs through `post_processing`,
+`live_processing` or `ui`. While a plugin is being developed,
+`ctx.plugins.rest.enable_stub_mode()` records a registration and serves
+nothing, so the rest of the plugin can be tried.
 
 ---
 
@@ -455,8 +458,8 @@ run-complete dialog without normalization.
 - HTTP endpoints under `/plugins/<name>/` are not yet available; the
   namespace name is reserved.
 - The full design rationale -- why four namespaces, why
-  entry-points discovery, why no sandbox in 4.x -- is documented
-  elsewhere and will be linked when it lands in this repo.
+  entry-points discovery, why no sandbox in 4.x -- is
+  `PLUGIN_API_DESIGN_2026-05-09.md` in this directory.
 
 If something this tutorial promised doesn't work, or if you hit a
 case the API can't express, file an issue against
