@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import hashlib
 import inspect
 import logging
 import pathlib
@@ -203,7 +204,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
-    _add_upload_route(app, session, jobs, closing)
+    _add_upload_route(app, session, jobs, closing, keys)
     _add_preview_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
@@ -259,7 +260,11 @@ def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
 
 
 def _add_upload_route(
-    app: fastapi.FastAPI, session: ScopeSession, jobs: JobRegistry, closing: Closing
+    app: fastapi.FastAPI,
+    session: ScopeSession,
+    jobs: JobRegistry,
+    closing: Closing,
+    keys: idempotency.IdempotencyKeys,
 ) -> None:
     async def upload(request: fastapi.Request, name: str) -> fastapi.Response:
         """Write the request's body as a new file in the live folder, by its name there.
@@ -268,7 +273,8 @@ def _add_upload_route(
         a call thread, as a REST client, in the control session the
         ``Control-Session`` header names. A file already at the name is
         refused, ``file_exists`` (422); it answers ``201`` with the file's
-        path.
+        path. Sent again with the same ``Idempotency-Key``, the same name and
+        the same bytes, it writes nothing and is answered its first answer.
         """
         _refuse_query(request)
         if closing.begun:
@@ -288,12 +294,20 @@ def _add_upload_route(
                 job=_no_handle,
             )
 
-        reply = await jobs.run(
-            lambda: _answered(work, request_id), 'put_live_folder_file', request_id
-        )
-        if not reply.is_problem:
-            reply = dataclasses.replace(reply, status=201)
-        return reply.response()
+        async def put() -> fastapi.Response:
+            reply = await jobs.run(
+                lambda: _answered(work, request_id), 'put_live_folder_file', request_id
+            )
+            if not reply.is_problem:
+                reply = dataclasses.replace(reply, status=201)
+            return reply.response()
+
+        key = request.headers.get('idempotency-key')
+        if key is None:
+            return await put()
+        # The body is held as its hash: a retry sends the same bytes.
+        sent = {'sha256': hashlib.sha256(data).hexdigest()}
+        return await keys.answer(key, idempotency.digest(request.url.path, sent), put)
 
     app.add_api_route(
         f'{PREFIX}/files/{{name:path}}',
@@ -718,33 +732,11 @@ def _add(
         key = request.headers.get('idempotency-key') if sent is not None else None
         if key is None:
             return await respond(request, handle_id, act)
-        asked = idempotency.digest(request.url.path, sent)
-        while True:
-            mine, first = keys.claim(key, asked)
-            if mine:
-                break
-            try:
-                recorded = await asyncio.shield(first)
-            except asyncio.CancelledError:
-                if first.cancelled():
-                    # The first request was let go before it answered: this one runs.
-                    continue
-                raise
-            if isinstance(recorded, BaseException):
-                raise recorded
-            return recorded.replayed()
-        try:
-            response = await respond(request, handle_id, act)
-        except Exception as e:
-            keys.forget(key, first)
-            first.set_result(e)
-            raise
-        except BaseException:
-            keys.forget(key, first)
-            first.cancel()
-            raise
-        first.set_result(idempotency.Recorded.of(response))
-        return response
+        return await keys.answer(
+            key,
+            idempotency.digest(request.url.path, sent),
+            lambda: respond(request, handle_id, act),
+        )
 
     async def respond(
         request: fastapi.Request,

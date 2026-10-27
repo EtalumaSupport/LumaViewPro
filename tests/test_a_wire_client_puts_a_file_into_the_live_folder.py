@@ -7,7 +7,8 @@
 refused, so an upload never replaces what a capture wrote. It is reached as
 every write is -- on a call thread stamped as a REST client, in the control
 session its header names -- so a client that does not hold a held session
-is refused.
+is refused. Sent again with its ``Idempotency-Key``, it writes once and is
+answered its first answer.
 """
 
 from __future__ import annotations
@@ -72,6 +73,31 @@ def test_a_file_already_there_is_refused_and_kept(client, live):
     assert refused.status_code == 422
     assert refused.json()['reason'] == 'file_exists'
     assert (live / 'live_BF_000001.tiff').read_bytes() == b'what the capture wrote'
+
+
+def test_an_upload_sent_again_with_its_key_is_answered_its_first_201_and_writes_once(client, live):
+    """A client that lost the answer sends the upload again with the same
+    ``Idempotency-Key``: the file is already there, so a second write would be
+    refused ``file_exists``, and the retry is answered the first ``201``."""
+    keyed = {'Idempotency-Key': 'upload-1'}
+    first = client.put('/api/v1/files/notes.txt', content=b'first', headers=keyed)
+    again = client.put('/api/v1/files/notes.txt', content=b'first', headers=keyed)
+
+    assert first.status_code == 201, first.text
+    assert (again.status_code, again.content) == (first.status_code, first.content)
+    assert again.headers['Idempotent-Replayed'] == 'true'
+    assert (live / 'notes.txt').read_bytes() == b'first'
+
+
+def test_the_same_key_with_other_bytes_is_refused_and_nothing_is_written(client, live):
+    keyed = {'Idempotency-Key': 'upload-2'}
+    assert client.put('/api/v1/files/a.txt', content=b'a', headers=keyed).status_code == 201
+
+    refused = client.put('/api/v1/files/a.txt', content=b'other', headers=keyed)
+
+    assert refused.status_code == 422
+    assert refused.json()['reason'] == 'idempotency_key_reused'
+    assert (live / 'a.txt').read_bytes() == b'a'
 
 
 def test_a_name_outside_the_live_folder_is_refused_and_nothing_is_written(client, live):

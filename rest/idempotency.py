@@ -21,6 +21,7 @@ import dataclasses
 import datetime
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 
 import fastapi
 
@@ -109,6 +110,48 @@ class IdempotencyKeys:
         held = _Held(asked, asyncio.get_running_loop().create_future(), problems.now())
         self._held[key] = held
         return True, held.answer
+
+    async def answer(
+        self, key: str, asked: str, respond: Callable[[], Awaitable[fastapi.Response]]
+    ) -> fastapi.Response:
+        """Answer a request sent with *key* asking *asked* (its ``digest``): run it once, and give its retries its answer.
+
+        The request whose claim the key is runs *respond*. A retry that
+        arrives while it runs waits for its answer, and one that arrives
+        after is given it again, marked replayed; what it raised is raised
+        to its retries. A first request let go before it answered leaves
+        the key free, and the retry waiting on it runs.
+
+        Raises:
+            ServerRefusedError: ``idempotency_key_reused``, the key was sent
+                with another member or body.
+        """
+        while True:
+            mine, first = self.claim(key, asked)
+            if mine:
+                break
+            try:
+                recorded = await asyncio.shield(first)
+            except asyncio.CancelledError:
+                if first.cancelled():
+                    # The first request was let go before it answered: this one runs.
+                    continue
+                raise
+            if isinstance(recorded, BaseException):
+                raise recorded
+            return recorded.replayed()
+        try:
+            response = await respond()
+        except Exception as e:
+            self.forget(key, first)
+            first.set_result(e)
+            raise
+        except BaseException:
+            self.forget(key, first)
+            first.cancel()
+            raise
+        first.set_result(Recorded.of(response))
+        return response
 
     def forget(self, key: str, answer: asyncio.Future[Recorded | BaseException]) -> None:
         """Let *key* go: its first request ended without an answer, so a retry runs it."""
