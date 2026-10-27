@@ -134,6 +134,20 @@ def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_came
     assert session.scope.imaging.capture_and_wait(timeout_s=5.0) is not None
 
 
+def test_a_failed_exposure_read_back_after_auto_gain_leaves_only_the_exposure_unknown(session):
+    camera = session.scope.camera
+    camera.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.simulation.refuse_camera_read('exposure', 'failed')
+    camera.set_auto_gain(False, _AUTO_GAIN)
+    assert camera.exposure_ms is None
+    # The gain read answered, so the gain held is the one the cycle left.
+    assert camera.gain_db == camera.read_gain_db()
+
+    assert camera.set_exposure_ms(20.0) == pytest.approx(20.0)
+    assert camera.exposure_ms == pytest.approx(20.0)
+    assert session.scope.imaging.capture_and_wait(timeout_s=5.0) is not None
+
+
 def test_a_fresh_read_is_held(session):
     camera = session.scope.camera
     camera.set_gain_db(5.0)

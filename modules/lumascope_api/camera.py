@@ -701,35 +701,25 @@ class CameraAPI:
         run capturing at an unintended exposure inherited from a
         pre-scan live-mode AG cycle.
 
-        A read-back that fails leaves both unknown (None): the camera holds
+        A read that fails leaves its value unknown (None): the camera holds
         values the auto cycle chose, and the pre-auto ones are known-stale.
         """
         if not self._driver or not self._driver.active:
             return
-        try:
-            gain = self._driver.get_gain()
-            exp = self._driver.get_exposure_t()
-        except Exception as e:
-            self._commit_camera_writes({'gain_db': None, 'exposure_ms': None})
-            logger.warning(
-                f'[SCOPE API ] cache refresh after auto-off failed: {e}; '
-                f'the gain and exposure held are unknown until the camera reports them'
-            )
-            return
+        gain = self._driver.get_gain()
+        exp = self._driver.get_exposure_t()
         # A non-physical reading (the drivers' negative failed-read
-        # sentinel) is unknown, as the exception path above writes -- NOT
-        # keep-prior: the pre-auto cached value is known-stale here
-        # (hardware moved during the auto cycle).
+        # sentinel) is unknown -- NOT keep-prior: the pre-auto cached value
+        # is known-stale here (hardware moved during the auto cycle).
         # Committed as an authoritative write (generation bump): a stale
         # getter read racing this resync must not resurrect the pre-auto
         # value.
-        resync = {}
-        if gain is not None:
-            resync['gain_db'] = float(gain) if common_utils.is_valid_gain_db(gain) else None
-        if exp is not None:
-            resync['exposure_ms'] = float(exp) if common_utils.is_valid_exposure_ms(exp) else None
-        if resync:
-            self._commit_camera_writes(resync)
+        self._commit_camera_writes(
+            {
+                'gain_db': float(gain) if common_utils.is_valid_gain_db(gain) else None,
+                'exposure_ms': float(exp) if common_utils.is_valid_exposure_ms(exp) else None,
+            }
+        )
         # Diagnostic: record where hardware auto-gain/exposure actually
         # converged when the cycle ended. A converged gain that stayed near
         # the floor on a dim scene means the settle window ended before AG
