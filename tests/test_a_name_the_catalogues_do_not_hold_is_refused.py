@@ -150,7 +150,7 @@ def test_a_slot_that_is_not_one_is_refused_as_the_turrets_range(turret_session, 
         SLOT_MEMBERS[member](turret_session, slot)
     assert refused.value.reason == 'position_out_of_range'
     assert refused.value.bound == 'turret slots'
-    assert (refused.value.low, refused.value.high) == (1, 4)
+    assert refused.value.limits == (1, 4)
     assert _selection(turret_session) == before
 
 

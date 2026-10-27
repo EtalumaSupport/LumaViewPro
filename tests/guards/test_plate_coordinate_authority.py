@@ -84,7 +84,7 @@ class TestRefusalNamesWhatTheUserTyped:
             scope.motion.move_to_plate(_y(85.0))
 
         assert exc.value.bound == 'reachable range'
-        assert (exc.value.low, exc.value.high) == REACHABLE['Y']
+        assert exc.value.limits == REACHABLE['Y']
 
     def test_a_reachable_coordinate_converts(self, scope):
         """40 mm is inside the band and the stage goes to its stage um."""

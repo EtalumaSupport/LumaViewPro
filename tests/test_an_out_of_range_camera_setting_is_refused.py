@@ -59,11 +59,7 @@ def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkey
     assert isinstance(refusal, Refusal) and isinstance(refusal, ValueError)
     assert not isinstance(refusal, CameraSettingRejected), 'nothing broke: a refusal, not a fault'
     assert refusal.reason == 'gain_db_out_of_range'
-    assert (refusal.requested, refusal.minimum, refusal.maximum) == (
-        maximum + 5.0,
-        minimum,
-        maximum,
-    )
+    assert (refusal.requested, refusal.limits) == (maximum + 5.0, (minimum, maximum))
     assert f'{minimum:g} to {maximum:g} dB' in str(refusal)
     assert written == [], 'nothing reaches the camera'
     assert camera.gain_db == 3.0
@@ -77,7 +73,7 @@ def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
         camera.set_gain_db(1.0)
 
-    assert excinfo.value.minimum == 2.0
+    assert excinfo.value.limits[0] == 2.0
 
 
 def test_an_exposure_above_the_maximum_is_refused(sim_camera):
@@ -90,7 +86,7 @@ def test_an_exposure_above_the_maximum_is_refused(sim_camera):
 
     assert excinfo.value.reason == 'exposure_ms_out_of_range'
     minimum = limits.exposure_min_ms
-    assert excinfo.value.minimum == minimum
+    assert excinfo.value.limits[0] == minimum
     assert f'{minimum:g} to {maximum:g} ms' in str(excinfo.value)
 
 

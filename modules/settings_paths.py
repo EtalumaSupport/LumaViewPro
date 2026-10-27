@@ -21,6 +21,7 @@ import typing
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules.exceptions import (
+    AccelerationLimitRefusedError,
     ArgumentRefusedError,
     SettingRefusedError,
     StoredSettingReplacedNotice,
@@ -34,7 +35,7 @@ from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleratio
 from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
 from modules.zstack_config import ZStackReference
 from modules.python_values import python_values
-from modules.tiling_config import TilingConfig
+from modules.tiling_config import OVERLAP_PERCENT_RANGE, TilingConfig
 
 
 @dataclasses.dataclass(frozen=True)
@@ -207,7 +208,10 @@ STIM_PULSE_COUNT_RANGE: typing.Final = (1, 300)
 def _refuse_outside(path: str, value: float, low: float, high: float) -> None:
     if not low <= value <= high:
         raise SettingRefusedError(
-            'out_of_range', path, f'it must be between {low} and {high}, not {value!r}'
+            'out_of_range',
+            path,
+            f'it must be between {low} and {high}, not {value!r}',
+            limits=(low, high),
         )
 
 
@@ -254,7 +258,7 @@ def _overlap(path: str, value: float) -> None:
     try:
         TilingConfig.validate_overlap_percent(value)
     except ValueError as e:
-        raise SettingRefusedError('out_of_range', path, str(e)) from e
+        raise SettingRefusedError('out_of_range', path, str(e), limits=OVERLAP_PERCENT_RANGE) from e
 
 
 def _binning_label(path: str, value: str) -> None:
@@ -270,8 +274,8 @@ def _binning_label(path: str, value: str) -> None:
 def _acceleration(path: str, value: float) -> None:
     try:
         refuse_acceleration_pct(value)
-    except ValueError as e:
-        raise SettingRefusedError('out_of_range', path, str(e)) from e
+    except AccelerationLimitRefusedError as e:
+        raise SettingRefusedError('out_of_range', path, str(e), limits=e.limits) from e
 
 
 def _schedule(path: str, value: object) -> None:

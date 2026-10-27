@@ -68,10 +68,11 @@ class TestTheFrameWriter:
             session.scope.camera.set_frame_size(width, height)
 
         assert refused.value.setting == setting
-        assert refused.value.minimum is not None and refused.value.maximum is not None
-        assert str(refused.value.maximum) in str(refused.value) or (
-            f'{refused.value.maximum:g}' in str(refused.value)
-        ), 'the refusal states the range'
+        minimum, maximum = refused.value.limits
+        assert minimum is not None and maximum is not None
+        assert str(maximum) in str(refused.value) or (f'{maximum:g}' in str(refused.value)), (
+            'the refusal states the range'
+        )
         assert writes == []
         assert session.settings['frame'] == before
         assert camera.frame_size.to_dict() == delivered_before
@@ -81,7 +82,7 @@ class TestTheFrameWriter:
         width = session.scope.capabilities.camera_limits.frame_max.width
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
             session.scope.camera.set_frame_size(width, 400)
-        assert refused.value.maximum == width // 2
+        assert refused.value.limits[1] == width // 2
 
     def test_an_in_range_size_is_delivered_exactly(self, session):
         delivered = session.scope.camera.set_frame_size(1000, 802)

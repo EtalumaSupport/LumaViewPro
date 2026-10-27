@@ -220,6 +220,37 @@ def test_a_refusal_carries_the_fields_its_type_publishes(client, session, monkey
     assert (body['reason'], body['argument']) == ('not_a_number', 'illumination_ma')
 
 
+def test_a_move_past_the_travel_answers_the_axis_and_its_limits(client, session):
+    home_sim_scope(session.scope)
+    travel = session.scope.motion.get_axis_limits('Z')
+
+    body = _problem(
+        client.post('/api/v1/scope/motion/move_z', json={'z_um': travel.max_um + 1000}), 422
+    )
+
+    # A client corrects the move from the fields, not the words.
+    assert (body['reason'], body['axis'], body['limits']) == (
+        'position_out_of_range',
+        'Z',
+        [travel.min_um, travel.max_um],
+    )
+
+
+def test_a_setting_outside_its_range_answers_the_range(client, session):
+    before = session.get_settings_snapshot()
+
+    body = _problem(
+        client.post('/api/v1/update_settings', json={'path': 'jpg_quality', 'value': 500}), 422
+    )
+
+    assert (body['reason'], body['path'], body['limits']) == (
+        'out_of_range',
+        'jpg_quality',
+        [1, 100],
+    )
+    assert session.get_settings_snapshot() == before
+
+
 def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     body = _problem(
         client.post('/api/v1/scope/motion/set_precision_mode', json={'axis': 'x', 'enabled': True}),

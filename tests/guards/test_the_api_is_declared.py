@@ -480,6 +480,9 @@ UNIT_SUFFIXES = Words(
 # so a rename that gives it a unit deletes it here.
 UNITLESS: dict[str, str] = {
     'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
+    'CameraSettingOutOfRangeError.limits field': "the camera's bounds, in the setting's unit",
+    'PositionOutOfRangeError.limits field': "the bound's ends, in the refused quantity's unit",
+    'SettingRefusedError.limits field': "the setting's range, in the setting's unit",
     'CameraAPI.set_black_level parameter level': 'a raw sensor level',
     'FrameRecord.black_level field': 'a raw sensor level',
     'SensorExposure.black_level field': 'a raw sensor level',

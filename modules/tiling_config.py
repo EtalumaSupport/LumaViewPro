@@ -3,6 +3,7 @@
 import itertools
 import pathlib
 import re
+import typing
 from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
@@ -32,6 +33,10 @@ def _row_label(index: int) -> str:
         index, remainder = divmod(index - 1, 26)
         label = chr(ord('A') + remainder) + label
     return label
+
+
+# The tile overlap a grid may be built with, in percent, ends included.
+OVERLAP_PERCENT_RANGE: typing.Final = (0.0, 50.0)
 
 
 def _split_row_col(tile_label: str) -> tuple[str, int]:
@@ -291,9 +296,10 @@ class TilingConfig:
         except (TypeError, ValueError):
             raise ValueError(f'Tile overlap must be a number, got {overlap_percent!r}') from None
 
-        if overlap_percent < 0.0 or overlap_percent > 50.0:
+        low, high = OVERLAP_PERCENT_RANGE
+        if not low <= overlap_percent <= high:
             raise ValueError(
-                f'Tile overlap must be between 0 and 50 percent, got {overlap_percent}'
+                f'Tile overlap must be between {low:g} and {high:g} percent, got {overlap_percent}'
             )
         return overlap_percent
 

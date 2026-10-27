@@ -399,10 +399,9 @@ def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_imaging
         imaging.set_gain_db(max_gain + 5.0)
     print(f'  {over_gain.value}')
     assert over_gain.value.reason == 'gain_db_out_of_range'
-    assert (over_gain.value.requested, over_gain.value.minimum, over_gain.value.maximum) == (
+    assert (over_gain.value.requested, over_gain.value.limits) == (
         max_gain + 5.0,
-        min_gain,
-        max_gain,
+        (min_gain, max_gain),
     )
     assert cam.get_gain() == pytest.approx(gain_before, abs=0.01)
 
@@ -416,7 +415,7 @@ def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_imaging
         imaging.set_exposure_ms(max_exposure + 1.0)
     print(f'  {over_exposure.value}')
     assert over_exposure.value.reason == 'exposure_ms_out_of_range'
-    assert over_exposure.value.maximum == max_exposure
+    assert over_exposure.value.limits[1] == max_exposure
     assert cam.get_exposure_t() == pytest.approx(exposure_before, abs=0.01)
 
     in_range_gain = (min_gain or 0.0) + (max_gain - (min_gain or 0.0)) / 2

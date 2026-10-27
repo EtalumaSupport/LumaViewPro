@@ -86,7 +86,7 @@ def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
     assert camera.set_black_level(high) == high
     with pytest.raises(CameraSettingOutOfRangeError) as refused:
         camera.set_black_level(high + 1.0)
-    assert refused.value.maximum == high
+    assert refused.value.limits[1] == high
 
 
 def test_a_failed_range_read_raises(sim_scope):

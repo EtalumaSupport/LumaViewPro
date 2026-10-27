@@ -21,6 +21,7 @@ from drivers.exceptions import (
     MotionInterlockError,
 )
 from modules.api_surface import api_fields
+from modules.axes import Axis
 from modules.caller import Caller
 from modules.live_work import SCOPE_HOLDERS
 from modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
@@ -1348,7 +1349,7 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
         self.offered = offered
 
 
-@api_fields('path', 'member')
+@api_fields('path', 'member', 'limits')
 class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.
 
@@ -1384,13 +1385,17 @@ class SettingRefusedError(Refusal, ConfigError):
             protocol step's column.
         member: The member that changes the setting, for ``'has_member'``
             and ``'host_only'``; otherwise None.
+        limits: The lowest and highest value the setting takes, for an
+            ``'out_of_range'`` setting with both ends; otherwise None.
 
-    ``path`` and ``member`` are published, so a REST problem names the
-    setting refused, and the member to call instead, beside the words.
+    ``path``, ``member`` and ``limits`` are published, so a REST problem
+    names the setting refused, the member to call instead and the range,
+    beside the words.
     """
 
     path: str
     member: str | None
+    limits: tuple[float, float] | None
     title = 'Setting Not Changed'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
         (
@@ -1407,13 +1412,22 @@ class SettingRefusedError(Refusal, ConfigError):
         RefusalCause.REQUEST,
     )
 
-    def __init__(self, reason: str, path: str, detail: str, *, member: str | None = None):
+    def __init__(
+        self,
+        reason: str,
+        path: str,
+        detail: str,
+        *,
+        member: str | None = None,
+        limits: tuple[float, float] | None = None,
+    ):
         # A detail may be another refusal's whole sentence, its period included.
         super().__init__(f'{path} was not changed: {detail.removesuffix(".")}.')
         self.reason = reason
         self.path = path
         self.detail = detail
         self.member = member
+        self.limits = limits
 
 
 class SettingsFileNotReplacedError(Fault, ConfigError):
@@ -3919,6 +3933,7 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
         self.value = value
 
 
+@api_fields('limits')
 class AccelerationLimitRefusedError(Refusal, ValueError):
     """An acceleration limit no board may be given was refused; nothing was commanded or stored.
 
@@ -3931,7 +3946,13 @@ class AccelerationLimitRefusedError(Refusal, ValueError):
     Attributes:
         reason: ``'acceleration_out_of_range'``.
         value: What was given, as given.
+        limits: The lowest and highest limit a board takes, in percent.
+
+    ``limits`` is published, so a client corrects the value without reading
+    the words.
     """
+
+    limits: tuple[int, int]
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {
         'acceleration_out_of_range': RefusalCause.REQUEST
@@ -3943,8 +3964,10 @@ class AccelerationLimitRefusedError(Refusal, ValueError):
             f'An acceleration limit of {value!r}% cannot be set: it is a whole number from {low} to {high}.'
         )
         self.value = value
+        self.limits = (low, high)
 
 
+@api_fields('axis', 'limits')
 class PositionOutOfRangeError(Refusal, ValueError):
     """An absolute move was commanded beyond the axis's travel.
 
@@ -3970,7 +3993,21 @@ class PositionOutOfRangeError(Refusal, ValueError):
     likewise distinguishes a position from a relative distance. One
     optional argument each rather than a second exception class: the
     refusal is the same event, and only the sentence differs.
+
+    Attributes:
+        axis: The axis whose position or distance was refused.
+        position: What was asked for.
+        limits: The lowest and highest value ``bound`` allows, in the
+            quantity's own unit.
+        bound: Which limit refused it.
+        quantity: What was refused: a position, a distance, a plate position.
+
+    ``axis`` and ``limits`` are published, so a client corrects the move
+    without reading the words.
     """
+
+    axis: Axis
+    limits: tuple[float, float]
 
     # The travel is the model's, fixed for the scope's life, so a target
     # outside it is refused every time it is sent.
@@ -3989,10 +4026,9 @@ class PositionOutOfRangeError(Refusal, ValueError):
         quantity: str = 'position',
     ):
         super().__init__(f'{axis} {quantity} {position} is outside the {bound} {low} to {high}.')
-        self.axis = axis
+        self.axis = Axis(axis)
         self.position = position
-        self.low = low
-        self.high = high
+        self.limits = (low, high)
         self.bound = bound
         self.quantity = quantity
 
@@ -4639,6 +4675,7 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
         self.offered = offered
 
 
+@api_fields('limits')
 class CameraSettingOutOfRangeError(Refusal, ValueError):
     """A camera setting outside the range this camera declares was asked for.
 
@@ -4654,10 +4691,15 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         setting: Machine-readable setting name ('gain_db', 'exposure_ms',
             'frame_width', 'frame_height').
         requested: The value asked for.
-        minimum: The camera's declared floor, or None when it declares none
-            (an undeclared floor is not checked).
-        maximum: The camera's declared ceiling, or None when it declares none.
+        limits: The camera's declared floor and ceiling, in the setting's
+            unit; either is None when the camera declares none, and is not
+            checked.
+
+    ``limits`` is published, so a client corrects the value without reading
+    the words.
     """
+
+    limits: tuple[float | None, float | None]
 
     # The range is the attached camera's, fixed for its life, so a value
     # outside it is refused every time it is sent.
@@ -4686,8 +4728,7 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         self.reason = f'{setting}_out_of_range'
         self.setting = setting
         self.requested = requested
-        self.minimum = minimum
-        self.maximum = maximum
+        self.limits = (minimum, maximum)
 
 
 class FrameDepthError(Fault, Exception):
