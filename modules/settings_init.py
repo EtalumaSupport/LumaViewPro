@@ -899,7 +899,11 @@ def prepare_loaded(
     can fix a file at load; a handed value is a write of every key at once
     and is refused as a write is. A container of the wrong kind is the
     file's ``SettingsFileError``, naming the file, or the argument's
-    ``ArgumentRefusedError('wrong_kind')``, naming the key.
+    ``ArgumentRefusedError('wrong_kind')``, naming the key. ``handed`` is
+    also ``ScopeSession.create``'s door, its one caller that passes True,
+    and every host's dict passes it, so a live folder that cannot be
+    created is warned about there alone: the drive, not the dict, holds
+    that condition, so a second preparation would say it again.
 
     ``template`` is ``load_template``'s answer, never read a second way;
     it is copied here, so the merge never aliases its blocks into the
@@ -967,7 +971,7 @@ def prepare_loaded(
     # replacement over their choice. Captures into it are refused by the
     # capture-location owner, naming it, until it is reachable.
     loaded['live_folder'], unreachable = bring_up_live_folder(loaded['live_folder'], directory)
-    if unreachable is not None:
+    if unreachable is not None and handed:
         logger.warning(
             f'[Settings ] The live folder {loaded["live_folder"]} could not be created '
             f'({unreachable}); captures into it are refused until it is reachable.'
