@@ -13,6 +13,7 @@ for what X actually does.
 from __future__ import annotations
 
 import ast
+import subprocess
 from functools import cache
 from pathlib import Path
 
@@ -41,6 +42,28 @@ def iter_package_modules(packages):
                 path.relative_to(REPO_ROOT).as_posix(),
                 ast.parse(path.read_text(encoding='utf-8'), filename=str(path)),
             )
+
+
+def tracked_python_files() -> list[str]:
+    """Every ``.py`` the repository tracks, repo-relative POSIX paths, sorted.
+
+    The one lister for a whole-repository sweep. The disk under the
+    root holds more than the tree: ignored census scripts under
+    ``build/``, ``.hypothesis/``, a clone dropped beside the code. A
+    sweep that walks the disk reads them, so its outcome moves with
+    files outside the tree a suite run is recorded against (a
+    MicroPython clone under ``build/`` failed the compile guard on the
+    clone's own tests, 2026-09-23). Tracked means what ``git ls-files``
+    answers at the root, nothing a hand-kept list of folders to skip
+    has to mirror.
+    """
+    listed = subprocess.run(
+        ['git', 'ls-files', '-z', '--', '*.py'],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+    )
+    return sorted(path for path in listed.stdout.decode().split('\0') if path)
 
 
 def module_name(rel_path: str) -> str:

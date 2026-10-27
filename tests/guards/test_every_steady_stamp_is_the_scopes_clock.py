@@ -24,7 +24,7 @@ from __future__ import annotations
 import ast
 import re
 
-from tests.ast_seams import REPO_ROOT, Words
+from tests.ast_seams import REPO_ROOT, Words, tracked_python_files
 
 _THE_CLOCK = 'drivers/host_clock.py'
 # This guard names the clocks it refuses.
@@ -32,8 +32,6 @@ _THIS_GUARD = 'tests/guards/test_every_steady_stamp_is_the_scopes_clock.py'
 _NANOSECOND_CLOCKS = Words({'monotonic_ns', 'perf_counter_ns', 'time_ns'})
 # A string that is a name -- a getattr's attribute, a patch target -- not prose.
 _A_NAME = re.compile(r'[\w.]+')
-# Generated or foreign trees in a checkout; every dot-directory is skipped too.
-_NOT_SOURCE = Words({'build', 'dist', 'logs', 'node_modules', 'venv', '__pycache__'})
 
 
 def _offences(tree: ast.AST) -> list[tuple[int, str]]:
@@ -55,13 +53,7 @@ def _offences(tree: ast.AST) -> list[tuple[int, str]]:
 
 
 def _source_files() -> list[str]:
-    files = []
-    for path in sorted(REPO_ROOT.rglob('*.py')):
-        rel = path.relative_to(REPO_ROOT)
-        if any(part.startswith('.') or part in _NOT_SOURCE for part in rel.parts[:-1]):
-            continue
-        files.append(rel.as_posix())
-    return files
+    return tracked_python_files()
 
 
 def test_no_steady_stamp_is_read_beside_the_scopes_clock():

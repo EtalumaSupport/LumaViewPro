@@ -19,7 +19,7 @@ import os
 from typing import ClassVar
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_python_files
 
 
 # ---------------------------------------------------------------------------
@@ -126,20 +126,16 @@ class TestConfigGettersRename:
         assert os.path.exists(new_path), 'config_ui_getters.py not found'
 
     def test_no_imports_reference_old_name(self):
-        """Scan all .py files for 'modules.config_getters' imports (should be zero)."""
-        import os
-        import glob
-
+        """Scan every tracked .py file for 'modules.config_getters' imports (should be zero)."""
         old_module = 'modules.config_' + 'getters'  # avoid matching this test file
-        root = REPO_ROOT
         violations = []
-        for py_file in glob.glob(os.path.join(root, '**', '*.py'), recursive=True):
-            if '__pycache__' in py_file or 'test_architecture' in py_file:
+        for rel_path in tracked_python_files():
+            if 'test_architecture' in rel_path:
                 continue
-            with open(py_file) as f:
+            with open(REPO_ROOT / rel_path) as f:
                 for i, line in enumerate(f, 1):
                     if old_module in line and not line.strip().startswith('#'):
-                        violations.append(f'{os.path.relpath(py_file, root)}:{i}')
+                        violations.append(f'{rel_path}:{i}')
         assert not violations, f'Files still importing old name: {violations}'
 
 
@@ -222,10 +218,7 @@ class TestTinyFileConsolidation:
         assert SequencedCaptureRunMode.SINGLE_SCAN.value == 'single_scan'
 
     def test_no_imports_reference_old_modules(self):
-        """Scan all .py files for imports of deleted modules (should be zero)."""
-        import os
-        import glob
-
+        """Scan every tracked .py file for imports of deleted modules (should be zero)."""
         old_modules = [
             'modules.color_' + 'channels',
             'modules.json_' + 'helper',
@@ -236,47 +229,36 @@ class TestTinyFileConsolidation:
         ]
         # Deleted module that must not be confused with protocol_step_runner
         old_protocol_step = 'modules.protocol_' + 'step'
-        root = REPO_ROOT
         violations = []
-        for py_file in glob.glob(os.path.join(root, '**', '*.py'), recursive=True):
-            if '__pycache__' in py_file or 'test_architecture' in py_file:
+        for rel_path in tracked_python_files():
+            if 'test_architecture' in rel_path:
                 continue
-            with open(py_file) as f:
+            with open(REPO_ROOT / rel_path) as f:
                 for i, line in enumerate(f, 1):
                     if line.strip().startswith('#'):
                         continue
                     for old_mod in old_modules:
                         if old_mod in line:
-                            violations.append(f'{os.path.relpath(py_file, root)}:{i} ({old_mod})')
+                            violations.append(f'{rel_path}:{i} ({old_mod})')
                     # Check for deleted modules.protocol_step but not protocol_step_runner
                     if old_protocol_step in line:
                         # Only flag if it's not followed by '_' (which would be protocol_step_runner)
                         import re
 
                         if re.search(r'modules\.protocol_step(?!_)', line):
-                            violations.append(
-                                f'{os.path.relpath(py_file, root)}:{i} ({old_protocol_step})'
-                            )
+                            violations.append(f'{rel_path}:{i} ({old_protocol_step})')
         assert not violations, f'Files still importing deleted modules: {violations}'
 
     def test_all_python_files_compile(self):
-        """Every .py file must be valid Python syntax -- catches refactor leftovers."""
-        import os
+        """Every tracked .py file is valid Python syntax -- catches refactor leftovers."""
         import py_compile
 
-        root = REPO_ROOT
         errors = []
-        for dirpath, _, filenames in os.walk(root):
-            if '__pycache__' in dirpath or '.git' in dirpath:
-                continue
-            for fn in filenames:
-                if not fn.endswith('.py'):
-                    continue
-                filepath = os.path.join(dirpath, fn)
-                try:
-                    py_compile.compile(filepath, doraise=True)
-                except py_compile.PyCompileError as e:
-                    errors.append(str(e))
+        for rel_path in tracked_python_files():
+            try:
+                py_compile.compile(str(REPO_ROOT / rel_path), doraise=True)
+            except py_compile.PyCompileError as e:
+                errors.append(str(e))
         assert not errors, 'Syntax errors found:\n' + '\n'.join(errors)
 
 
