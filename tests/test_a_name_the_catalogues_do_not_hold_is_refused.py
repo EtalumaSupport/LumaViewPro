@@ -77,14 +77,14 @@ def _selection(session):
 
 
 LABWARE_MEMBERS = {
-    'resolve_plate_key': lambda s, v: s.wellplate_loader.resolve_plate_key(v),
-    'get_plate': lambda s, v: s.wellplate_loader.get_plate(v),
+    'resolve_plate_key': lambda s, v: s.scope.wellplate_loader.resolve_plate_key(v),
+    'get_plate': lambda s, v: s.scope.wellplate_loader.get_plate(v),
     'select_labware': lambda s, v: s.select_labware(v),
     'set_protocol_labware': lambda s, v: s.set_protocol_labware(s.create_empty_protocol(), v),
 }
 
 OBJECTIVE_MEMBERS = {
-    'get_objective_info': lambda s, v: s.objective_helper.get_objective_info(objective_id=v),
+    'get_objective_info': lambda s, v: s.scope.objective_helper.get_objective_info(objective_id=v),
     'select_objective': lambda s, v: s.select_objective(v),
     'confirm_objective': lambda s, v: s.confirm_objective(v),
     'confirm_objective at a slot': lambda s, v: s.confirm_objective(v, slot=2),
@@ -103,7 +103,7 @@ def test_a_plate_the_catalogue_lacks_is_refused_offering_its_plates(session, mem
     assert isinstance(refused.value, ConfigError)
     assert refused.value.argument == 'labware_id'
     assert refused.value.value == name
-    assert refused.value.offered == tuple(session.wellplate_loader.get_plate_list())
+    assert refused.value.offered == tuple(session.scope.wellplate_loader.get_plate_list())
     assert _selection(session) == before
 
 
@@ -123,7 +123,7 @@ def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(
     assert refused.value.cause == RefusalCause.REQUEST
     assert isinstance(refused.value, ConfigError)
     assert refused.value.argument == 'objective_id'
-    assert refused.value.offered == tuple(session.objective_helper.get_objectives_list())
+    assert refused.value.offered == tuple(session.scope.objective_helper.get_objectives_list())
     assert _selection(session) == before
 
 

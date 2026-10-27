@@ -65,12 +65,10 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
     )
     try:
         scope = session.scope
-        assert EXTRA_OBJECTIVE in session.objective_helper.get_objectives_list()
+        assert EXTRA_OBJECTIVE in scope.objective_helper.get_objectives_list()
         assert EXTRA_OBJECTIVE in scope.objectives
-        assert EXTRA_PLATE in session.wellplate_loader.get_plate_list()
+        assert EXTRA_PLATE in scope.wellplate_loader.get_plate_list()
         # One object each, the scope's, wherever the session reaches one.
-        assert session.objective_helper is scope.objective_helper
-        assert session.wellplate_loader is scope.wellplate_loader
         assert session.autofocus_runner._scope is scope
         assert session.sequenced_capture_runner._scope is scope
         assert session.select_labware(EXTRA_PLATE) is not None
@@ -93,8 +91,8 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         home_sim_scope(session.scope)
         config = config_helpers.get_sequenced_capture_config_from_settings(
             session.settings,
-            objective_helper=session.objective_helper,
-            wellplate_loader=session.wellplate_loader,
+            objective_helper=session.scope.objective_helper,
+            wellplate_loader=session.scope.wellplate_loader,
             current_z=session.get_current_plate_position().z_um,
             tiling='1x1',
             use_zstacking=False,

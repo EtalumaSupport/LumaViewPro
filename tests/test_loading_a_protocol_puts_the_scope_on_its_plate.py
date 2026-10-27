@@ -45,7 +45,7 @@ def _scope_plate(session):
 
 
 def _catalogue_plate(session, name):
-    return session.wellplate_loader.get_plate(labware_id=name)
+    return session.scope.wellplate_loader.get_plate(labware_id=name)
 
 
 class TestTheSessionLoad:

@@ -241,7 +241,7 @@ def test_a_planted_unmarked_read_and_import_are_reported(live_roots):
     planted = (
         'from modules.image_save import save_image\n'
         "z = scope.motion.get_current_position('Z')\n"
-        'session.camera.set_exposure_ms(1)\n'
+        'scope.wellplate_loader.get_plate_list()\n'
     )
     reported = '\n'.join(
         _unmarked_calls('planted', planted, live_roots) + project_name_failures('planted', planted)
@@ -249,6 +249,6 @@ def test_a_planted_unmarked_read_and_import_are_reported(live_roots):
     for expected in (
         'planted:1  modules.image_save.save_image  -> an unmarked function',
         'planted:2  scope.motion.get_current_position  -> MotionAPI.get_current_position',
-        'planted:3  session.camera.set_exposure_ms  -> ScopeSession.camera',
+        'planted:3  scope.wellplate_loader.get_plate_list  -> Lumascope.wellplate_loader',
     ):
         assert expected in reported, reported

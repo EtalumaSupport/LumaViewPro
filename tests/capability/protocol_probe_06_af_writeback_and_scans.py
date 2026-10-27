@@ -21,8 +21,8 @@ try:
     runner = ProtocolRunner(session)
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
         current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,

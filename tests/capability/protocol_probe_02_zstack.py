@@ -48,7 +48,7 @@ try:
     # ---------------- Lane 1: what ui/zstack.py assembles ----------------
     banner('A1. GUI lane (ui/zstack.py) prepare kwargs')
     labware_id, _lw = config_helpers.get_selected_labware_from_settings(
-        settings, session.wellplate_loader
+        settings, session.scope.wellplate_loader
     )
     objective_id, _ = session.scope.runtime_state.resolve_current_objective()
     zstack_params = config_helpers.get_zstack_params_from_settings(settings)

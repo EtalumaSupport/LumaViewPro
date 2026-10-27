@@ -171,8 +171,6 @@ class TestTheHeadlessCallerGetsIt:
         session.capture_settings_snapshot.return_value = session.settings
         session.scope = sim_scope
         session.plate_position_on.return_value = _POSITION
-        session.objective_helper.get_objective_info.return_value = objective(magnification=10)
-        session.wellplate_loader = sim_scope.wellplate_loader
         runner = ProtocolRunner(session)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:

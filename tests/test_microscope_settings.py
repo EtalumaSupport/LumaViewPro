@@ -331,7 +331,7 @@ class TestTheFramingRedrawShowsTheStore:
 
 class TestSelectBinningHandler:
     """select_binning_size reads the selector and hands the pick to the
-    camera API (``session.camera``) on the camera lane; the store is the
+    camera API (``scope.camera``) on the camera lane; the store is the
     camera API's to write. During init it only redraws. Live, it shows the
     frame the new binning will give in the boxes before it submits, so an
     edit typed while the apply runs is read against the binning the selector
@@ -369,7 +369,7 @@ class TestSelectBinningHandler:
         # the camera API says; its own refusal is pinned against the
         # simulated scope in
         # test_an_argument_a_member_cannot_use_is_refused_before_it_is_read.py.
-        session = SimpleNamespace(
+        scope = SimpleNamespace(
             camera=SimpleNamespace(
                 frame_at_binning=_frame_at_binning,
                 set_binning=lambda size: applies.append(size),
@@ -378,7 +378,7 @@ class TestSelectBinningHandler:
         ctx = SimpleNamespace(
             settings=settings,
             initializing=initializing,
-            session=session,
+            scope=scope,
             camera_executor=object(),
         )
         ids = {
@@ -601,7 +601,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
 
         ctx = SimpleNamespace(
             settings=settings,
-            session=SimpleNamespace(camera=SimpleNamespace(set_frame_size=_set_frame_size)),
+            scope=SimpleNamespace(camera=SimpleNamespace(set_frame_size=_set_frame_size)),
             camera_executor=object(),
         )
 

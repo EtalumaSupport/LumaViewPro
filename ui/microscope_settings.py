@@ -410,9 +410,9 @@ class MicroscopeSettings(BoxLayout):
         if mode == ctx.settings['image_mode']:
             return
 
-        session = ctx.session
+        camera = ctx.scope.camera
         submit_reported(
-            lambda: session.camera.set_image_mode(mode),
+            lambda: camera.set_image_mode(mode),
             self._redraw_image_mode,
             'IMAGE_MODE',
             lane=ctx.camera_executor,
@@ -570,12 +570,12 @@ class MicroscopeSettings(BoxLayout):
             return
 
         size = binning.binning_size_str_to_int(label)
-        session = ctx.session
+        camera = ctx.scope.camera
         # The boxes show the frame the new binning will give while the apply
         # runs, so an edit typed meanwhile is read against the binning the
         # spinner shows; the redraw then shows what the camera delivered.
         run_reported(
-            lambda: self._write_frame_text(**session.camera.frame_at_binning(size)),
+            lambda: self._write_frame_text(**camera.frame_at_binning(size)),
             None,
             'BINNING',
         )
@@ -586,7 +586,7 @@ class MicroscopeSettings(BoxLayout):
             self._redraw_framing()
             return
         submit_reported(
-            lambda: session.camera.set_binning(size),
+            lambda: camera.set_binning(size),
             self._framing_applied,
             'BINNING',
             lane=ctx.camera_executor,
@@ -780,10 +780,10 @@ class MicroscopeSettings(BoxLayout):
         # Rapid edits (width, then height, each committing on focus loss)
         # fold into one apply while one is in flight -- see _CoalescingApplier.
         if self._frame_size_applier.submit((typed['width'], typed['height'])):
-            session = ctx.session
+            camera = ctx.scope.camera
             applier = self._frame_size_applier
             submit_reported(
-                lambda: applier.apply_pending(lambda wh: session.camera.set_frame_size(*wh)),
+                lambda: applier.apply_pending(lambda wh: camera.set_frame_size(*wh)),
                 self._framing_applied,
                 'FRAME_SIZE',
                 lane=ctx.camera_executor,

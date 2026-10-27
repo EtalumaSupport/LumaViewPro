@@ -372,7 +372,7 @@ def _valid_rows() -> list[Valid]:
         Valid(
             'frame_at_binning 2',
             'CameraAPI.frame_at_binning',
-            lambda s: s.session.camera.frame_at_binning(2),
+            lambda s: s.session.scope.camera.frame_at_binning(2),
             lambda s, frame: None if frame['width'] > 0 and frame['height'] > 0 else f'{frame}',
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),
         ),
@@ -598,7 +598,7 @@ def _bad_rows() -> list[Bad]:
         Bad(
             'frame_at_binning 0',
             'CameraAPI.frame_at_binning',
-            lambda s: s.session.camera.frame_at_binning(0),
+            lambda s: s.session.scope.camera.frame_at_binning(0),
             CameraSettingUnsupportedError,
             'binning_unsupported',
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 0}),
@@ -955,7 +955,7 @@ def _fault_rows() -> list[Fault]:
             'CameraAPI.frame_at_binning',
             'LS850',
             lambda s: s.session.scope.simulation.remove_camera(),
-            lambda s: s.session.camera.frame_at_binning(2),
+            lambda s: s.session.scope.camera.frame_at_binning(2),
             HardwareCommandRefusedError,
             'not_connected',
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),

@@ -37,27 +37,27 @@ def test_it_answers_the_binning_the_camera_took(session):
     offered = session.scope.capabilities.camera_binning_sizes
     size = max(offered)
 
-    session.camera.set_binning(size)
+    session.scope.camera.set_binning(size)
 
-    assert session.camera.binning == size
+    assert session.scope.camera.binning == size
 
 
 def test_a_refused_binning_leaves_the_answer_as_it_was(session):
-    before = session.camera.binning
+    before = session.scope.camera.binning
     unsupported = max(session.scope.capabilities.camera_binning_sizes) * 16
 
     with pytest.raises(CameraSettingUnsupportedError):
-        session.camera.set_binning(unsupported)
+        session.scope.camera.set_binning(unsupported)
 
-    assert session.camera.binning == before
+    assert session.scope.camera.binning == before
 
 
 def test_with_no_camera_nothing_is_binned_and_nothing_is_stored(session, monkeypatch):
-    before = session.camera.binning
+    before = session.scope.camera.binning
     monkeypatch.setattr(type(session.scope), 'camera_connected', property(lambda self: False))
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        session.camera.set_binning(1)
+        session.scope.camera.set_binning(1)
     assert exc.value.missing == MissingPart.CAMERA
 
-    assert session.camera.binning == before
+    assert session.scope.camera.binning == before

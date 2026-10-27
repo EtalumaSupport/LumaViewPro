@@ -15,8 +15,8 @@ try:
     banner('base protocol')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
-        objective_helper=session.objective_helper,
-        wellplate_loader=session.wellplate_loader,
+        objective_helper=session.scope.objective_helper,
+        wellplate_loader=session.scope.wellplate_loader,
         current_z=session.get_current_plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
@@ -103,7 +103,7 @@ try:
     print('Tile column:', p.steps()['Tile'].tolist()[:6])
 
     banner('LABWARE / PLATE SELECTION')
-    plates = session.wellplate_loader.get_plate_list()
+    plates = session.scope.wellplate_loader.get_plate_list()
     print('plates offered:', len(plates), plates[:4])
     before_plate = settings['protocol']['labware']
     target = next(x for x in plates if x != before_plate)

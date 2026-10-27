@@ -165,13 +165,11 @@ _LAYER_SETTINGS_KEYS = (
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
     from drivers.simulated_camera import SimulatedStall
-    from modules.labware_loader import WellPlateLoader
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.diagnostics import UsbIdentityBindings
     from modules.lumascope_api.camera import AutoGainLock
     from modules.lumascope_api.simulation import SimulatedModelAnswer
-    from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_image_writer import RunWriteBatch
     from modules.lumascope_api.protocols import StepTargets
@@ -759,21 +757,6 @@ class ScopeSession:
             Nothing.
         """
         return self.scope.source_path
-
-    @property
-    def camera(self) -> 'CameraAPI':
-        """The scope's camera, ``scope.camera``: the same object, for an in-process caller."""
-        return self.scope.camera
-
-    @property
-    def wellplate_loader(self) -> 'WellPlateLoader':
-        """The labware catalogue: the scope's one copy, read from its data folder."""
-        return self.scope.wellplate_loader
-
-    @property
-    def objective_helper(self) -> 'ObjectiveLoader':
-        """The objective catalogue: the scope's one copy, read from its data folder."""
-        return self.scope.objective_helper
 
     def _register_scope_services(self, scope) -> None:
         """Register the session's services on a scope (the one bring-up).
@@ -2160,8 +2143,8 @@ class ScopeSession:
         z = self.scope.motion.axis_positions().get('Z')
         return config_helpers.get_sequenced_capture_config_from_settings(
             self.capture_settings_snapshot(),
-            objective_helper=self.objective_helper,
-            wellplate_loader=self.wellplate_loader,
+            objective_helper=self.scope.objective_helper,
+            wellplate_loader=self.scope.wellplate_loader,
             current_z=z.position_um if z is not None else self.get_current_plate_position().z_um,
             tiling=tiling,
             use_zstacking=use_zstacking,
@@ -2640,7 +2623,7 @@ class ScopeSession:
 
         return self.scope.protocols.create_protocol(
             empty_config=config_helpers.get_empty_protocol_config_from_settings(
-                self.get_settings_snapshot(), self.wellplate_loader
+                self.get_settings_snapshot(), self.scope.wellplate_loader
             )
         )
 
@@ -4296,7 +4279,7 @@ class ScopeSession:
         from modules.labware_loader import CENTER_PLATE
 
         stored = self.settings['protocol']['labware']
-        if self.wellplate_loader.is_known_plate(stored):
+        if self.scope.wellplate_loader.is_known_plate(stored):
             return []
         # A scope with no XY stage has one plate, which no stored value
         # changes; the shipped plate is a stage scope's.
@@ -4331,7 +4314,7 @@ class ScopeSession:
             return []
         stored = self.settings.get('objective_id')
         try:
-            self.objective_helper.get_objective_info(objective_id=stored)
+            self.scope.objective_helper.get_objective_info(objective_id=stored)
         except ConfigError:
             pass
         else:
@@ -4988,7 +4971,7 @@ class ScopeSession:
         # turretless scope.
         slots = self.settings['turret_objectives']
         confirmed = self.settings['objective_confirmed']
-        choices = tuple(self.objective_helper.get_objectives_list())
+        choices = tuple(self.scope.objective_helper.get_objectives_list())
         # The slot's own assignment names glass someone confirmed. On a
         # turretless scope the stored objective_id does once a confirmation
         # exists: owed then, the confirmation was a turret's, and the stored id
@@ -5104,7 +5087,7 @@ class ScopeSession:
         # Refuses an id that is not a catalogue key, before any write and
         # before the no-op compare: an unknown active objective is None, so
         # a None asked for would otherwise match it and pass unrefused.
-        self.objective_helper.get_objective_info(objective_id=objective_id)
+        self.scope.objective_helper.get_objective_info(objective_id=objective_id)
         if objective_id == self.scope.runtime_state.get_current_objective_id():
             return False
         self._refuse_configuration_change_while_held('select_objective')
@@ -5205,7 +5188,7 @@ class ScopeSession:
         """
         from modules.labware_loader import CENTER_PLATE
 
-        labware_id = self.wellplate_loader.resolve_plate_key(labware_id)
+        labware_id = self.scope.wellplate_loader.resolve_plate_key(labware_id)
         if not self.scope.capabilities.has_xy_stage and labware_id != CENTER_PLATE:
             raise HardwareCommandRefusedError(
                 'axis_absent', 'select_labware', missing=MissingPart.XY_STAGE
@@ -5239,7 +5222,7 @@ class ScopeSession:
         """
         self._refuse_without_a_turret('assign_turret_objective')
         refuse_unless_turret_slot(slot)
-        self.objective_helper.get_objective_info(objective_id=objective_id)
+        self.scope.objective_helper.get_objective_info(objective_id=objective_id)
         if self.settings['turret_objectives'].get(slot) == objective_id:
             return
         self._refuse_configuration_change_while_held('assign_turret_objective')

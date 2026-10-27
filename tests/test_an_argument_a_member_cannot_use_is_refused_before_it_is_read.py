@@ -98,7 +98,7 @@ def _rows(session):
             'frame_at_binning, 0',
             CameraSettingUnsupportedError,
             'binning_unsupported',
-            lambda: session.camera.frame_at_binning(0),
+            lambda: session.scope.camera.frame_at_binning(0),
         ),
         (
             'run_camera_bandwidth_test, no frames',
@@ -173,6 +173,6 @@ def test_the_stored_auto_gain_settings_arm_the_camera(session):
 def test_a_binning_this_camera_offers_is_still_previewed(session):
     size = session.scope.capabilities.camera_binning_sizes[-1]
 
-    preview = session.camera.frame_at_binning(size)
+    preview = session.scope.camera.frame_at_binning(size)
 
     assert preview['width'] > 0 and preview['height'] > 0

@@ -25,24 +25,24 @@ from tests.settings_fixtures import complete_settings
 def session(tmp_path):
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
-        s.camera.set_binning(2)
+        s.scope.camera.set_binning(2)
         # Unanswered twice: the write and the API's one resend. The camera
         # stays at 2x and the held binning becomes unknown.
         s.scope.simulation.refuse_camera_write('binning', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
-            s.camera.set_binning(1)
-        assert s.camera.binning is None
+            s.scope.camera.set_binning(1)
+        assert s.scope.camera.binning is None
         yield s
     finally:
         s.shutdown()
 
 
 def test_a_frame_written_with_the_binning_unknown_is_framed_at_the_cameras_binning(session):
-    session.camera.set_frame_size(400, 300)
+    session.scope.camera.set_frame_size(400, 300)
 
     frame = session.settings['frame']
     assert (frame['native_width'], frame['native_height']) == (800, 600)
-    assert session.camera.binning == 2
+    assert session.scope.camera.binning == 2
 
 
 def test_a_frame_written_with_the_binning_unknown_and_unreadable_is_refused_and_not_saved(session):
@@ -50,7 +50,7 @@ def test_a_frame_written_with_the_binning_unknown_and_unreadable_is_refused_and_
     session.scope.simulation.refuse_camera_read('binning', 'failed')
 
     with pytest.raises(CameraReadFailedError) as refused:
-        session.camera.set_frame_size(400, 300)
+        session.scope.camera.set_frame_size(400, 300)
 
     assert refused.value.reason == 'camera_read_failed'
     assert 'binning' in str(refused.value)

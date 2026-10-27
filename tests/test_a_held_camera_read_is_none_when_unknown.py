@@ -68,7 +68,7 @@ def test_with_no_camera_every_held_read_is_none(diagnostic_scope):
 
 
 def test_after_bring_up_every_held_read_is_known(session):
-    camera = session.camera
+    camera = session.scope.camera
     unknown = [name for name in _HELD if getattr(camera, name) is None]
     assert unknown == [], f'{unknown} unknown after bring-up'
     assert isinstance(camera.frame_size, FrameSize)
@@ -78,7 +78,7 @@ def test_after_bring_up_every_held_read_is_known(session):
 
 
 def test_a_write_the_camera_took_is_held(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_gain_db(3.0)
     camera.set_exposure_ms(12.0)
     camera.set_black_level(4.0)
@@ -86,7 +86,7 @@ def test_a_write_the_camera_took_is_held(session):
 
 
 def test_an_auto_gain_arm_holds_auto_gain_and_auto_exposure_and_its_lock_holds_both_off(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_auto_gain(True, _AUTO_GAIN)
     assert (camera.auto_gain, camera.auto_exposure) == (
         CameraAutoMode.CONTINUOUS,
@@ -97,7 +97,7 @@ def test_an_auto_gain_arm_holds_auto_gain_and_auto_exposure_and_its_lock_holds_b
 
 
 def test_a_one_shot_is_held_running_until_a_read_finds_it_ended(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.auto_gain_once(state=True, target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
     assert (camera.auto_gain, camera.auto_exposure) == (CameraAutoMode.ONCE, CameraAutoMode.ONCE)
     # The simulated one-shot converges at once, so the camera already reads Off.
@@ -109,7 +109,7 @@ def test_a_one_shot_is_held_running_until_a_read_finds_it_ended(session):
 
 
 def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
     assert camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
 
@@ -123,7 +123,7 @@ def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
 
 
 def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_camera_usable(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_auto_gain(True, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_read('gain', 'failed')
     camera.set_auto_gain(False, _AUTO_GAIN)
@@ -135,7 +135,7 @@ def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_came
 
 
 def test_a_fresh_read_is_held(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_gain_db(5.0)
     assert camera.read_gain_db() == camera.gain_db == 5.0
 
@@ -162,7 +162,7 @@ _HELD_WRITES = (
 
 
 def test_a_write_the_camera_never_answered_leaves_its_value_unknown(session):
-    camera = session.camera
+    camera = session.scope.camera
     still_known = {}
     for node, write, held in _HELD_WRITES:
         # Unanswered twice: the write and the API's one resend.
@@ -186,7 +186,7 @@ def test_a_write_the_camera_never_answered_leaves_its_value_unknown(session):
 def test_a_fresh_read_that_a_write_overtakes_holds_the_write(
     session, monkeypatch, read, write, getter, held
 ):
-    camera = session.camera
+    camera = session.scope.camera
     driver = session.scope._camera_driver
     getattr(camera, write)(2.0)
     answered = getattr(driver, getter)

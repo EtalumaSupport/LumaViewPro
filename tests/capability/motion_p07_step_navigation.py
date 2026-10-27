@@ -31,8 +31,8 @@ def body(s):
     # --- build a two-position protocol and navigate to a step by hand ---
     cfg = config_helpers.get_standalone_capture_config_from_settings(
         s.settings,
-        s.objective_helper,
-        s.wellplate_loader,
+        s.scope.objective_helper,
+        s.scope.wellplate_loader,
         layer='BF',
         position=PlateLocation(x_mm=30.0, y_mm=20.0, z_um=2000.0),
         position_name='A',

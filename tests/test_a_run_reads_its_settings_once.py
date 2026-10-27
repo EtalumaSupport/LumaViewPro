@@ -75,7 +75,7 @@ def _runner_over_a_store_edited_after_the_first_read():
     session.capture_settings_snapshot.side_effect = snapshot
     session.get_settings_snapshot.side_effect = snapshot
     session.plate_position_on.return_value = _POSITION
-    session.objective_helper.get_objective_info.return_value = objective(magnification=10)
+    session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
 

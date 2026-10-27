@@ -67,7 +67,7 @@ class TestBringUp:
         try:
             assert session.settings['protocol']['labware'] == CENTER_PLATE
             assert session.scope.runtime_state.get_labware() == (
-                session.wellplate_loader.get_plate(labware_id=CENTER_PLATE)
+                session.scope.wellplate_loader.get_plate(labware_id=CENTER_PLATE)
             )
             assert any(
                 f'stored plate {STORED_PLATE!r} replaced by {CENTER_PLATE!r}' in line

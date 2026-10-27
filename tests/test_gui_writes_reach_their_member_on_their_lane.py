@@ -62,7 +62,6 @@ def ctx(monkeypatch):
             recover_file_writer=MagicMock(),
             light_shown_channel=MagicMock(),
             show_channel=MagicMock(),
-            camera=SimpleNamespace(),
         ),
         ui_listener_bridge=SimpleNamespace(reconcile_led_buttons=MagicMock()),
     )
@@ -148,7 +147,7 @@ def test_an_advanced_camera_switch_writes_its_member_on_the_camera_lane(
     monkeypatch.setattr(advanced_settings, 'submit_reported', boundary.submit_reported)
     monkeypatch.setattr(advanced_settings.gui_logger, 'select', MagicMock())
     # The camera API member commands the camera and stores what it took.
-    setattr(ctx.session.camera, member, MagicMock(return_value=True))
+    setattr(ctx.scope.camera, member, MagicMock(return_value=True))
     widget = SimpleNamespace(
         ids={widget_id: SimpleNamespace(active=True)}, _show_camera_modes=MagicMock()
     )
@@ -157,7 +156,7 @@ def test_an_advanced_camera_switch_writes_its_member_on_the_camera_lane(
 
     (submit,) = boundary.submits
     assert submit.lane is ctx.camera_executor
-    getattr(ctx.session.camera, member).assert_called_once_with(*expected_args)
+    getattr(ctx.scope.camera, member).assert_called_once_with(*expected_args)
 
 
 # ---------------------------------------------------------------------------

@@ -50,13 +50,13 @@ def session(tmp_path, monkeypatch):
         simulate=True,
     )
     try:
-        s.camera.set_frame_size(800, 600)
+        s.scope.camera.set_frame_size(800, 600)
         # Unanswered twice: the write and the API's one resend. The camera
         # stays at 800 x 600 and the held frame size becomes unknown.
         s.scope.simulation.refuse_camera_write('frame_size', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
-            s.camera.set_frame_size(400, 300)
-        assert s.camera.frame_size is None
+            s.scope.camera.set_frame_size(400, 300)
+        assert s.scope.camera.frame_size is None
         yield s
     finally:
         s.shutdown()

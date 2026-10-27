@@ -257,7 +257,7 @@ class TestSingleFlight:
 
         _install_ctx(monkeypatch, session)
         stand = _Stand()
-        catalogue = session.objective_helper.get_objectives_list
+        catalogue = session.scope.objective_helper.get_objectives_list
 
         def fails():
             raise ConfigurationDefectError(
@@ -265,13 +265,13 @@ class TestSingleFlight:
             )
 
         # A stand-in by design: a fault the simulator cannot yet produce.
-        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', fails)
+        monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', fails)
 
         stand.prompt_if_objective_unknown()
         assert popups == []
         assert len(centre_posts) == 1
 
-        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', catalogue)
+        monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', catalogue)
         stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 

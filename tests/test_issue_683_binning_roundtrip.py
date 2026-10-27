@@ -187,8 +187,8 @@ class TestDeliverableAlignmentFloor:
             real = camera._set_frame_size_impl
             camera._set_frame_size_impl = lambda w, h: requests.append((w, h)) or real(w, h)
 
-            session.camera.set_frame_size(1150, 802)
-            session.camera.set_binning(2)
+            session.scope.camera.set_frame_size(1150, 802)
+            session.scope.camera.set_binning(2)
         finally:
             session.shutdown()
 

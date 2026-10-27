@@ -145,9 +145,9 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         state = self.ids['high_conversion_gain'].active
         gui_logger.select('HIGH_CONVERSION_GAIN', state)
-        session = ctx.session
+        camera = ctx.scope.camera
         submit_reported(
-            lambda: session.camera.set_high_conversion_gain(state),
+            lambda: camera.set_high_conversion_gain(state),
             self._show_camera_modes,
             'HIGH_CONVERSION_GAIN',
             lane=ctx.camera_executor,
@@ -157,9 +157,9 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         state = self.ids['line_noise_reduction'].active
         gui_logger.select('LINE_NOISE_REDUCTION', state)
-        session = ctx.session
+        camera = ctx.scope.camera
         submit_reported(
-            lambda: session.camera.set_line_noise_reduction(state),
+            lambda: camera.set_line_noise_reduction(state),
             self._show_camera_modes,
             'LINE_NOISE_REDUCTION',
             lane=ctx.camera_executor,

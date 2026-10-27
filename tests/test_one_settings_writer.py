@@ -355,7 +355,7 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
     camera = session.scope.camera
     # a stand-in by design: the simulated camera has neither mode, so on is refused before the camera; the gap is the simulator's missing nodes
     monkeypatch.setattr(camera, camera_body, lambda value: True)
-    getattr(session.camera, member)(True)
+    getattr(session.scope.camera, member)(True)
     assert session.settings['camera'][path] is True
 
     def refused(value):
@@ -363,7 +363,7 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
 
     monkeypatch.setattr(camera, camera_body, refused)
     with pytest.raises(CameraSettingRejected):
-        getattr(session.camera, member)(False)
+        getattr(session.scope.camera, member)(False)
     assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'
 
 

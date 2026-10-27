@@ -2,7 +2,7 @@
 """A run captures in the image mode the settings hold.
 
 The image mode has one store, ``settings['image_mode']``, and one writer,
-``session.camera.set_image_mode``. A run reads it from the settings it starts
+``session.scope.camera.set_image_mode``. A run reads it from the settings it starts
 with, as the GUI's Run always did, so a script that chose 12-bit through
 the camera API gets 12-bit files without restating the mode to the run.
 """
@@ -16,7 +16,7 @@ WAIT_S = 60.0
 
 def test_a_run_saves_the_mode_the_session_was_set_to(tmp_path):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.camera.set_image_mode('12bit_scientific')
+        session.scope.camera.set_image_mode('12bit_scientific')
 
         run = runner.start_single_scan(
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),

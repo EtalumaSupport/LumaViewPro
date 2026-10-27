@@ -150,7 +150,7 @@ def _frame_panel(monkeypatch, caplog, width_text):
         'ctx',
         SimpleNamespace(
             settings=settings,
-            session=SimpleNamespace(camera=SimpleNamespace(set_frame_size=set_frame_size)),
+            scope=SimpleNamespace(camera=SimpleNamespace(set_frame_size=set_frame_size)),
             # a stand-in by design: the lane's threading is not the subject; the handler's record is
             camera_executor=_InlineLane(),
         ),

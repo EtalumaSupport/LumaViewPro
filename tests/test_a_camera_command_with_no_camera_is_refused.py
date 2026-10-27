@@ -213,7 +213,7 @@ def test_with_no_camera_a_binning_preview_is_refused_naming_it(make_session, mon
 
     assert (
         _not_named_as_the_camera(
-            {'frame_at_binning': lambda s: s.camera.frame_at_binning(2)}, session
+            {'frame_at_binning': lambda s: s.scope.camera.frame_at_binning(2)}, session
         )
         == {}
     )
@@ -302,7 +302,7 @@ def test_with_no_camera_the_session_binning_is_refused_naming_it(make_session, m
     session = _camera_less(make_session, monkeypatch, 'LS850')
     before = _camera_store(session)
 
-    _assert_names_the_camera(_refused(lambda: session.camera.set_binning(1)))
+    _assert_names_the_camera(_refused(lambda: session.scope.camera.set_binning(1)))
 
     assert _camera_store(session) == before
 
@@ -313,7 +313,7 @@ def test_with_no_camera_a_session_camera_toggle_is_refused_naming_it(
 ):
     session = _camera_less(make_session, monkeypatch, 'LS850')
 
-    _assert_names_the_camera(_refused(lambda: getattr(session.camera, member)(False)))
+    _assert_names_the_camera(_refused(lambda: getattr(session.scope.camera, member)(False)))
 
 
 def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, monkeypatch):
@@ -398,7 +398,7 @@ def test_after_disconnect_a_frame_at_the_departed_size_is_refused_and_not_stored
     before = _camera_store(session)
 
     refusal = _refused(
-        lambda: session.camera.set_frame_size(int(frame['width']), int(frame['height']))
+        lambda: session.scope.camera.set_frame_size(int(frame['width']), int(frame['height']))
     )
 
     assert refusal.reason == 'scope_disconnected'

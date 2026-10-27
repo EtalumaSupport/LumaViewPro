@@ -15,7 +15,7 @@ from harness import check, make_session, report
 s, _live = make_session('probe_motion', microscope='LS850T')
 try:
     m = s.scope.motion
-    objs = s.objective_helper.get_objectives_list()
+    objs = s.scope.objective_helper.get_objectives_list()
     a, b = objs[0], objs[1]
     s.assign_turret_objective(1, a)
     s.assign_turret_objective(2, b)

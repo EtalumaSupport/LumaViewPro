@@ -128,7 +128,7 @@ class TestT8ObjectiveQuestion:
         assert question is not None
         assert question.turret_slot == 1
         assert question.proposed == '4x Oly'
-        assert question.choices == tuple(session.objective_helper.get_objectives_list())
+        assert question.choices == tuple(session.scope.objective_helper.get_objectives_list())
 
     def test_a_non_turret_model_asks_without_a_position(self, sessions):
         session = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='10x Oly'))
@@ -275,7 +275,7 @@ class TestT8ObjectiveQuestion:
         )
         _at_slot(session, 2)
         assert session.settings['turret_objectives'][2] == 'banana'
-        assert 'banana' not in session.objective_helper.get_objectives_list()
+        assert 'banana' not in session.scope.objective_helper.get_objectives_list()
         question = session.objective_question()
         assert question is not None
         assert question.turret_slot == 2
@@ -302,7 +302,7 @@ class TestT8ObjectiveQuestion:
     def test_an_empty_catalogue_raises_at_the_api(self, sessions, monkeypatch):
         session = sessions(**_turret_settings())
         monkeypatch.setattr(
-            session.objective_helper, 'get_objectives_list', lambda: [], raising=False
+            session.scope.objective_helper, 'get_objectives_list', lambda: [], raising=False
         )
         with pytest.raises(ConfigError):
             session.objective_question()
@@ -460,11 +460,11 @@ class TestT10SelectObjective:
         # the "no change" branch can only ever compare a key against a key.
         plain = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
         assert plain.scope.runtime_state.get_current_objective_id() in (
-            plain.objective_helper.get_objectives_list()
+            plain.scope.objective_helper.get_objectives_list()
         )
         session = _at_slot(sessions(**_turret_settings()), 1)
         held = session.scope.runtime_state.get_current_objective_id()
-        assert held in session.objective_helper.get_objectives_list()
+        assert held in session.scope.objective_helper.get_objectives_list()
         assert session.select_objective(held) is False
 
     def test_a_pick_before_the_turret_is_homed_is_refused_by_the_move(self, sessions):

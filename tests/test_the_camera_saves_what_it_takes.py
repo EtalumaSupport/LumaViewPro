@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The camera saves what it took, whoever changes it, so the saved settings and the camera agree.
 
-The camera is one object, ``scope.camera`` (``CameraAPI``; ``session.camera``
+The camera is one object, ``scope.camera`` (``CameraAPI``; ``session.scope.camera``
 in-process). Each setting it saves -- the binning, the frame and the unbinned
 region it was framed from, the image mode, high conversion gain and
 line-noise reduction -- has one door, which saves what the camera took. A raw
@@ -52,7 +52,7 @@ def _saved_geometry(session) -> dict:
 
 
 def test_the_session_camera_is_the_same_object(session):
-    assert session.camera is session.scope.camera
+    assert session.scope.camera is session.scope.camera
 
 
 def test_no_door_writes_a_saved_camera_setting_without_saving_it():
@@ -78,7 +78,7 @@ def test_no_door_writes_a_saved_camera_setting_without_saving_it():
 
 
 def test_the_image_mode_and_the_format_the_camera_delivers_agree(session):
-    camera = session.camera
+    camera = session.scope.camera
     expected = image_mode.select_capture_pixel_format(
         12, session.scope.capabilities.camera_pixel_formats
     )
@@ -92,7 +92,7 @@ def test_the_image_mode_and_the_format_the_camera_delivers_agree(session):
 
 def test_a_restore_puts_back_the_saved_image_mode_with_the_format(session):
     """Three 12-bit modes share one format, so the mode is saved in the snapshot."""
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_image_mode('12bit_scaled')
     format_before = camera.pixel_format
     snapshot = camera.save_camera_state('test')
@@ -111,7 +111,7 @@ def test_a_restore_puts_back_the_saved_frame_and_the_region_it_came_from(session
     had it, so the next binning change divides the snapshot's region, not
     the plugin's (it delivered 400x300 when only the frame came back).
     """
-    camera = session.camera
+    camera = session.scope.camera
     before = _saved_geometry(session)
     snapshot = camera.save_camera_state('test')
 
@@ -134,7 +134,7 @@ def test_every_saving_setter_saves_on_the_camera_lane_inside_its_own_task(sessio
     saved beside a camera at 4x. On the lane, nothing lands between the write
     and its save. Fails if any setter's save moves back after its dispatch.
     """
-    camera = session.camera
+    camera = session.scope.camera
     saves: list[tuple[str, object]] = []
     store = session.scope.store_settings
     calling: list[str] = []
@@ -163,7 +163,7 @@ def test_every_saving_setter_saves_on_the_camera_lane_inside_its_own_task(sessio
 
 def test_the_frame_already_held_is_refused_while_an_activity_holds_the_scope(session):
     """No storing setter answers past a hold, so a run's restore has nothing to put back."""
-    camera = session.camera
+    camera = session.scope.camera
     held_frame = camera.frame_size.to_dict()
     before = _saved_geometry(session)
     claim = session.activity_claim.try_claim('diagnostic')
@@ -179,7 +179,7 @@ def test_the_frame_already_held_is_refused_while_an_activity_holds_the_scope(ses
 
 def test_a_restore_that_changed_nothing_saves_nothing(session, monkeypatch):
     """Every run and autofocus ends with a restore; one that changed nothing wakes no save."""
-    camera = session.camera
+    camera = session.scope.camera
     snapshot = camera.save_camera_state('test')
     saved = []
     monkeypatch.setattr(session.scope, 'store_settings', saved.append)
@@ -300,7 +300,7 @@ def test_an_older_settings_file_without_the_region_takes_the_shipped_one(tmp_pat
 
 
 def test_over_rest_the_cameras_routes_are_under_scope_camera_and_nowhere_else():
-    """One wire path, ``/api/v1/scope/camera/...``; ``session.camera`` is an in-process alias."""
+    """One wire path, ``/api/v1/scope/camera/...``; ``session.scope.camera`` is an in-process alias."""
     from modules import wire_encoding
     from modules.api_surface import mark_of
     from modules.scope_session import ScopeSession
@@ -328,7 +328,7 @@ def test_over_rest_the_cameras_routes_are_under_scope_camera_and_nowhere_else():
 
 def _the_camera_holds_what_is_saved(session):
     """The saved binning and frame are the camera's, and the region gives the frame."""
-    camera = session.camera
+    camera = session.scope.camera
     saved = session.settings
     factor = camera.read_binning()
     assert saved['binning']['size'] == f'{factor}x{factor}'
@@ -341,7 +341,7 @@ def _the_camera_holds_what_is_saved(session):
 @pytest.mark.parametrize('node', ['binning', 'frame_size'])
 def test_a_restore_the_camera_refuses_part_way_saves_what_the_camera_holds(session, node):
     """The restore stops at the refusal; what the camera took before it is saved, not left unsaved."""
-    camera = session.camera
+    camera = session.scope.camera
     snapshot = camera.save_camera_state('test')
     camera.set_binning(2)
     camera.set_frame_size(400, 300)
@@ -360,7 +360,7 @@ def test_a_restore_whose_compare_read_fails_saves_the_binning_the_camera_took(se
     so it is held as None; the binning is known, from the write the camera
     took, and is saved alone.
     """
-    camera = session.camera
+    camera = session.scope.camera
     snapshot = camera.save_camera_state('test')
     camera.set_binning(2)
     session.scope.simulation.refuse_camera_read('frame_size', 'failed', count=5)

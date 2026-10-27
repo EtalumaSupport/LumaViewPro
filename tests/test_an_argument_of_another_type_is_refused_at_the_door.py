@@ -82,7 +82,9 @@ def test_a_float_is_not_a_whole_number(session):
         'duty_pct',
     )
     _refused(
-        lambda: session.camera.set_frame_size(math.nan, 400), 'CameraAPI.set_frame_size', 'width'
+        lambda: session.scope.camera.set_frame_size(math.nan, 400),
+        'CameraAPI.set_frame_size',
+        'width',
     )
 
 

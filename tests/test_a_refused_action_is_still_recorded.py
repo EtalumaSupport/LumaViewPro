@@ -97,7 +97,7 @@ def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, c
         _app_ctx,
         'ctx',
         SimpleNamespace(
-            session=session,
+            scope=session.scope,
             settings=session.settings,
             initializing=False,
             camera_executor=None,

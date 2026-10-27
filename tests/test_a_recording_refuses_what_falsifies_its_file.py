@@ -210,9 +210,9 @@ class TestTheSessionStores:
     @pytest.mark.parametrize(
         'call',
         [
-            lambda s: s.camera.set_binning(2),
-            lambda s: s.camera.set_frame_size(640, 480),
-            lambda s: s.camera.set_image_mode(
+            lambda s: s.scope.camera.set_binning(2),
+            lambda s: s.scope.camera.set_frame_size(640, 480),
+            lambda s: s.scope.camera.set_image_mode(
                 '12bit_scientific' if s.settings['image_mode'] == '8bit' else '8bit'
             ),
         ],
@@ -234,7 +234,7 @@ class TestTheSessionConfiguration:
 
     @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording', 'home'])
     def test_a_labware_change_is_refused_under_any_holder(self, sim_session, kind):
-        loader = sim_session.wellplate_loader
+        loader = sim_session.scope.wellplate_loader
         current = sim_session.settings['protocol']['labware']
         other = next(name for name in loader.get_plate_list() if name != current)
         plate_before = sim_session.scope.runtime_state.get_labware()
@@ -252,7 +252,9 @@ class TestTheSessionConfiguration:
 
     def test_an_objective_change_is_refused_under_a_recording(self, sim_session, recording):
         current = sim_session.scope.runtime_state.get_current_objective_id()
-        other = next(o for o in sim_session.objective_helper.get_objectives_list() if o != current)
+        other = next(
+            o for o in sim_session.scope.objective_helper.get_objectives_list() if o != current
+        )
         turret_before = copy.deepcopy(sim_session.settings['turret_objectives'])
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_session.select_objective(other)

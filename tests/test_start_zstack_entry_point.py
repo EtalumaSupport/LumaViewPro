@@ -48,7 +48,7 @@ def _runner():
     session.capture_settings_snapshot.return_value = session.settings
     session.get_settings_snapshot.return_value = session.settings
     session.plate_position_on.return_value = _POSITION
-    session.objective_helper.get_objective_info.return_value = objective(magnification=10)
+    session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
 

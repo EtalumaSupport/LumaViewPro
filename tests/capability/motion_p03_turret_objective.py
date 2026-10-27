@@ -40,7 +40,7 @@ def main():
         m.move_turret(1, restore_z=True)
 
         # --- objective selection (the spinner): turns to the slot holding it ---
-        objectives = s.objective_helper.get_objectives_list()
+        objectives = s.scope.objective_helper.get_objectives_list()
         first, other = objectives[0], objectives[1]
         s.assign_turret_objective(1, first)
         s.assign_turret_objective(4, other)

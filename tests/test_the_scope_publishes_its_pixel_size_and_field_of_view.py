@@ -49,7 +49,7 @@ def test_each_answers_the_scale_and_extent_of_a_saved_still(tmp_path, microscope
     try:
         state = session.scope.runtime_state
         for size in session.scope.capabilities.camera_binning_sizes[:2]:
-            session.camera.set_binning(size)
+            session.scope.camera.set_binning(size)
             path = _saved_still(session)
             height, width = tifffile.imread(path).shape[:2]
 
@@ -66,7 +66,7 @@ def test_the_pixel_size_follows_the_binning(tmp_path):
     session = _session(tmp_path, microscope='LS850')
     try:
         at_one = session.scope.runtime_state.get_pixel_size_um()
-        session.camera.set_binning(2)
+        session.scope.camera.set_binning(2)
         assert session.scope.runtime_state.get_pixel_size_um() == pytest.approx(2 * at_one)
     finally:
         session.shutdown()
@@ -101,13 +101,13 @@ def test_with_the_cameras_binning_or_frame_unknown_each_is_none(tmp_path):
         # Unanswered twice: the write and the API's one resend.
         session.scope.simulation.refuse_camera_write('frame_size', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
-            session.camera.set_frame_size(800, 600)
+            session.scope.camera.set_frame_size(800, 600)
         assert state.get_pixel_size_um() is not None
         assert state.get_field_of_view() is None
 
         session.scope.simulation.refuse_camera_write('binning', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
-            session.camera.set_binning(2)
+            session.scope.camera.set_binning(2)
         assert (state.get_pixel_size_um(), state.get_field_of_view()) == (None, None)
     finally:
         session.shutdown()

@@ -56,7 +56,7 @@ def _not_offered(call, argument, offered):
 
 
 def test_a_members_plain_string_is_taken_as_the_member(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
 
     camera.set_auto_exposure('Off')
@@ -65,7 +65,7 @@ def test_a_members_plain_string_is_taken_as_the_member(session):
 
 
 def test_a_string_outside_the_set_is_refused_offering_the_set(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
 
     _not_offered(lambda: camera.set_auto_exposure('Sometimes'), 'mode', OFFERED)
@@ -75,7 +75,7 @@ def test_a_string_outside_the_set_is_refused_offering_the_set(session):
 
 def test_a_value_that_is_no_string_is_refused_as_the_wrong_type(session):
     with pytest.raises(ArgumentTypeRefusedError) as refused:
-        session.camera.set_auto_exposure(3)
+        session.scope.camera.set_auto_exposure(3)
     assert refused.value.reason == 'wrong_argument_type'
 
 
@@ -171,7 +171,7 @@ def test_a_snapshot_a_caller_built_with_plain_strings_restores_its_lit_address(s
 def test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered(client, session):
     route = '/api/v1/scope/camera/auto_exposure'
     assert client.put(route, json={'mode': 'Continuous'}).status_code == 200
-    assert session.camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
+    assert session.scope.camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
 
     refused = client.put(route, json={'mode': 'Sometimes'})
 
@@ -182,7 +182,7 @@ def test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered
         'mode',
         list(OFFERED),
     )
-    assert session.camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
+    assert session.scope.camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
 
 
 def test_over_rest_a_records_field_outside_its_set_is_a_422_naming_the_field(client, session):

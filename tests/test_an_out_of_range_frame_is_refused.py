@@ -65,7 +65,7 @@ class TestTheFrameWriter:
         writes = _camera_writes(monkeypatch, camera)
 
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.camera.set_frame_size(width, height)
+            session.scope.camera.set_frame_size(width, height)
 
         assert refused.value.setting == setting
         assert refused.value.minimum is not None and refused.value.maximum is not None
@@ -77,14 +77,14 @@ class TestTheFrameWriter:
         assert camera.frame_size.to_dict() == delivered_before
 
     def test_the_ceiling_follows_the_binning(self, session):
-        session.camera.set_binning(2)
+        session.scope.camera.set_binning(2)
         width = session.scope.capabilities.camera_limits.frame_max.width
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.camera.set_frame_size(width, 400)
+            session.scope.camera.set_frame_size(width, 400)
         assert refused.value.maximum == width // 2
 
     def test_an_in_range_size_is_delivered_exactly(self, session):
-        delivered = session.camera.set_frame_size(1000, 802)
+        delivered = session.scope.camera.set_frame_size(1000, 802)
         assert delivered == session.scope.camera.frame_size
         assert delivered.to_dict() == {'width': 1000, 'height': 802}
 
@@ -93,7 +93,7 @@ class TestTheFrameWriter:
         set_camera_limits(monkeypatch, session.scope, frame_max=None)
         writes = _camera_writes(monkeypatch, camera)
         try:
-            session.camera.set_frame_size(5000, 800)
+            session.scope.camera.set_frame_size(5000, 800)
         except CameraSettingOutOfRangeError:
             pytest.fail('with no known maximum there is no ceiling to refuse against')
         except Exception:
@@ -152,9 +152,9 @@ class TestBringUpStoresTheDeliveredFrame:
                 'width': frame['width'],
                 'height': frame['height'],
             } == camera.frame_size.to_dict()
-            assert s.camera.set_frame_size(960, 600) == FrameSize(960, 600)
+            assert s.scope.camera.set_frame_size(960, 600) == FrameSize(960, 600)
             assert (frame['native_width'], frame['native_height']) == (960, 600)
-            assert s.camera.frame_at_binning(2) == {'width': 480, 'height': 300}
+            assert s.scope.camera.frame_at_binning(2) == {'width': 480, 'height': 300}
         finally:
             s.shutdown()
 

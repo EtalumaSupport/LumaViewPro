@@ -46,12 +46,12 @@ def _sensor_maximum(session):
 
 
 def test_it_is_the_held_exposure_with_no_auto_gain_armed(session):
-    session.camera.set_exposure_ms(40.0)
-    assert session.camera.longest_exposure_ms == 40.0
+    session.scope.camera.set_exposure_ms(40.0)
+    assert session.scope.camera.longest_exposure_ms == 40.0
 
 
 def test_it_is_the_replaced_exposure_until_a_frame_begun_under_it_has_ended(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_exposure_ms(1000.0)
     camera.set_exposure_ms(300.0)
     assert camera.longest_exposure_ms == 1000.0
@@ -62,7 +62,7 @@ def test_it_is_the_replaced_exposure_until_a_frame_begun_under_it_has_ended(sess
 
 
 def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_exposure_ms(40.0)
     camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
     assert camera.longest_exposure_ms == 150.0
@@ -71,14 +71,14 @@ def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(session):
 
 
 def test_it_is_the_sensor_maximum_while_auto_gain_is_armed_with_no_ceiling(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_exposure_ms(40.0)
     camera.set_auto_gain(True, dict(_AUTO_GAIN))
     assert camera.longest_exposure_ms == _sensor_maximum(session) == 1000.0
 
 
 def test_it_is_the_sensor_maximum_with_the_exposure_unknown(session):
-    camera = session.camera
+    camera = session.scope.camera
     camera.set_exposure_ms(40.0)
     # Unanswered twice: the write and the API's one resend.
     session.scope.simulation.refuse_camera_write('exposure', 'no_answer', count=2)

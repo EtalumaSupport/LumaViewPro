@@ -21,7 +21,7 @@ def body(session):
     il.led_on('BF', 10)
     try:
         for mode in ('8bit', '12bit_scientific'):
-            session.camera.set_image_mode(mode)
+            session.scope.camera.set_image_mode(mode)
             samples = []
             sizes = []
             for _ in range(N):

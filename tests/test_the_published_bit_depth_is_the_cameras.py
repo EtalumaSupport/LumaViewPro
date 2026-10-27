@@ -37,8 +37,8 @@ def test_the_capabilities_name_the_deepest_depth_and_the_buffer_width(ls850t):
 
 
 def test_the_current_depth_follows_the_image_mode(ls850t):
-    ls850t.camera.set_image_mode(ImageMode.EIGHT_BIT)
+    ls850t.scope.camera.set_image_mode(ImageMode.EIGHT_BIT)
     assert ls850t.scope.imaging.significant_bits == 8
 
-    ls850t.camera.set_image_mode(ImageMode.SCIENTIFIC)
+    ls850t.scope.camera.set_image_mode(ImageMode.SCIENTIFIC)
     assert ls850t.scope.imaging.significant_bits == 12

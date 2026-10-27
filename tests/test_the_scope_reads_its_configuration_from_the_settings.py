@@ -33,7 +33,7 @@ class TestAWriteIsWhatTheScopeActsOn:
     def test_the_labware(self, session):
         other = next(
             name
-            for name in session.wellplate_loader.get_plate_list()
+            for name in session.scope.wellplate_loader.get_plate_list()
             if name != session.settings['protocol']['labware']
         )
         session.select_labware(other)
@@ -48,7 +48,7 @@ class TestAWriteIsWhatTheScopeActsOn:
             complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
         )
         try:
-            objective = session.objective_helper.get_objectives_list()[0]
+            objective = session.scope.objective_helper.get_objectives_list()[0]
             session.assign_turret_objective(2, objective)
             assert session.scope.runtime_state.get_turret_config()[2] == objective
             session.clear_turret_objective(2)
@@ -60,7 +60,7 @@ class TestAWriteIsWhatTheScopeActsOn:
         assert not session.scope.runtime_state.is_turreted()
         objective = next(
             o
-            for o in session.objective_helper.get_objectives_list()
+            for o in session.scope.objective_helper.get_objectives_list()
             if o != session.settings['objective_id']
         )
         session.select_objective(objective)

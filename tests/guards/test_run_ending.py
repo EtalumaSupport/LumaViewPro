@@ -535,7 +535,7 @@ def _plain_scan_protocol(session):
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
         session.settings,
-        session.objective_helper,
+        session.scope.objective_helper,
         position=session.get_current_plate_position(),
     )
     return session.scope.protocols.create_protocol(input_config=input_config)
