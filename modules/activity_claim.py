@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 from modules.api_surface import api, api_fields
 from modules.caller import Caller, current_caller
 from modules.live_work import SCOPE_HOLDERS, WorkKind
@@ -48,8 +48,11 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
         reason: ``'falsifying_change_in_flight'``.
     """
 
-    cause = RefusalCause.STATE
     title = RecordingRefusedError._TITLES['falsifying_change_in_flight']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'falsifying_change_in_flight': RefusalCause.STATE
+    }
+    same_fact_as = (RecordingRefusedError,)
 
     def __init__(self):
         super().__init__(
@@ -92,8 +95,9 @@ class ControlSessionHeldError(Refusal, Exception):
         session: The control session that holds.
     """
 
-    cause = RefusalCause.STATE
     title = UNDER_CONTROL_TITLE
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'control_session_held': RefusalCause.STATE}
+    same_fact_as = (ControlSessionRefusedError,)
 
     def __init__(self, session: ControlSession):
         super().__init__(under_control_sentence(session.taken_by, session.name))

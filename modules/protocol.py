@@ -411,8 +411,7 @@ class ProtocolFormatError(Refusal, ProtocolError):
         file: The file refused, or None for a protocol built in memory.
     """
 
-    cause = RefusalCause.REQUEST
-    reason = 'protocol_invalid'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'protocol_invalid': RefusalCause.REQUEST}
     title = 'Protocol Refused'
 
     def __init__(self, problem: str, file=None):
@@ -437,8 +436,7 @@ class StepNotFoundError(Refusal, ProtocolError):
         num_steps: How many steps the protocol has.
     """
 
-    cause = RefusalCause.REQUEST
-    reason = 'no_such_step'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'no_such_step': RefusalCause.REQUEST}
     title = 'No Such Step'
 
     def __init__(self, index: int, num_steps: int):
@@ -460,8 +458,7 @@ class StepEditRefusedError(Refusal, ProtocolError):
     or an insert that names no place or two. A refusal, as a missing step is.
     """
 
-    cause = RefusalCause.REQUEST
-    reason = 'step_value_refused'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'step_value_refused': RefusalCause.REQUEST}
     title = 'Step Not Changed'
 
 
@@ -474,7 +471,9 @@ class ProtocolScheduleRefusedError(ProtocolFormatError):
         value: What was given, as given.
     """
 
-    reason = 'schedule_not_runnable'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'schedule_not_runnable': RefusalCause.REQUEST
+    }
     # A schedule the scope cannot run is a protocol refused, and says so.
     title = ProtocolFormatError.title
 

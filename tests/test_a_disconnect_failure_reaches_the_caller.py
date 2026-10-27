@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import MotorStopFailedError, ScopeDisconnectError
+from modules.exceptions import DisconnectPart, MotorStopFailedError, ScopeDisconnectError
 from modules.lumascope_api import Lumascope
 from modules.notification_center import _UNTYPED_FAULT_BODY, outcome_of
 from modules.scope_session import ScopeSession
@@ -38,7 +38,10 @@ def test_the_fault_names_the_part_in_its_own_words_and_is_chained(sim_scope):
 
     fault = excinfo.value
     assert fault.__cause__ is driver_error
-    assert fault.causes == {'LED board': driver_error}
+    assert fault.reason == 'disconnect_failed'
+    assert fault.parts == (DisconnectPart.LED_BOARD,)
+    # The driver's error carries no reason; a client reads the part, never the error.
+    assert fault.part_reasons == {DisconnectPart.LED_BOARD: None}
     assert 'LED board did not shut down cleanly' in str(fault)
     assert outcome_of(fault).for_person, 'the person reads its words, not the generic body'
     assert str(fault) != _UNTYPED_FAULT_BODY

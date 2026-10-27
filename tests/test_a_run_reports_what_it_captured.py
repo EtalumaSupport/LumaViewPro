@@ -512,5 +512,6 @@ class TestTheFilesLineAndItsReport:
             with pytest.raises(CaptureError) as failed:
                 runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
             assert files_done.wait(WAIT_S), 'the run never reported its files'
-        assert failed.value.reason == 'write_batch_save_failed'
+        assert failed.value.reason == 'merge_error'
+        assert failed.value.merge_failure == 'write_batch_save_failed'
         assert lost == [], lost

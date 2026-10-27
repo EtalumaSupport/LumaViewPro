@@ -70,6 +70,7 @@ from modules.exceptions import (
     CameraNotAvailableError,
     CameraSettingRejected,
     ConfigurationDefectError,
+    DisconnectPart,
     FrameRefittedNotice,
     HardwareCommandRefusedError,
     InstallationFileError,
@@ -1861,12 +1862,12 @@ class Lumascope:
         # Asked first, as the scope's own write: with no motor controller
         # connected -- a manual scope, a pulled cable, a second disconnect --
         # there is nothing to stop.
-        failures: dict[str, BaseException] = {}
+        failures: dict[DisconnectPart, BaseException] = {}
         if self.motor_connected:
             try:
                 self.motion._stop()
             except Exception as e:
-                failures['motor stop'] = e
+                failures[DisconnectPart.MOTOR_STOP] = e
 
         # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
@@ -1888,7 +1889,7 @@ class Lumascope:
             try:
                 self._led_driver.disconnect()
             except Exception as ex:
-                failures['LED board'] = ex
+                failures[DisconnectPart.LED_BOARD] = ex
         self._led_driver = NullLEDBoard()
         # The emergency off above leaves the state store as it was; with the
         # board gone nothing is lit, and the listeners hear it here (a
@@ -1901,7 +1902,7 @@ class Lumascope:
             try:
                 self._motion_driver.disconnect()
             except Exception as ex:
-                failures['motor board'] = ex
+                failures[DisconnectPart.MOTOR_BOARD] = ex
         self._motion_driver = NullMotionBoard()
 
         if self._camera_driver is not None and hasattr(self._camera_driver, 'disconnect'):
@@ -1913,7 +1914,7 @@ class Lumascope:
             try:
                 self._camera_driver.disconnect()
             except Exception as ex:
-                failures['camera'] = ex
+                failures[DisconnectPart.CAMERA] = ex
             self._camera_driver = None
         elif self._camera_driver is not None:
             # Camera lacked a `disconnect` method (test-fixture artifact);
@@ -1943,6 +1944,8 @@ class Lumascope:
             logger.warning(f'[SCOPE API ] atexit unregister failed: {_e}')
 
         if failures:
+            for part, error in failures.items():
+                logger.error(f'[SCOPE API ] {part} did not disconnect: {error!r}', exc_info=error)
             raise ScopeDisconnectError(failures) from next(iter(failures.values()))
 
     def _emergency_shutdown(self):

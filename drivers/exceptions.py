@@ -5,7 +5,7 @@
 from collections.abc import Mapping
 from typing import ClassVar
 
-from lib.lumascope_error import Fault, _Umbrella
+from lib.lumascope_error import Fault, RefusalCause, _Umbrella
 from lib.stage_interlock import INTERLOCK_TITLES
 
 
@@ -29,7 +29,7 @@ class ConfigReadError(Fault, HardwareError):
     source's answer for a unit that has its own.
     """
 
-    reason = 'config_unread'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'config_unread': None}
     title = 'Board Config Not Read'
 
     words_for_person = True
@@ -54,6 +54,7 @@ class MotionInterlockError(Fault, HardwareError):
     """
 
     _TITLES: ClassVar[Mapping[str, str]] = INTERLOCK_TITLES
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(INTERLOCK_TITLES)
 
     # Its words are the driver's record of the refusal; the person reads the
     # API's refusal, which says which interlock is open.
@@ -75,7 +76,7 @@ class BoardNoReplyError(Fault, HardwareError):
     may not have been taken, and the raise site's words say which.
     """
 
-    reason = 'board_no_reply'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'board_no_reply': None}
     title = 'Board Did Not Answer'
 
     words_for_person = False
@@ -88,7 +89,7 @@ class BoardReplyUnreadableError(Fault, HardwareError):
     another command: the board is talking, and what it said cannot be used.
     """
 
-    reason = 'board_reply_unreadable'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'board_reply_unreadable': None}
     title = 'Board Reply Unreadable'
 
     words_for_person = False
@@ -101,7 +102,7 @@ class BoardReportedError(Fault, HardwareError):
     complete: the board heard the command and said no.
     """
 
-    reason = 'board_reported_error'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'board_reported_error': None}
     title = 'Board Reported an Error'
 
     words_for_person = False
@@ -115,7 +116,7 @@ class MotionNotCompletedError(Fault, HardwareError):
     API's stop generation to say, never this type.
     """
 
-    reason = 'motion_not_completed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'motion_not_completed': None}
     title = 'Motion Did Not Complete'
 
     words_for_person = False
@@ -127,7 +128,7 @@ class BoardPortFailedError(Fault, HardwareError):
     A cable or power state: nothing reached the board.
     """
 
-    reason = 'board_port_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'board_port_failed': None}
     title = 'Board Connection Failed'
 
     words_for_person = False
@@ -139,7 +140,7 @@ class LedFirmwareWedgedError(Fault, HardwareError):
     Only a power cycle brings it back, and its words say so.
     """
 
-    reason = 'led_firmware_wedged'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'led_firmware_wedged': None}
     title = 'LED Controller Stuck'
 
     words_for_person = True
@@ -151,7 +152,7 @@ class CameraReadFailedError(Fault, HardwareError):
     The words carry the SDK's own text, so the person reads the title.
     """
 
-    reason = 'camera_read_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_read_failed': None}
     title = 'Camera Read Failed'
 
     words_for_person = False
@@ -163,7 +164,7 @@ class CameraWriteFailedError(Fault, HardwareError):
     The words carry the SDK's own text, so the person reads the title.
     """
 
-    reason = 'camera_write_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_write_failed': None}
     title = 'Camera Write Failed'
 
     words_for_person = False
@@ -177,7 +178,7 @@ class CameraNoAnswerError(Fault, HardwareError):
     sent again; whether this one was applied is not known.
     """
 
-    reason = 'camera_no_answer'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_no_answer': None}
     title = 'Camera Did Not Answer'
 
     words_for_person = False
@@ -190,7 +191,7 @@ class CameraUsbNotFoundError(Fault, HardwareError):
     The words carry the identity and the system's own text.
     """
 
-    reason = 'camera_usb_not_found'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_not_found': None}
     title = 'Camera Not Found on USB'
 
     words_for_person = False
@@ -203,7 +204,7 @@ class CameraUsbLookupFailedError(Fault, HardwareError):
     there is not known. The words name the call and its error code.
     """
 
-    reason = 'camera_usb_lookup_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_lookup_failed': None}
     title = 'Camera USB Lookup Failed'
 
     words_for_person = False
@@ -218,7 +219,7 @@ class CameraUsbDriverUnusableError(Fault, HardwareError):
     name the device, the driver it is bound to and what it needs.
     """
 
-    reason = 'camera_usb_driver_unusable'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_driver_unusable': None}
     title = 'Camera Driver Not Usable'
 
     words_for_person = False
@@ -229,7 +230,7 @@ class CameraUsbOpenFailedError(Fault, HardwareError):
     for streaming. The words name the call and its error code.
     """
 
-    reason = 'camera_usb_open_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_open_failed': None}
     title = 'Camera USB Open Failed'
 
     words_for_person = False
@@ -240,7 +241,7 @@ class CameraStreamStartFailedError(Fault, HardwareError):
     the library's text.
     """
 
-    reason = 'camera_stream_start_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_stream_start_failed': None}
     title = 'Camera Stream Did Not Start'
 
     words_for_person = False
@@ -253,7 +254,7 @@ class CameraFirmwareMissingError(Fault, Exception):
     not a ``HardwareError``. The words name each place the driver looked.
     """
 
-    reason = 'camera_firmware_missing'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_firmware_missing': None}
     title = 'Camera Firmware File Missing'
 
     words_for_person = False
@@ -272,7 +273,7 @@ class PartAbsentError(Fault, HardwareError):
     ``not_connected``), so only a caller below the API reaches this.
     """
 
-    reason = 'part_absent'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'part_absent': None}
     title = 'Part Not Present'
 
     words_for_person = False

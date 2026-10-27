@@ -87,7 +87,8 @@ class TestAFailedMergeTellsTheUserOnce:
                 events=_fail_these_channels(session.scope._camera_driver, ('BF', LED0), {LED0}),
             )
 
-        assert excinfo.value.reason == 'post_processing_failed'
+        assert excinfo.value.reason == 'merge_error'
+        assert excinfo.value.merge_failure == 'post_processing_failed'
         told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [
             ('Composite Failed', Severity.ERROR),
@@ -117,7 +118,8 @@ class TestAFailedMergeTellsTheUserOnce:
             runner.run_composite(sequence_name='refused', parent_dir=str(tmp_path))
 
         # A warning under its own title, never re-typed as a merge failure.
-        assert excinfo.value.reason == 'no_data'
+        assert excinfo.value.reason == 'merge_error'
+        assert excinfo.value.merge_failure == 'no_data'
         told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [('Composite Not Possible', Severity.WARNING)], told
 
@@ -136,6 +138,50 @@ class TestAFailedMergeTellsTheUserOnce:
             runner.run_composite(sequence_name='crash', parent_dir=str(tmp_path))
 
         assert excinfo.value.reason == 'merge_error'
+        self._assert_one_failure_notice(seen)
+
+    @staticmethod
+    def _merge_answers(monkeypatch, artifact_paths):
+        from modules.composite_generation import CompositeGeneration
+
+        # a stand-in by design: a composite run's fresh folder holds no group
+        # already built, so its merge always writes a file or fails; the
+        # answer of a folder whose every group was built already is planted.
+        def _answer(self, path, **kwargs):
+            return {
+                'status': True,
+                'message': 'Success.',
+                'new_count': 0,
+                'output_root': str(path),
+                'artifact_paths': artifact_paths,
+            }
+
+        monkeypatch.setattr(CompositeGeneration, 'load_folder', _answer)
+
+    def test_a_merge_that_writes_no_file_fails_as_merge_failed(self, tmp_path, monkeypatch):
+        self._merge_answers(monkeypatch, [])
+        with (
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            _bus_at_popup_threshold() as seen,
+            pytest.raises(CaptureError) as excinfo,
+        ):
+            # Bounded: a merge whose answer never settles the run waits forever.
+            runner.run_composite(sequence_name='empty', parent_dir=str(tmp_path), timeout_s=30)
+
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == ('merge_failed', None)
+        self._assert_one_failure_notice(seen)
+
+    def test_a_defect_in_the_merges_answer_still_settles_the_run(self, tmp_path, monkeypatch):
+        # A path the answer cannot read raises inside the answer itself.
+        self._merge_answers(monkeypatch, [None])
+        with (
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            _bus_at_popup_threshold() as seen,
+            pytest.raises(CaptureError) as excinfo,
+        ):
+            runner.run_composite(sequence_name='defect', parent_dir=str(tmp_path), timeout_s=30)
+
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == ('merge_error', None)
         self._assert_one_failure_notice(seen)
 
     def test_the_merge_raise_is_logged_once_with_its_traceback(self, tmp_path, monkeypatch, caplog):
@@ -188,6 +234,7 @@ class TestAFailedMergeTellsTheUserOnce:
 
         # The wait's own outcome, told under its own title as the
         # hyperstack build tells it.
-        assert excinfo.value.reason == 'write_batch_timeout'
+        assert excinfo.value.reason == 'merge_error'
+        assert excinfo.value.merge_failure == 'write_batch_timeout'
         told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [('Run Images Not Written', Severity.ERROR)], told

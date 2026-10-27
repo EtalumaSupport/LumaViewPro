@@ -10,6 +10,7 @@ the outcome is logged and shown with a sentence naming its type.
 """
 
 import logging
+from typing import ClassVar
 
 from modules.exceptions import Quiet, Refusal, RefusalCause
 from modules.notification_center import Severity, notifications
@@ -21,7 +22,7 @@ class _FaultError(Exception):
 
 
 class _RefusedError(Refusal, Exception):
-    cause = RefusalCause.STATE
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'probe_refused': RefusalCause.STATE}
     title = 'Refused'
 
     def __str__(self):
@@ -29,7 +30,7 @@ class _RefusedError(Refusal, Exception):
 
 
 class _QuietError(Quiet, Exception):
-    cause = RefusalCause.STATE
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'probe_quiet': RefusalCause.STATE}
 
     def __str__(self):
         raise RuntimeError('the message broke')

@@ -1001,7 +1001,7 @@ pending = runner.start_single_scan(protocol, events=events)
 
 The outcome carries fourteen fields. `status` is a `RunStatus` (`modules.run_outcome`), one of `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`, which equals its plain string: `incomplete` is a run that reached its end without every capture it was asked for (`captures_failed`; the images it did capture are saved, and the person is told once), `aborted` is an ending someone asked for (`stopped`, the run's own Stop; `stage_stopped` when `stop_motion` -- STOP, from any client -- was pressed while it ran, told once as a notice titled `Protocol Stopped`, `RunEndedByStopNotice`; `shutdown` when the session's close stops it), `failed` is one the instrument imposed (`camera_failure` (the camera failed three steps in a row: a capture that got no frame, or a step whose camera setting was not applied -- a manual step's gain or exposure, an Auto_Gain step's arm, a video step's auto-gain -- which is not captured, so no image is saved at a setting its step did not ask for, or a capture whose record the camera did not answer a read for, `record_read_failed`; each is a `captures` failure naming its cause, and the message names the last one's), `disk_space_critical`, `consecutive_scan_failures`, `video_writer_died` (a video step's writer stopped working, so the run was stopped; the frames already written are on disk), `hardware_disconnected` (a part of the scope was disconnected mid-run; a capture that fails after the camera was declared removed ends the run at once), `autofocus_failed` and `autofocus_not_started` (a standalone autofocus run that did not focus, above), `interlock` (the stage's interlock refused a step's move -- the lid was opened mid-run -- so the run stopped at once; its `title` is 'Protocol Aborted -- Stage Interlock' and its `message` carries the refusal's words, which say whether the lid or the stage's power), and `position_lost` -- an axis lost its position mid-run, a step's move that stopped progressing among them, so the run stopped at once and saved no image from that position; home before the next run; a run has no motion time limit of its own), and `failed_at_start` is a run that could not begin after it committed (among its reasons, before any step: `camera_lane_stalled`, a camera command already running did not finish; `camera_read_failed`, titled 'Camera Read Failed', the camera did not answer a read of the settings the run restores at its end; `hardware_disconnected`, the camera was gone; nothing is captured and the LEDs are left as they were). `reason` is the machine-readable cause, stable enough to branch on; `title` and `message` are the sentences a user reads, and never carry raw exception text. `merged`, `artifact_path` and `merge_reason` describe the composite merge only: a run with no merge reports `merged=False` with an empty `merge_reason`, so `merge_reason` is non-empty only when a merge was owed and produced no file. `af_data_saved` and `af_data_path` describe autofocus characterization data the same way: `af_data_saved` is true only when the data file was actually WRITTEN, and `af_data_path` names it. Both paths, `artifact_path` and `af_data_path`, are `pathlib.Path`s. A run that asked for no data, a sweep that measured none, and a run whose queued write an abort discarded all report `af_data_saved=False` with `af_data_path=None` -- the fields answer "did it land", not "was it requested", so a headless caller never has to go looking on disk to find out. `af_focus_z_um` is the Z a standalone autofocus run chose as focus, or None when it chose none; only `start_autofocus` sets it, and every other run reports None, since a run that autofocuses at several steps has no one focus to report -- `start_autofocus_all_steps` answers in the protocol's Z column instead. `captures` is what the run captured of what it was asked for: `asked` (scans times steps for a run that saves images, 0 for one that saves none), `captured`, and `failed`, one entry per capture that produced no image with its `scan`, `step_index`, `step_name` and `cause`; it is counted once per scan and step, so a scan run again after a transient failure never counts a capture twice. `captures` is `None` only for a run a shutdown settled before it ended. `cleanup_failures` names the steps putting the scope back after the run that did not finish (`Restore LED states`, `Restore camera settings`, `Return to position`, ...): empty when the LEDs, camera settings and stage were all put back, `None` only for a run a shutdown settled before its cleanup ran. The person is told the same once, as `Protocol cleanup issues`. `Stop autofocus` is an autofocus sweep that did not stop within 30 s of the run telling it to: the run keeps its own ending, the sweep can no longer reach the hardware, and autofocus and new runs are refused `autofocus_running` until it stops; restart LumaViewPro if it does not. `focus_written` is whether `start_autofocus_all_steps` wrote the focus it found into the caller's protocol: `None` for every other run, `False` when the scan did not complete or the protocol's steps changed during it (the protocol is unchanged), `True` when it was written. `focus_failures` lists each step whose autofocus did not focus, a flat curve included, as a `FocusFailure` with its `scan`, `step_index`, `step_name` and `cause` (the autofocus failure's words): a capture protocol captured that step at its fallback focus and an autofocus scan left its focus as it was, the run going on either way. It is counted once per scan and step, so a scan run again that focuses the step clears it, and it is empty when every autofocus focused. A run that would end `completed` with any says so in its `message` ("The run finished; autofocus did not focus 2 steps, which were captured at their fallback focus.", or for an autofocus scan "The scan finished; ... whose focus was not updated."), its status still `completed`; an `incomplete` run names both. Each was told by its autofocus, so the ending tells it no second time.
 
-The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that reached its end but whose merge produced nothing reports its run status (`completed`, or `incomplete` when a channel failed) with the cause in `merge_reason`. `run_composite()` raises `CompositeFailedError` (a `CaptureError`) carrying whichever of the two applies; when its `timeout_s` runs out first it raises `RunWaitExpiredError` (`still_running`, a `TimeoutError`, quiet), as every waiting form does: the run or its merge may still be going, and its `operation` holds the run. A merge that raised is posted to the listeners as that exception's own type, kind and title -- a refusal such as `PostProcessingRefusedError` (`no_data`, nothing usable to merge) as a warning, `RunFilesNotWrittenError` under "Run Images Not Written" -- with `merge_reason` its `reason` (`merge_error` when it carries none, posted under "Composite Failed"); a merge that could not start or produced no file is posted as `CompositeFailedError`. A composite missing a channel merges nothing: its merge fails with `PostProcessingFailedError` (`post_processing_failed`, posted under "Composite Failed", naming the channel), and the shortfall is told as its own `RunIncompleteError` after it. The merge's notice and the shortfall are delivered to the listeners before the outcome settles, so `run_composite()` and the run's `result()` return after them.
+The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that reached its end but whose merge produced nothing reports its run status (`completed`, or `incomplete` when a channel failed) with the cause in `merge_reason`. `run_composite()` raises `CompositeFailedError` (a `CaptureError`), each vocabulary in a field of its own: reason `run_not_completed` with the run's reason in `run_ending`, the merge's own reason (`no_run_dir`, `no_composite_config`, `merge_failed`), or `merge_error` with the reason the merge failed with in `merge_failure`; when its `timeout_s` runs out first it raises `RunWaitExpiredError` (`still_running`, a `TimeoutError`, quiet), as every waiting form does: the run or its merge may still be going, and its `operation` holds the run. A merge that raised is posted to the listeners as that exception's own type, kind and title -- a refusal such as `PostProcessingRefusedError` (`no_data`, nothing usable to merge) as a warning, `RunFilesNotWrittenError` under "Run Images Not Written" -- with `merge_reason` its `reason` (`merge_error` when it carries none, posted under "Composite Failed"); a merge that could not start or produced no file is posted as `CompositeFailedError`. A composite missing a channel merges nothing: its merge fails with `PostProcessingFailedError` (`post_processing_failed`, posted under "Composite Failed", naming the channel), and the shortfall is told as its own `RunIncompleteError` after it. The merge's notice and the shortfall are delivered to the listeners before the outcome settles, so `run_composite()` and the run's `result()` return after them.
 
 `stop()` only asks: the run ends on its own thread, and the operation is done when it has. A run that ends before its end, by a Stop or a fault, halts a stage move it has under way first, before it waits for anything or puts the scope back (a video step's frames still being written included), so the stage stops short of the step it was heading for; on motor firmware with no STOP command the move runs on, and a home on a board that cannot stop one runs to its end (the outcome's `cleanup_failures` then names `Halt the stage`). A Stop through an operation whose run has ended does nothing, to that run or to any other run live by then. `progress()` answers about its own run only, as one `RunProgress` (`modules.sequenced_capture_runner`) read at once: `is_live`, True while the run holds the scope (False once its teardown has finished, while its `run_ended` may still be on its way, so a run can be not live and its operation not yet done); `is_stopping`, True from an accepted Stop until the run's teardown finishes; `is_last_run`, the engine's most recent run; `run_dir`, the run's folder (`None` for a run that saves nothing or never started); and for a progress readout `step_index` (the step executing now, its row from 0), `num_steps`, `scans_remaining` and `period_s` (the scan period in seconds), each `None` once the run is no longer live.
 
@@ -2922,7 +2922,8 @@ outcome, the merged file's path on it, so a missing artifact cannot be
 mistaken for a success. A composite is merged from every channel it was
 asked for or not at all: a channel that captured nothing leaves no
 composite, and `run_composite` raises `CompositeFailedError` with reason
-`post_processing_failed`, its message naming the channel; the run's
+`merge_error` and `merge_failure` `post_processing_failed`, its message
+naming the channel; the run's
 outcome (from `start_composite(...).result()`) is `status='incomplete'`
 with the failed channels in `captures.failed`. To
 launch one without waiting, call `runner.start_composite(...)`, which
@@ -2935,22 +2936,29 @@ where the Composite button puts it.
 It raises `ProtocolRunRefusedError` when the run is refused before
 anything is committed -- fewer than two channels set to acquire an image,
 a rival run holding the scope, or files still draining -- and
-`CaptureError` when the run happened but produced no composite. The
+`CompositeFailedError`, a `CaptureError`, when the run happened but
+produced no composite. The
 refusal's `str()` is the sentence written for a person, as for any run.
 
-**`CaptureError.reason` is a failure code, not a refusal.** It names what
-went wrong after the run committed (`write_batch_timeout` -- the run's
+**`CompositeFailedError.reason` is a failure code, not a refusal.** It
+names what went wrong after the run committed, one of five:
+`run_not_completed` -- the run ended before a composite was made, its
+ending's reason in `run_ending` (`stopped`, `position_lost`, ...) --,
+`no_run_dir` and `no_composite_config` -- the merge could not start --,
+`merge_failed` -- the merge finished without writing a file -- and
+`merge_error` -- the merge failed, with the reason of what it failed with
+in `merge_failure` when it had one: `write_batch_timeout` -- the run's
 images did not finish writing within the merge's bound --
 `write_batch_abandoned` -- some were given up on by a writer recovery or a
 shutdown -- `write_batch_not_taken` -- some never reached the file writer,
 which was stuck or had stopped taking work -- `write_batch_save_failed` --
 saving some failed on disk -- `write_batch_disk_full` -- some were refused
 because the save drive was nearly full -- `write_batch_video_unfinished` --
-a video step's file did not finish --, `merge_failed`,
-`aborted`, the composite builder's own codes such as `no_data`,
-`excluded_inputs` or `post_processing_incomplete`, ...) and is not a member of the refusal family: a refusal means
-nothing changed, while a `CaptureError` means the run ran and did not
-produce the artifact.
+a video step's file did not finish --, or the composite builder's own
+codes such as `no_data`, `excluded_inputs`, `post_processing_failed` or
+`post_processing_incomplete`. The other field is None. It is not a member
+of the refusal family: a refusal means nothing changed, while a
+`CaptureError` means the run ran and did not produce the artifact.
 
 A composite of a run folder's files already on disk is
 `session.post_processing.composite(folder)` (see "Post-processing").
@@ -3936,6 +3944,13 @@ Reached through `scope.imaging.judge_frame`'s `mapping`, and a capture's `frame_
 - `tick_hz`
 - `uncertainty_ns`
 
+### CompositeFailedError
+
+Reached through a REST problem, whose members carry it.
+
+- `merge_failure`
+- `run_ending`
+
 ### ControlSession
 
 Reached through `session.control`.
@@ -4509,6 +4524,13 @@ Reached through `session.scope.scope_models`.
 - `max_frame`
 - `motor_board`
 - `pixel_size_um`
+
+### ScopeDisconnectError
+
+Reached through a REST problem, whose members carry it.
+
+- `part_reasons`
+- `parts`
 
 ### SettingRefusedError
 

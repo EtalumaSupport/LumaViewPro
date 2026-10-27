@@ -236,8 +236,9 @@ class TestAChannelThatCapturesNothing:
                     ),
                 )
 
-            assert excinfo.value.reason == 'post_processing_failed', (
-                f'the raise carried reason {excinfo.value.reason!r}, not the '
+            assert excinfo.value.reason == 'merge_error'
+            assert excinfo.value.merge_failure == 'post_processing_failed', (
+                f'the raise carried {excinfo.value.merge_failure!r}, not the '
                 f"post-processor's code for a build whose every group failed"
             )
 

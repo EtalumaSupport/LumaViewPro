@@ -63,10 +63,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 from collections.abc import Callable
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 
 logger = logging.getLogger('LVP.drivers.registry')
 
@@ -74,7 +74,7 @@ logger = logging.getLogger('LVP.drivers.registry')
 class DriverNotLiveError(Fault, RuntimeError):
     """A driver selected by name constructed, but its hardware is not live."""
 
-    reason = 'driver_not_live'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'driver_not_live': None}
     title = 'Hardware Not Live'
 
 
@@ -88,7 +88,7 @@ class NoLiveDriverError(Fault, RuntimeError):
         fallback: The cause, the drivers tried, and the drivers declined.
     """
 
-    reason = 'no_live_driver'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'no_live_driver': None}
     title = 'Hardware Not Found'
 
     def __init__(self, kind: str, fallback: DriverFallback):

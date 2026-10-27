@@ -5,10 +5,10 @@ A REST server answers a refusal 422 when the request as sent cannot succeed
 on this scope and 409 when the scope's state refused it, and a polling
 client retries only the second. Nothing on a refusal said which, so a
 server would have decided per exception, and a client retrying on a 409
-would retry a bad argument for ever. Each type now states its ``cause``,
-or ``causes`` keyed by reason where its reasons differ; a type stating
-neither is refused at import, and a mixed type refuses to be built with a
-reason its table lacks.
+would retry a bad argument for ever. Each type now maps every reason it
+carries to its cause in ``causes``, checked where the type is defined
+(``tests/guards/test_a_reason_means_one_thing.py``), and refuses to be
+built with a reason its table lacks.
 
 The tables are held to the raise sites both ways: for
 ``ProtocolRunRefusedError`` by ``test_every_runner_refusal_reason_is_covered``
@@ -68,12 +68,7 @@ def _types_mixing_in(mixin):
     return found
 
 
-def _mixed(types):
-    return {name: cls for name, cls in types.items() if 'causes' in vars(cls)}
-
-
-# How to build each mixed type with a given reason. A new mixed type fails
-# test_the_factories_cover_every_mixed_type until it has a row here.
+# How to build each type whose reasons differ in cause with a given reason.
 _FACTORIES = {
     'AlreadyStartedError': lambda reason: AlreadyStartedError(reason, 'm'),
     'CameraDriverRepairRefusedError': CameraDriverRepairRefusedError,
@@ -89,59 +84,17 @@ _FACTORIES = {
 
 
 def test_the_walk_finds_both_kinds():
-    # The instrument on known positives: one single-cause refusal, the
-    # three mixed ones, one inheriting its cause, and the quiet type.
+    # The instrument on known positives: one refusal of one reason, one
+    # built through a factory, and the quiet type.
     refusals = _types_mixing_in(Refusal)
     for name in ('StepNotFoundError', 'ProtocolScheduleRefusedError', *_FACTORIES):
         assert name in refusals, name
-    assert set(_mixed(refusals)) == set(_FACTORIES)
     assert 'RunWaitExpiredError' in _types_mixing_in(Quiet)
 
 
-def test_every_refusal_and_quiet_type_declares_a_cause():
-    offenders = []
-    for name, cls in {**_types_mixing_in(Refusal), **_types_mixing_in(Quiet)}.items():
-        table = cls.causes if 'causes' in vars(cls) else None
-        if table is not None:
-            if not table or not all(isinstance(c, RefusalCause) for c in table.values()):
-                offenders.append(name)
-        elif not isinstance(cls.cause, RefusalCause):
-            offenders.append(name)
-    assert offenders == [], (
-        f'these outcome types declare no RefusalCause: {sorted(offenders)}. State '
-        'cause = RefusalCause.REQUEST or .STATE, or causes keyed by every reason.'
-    )
-
-
-def test_a_refusal_that_declares_no_cause_is_refused_at_import():
-    with pytest.raises(TypeError, match='declares no cause'):
-
-        class _NoCauseError(Refusal, Exception):
-            title = 'Refused'
-
-    with pytest.raises(TypeError, match='declares no cause'):
-
-        class _NoCauseQuietError(Quiet, Exception):
-            pass
-
-
-def test_a_cause_inherited_from_a_declaring_type_counts():
-    class _ParentError(Refusal, Exception):
-        cause = RefusalCause.REQUEST
-
-    class _ChildError(_ParentError):
-        pass
-
-    assert _ChildError().cause == RefusalCause.REQUEST
-
-
-def test_the_factories_cover_every_mixed_type():
-    assert set(_mixed(_types_mixing_in(Refusal))) == set(_FACTORIES)
-
-
-def test_a_mixed_type_is_not_built_with_a_reason_it_declares_no_cause_for():
+def test_a_refusal_is_not_built_with_a_reason_it_declares_no_cause_for():
     def check(name):
-        with pytest.raises(TypeError, match="declares no cause for the reason 'no_such_reason'"):
+        with pytest.raises(TypeError, match="declares no reason 'no_such_reason'"):
             _FACTORIES[name]('no_such_reason')
 
     failed = failing_cases(sorted(_FACTORIES), check)

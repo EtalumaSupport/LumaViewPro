@@ -2525,22 +2525,28 @@ class SequencedCaptureRunner:
             return None
 
         def _answer(merged: concurrent.futures.Future) -> None:
-            failure = merged.exception()
-            if failure is not None:
-                # A typed outcome says why in its own reason, kind and words;
-                # an exception that carries no reason is the merge's error.
-                _settle(
-                    failure,
-                    artifact_path=None,
-                    merge_reason=getattr(failure, 'reason', None) or 'merge_error',
-                )
-                return
-            paths = merged.result().get('artifact_paths') or []
-            if paths:
-                logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
-                _settle(None, artifact_path=pathlib.Path(paths[0]), merge_reason='')
-            else:
-                _fail('merge_failed', 'The merge finished without producing a composite file.')
+            # The answer is the one thing that settles the armed outcome, and
+            # a future only logs what its done-callback raises: a defect in
+            # the answer itself is the merge's error, reported and settled.
+            try:
+                failure = merged.exception()
+                if failure is not None:
+                    # A typed outcome says why in its own reason, kind and words;
+                    # an exception that carries no reason is the merge's error.
+                    _settle(
+                        failure,
+                        artifact_path=None,
+                        merge_reason=getattr(failure, 'reason', None) or 'merge_error',
+                    )
+                    return
+                paths = merged.result().get('artifact_paths') or []
+                if paths:
+                    logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
+                    _settle(None, artifact_path=pathlib.Path(paths[0]), merge_reason='')
+                else:
+                    _fail('merge_failed', 'The merge finished without producing a composite file.')
+            except Exception as defect:
+                _settle(defect, artifact_path=None, merge_reason='merge_error')
 
         try:
             merge = self._post_processing.run_composite(

@@ -12,11 +12,12 @@ section declares.
 from __future__ import annotations
 
 import gc
+from typing import ClassVar
 
 import pytest
 from fastapi.testclient import TestClient
 
-from lib.lumascope_error import LumascopeError
+from lib.lumascope_error import Fault
 from modules.exceptions import HardwareCommandRefusedError, ProtocolRunRefusedError
 from modules.scope_session import ScopeSession
 from rest import problems
@@ -77,13 +78,13 @@ def test_the_ranges_stay_for_what_no_section_declares(described):
 def test_two_outcome_classes_of_one_name_fail_the_build():
     """A ``Raises:`` entry names its class by name, so a second class of that name is refused."""
 
-    def twin() -> type:
-        class TwinError(LumascopeError):
-            pass
+    def twin(reason: str) -> type:
+        class TwinError(Fault, Exception):
+            causes: ClassVar[dict[str, None]] = {reason: None}
 
         return TwinError
 
-    pair = (twin(), twin())
+    pair = (twin('zz_twin_one'), twin('zz_twin_two'))
     try:
         with pytest.raises(TypeError, match='TwinError'):
             problems.outcome_classes()

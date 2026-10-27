@@ -81,14 +81,14 @@ import sys
 import threading
 import time
 import weakref
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, ClassVar, NamedTuple, NoReturn
 from collections import deque
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
 import numpy as np
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 from lvp_logger import logger
 
 try:
@@ -1605,7 +1605,7 @@ class _FX2AbsentError(Fault, RuntimeError):
     raises with its own message.
     """
 
-    reason = 'fx2_absent'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'fx2_absent': None}
     title = 'Camera Not Found'
 
 

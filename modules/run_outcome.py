@@ -94,34 +94,49 @@ class FilesOutcome(enum.StrEnum):
     INCOMPLETE = 'incomplete'
 
 
-# The heading of each way a run can end, by the ending's reason: the one
-# place an ending is titled, so the popup, the run's outcome and the failure
-# raised to a caller title one ending one way wherever it was recorded.
-ENDING_TITLES: dict[str, str] = {
-    'completed': 'Protocol Complete',
-    'stopped': 'Protocol Stopped',
-    'stage_stopped': 'Protocol Stopped',
-    'shutdown': 'Protocol Stopped',
-    'captures_failed': 'Run Incomplete',
-    'start_failed': 'Run failed to start',
-    'dispatch_refused': 'Run failed to start',
-    'capture_location_failed': 'Run failed to start',
-    'run_dir_init_failed': 'Run failed to start',
-    'camera_lane_stalled': 'Camera Busy',
-    'camera_read_failed': CameraReadFailedError.title,
-    'run_loop_crashed': 'Protocol Crashed',
-    'hardware_disconnected': 'Protocol Aborted',
-    'consecutive_scan_failures': 'Protocol Aborted',
-    'interlock': 'Protocol Aborted -- Stage Interlock',
-    'position_lost': 'Protocol Aborted -- Position Lost',
-    'disk_space_critical': 'Disk Space Critical',
-    'file_writer_stalled': 'File Writer Stalled',
-    'video_writer_died': 'Recording Failed',
-    'led_channel_unavailable': 'Channel not available',
-    'camera_failure': 'Camera Failure',
-    'autofocus_failed': 'Autofocus Failed',
-    'autofocus_not_started': 'Autofocus Not Started',
+class EndingKind(enum.StrEnum):
+    """Whether a run that ended completed, was stopped, or failed."""
+
+    COMPLETION = 'completion'
+    STOP = 'stop'
+    FAILURE = 'failure'
+
+
+# Each way a run can end, by the ending's reason: its heading and its kind.
+# The one place an ending is titled, so the popup, the run's outcome and the
+# failure raised to a caller title one ending one way wherever it was
+# recorded; and the one place it is a failure, so the run's faults carry the
+# failures and nothing else.
+ENDINGS: dict[str, tuple[str, EndingKind]] = {
+    'completed': ('Protocol Complete', EndingKind.COMPLETION),
+    'stopped': ('Protocol Stopped', EndingKind.STOP),
+    'stage_stopped': ('Protocol Stopped', EndingKind.STOP),
+    'shutdown': ('Protocol Stopped', EndingKind.STOP),
+    'captures_failed': ('Run Incomplete', EndingKind.FAILURE),
+    'start_failed': ('Run failed to start', EndingKind.FAILURE),
+    'dispatch_refused': ('Run failed to start', EndingKind.FAILURE),
+    'capture_location_failed': ('Run failed to start', EndingKind.FAILURE),
+    'run_dir_init_failed': ('Run failed to start', EndingKind.FAILURE),
+    'camera_lane_stalled': ('Camera Busy', EndingKind.FAILURE),
+    'camera_read_failed': (CameraReadFailedError.title, EndingKind.FAILURE),
+    'run_loop_crashed': ('Protocol Crashed', EndingKind.FAILURE),
+    'hardware_disconnected': ('Protocol Aborted', EndingKind.FAILURE),
+    'consecutive_scan_failures': ('Protocol Aborted', EndingKind.FAILURE),
+    'interlock': ('Protocol Aborted -- Stage Interlock', EndingKind.FAILURE),
+    'position_lost': ('Protocol Aborted -- Position Lost', EndingKind.FAILURE),
+    'disk_space_critical': ('Disk Space Critical', EndingKind.FAILURE),
+    'file_writer_stalled': ('File Writer Stalled', EndingKind.FAILURE),
+    'video_writer_died': ('Recording Failed', EndingKind.FAILURE),
+    'led_channel_unavailable': ('Channel not available', EndingKind.FAILURE),
+    'camera_failure': ('Camera Failure', EndingKind.FAILURE),
+    'autofocus_failed': ('Autofocus Failed', EndingKind.FAILURE),
+    'autofocus_not_started': ('Autofocus Not Started', EndingKind.FAILURE),
 }
+ENDING_TITLES: dict[str, str] = {reason: title for reason, (title, _) in ENDINGS.items()}
+# The endings a run's faults carry, in the table's order.
+FAILURE_REASONS: tuple[str, ...] = tuple(
+    reason for reason, (_, kind) in ENDINGS.items() if kind == EndingKind.FAILURE
+)
 
 
 # The endings a person's stop makes: the run's own Stop, and STOP pressed

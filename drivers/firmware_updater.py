@@ -47,10 +47,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from collections.abc import Callable
+from typing import ClassVar
 
 import serial.tools.list_ports as list_ports
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 from drivers.serialboard import SerialBoard
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ class UpdateStage(Enum):
 class UpdateError(Fault, Exception):
     """Firmware update failure with stage and recoverability info."""
 
-    reason = 'update_failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'update_failed': None}
     title = 'Firmware Update Failed'
 
     def __init__(self, message: str, stage: UpdateStage, recoverable: bool = True):

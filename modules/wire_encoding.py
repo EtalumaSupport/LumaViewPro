@@ -71,7 +71,7 @@ import typing
 import warnings
 from collections.abc import Callable, Iterable, Mapping
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 from modules.api_surface import (
     API,
     fields_of,
@@ -131,7 +131,7 @@ _HOST_FILLED = {'Callable', 'ProgressCallback', 'RunEvents'}
 class NoWireFormError(Fault, TypeError):
     """A value whose type has no wire form reached ``encode``."""
 
-    reason = 'no_wire_form'
+    causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'no_wire_form': None}
     title = 'No Wire Form'
     # Where in the walked value it was found, each container prefixing its
     # step as the fault passes back up; the walk's top names it whole.
@@ -141,7 +141,7 @@ class NoWireFormError(Fault, TypeError):
 class NotHandedOutError(NoWireFormError):
     """A parameter takes only a live object no wire member hands out, so no client can name one."""
 
-    reason = 'not_handed_out'
+    causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'not_handed_out': None}
     title = 'Not Handed Out'
 
 

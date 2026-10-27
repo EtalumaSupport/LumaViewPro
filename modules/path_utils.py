@@ -8,11 +8,13 @@ import os
 import pathlib
 import sys
 from enum import StrEnum
+from typing import ClassVar
 
 from modules.exceptions import (
     InstallationFileError,
     LiveFolderPathRefusedError,
     ProtocolRunRefusedError,
+    RecordingRefusedError,
     Refusal,
     RefusalCause,
 )
@@ -35,8 +37,15 @@ class CaptureLocationError(Refusal, Exception):
             are taken.
     """
 
-    cause = RefusalCause.STATE
     title = ProtocolRunRefusedError._TITLES['capture_location_unusable']
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'capture_location_unusable': RefusalCause.STATE,
+        'names_exhausted': RefusalCause.STATE,
+    }
+    same_fact_as = (
+        LiveFolderPathRefusedError,
+        RecordingRefusedError,
+    )
 
     def __init__(self, reason: str, message: str):
         super().__init__(message)

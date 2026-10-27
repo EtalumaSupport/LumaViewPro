@@ -128,7 +128,8 @@ class TestARunWhoseSaveFails:
         ):
             runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
 
-        assert failed.value.reason == 'write_batch_save_failed'
+        assert failed.value.reason == 'merge_error'
+        assert failed.value.merge_failure == 'write_batch_save_failed'
         # The run's frames are named for the composite too, so the merged
         # artifact shows as an image beyond the one frame that saved.
         images = sorted(p.name for p in pathlib.Path(tmp_path).rglob('*.tif*'))

@@ -593,6 +593,8 @@ _HEADER = "the protocol file format's header line"
 OPEN_STRINGS: dict[str, str] = {
     'ArgumentRefusedError.argument field': _MEMBER,
     'ArgumentRefusedError.member field': _MEMBER,
+    'CompositeFailedError.merge_failure field': _REASON,
+    'CompositeFailedError.run_ending field': _REASON,
     'ArgumentRefusedError.offered field': _OFFERED,
     'ArgumentTypeRefusedError.argument field': _MEMBER,
     'ArgumentTypeRefusedError.declared field': _TYPE,
@@ -739,6 +741,7 @@ OPEN_STRINGS: dict[str, str] = {
     'RunOutcome.merge_reason field': _REASON,
     'RunOutcome.message field': _PROSE,
     'RunOutcome.reason field': _REASON,
+    'ScopeDisconnectError.part_reasons field': _REASON,
     'RunOutcome.title field': _PROSE,
     'RuntimeState.get_turret_config return': _OBJECTIVE,
     'RuntimeState.get_well_label return': _WELL,

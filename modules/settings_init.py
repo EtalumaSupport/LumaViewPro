@@ -5,8 +5,9 @@ import json
 import logging
 import pathlib
 import time
+from typing import ClassVar
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 from modules import labware_loader
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -56,7 +57,7 @@ class SettingsFileError(Fault, ValueError):
     crash.
     """
 
-    reason = 'settings_file_unreadable'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'settings_file_unreadable': None}
     title = 'Settings File Unreadable'
 
 

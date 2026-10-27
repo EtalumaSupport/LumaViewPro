@@ -36,7 +36,7 @@ from typing import ClassVar
 from fastapi.responses import JSONResponse
 
 from modules import notification_center, wire_encoding
-from lib.lumascope_error import Fault, LumascopeError
+from lib.lumascope_error import Fault, LumascopeError, defined_classes
 from modules.api_surface import raises_of
 from modules.exceptions import Refusal, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
@@ -99,13 +99,9 @@ def outcome_classes() -> dict[str, type[LumascopeError]]:
         TypeError: Two classes share a name, so an entry naming it is ambiguous.
     """
     found: dict[str, type[LumascopeError]] = {}
-    pending = [LumascopeError]
-    while pending:
-        cls = pending.pop()
-        for sub in cls.__subclasses__():
-            pending.append(sub)
-            if found.setdefault(sub.__name__, sub) is not sub:
-                raise TypeError(f'two outcome classes are named {sub.__name__}')
+    for cls in defined_classes():
+        if found.setdefault(cls.__name__, cls) is not cls:
+            raise TypeError(f'two outcome classes are named {cls.__name__}')
     return found
 
 
@@ -141,25 +137,15 @@ def declared(doc: str, classes: dict[str, type[LumascopeError]]) -> dict[int, di
 
 
 def _reasons_of(cls: type) -> tuple[str, ...]:
-    """Every reason *cls* can carry, as its type declares them."""
-    causes = getattr(cls, 'causes', None)
-    if isinstance(causes, dict):
-        return tuple(causes)
-    reason = getattr(cls, 'reason', None)
-    return (reason,) if isinstance(reason, str) else ()
+    """Every reason *cls* can carry: its ``causes``; none for an umbrella."""
+    return tuple(getattr(cls, 'causes', ()))
 
 
 def _status_of(cls: type, reason: str) -> int:
     """What *cls* raised with *reason* answers, as ``answered_by_member`` decides it."""
     if issubclass(cls, Fault):
         return _FAULT_STATUS
-    causes = getattr(cls, 'causes', None)
-    if isinstance(causes, dict) and reason in causes:
-        return _CAUSE_STATUS[causes[reason]]
-    # A type with one cause states it in its body; the base's ``cause`` is a
-    # read of ``causes`` by an instance's reason.
-    stated = (vars(k).get('cause') for k in cls.__mro__)
-    return _CAUSE_STATUS[next((c for c in stated if isinstance(c, RefusalCause)), None)]
+    return _CAUSE_STATUS[getattr(cls, 'causes', {}).get(reason)]
 
 
 def now() -> datetime.datetime:
@@ -269,7 +255,7 @@ class ServerRefusedError(Refusal, Exception):
         extra: dict[str, object] | None = None,
     ) -> None:
         super().__init__(detail)
-        self.reason = self._declared(reason)
+        self.reason = reason
         self.status = self._STATUSES[reason]
         self.title = self._TITLES[reason]
         self.headers = headers or {}

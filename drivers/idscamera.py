@@ -5,7 +5,7 @@ import math
 import re
 import threading
 import time
-from typing import Any, NoReturn
+from typing import Any, ClassVar, NoReturn
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
 # core binding and the ipl-extension bridge resolve against. The stack is
@@ -43,7 +43,7 @@ from drivers.exceptions import (
     PartAbsentError,
 )
 from drivers.registry import camera_registry
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, RefusalCause
 
 
 class _IDSAbsentError(Fault, RuntimeError):
@@ -56,7 +56,7 @@ class _IDSAbsentError(Fault, RuntimeError):
     camera that is found and fails raises ``CameraUsbOpenFailedError``.
     """
 
-    reason = 'ids_absent'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'ids_absent': None}
     title = 'Camera Not Found'
 
 

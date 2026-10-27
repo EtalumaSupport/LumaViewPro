@@ -1043,7 +1043,7 @@ class ManualRecordingController:
 # Each reason a recording's frames cannot be used, as the hyperstack refusal's.
 _HYPERSTACK_REASON_OF = {
     'unreadable': 'unreadable_input_frame',
-    'mixed_pixel_types': 'mixed_pixel_types',
+    'mixed_pixel_types': 'mixed_input_pixel_types',
     'geometry': 'hyperstack_refused',
 }
 if set(_HYPERSTACK_REASON_OF) != set(InputFramesUnusableError._TITLES):

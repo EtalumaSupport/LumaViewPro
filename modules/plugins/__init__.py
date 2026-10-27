@@ -105,8 +105,10 @@ class PluginRegistrationError(Refusal, Exception):
             REST routes in this release.
     """
 
-    cause = RefusalCause.REQUEST
     title = 'Plugin Not Registered'
+    causes = dict.fromkeys(
+        ('name_taken', 'rest_namespace_reserved', 'unknown_mount_point'), RefusalCause.REQUEST
+    )
 
     def __init__(self, reason: str, message: str):
         super().__init__(message)

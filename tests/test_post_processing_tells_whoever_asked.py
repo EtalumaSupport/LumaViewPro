@@ -369,7 +369,8 @@ def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):
     ):
         runner.run_composite(sequence_name='refused', parent_dir=str(tmp_path))
 
-    assert raised.value.reason == 'excluded_inputs'
+    assert raised.value.reason == 'merge_error'
+    assert raised.value.merge_failure == 'excluded_inputs'
 
 
 # ---------------------------------------------------------------------------

@@ -136,13 +136,22 @@ class TestCompositeOutcomeIsObservable:
             'from a successful merge'
         )
 
-    @pytest.mark.parametrize('merge_reason', ['merge_timeout', 'merge_failed', 'no_run_dir'])
-    def test_a_completed_run_whose_merge_produced_nothing_names_the_merge(self, merge_reason):
+    # The merge's own reason is the failure's; another vocabulary's is its field.
+    @pytest.mark.parametrize(
+        ('merge_reason', 'reason', 'merge_failure'),
+        [
+            ('merge_timeout', 'merge_error', 'merge_timeout'),
+            ('no_run_dir', 'no_run_dir', None),
+        ],
+    )
+    def test_a_completed_run_whose_merge_produced_nothing_names_the_merge(
+        self, merge_reason, reason, merge_failure
+    ):
         runner = self._runner_whose_run(self._COMPLETED, merge_reason=merge_reason)
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
-        assert excinfo.value.reason == merge_reason, (
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == (reason, merge_failure), (
             'the failure must CARRY its machine-readable cause, so a caller '
             'can tell an aborted run from a failed merge from a timeout '
             'without pattern-matching the prose'
@@ -162,9 +171,10 @@ class TestCompositeOutcomeIsObservable:
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
-        assert excinfo.value.reason == reason, (
+        assert excinfo.value.reason == 'run_not_completed'
+        assert excinfo.value.run_ending == reason, (
             f'a run that ended {status!r} for {reason!r} reported '
-            f'{excinfo.value.reason!r} to its caller'
+            f'{excinfo.value.run_ending!r} to its caller'
         )
 
     def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):

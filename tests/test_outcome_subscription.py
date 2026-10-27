@@ -13,12 +13,13 @@ reached nobody but the log. Now a client subscribes on the Session (at
 from __future__ import annotations
 
 import logging
+from typing import ClassVar
 
 import pytest
 
 from modules.lumascope_api.illumination import LedReading, LedState
 
-from modules.exceptions import Notice, ProtocolRunRefusedError
+from modules.exceptions import Notice, ProtocolRunRefusedError, RefusalCause
 from modules.notification_center import NotificationCenter, OutcomeKind, notifications
 from modules.scope_session import ScopeSession, _scheduler_callback_error
 from tests.settings_fixtures import complete_settings
@@ -36,6 +37,7 @@ def session(tmp_path):
 
 class _PositionNotRecordedError(Notice, Exception):
     title = 'Position Not Recorded'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'probe_position_not_recorded': None}
 
 
 class _StreamStoppedError(Exception):
