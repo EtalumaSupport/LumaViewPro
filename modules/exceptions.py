@@ -3581,7 +3581,10 @@ def _control_refused_sentence(
         return (
             'A run or a recording that has ended is still finishing. Take control when it is done.'
         )
-    return 'That control session has ended. Take control again to go on.'
+    return (
+        'No live control session has that id: it has ended, or was never issued. '
+        'Take control again to go on.'
+    )
 
 
 def under_control_sentence(holder_trigger: Caller | None, control_session: str | None) -> str:

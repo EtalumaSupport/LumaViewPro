@@ -790,6 +790,8 @@ class TestTheRestDoor:
         )
         assert refused.status_code == 422
         assert refused.json()['reason'] == 'control_session_ended'
+        # Its words say so too, where they said the session had ended.
+        assert 'never issued' in refused.json()['detail']
 
     @staticmethod
     def _protocol_edits(protocol):
