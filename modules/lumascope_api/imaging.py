@@ -389,9 +389,6 @@ class ImagingAPI:
         self._stream_check_handle: object | None = None
         self._stream_watch: StallWatch | None = None
         self._stream_watch_bound_s: float | None = None
-        # The delivered count when the exposure's bound last dropped: the
-        # longer bound holds until the frames in the pipeline then have come.
-        self._stream_bound_dropped_at: int | None = None
         self._stream_stall_reported = False
         # The delivered rate (_sample_delivery), written only on the
         # scheduler's thread: the last (frames, wire bytes, time) reading, and
@@ -2612,7 +2609,6 @@ class ImagingAPI:
             # watch starts again from the stream's next frame.
             self._stream_watch = None
             self._stream_watch_bound_s = None
-            self._stream_bound_dropped_at = None
             self._stream_stall_reported = False
             return
         exposure_s = max(0.0, self._camera.longest_exposure_ms or 0.0) / 1000.0
@@ -2627,16 +2623,15 @@ class ImagingAPI:
             # A shorter exposure: the frames already in the camera's pipeline
             # were exposed at the longer one, so the longer bound holds until
             # as many frames as the camera's measured exposure change takes
-            # to reach its output have come.
-            if self._stream_bound_dropped_at is None:
-                self._stream_bound_dropped_at = stored
-            in_pipeline = self.frame_validity.rules()[FrameValiditySource.EXPOSURE].count
-            if stored - self._stream_bound_dropped_at < in_pipeline:
+            # to reach its output have been handed over since the change.
+            # Counted from the change, never from when this check first sees
+            # the shorter bound: ``longest_exposure_ms`` answers the longer
+            # exposure for a while after the write, and frames counted only
+            # from its end hold the longer bound over a stall that begins
+            # after the old frames have all come.
+            change = self.frame_validity.changes().get(FrameValiditySource.EXPOSURE)
+            if change is not None and driver.frames_delivered - change.at_seq < change.skip:
                 bound_s = held_s
-            else:
-                self._stream_bound_dropped_at = None
-        else:
-            self._stream_bound_dropped_at = None
         watch = self._stream_watch
         if watch is None or self._stream_watch_bound_s != bound_s:
             # A new exposure changes how long a healthy frame can take; the
