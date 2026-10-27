@@ -157,7 +157,7 @@ class TestARunCannotStartWithoutEveryPosition:
             _run(session, tmp_path)
 
         assert excinfo.value.reason == 'position_unknown'
-        assert 'the X, Y and Z positions are unknown' in excinfo.value.message
+        assert 'The X, Y and Z positions are unknown' in excinfo.value.message
         assert 'Home the scope' in excinfo.value.message
         assert moves == [], 'a refused run must not move the stage'
         assert _notices(centre_posts) == [], "raised for the caller's boundary to report"
@@ -175,7 +175,7 @@ class TestARunCannotStartWithoutEveryPosition:
             _run(session, tmp_path)
 
         assert excinfo.value.reason == 'position_unknown'
-        assert 'the T position is unknown' in excinfo.value.message
+        assert 'The T position is unknown' in excinfo.value.message
 
     def test_a_home_in_progress_says_to_wait(self, session_factory, tmp_path):
         session = session_factory()

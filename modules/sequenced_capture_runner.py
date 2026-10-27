@@ -23,7 +23,7 @@ from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
 
 from drivers.exceptions import CameraReadFailedError
-from modules.lumascope_api import AxisState, Lumascope
+from modules.lumascope_api import Lumascope
 from modules.lumascope_api.bring_up import Part
 
 import modules.common_utils as common_utils
@@ -63,7 +63,7 @@ from modules.exceptions import (
     RunIncompleteError,
     RunStartError,
     SingleScanNotice,
-    describe_unknown_positions,
+    unknown_positions_sentence,
 )
 from modules.protocol import Protocol
 import modules.path_utils as path_utils
@@ -975,16 +975,11 @@ class SequencedCaptureRunner:
         """
         unknown_axes = self._scope.motion.axes_without_position()
         if unknown_axes:
-            waiting = all(state == AxisState.HOMING for state in unknown_axes.values())
             self._refuse(
                 reason='position_unknown',
                 message=(
-                    f'Cannot start the run: {describe_unknown_positions(unknown_axes)}. '
-                    + (
-                        'Wait for the home to finish, then start the run.'
-                        if waiting
-                        else 'Home the scope, then start the run.'
-                    )
+                    'Cannot start the run. '
+                    + unknown_positions_sentence(unknown_axes, then='start the run')
                 ),
             )
 
