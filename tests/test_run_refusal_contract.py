@@ -48,7 +48,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.settings_fixtures import complete_settings
-from tests.protocol_drives import run_identity
+from tests.protocol_drives import bare_capture_runner, run_identity, scr_run_kwargs
 
 
 from modules.lumascope_api.bring_up import Part
@@ -1070,6 +1070,45 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
         ]
         assert not put_on_the_lane, (
             f'a run that never captured anything has nothing to post-process; got {put_on_the_lane}'
+        )
+
+
+class TestARunThatFailsValidationIsRefusedWithItsErrors:
+    """A run whose pre-run validation fails is refused before it starts,
+    titled for the person, its words the first five errors. That the
+    refusal is raised with its reason and posts nothing is the funnel
+    loop's (``TestTheRefusalFunnel``)."""
+
+    def _refused_with(self, errors):
+        runner = bare_capture_runner()
+        kwargs = scr_run_kwargs()
+        kwargs['protocol'].validate_for_run.return_value = errors
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            runner.prepare(**kwargs)
+        assert refused.value.reason == 'validation_failed'
+        return runner, kwargs['protocol'], refused.value
+
+    def test_it_is_titled_for_the_person_and_nothing_starts(self):
+        runner, protocol, refusal = self._refused_with(['step 1: X position outside axis limits'])
+        assert refusal.title == 'Validation failed', (
+            f"the refusal's title must be 'Validation failed'; got {refusal.title!r}"
+        )
+        assert not protocol.copy_for_execution.called, (
+            'run must abort at validation, before snapshotting the protocol'
+        )
+        assert not runner.run_in_progress(), 'run must not start'
+
+    def test_its_words_list_five_errors_and_point_to_the_log_for_the_rest(self):
+        errors = [f'error number {i}' for i in range(1, 8)]
+        _, _, refusal = self._refused_with(errors)
+        body = refusal.message
+        for i in range(1, 6):
+            assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
+        assert 'error number 6' not in body and 'error number 7' not in body, (
+            f'errors past the fifth must be truncated from the words; got: {body}'
+        )
+        assert 'and 2 more (see log)' in body, (
+            f'overflow must point the user to the log for full details; got: {body}'
         )
 
 

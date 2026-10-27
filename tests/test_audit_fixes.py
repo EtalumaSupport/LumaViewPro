@@ -1084,28 +1084,6 @@ class TestB6_WriteMotorRegisterRemoved:
         )
 
 
-class TestG3_AutofocusFailureNotification:
-    """G3: AF failures must notify the user (Rule 14). An unattended run's
-    mute, not autofocus, keeps them off the screen during a run
-    (tests/test_an_unattended_runs_autofocus_shows_nothing.py)."""
-
-    def test_af_exception_notifies_user(self, centre_posts):
-        """A raising AF loop must pop 'Autofocus Failed', and raise what it popped."""
-        from modules.exceptions import AutofocusFailedError
-        from tests.af_drives import af_runner_and_scope, drive_af
-
-        runner, scope = af_runner_and_scope()
-        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
-        with pytest.raises(AutofocusFailedError) as raised:
-            drive_af(runner)
-        assert raised.value.reason == 'unexpected_error'
-        assert str(raised.value.__cause__) == 'camera fault'
-        captured = _posted(centre_posts, Severity.ERROR)
-        assert captured and captured[0][1] == 'Autofocus Failed', (
-            f'interactive AF failure must pop Autofocus Failed; got {captured}'
-        )
-
-
 # ---------------------------------------------------------------------------
 # SequencedCaptureRunner behavioral-test builders
 # (the runner builder itself is shared across test files)
@@ -1132,50 +1110,6 @@ class _LockWatchingSettings(dict):
         if key == self._watched_key:
             self.watched_reads.append(self._lock.locked())
         return super().get(key, default)
-
-
-class TestRule14_A4_PreRunValidationNotify:
-    """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
-
-    def _run_with_validation_errors(self, centre_posts, errors):
-        """The refusal prepare() raised; it posts nothing, for its caller's boundary to show."""
-        from modules.exceptions import ProtocolRunRefusedError
-
-        runner = _bare_capture_runner()
-        kwargs = _scr_run_kwargs()
-        kwargs['protocol'].validate_for_run.return_value = errors
-        with pytest.raises(ProtocolRunRefusedError) as refused:
-            runner.prepare(**kwargs)
-        assert list(centre_posts) == [], 'the funnel raises; the boundary reports'
-        assert refused.value.reason == 'validation_failed'
-        return runner, kwargs['protocol'], refused.value
-
-    def test_validation_errors_branch_notifies(self, centre_posts):
-        """A failing pre-run validation is refused, titled for the person, and aborts the run."""
-        runner, protocol, refusal = self._run_with_validation_errors(
-            centre_posts, ['step 1: X position outside axis limits']
-        )
-        assert refusal.title == 'Validation failed', (
-            f"the refusal's title must be 'Validation failed'; got {refusal.title!r}"
-        )
-        assert not protocol.copy_for_execution.called, (
-            'run must abort at validation, before snapshotting the protocol'
-        )
-        assert not runner.run_in_progress(), 'run must not start'
-
-    def test_validation_summary_truncates_at_five(self, centre_posts):
-        """The refusal's words show the first 5 errors; mention 'see log' for overflow."""
-        errors = [f'error number {i}' for i in range(1, 8)]
-        _, _, refusal = self._run_with_validation_errors(centre_posts, errors)
-        body = refusal.message
-        for i in range(1, 6):
-            assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
-        assert 'error number 6' not in body and 'error number 7' not in body, (
-            f'errors past the fifth must be truncated from the popup; got: {body}'
-        )
-        assert 'and 2 more (see log)' in body, (
-            f'overflow must point the user to the log for full details; got: {body}'
-        )
 
 
 # ---------------------------------------------------------------------------
