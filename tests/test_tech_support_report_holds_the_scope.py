@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.caller import Caller, calling
 from modules.tech_support_report import TechSupportReport
 from tests.scope_fakes import real_executor_bundle, spec_scope
 
@@ -95,6 +96,31 @@ def test_during_a_recording_the_board_steps_are_skipped_and_say_so(report_and_ca
     for rel in SKIPPED_FILES:
         text = (tmp_path / rel).read_text()
         assert 'SKIPPED' in text and 'recording' in text, (rel, text)
+
+
+def test_under_a_held_control_session_the_board_steps_are_skipped_and_say_so(
+    report_and_calls, tmp_path
+):
+    """A control session held by someone else refuses the report's claim as
+    another activity does: the board steps are skipped and say why, and the
+    report goes on to save."""
+    session, report, calls = report_and_calls
+    with calling(Caller.REST):
+        controller = session.activity_claim.take_control('plate reader', finishing=lambda: False)
+    try:
+        report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
+    finally:
+        session.activity_claim.end_control(controller.id)
+
+    ran = {name for name, _ in calls}
+    board_steps = set(WRITING_STEPS) | set(BOARD_QUERY_STEPS)
+    assert ran.isdisjoint(board_steps), (
+        f'board-command steps ran under a held session: {sorted(ran & board_steps)}'
+    )
+    assert set(ALWAYS_STEPS) <= ran
+    for rel in SKIPPED_FILES:
+        text = (tmp_path / rel).read_text()
+        assert 'SKIPPED' in text and 'plate reader' in text, (rel, text)
 
 
 def test_the_session_supplies_the_scope(tmp_path):

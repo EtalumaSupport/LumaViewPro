@@ -51,7 +51,6 @@ from modules.activity_claim import (
     ActivityClaim,
     BorrowedClaim,
     ControlSession,
-    ControlSessionHeldError,
     FalsifyingChangeInFlightError,
     the_holder_named,
 )
@@ -289,10 +288,11 @@ class VideoRecordingEngine:
 
         Raises:
             RecordingRefusedError: When an exclusive activity (protocol
-                run or another recording) already holds the claim, a control
-                session is held by someone else, a write that would falsify
-                the recording is running, or this engine is already
-                recording or draining.
+                run or another recording) already holds the claim, a write
+                that would falsify the recording is running, or this engine
+                is already recording or draining.
+            ControlSessionRefusedError: ``'control_session_held'``, a
+                control session is held by someone else.
             Anything ``make_config`` raises, with the claim released.
         """
         with self._lock:
@@ -310,13 +310,6 @@ class VideoRecordingEngine:
                         'The microscope is changing the objective or the camera frame. '
                         'Start the recording when it finishes.'
                     ),
-                ) from None
-            except ControlSessionHeldError as held_by:
-                raise RecordingRefusedError(
-                    reason='control_session_held',
-                    message=str(held_by),
-                    holder_trigger=held_by.session.taken_by,
-                    control_session=held_by.session.name,
                 ) from None
             if held is None:
                 # Busy-with-what comes off the claim this just failed to

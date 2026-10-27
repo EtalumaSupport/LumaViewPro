@@ -61,6 +61,7 @@ from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
+    ControlSessionRefusedError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
     SUPPORT_ADDRESS,
@@ -1779,9 +1780,9 @@ class TechSupportReport:
 
     # -- Steps ---------------------------------------------------------------
 
-    def _step_firmware_info(self, tmp, refusal=None):
-        if refusal is not None:
-            return self._step_firmware_info_cached(tmp, refusal)
+    def _step_firmware_info(self, tmp, skip=None):
+        if skip is not None:
+            return self._step_firmware_info_cached(tmp, skip)
         d = tmp / 'firmware_info'
         d.mkdir()
 
@@ -1820,7 +1821,7 @@ class TechSupportReport:
         self._meta['motor_info'] = str(motor_info)
         return sn
 
-    def _step_firmware_info_cached(self, tmp, refusal):
+    def _step_firmware_info_cached(self, tmp, skip):
         """Step 1 while another activity holds the scope.
 
         The board queries go through the raw command channel, which the
@@ -1833,7 +1834,7 @@ class TechSupportReport:
         d.mkdir()
         led_info = self.scope.diagnostics.get_led_info().to_dict()
         skipped = (
-            f'SKIPPED board queries: {refusal.message}\n'
+            f'SKIPPED board queries: {skip.reason}\n'
             'The microscope was in use; these are the values cached at connect.\n'
         )
         with open(d / 'led_info.txt', 'w') as f:
@@ -1940,7 +1941,7 @@ class TechSupportReport:
         ``include_bw`` adds the camera bandwidth test, step 10.
         """
         with contextlib.ExitStack() as held:
-            refusal = None
+            in_use = None
             skip = None
             not_built = self.diag.build_failure
             if not_built is not None:
@@ -1953,15 +1954,20 @@ class TechSupportReport:
             # boards in a process of its own; nothing in that process can
             # contend for the scope, so there is no claim to take.
             elif self._session is not None:
+                # Another activity holding the scope, or a control session
+                # held by someone else: either way the microscope is in use.
                 try:
                     held.enter_context(self._session.diagnostic_claim())
                 except DiagnosticRefusedError as e:
-                    refusal = e
+                    in_use = e.message
+                except ControlSessionRefusedError as e:
+                    in_use = str(e)
+                if in_use is not None:
                     skip = _SkippedStep(
-                        e.message,
+                        in_use,
                         'The microscope was in use, so this step did not drive the hardware.',
                     )
-                    logger.info(f'Report: hardware steps skipped -- {e.message}')
+                    logger.info(f'Report: hardware steps skipped -- {in_use}')
 
             # 1. Firmware info + serial number  (0-5%)
             cb(1, 'Querying firmware...')
@@ -1971,7 +1977,7 @@ class TechSupportReport:
                 )
                 sn = 'UNKNOWN'
             else:
-                sn = self._step_firmware_info(tmp, refusal)
+                sn = self._step_firmware_info(tmp, skip)
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')

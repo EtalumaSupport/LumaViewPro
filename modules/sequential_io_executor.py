@@ -27,6 +27,7 @@ from modules.activity_claim import (
 )
 from modules.exceptions import (
     BlockingCallRefusedError,
+    ControlSessionRefusedError,
     HardwareCommandRefusedError,
     LaneCallStillRunningError,
     Refusal,
@@ -293,6 +294,11 @@ def _settle_dropped(fut) -> None:
     return False and leave its holder waiting forever.
     """
     fut.set_exception(CancelledError())
+
+
+def _task_named(task: 'IOTask') -> str:
+    """The task's action, by name, as the log names who made the task."""
+    return getattr(task.action, '__name__', None) or repr(task.action)
 
 
 """
@@ -757,7 +763,7 @@ class SequentialIOExecutor:
 
     def _claim_refusal(
         self, task: IOTask, *, door: bool = False
-    ) -> HardwareCommandRefusedError | None:
+    ) -> HardwareCommandRefusedError | ControlSessionRefusedError | None:
         """The refusal the claim gives ``task`` right now, or None.
 
         With ``door``, the task is entering the protocol queue, which also
@@ -765,7 +771,7 @@ class SequentialIOExecutor:
         """
         if self._claim is None or task.override:
             return None
-        who = getattr(task.action, '__name__', None) or repr(task.action)
+        who = _task_named(task)
         # Work made under a taking that has ended is its activity's leftover
         # -- an autofocus unwind that outlived the run's cleanup -- and is
         # refused even when nothing holds the scope now: the activity that
@@ -790,7 +796,9 @@ class SequentialIOExecutor:
             refusing = self._claim.holder
         return command_refused(refusing, who)
 
-    def _admit(self, task: IOTask) -> tuple[HardwareCommandRefusedError | None, bool]:
+    def _admit(
+        self, task: IOTask
+    ) -> tuple[HardwareCommandRefusedError | ControlSessionRefusedError | None, bool]:
         """Ask the claim whether ``task`` may run now, as it is about to run.
 
         A write that would falsify a recording is admitted through the
@@ -809,8 +817,7 @@ class SequentialIOExecutor:
             return None, False
         refusing = self._claim.enter_falsifying_change(task.taking)
         if refusing is not None:
-            who = getattr(task.action, '__name__', None) or repr(task.action)
-            return command_refused(refusing, who), False
+            return command_refused(refusing, _task_named(task)), False
         return None, True
 
     def _is_protocol_door_holder(self) -> bool:
@@ -839,7 +846,7 @@ class SequentialIOExecutor:
         own waiter gets the refusal back instead, for ``submit`` to raise:
         that waiter has already been handed on as accepted work.
         """
-        logger.warning(f'[{self.executor_name}] REFUSED {refusal.member} -- {refusal}')
+        logger.warning(f'[{self.executor_name}] REFUSED {_task_named(task)} -- {refusal}')
         task.protocol = False
         # The waiter is created below, after the report, so whether there
         # will be one is what return_future says.
@@ -883,6 +890,8 @@ class SequentialIOExecutor:
                 boundary.
             HardwareCommandRefusedError: the lane is closed, or the scope is
                 held by an activity this call is not made under.
+            ControlSessionRefusedError: ``'control_session_held'``, a control
+                session is held and this call is not its holder's.
             LaneCallStillRunningError: ``timeout_s``, the API's own bound,
                 ran out with the task queued or running; it may still finish.
         """
@@ -946,6 +955,8 @@ class SequentialIOExecutor:
         Raises:
             HardwareCommandRefusedError: the lane is closed, or the scope is
                 held by an activity this call is not made under.
+            ControlSessionRefusedError: ``'control_session_held'``, a control
+                session is held and this call is not its holder's.
         """
         task.silent_on_failure = True
         # The run's own call goes through the door its protocol mode keeps
@@ -969,7 +980,7 @@ class SequentialIOExecutor:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', member, holder.kind if holder is not None else None
             )
-        if isinstance(fut, HardwareCommandRefusedError):
+        if isinstance(fut, (HardwareCommandRefusedError, ControlSessionRefusedError)):
             raise fut
         return fut
 
@@ -985,7 +996,7 @@ class SequentialIOExecutor:
         The task's action names the caller in the log -- the executor name
         alone identifies the lane, not who lost work.
         """
-        who = getattr(task.action, '__name__', None) or repr(task.action)
+        who = _task_named(task)
         with self._refusal_lock:
             episode = self._refusal_episodes[lane]
             if episode is not None and episode['cause'] == cause:
@@ -1455,7 +1466,7 @@ class SequentialIOExecutor:
                 refusal, counted = self._admit(task)
                 if refusal is not None:
                     logger.warning(
-                        f'[{self.executor_name}] REFUSED {refusal.member} at dequeue -- {refusal}'
+                        f'[{self.executor_name}] REFUSED {_task_named(task)} at dequeue -- {refusal}'
                     )
                     self._on_task_done(task, None, refusal)
                     continue
@@ -1565,7 +1576,7 @@ class SequentialIOExecutor:
                 with self._live_lock:
                     self._live_inflight -= 1
             logger.warning(
-                f'[{self.executor_name}] REFUSED {refusal.member} while queued -- {refusal}'
+                f'[{self.executor_name}] REFUSED {_task_named(task)} while queued -- {refusal}'
             )
             task.protocol = False
             with self._caller_futures_lock:

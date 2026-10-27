@@ -13,7 +13,6 @@ from modules.api_surface import api, api_fields
 from modules.caller import Caller, current_caller
 from modules.live_work import SCOPE_HOLDERS, WorkKind
 from modules.exceptions import (
-    UNDER_CONTROL_TITLE,
     ControlSessionRefusedError,
     HardwareCommandRefusedError,
     RecordingRefusedError,
@@ -21,7 +20,6 @@ from modules.exceptions import (
     RefusalCause,
     SessionClosingError,
     the_activity_named,
-    under_control_sentence,
 )
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
@@ -82,27 +80,16 @@ class ControlSession:
     taken_at_epoch_s: float
 
 
-class ControlSessionHeldError(Refusal, Exception):
-    """An activity was asked for, while a control session is held, by someone other than its holder.
+def control_refused(session: ControlSession) -> ControlSessionRefusedError:
+    """The refusal of anything asked for, while ``session`` is held, by someone other than its holder.
 
-    Raised by ``try_claim``. Each taker answers it with its own typed
-    refusal, as it answers ``FalsifyingChangeInFlightError``: a None from
-    ``try_claim`` means another activity holds the slot, and the slot is
-    free here. Nothing was taken.
-
-    Attributes:
-        reason: ``'control_session_held'``.
-        session: The control session that holds.
+    The one place a held control session becomes its refusal, so every door
+    that asks -- a lane, a guarded write, the start of a run, a recording, a
+    diagnostic or a home -- refuses it as one class and names it the same way.
     """
-
-    title = UNDER_CONTROL_TITLE
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'control_session_held': RefusalCause.STATE}
-    same_fact_as = (ControlSessionRefusedError,)
-
-    def __init__(self, session: ControlSession):
-        super().__init__(under_control_sentence(session.taken_by, session.name))
-        self.reason = 'control_session_held'
-        self.session = session
+    return ControlSessionRefusedError(
+        'control_session_held', holder_trigger=session.taken_by, control_session=session.name
+    )
 
 
 def current_taking() -> 'Taking | ControllerTaking | None':
@@ -414,12 +401,13 @@ class ControllerTaking:
 
 def command_refused(
     refusing: 'ActivityHolder | ControlSession | None', member: str
-) -> HardwareCommandRefusedError:
+) -> HardwareCommandRefusedError | ControlSessionRefusedError:
     """The refusal of a hardware command for what the claim says refuses it.
 
-    The one place a claim's answer becomes the command's refusal, so a
-    control session is named the same at every door that asks: a lane, a
-    write that would falsify a recording, a change of the shown layer.
+    The one place a claim's answer becomes the command's refusal, at every
+    door that asks: a lane, a write that would falsify a recording, a change
+    of the shown layer. A control session is refused as a guarded write is
+    (``control_refused``).
 
     Args:
         refusing: The control session, or the activity holding the scope;
@@ -427,12 +415,7 @@ def command_refused(
         member: The member or task refused, for the log.
     """
     if isinstance(refusing, ControlSession):
-        return HardwareCommandRefusedError(
-            'control_session_held',
-            member,
-            holder_trigger=refusing.taken_by,
-            control_session=refusing.name,
-        )
+        return control_refused(refusing)
     return HardwareCommandRefusedError(
         'exclusive_activity_running',
         member,
@@ -663,12 +646,7 @@ class ActivityClaim:
             if self._closing or self._closed:
                 raise SessionClosingError('control')
             if self._control is not None:
-                held = self._control[0]
-                raise ControlSessionRefusedError(
-                    'control_session_held',
-                    holder_trigger=held.taken_by,
-                    control_session=held.name,
-                )
+                raise control_refused(self._control[0])
             if self._holder is not None:
                 raise ControlSessionRefusedError(
                     'exclusive_activity_running',
@@ -750,11 +728,7 @@ class ActivityClaim:
         with self._lock:
             session = self._control_refusing(taking)
             if session is not None:
-                raise ControlSessionRefusedError(
-                    'control_session_held',
-                    holder_trigger=session.taken_by,
-                    control_session=session.name,
-                )
+                raise control_refused(session)
             self._guarded += 1
 
     def refusing_control(self, taking: 'Taking | ControllerTaking | None') -> ControlSession | None:
@@ -794,8 +768,9 @@ class ActivityClaim:
         Raises:
             SessionClosingError: the session's close is running
                 (``begin_closing``) or has finished. Nothing was taken.
-            ControlSessionHeldError: a control session is held and this
-                thread does not act for its holder. Nothing was taken.
+            ControlSessionRefusedError: ``'control_session_held'``, a
+                control session is held and this thread does not act for
+                its holder. Nothing was taken.
             FalsifyingChangeInFlightError: ``owner`` is ``RECORDING`` and a
                 write that would falsify it is running.
             ValueError: ``owner`` is no ``WorkKind``, or one that does not
@@ -809,7 +784,7 @@ class ActivityClaim:
                 raise SessionClosingError(owner)
             session = self._control_refusing(taking)
             if session is not None:
-                raise ControlSessionHeldError(session)
+                raise control_refused(session)
             if holder.kind == WorkKind.RECORDING and self._falsifying:
                 raise FalsifyingChangeInFlightError()
             if self._holder is not None:

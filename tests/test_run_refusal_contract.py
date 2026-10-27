@@ -55,7 +55,11 @@ from modules.lumascope_api.bring_up import Part
 from modules.activity_claim import ActivityClaim, acting
 from modules.caller import Caller, calling
 from modules.autofocus_thread import AutofocusSweep
-from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
+from modules.exceptions import (
+    ControlSessionRefusedError,
+    ProtocolRunRefusedError,
+    RunCheckFailedError,
+)
 from modules.run_events import RunEvents
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
@@ -734,9 +738,6 @@ RUNNER_REFUSAL_COVERAGE = {
     # loop (which drives _prepare); it gets the start-tier twin below.
     'recording_active': ('test_start_refused_while_recording_holds_activity_claim'),
     'exclusive_activity_running': ('test_start_refused_while_a_diagnostic_holds_activity_claim'),
-    # Raised at prepare() and again at start()'s take, and only while a
-    # control session is held, which the scenario loop never sets up.
-    'control_session_held': ('test_a_run_is_refused_at_prepare_while_someone_else_holds_control'),
     # Raised at prepare() only for a composite run, so the SINGLE_SCAN
     # loop cannot reach it; its own class drives prepare() in that mode.
     'composite_needs_two_channels': (
@@ -975,13 +976,14 @@ class TestTheRefusalFunnel:
 
     def test_a_run_is_refused_at_prepare_while_someone_else_holds_control(self, executor, tmp_path):
         """While a client holds the control session, a run asked for by
-        anyone else is refused at its first gate, naming the session, and the
-        holder's own run passes that gate."""
+        anyone else is refused at its first gate with the class every door
+        refuses a held session with, naming the session, and the holder's own
+        run passes that gate."""
         claim = executor._activity_claim
         with calling(Caller.REST):
             controller = claim.take_control('plate reader', finishing=lambda: False)
         try:
-            with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            with pytest.raises(ControlSessionRefusedError) as excinfo:
                 _prepare(executor, _make_single_step_protocol(), tmp_path)
             assert excinfo.value.reason == 'control_session_held'
             assert excinfo.value.control_session == 'plate reader'

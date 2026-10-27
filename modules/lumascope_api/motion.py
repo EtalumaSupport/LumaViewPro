@@ -46,6 +46,7 @@ from modules.finite_number import refuse_unless_finite_number, refuse_unless_wai
 from modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
+    ControlSessionRefusedError,
     HardwareCommandRefusedError,
     HomingFailedError,
     HomingFaultError,
@@ -60,11 +61,9 @@ from modules.exceptions import (
 )
 from modules.notification_center import notifications
 from modules.activity_claim import (
-    ControlSessionHeldError,
     Taking,
     acting,
     activity_taking,
-    command_refused,
     current_taking,
 )
 from modules.caller import current_caller
@@ -2400,7 +2399,7 @@ class MotionAPI:
                 lambda: self._drive_to(axis, position, leg, stop_generation),
                 member,
             )
-        except HardwareCommandRefusedError:
+        except (HardwareCommandRefusedError, ControlSessionRefusedError):
             raise
         except Exception:
             _api_log.error(f'{said} FAILED')
@@ -3191,19 +3190,16 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'home_in_flight'`` while another
                 home holds the scope; ``'exclusive_activity_running'``,
-                naming the holder, while anything else does;
-                ``'control_session_held'``, naming the session, while one is
-                held by someone else.
+                naming the holder, while anything else does.
+            ControlSessionRefusedError: ``'control_session_held'``, naming
+                the session, while one is held by someone else.
         """
         current = current_taking()
         activity = activity_taking(current)
         claim = self._scope._activity_claim
         held = None
         if claim is not None and (activity is None or not activity.holds):
-            try:
-                held = claim.try_claim(WorkKind.HOME)
-            except ControlSessionHeldError as held_by:
-                raise command_refused(held_by.session, 'home') from None
+            held = claim.try_claim(WorkKind.HOME)
             if held is None:
                 holder = claim.holder
                 if holder is not None and holder.kind == WorkKind.HOME:

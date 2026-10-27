@@ -21,7 +21,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 #               mocks the test conftest installs before collection
 # The sys.path line serves the standalone form; in-suite it is a no-op.
 
-from modules.exceptions import ConfigError, HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import (
+    ConfigError,
+    ControlSessionRefusedError,
+    HardwareCommandRefusedError,
+    HomingFailedError,
+)
 from modules.scope_session import ScopeSession
 
 
@@ -53,7 +58,7 @@ def main():
     # that could not establish the reference raises and says why.
     try:
         scope.motion.home('ALL')
-    except (HomingFailedError, HardwareCommandRefusedError) as exc:
+    except (HomingFailedError, HardwareCommandRefusedError, ControlSessionRefusedError) as exc:
         print(f'Homing failed -- cannot move safely: {exc}')
         session.shutdown()
         return

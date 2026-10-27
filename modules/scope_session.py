@@ -46,11 +46,11 @@ from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
     ControlSession,
-    ControlSessionHeldError,
     HeldClaim,
     a_guarded_write,
     acting,
     command_refused,
+    control_refused,
     current_taking,
     guarded_write,
     the_holder_named,
@@ -64,7 +64,6 @@ from modules.exceptions import (
     CameraDriverRepairFailedError,
     CameraDriverRepairRefusedError,
     ConfigError,
-    ControlSessionRefusedError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
     HARDWARE_STATE_REASONS,
@@ -795,23 +794,16 @@ class ScopeSession:
         Raises:
             DiagnosticRefusedError: ``'exclusive_activity_running'``, a
                 run, a recording, a home or another diagnostic holds the
-                scope; ``'control_session_held'``, a control session is held
-                by someone else. Nothing was taken.
+                scope. Nothing was taken.
+            ControlSessionRefusedError: ``'control_session_held'``, a
+                control session is held by someone else. Nothing was taken.
             ClaimStillLentError: ``'claim_still_lent'``, at the end of a
                 block that ended cleanly, a run under this claim was still
                 live after the wait; the claim is released when the run ends.
                 When the block raised, its own exception is raised and this is
                 reported once instead. Still a ``RuntimeError``.
         """
-        try:
-            held = self.activity_claim.try_claim(WorkKind.DIAGNOSTIC)
-        except ControlSessionHeldError as held_by:
-            raise DiagnosticRefusedError(
-                reason='control_session_held',
-                message=str(held_by),
-                holder_trigger=held_by.session.taken_by,
-                control_session=held_by.session.name,
-            ) from None
+        held = self.activity_claim.try_claim(WorkKind.DIAGNOSTIC)
         if held is None:
             holder = self.activity_claim.holder
             kind = holder.kind if holder is not None else None
@@ -3539,8 +3531,9 @@ class ScopeSession:
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                naming the recording; ``'control_session_held'``, naming the
-                session.
+                naming the recording.
+            ControlSessionRefusedError: ``'control_session_held'``, naming
+                the session.
         """
         if layer == self._shown_channel.channel:
             yield
@@ -4118,11 +4111,7 @@ class ScopeSession:
         if path not in settings_paths.PREFERENCES:
             session = self.activity_claim.refusing_control(current_taking())
             if session is not None:
-                raise ControlSessionRefusedError(
-                    'control_session_held',
-                    holder_trigger=session.taken_by,
-                    control_session=session.name,
-                )
+                raise control_refused(session)
         *blocks, leaf = path.split('.')
         holder = self.settings
         for block in blocks:

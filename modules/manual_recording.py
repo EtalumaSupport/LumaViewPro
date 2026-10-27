@@ -318,8 +318,7 @@ class ManualRecordingController:
                 committed: ``'recording_active'``, a previous recording is
                 still recording, draining or finishing;
                 ``'exclusive_activity_running'``, another exclusive activity
-                is running; ``'control_session_held'``, someone else holds the
-                control session; ``'post_processing_running'``, a build is on
+                is running; ``'post_processing_running'``, a build is on
                 the post-processing lane; ``'falsifying_change_in_flight'``, a
                 turret or frame change is under way; ``'camera_inactive'``, the
                 camera is not streaming; ``'camera_exposure_unknown'``, it has
@@ -328,6 +327,8 @@ class ManualRecordingController:
                 name and every numbered variant are taken there;
                 ``'insufficient_disk'``, free disk is
                 below the floor.
+            ControlSessionRefusedError: ``'control_session_held'``, someone
+                else holds the control session. Nothing is committed.
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 Nothing is committed.

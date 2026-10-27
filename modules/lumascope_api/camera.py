@@ -41,6 +41,7 @@ from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
+    ControlSessionRefusedError,
     ExposureAtMaximumNotice,
     ExposureAtMinimumNotice,
     HardwareCommandRefusedError,
@@ -1750,7 +1751,8 @@ class CameraAPI:
             self._report_refused_write(rejected)
 
     def _report_refused_write(
-        self, rejection: CameraSettingRejected | HardwareCommandRefusedError
+        self,
+        rejection: CameraSettingRejected | HardwareCommandRefusedError | ControlSessionRefusedError,
     ) -> None:
         """Report a camera refusal whose flight ends in this class.
 
@@ -1773,7 +1775,11 @@ class CameraAPI:
         rearm = self._asking_for_the_camera(self._set_auto_gain_impl, 'set_auto_gain', None)
         try:
             rearm(True, lock.settings, resume_after_capture=True)
-        except (CameraSettingRejected, HardwareCommandRefusedError) as not_rearmed:
+        except (
+            CameraSettingRejected,
+            HardwareCommandRefusedError,
+            ControlSessionRefusedError,
+        ) as not_rearmed:
             self._report_refused_write(not_rearmed)
 
     @api(sets='auto_exposure')

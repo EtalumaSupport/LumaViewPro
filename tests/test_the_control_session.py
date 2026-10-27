@@ -17,16 +17,14 @@ import pytest
 
 from modules.activity_claim import (
     ActivityClaim,
-    ControlSessionHeldError,
     acting,
     guarded_write,
 )
 from modules.caller import Caller, calling
+from modules.lumascope_api.illumination import LedState
 from modules.exceptions import (
     ControlSessionRefusedError,
-    DiagnosticRefusedError,
     HardwareCommandRefusedError,
-    RecordingRefusedError,
     SessionClosingError,
 )
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -166,7 +164,7 @@ class TestTheLanes:
     def test_a_non_holders_task_is_refused_naming_the_session(self, claim, lane):
         _take(claim, 'plate reader', Caller.REST)
         fut, ran = _run_on_lane(lane, None)
-        with pytest.raises(HardwareCommandRefusedError) as refused:
+        with pytest.raises(ControlSessionRefusedError) as refused:
             fut.result(timeout=_WAIT_S)
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
@@ -199,7 +197,7 @@ class TestTheLanes:
     def test_a_refusal_publishes_who_holds_on_the_wire(self, claim, lane):
         _take(claim, 'plate reader', Caller.REST)
         fut, _ = _run_on_lane(lane, None)
-        with pytest.raises(HardwareCommandRefusedError) as refused:
+        with pytest.raises(ControlSessionRefusedError) as refused:
             fut.result(timeout=_WAIT_S)
         fields = outcome_fields(refused.value, lambda value: value)
         assert fields['reason'] == 'control_session_held'
@@ -211,8 +209,9 @@ class TestTheLanes:
 class TestTheActivitySlot:
     def test_a_non_holders_take_of_the_slot_is_refused_and_the_slot_stays_free(self, claim):
         _take(claim)
-        with pytest.raises(ControlSessionHeldError):
+        with pytest.raises(ControlSessionRefusedError) as refused:
             claim.try_claim('home')
+        assert refused.value.reason == 'control_session_held'
         assert claim.holder is None
 
     def test_the_holders_take_of_the_slot_is_an_ordinary_activity(self, claim):
@@ -253,8 +252,12 @@ def sim_session(tmp_path):
         s.shutdown()
 
 
-class TestEachTakerNamesTheSession:
-    """Each taker of the slot answers a held session with its own typed refusal."""
+class TestEveryDoorRefusesAsOneClass:
+    """Every door answers a held session with one class, ``ControlSessionRefusedError``.
+
+    A hardware command, the start of an activity and a guarded write are
+    refused alike, naming the session, so a caller catches one class for it.
+    """
 
     @pytest.fixture
     def held(self, sim_session):
@@ -263,25 +266,48 @@ class TestEachTakerNamesTheSession:
         sim_session.activity_claim.end_control(controller.id)
 
     def test_a_diagnostic(self, sim_session, held):
-        with pytest.raises(DiagnosticRefusedError) as refused, sim_session.diagnostic_claim():
+        with pytest.raises(ControlSessionRefusedError) as refused, sim_session.diagnostic_claim():
             pass
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
         assert refused.value.holder_trigger == Caller.REST
 
     def test_a_home(self, sim_session, held):
-        with pytest.raises(HardwareCommandRefusedError) as refused:
+        with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.scope.motion.start_home('Z')
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
         assert sim_session.activity_claim.holder is None
+
+    def test_an_led_command(self, sim_session, held):
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.scope.illumination.led_on(LED1, 10)
+        assert refused.value.reason == 'control_session_held'
+        assert refused.value.control_session == 'plate reader'
+        lit = [
+            r for r in sim_session.scope.illumination.get_led_states() if r.state == LedState.LIT
+        ]
+        assert lit == []
+
+    def test_a_move(self, sim_session, held):
+        before = sim_session.scope.motion.get_target_position('Z')
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.scope.motion.move_z(before + 10)
+        assert refused.value.reason == 'control_session_held'
+        assert sim_session.scope.motion.get_target_position('Z') == before
+
+    def test_a_camera_command(self, sim_session, held):
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.scope.imaging.disable_streaming()
+        assert refused.value.reason == 'control_session_held'
+        assert sim_session.scope.imaging.is_streaming()
 
     def test_the_holders_home_takes_the_scope(self, sim_session, held):
         with acting(held):
             sim_session.scope.motion.start_home('Z').result(timeout=10)
 
     def test_a_recording(self, sim_session, held):
-        with pytest.raises(RecordingRefusedError) as refused:
+        with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.manual_recording.start()
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
@@ -289,7 +315,7 @@ class TestEachTakerNamesTheSession:
 
     def test_a_change_of_the_shown_layer(self, sim_session, held):
         other = LED2 if sim_session.shown_channel.channel == LED1 else LED1
-        with pytest.raises(HardwareCommandRefusedError) as refused:
+        with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.show_channel(other)
         assert refused.value.reason == 'control_session_held'
         assert sim_session.shown_channel.channel != other
