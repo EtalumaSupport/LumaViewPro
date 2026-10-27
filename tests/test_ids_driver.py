@@ -267,6 +267,39 @@ class TestFreeRunConfig:
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value is _RecordingNode._UNSET
 
+    def test_a_rate_write_the_camera_refuses_is_a_warning_naming_it(self):
+        # A refused write leaves the rate where it was, which can be clamped
+        # low by an earlier long exposure: a bundle must say so.
+        from drivers import idscamera
+
+        class _RefusingNode(_RecordingNode):
+            def SetValue(self, v):
+                raise RuntimeError('OUT_OF_RANGE')
+
+        cam = self._cam()
+        cam.remote_nodemap.nodes['AcquisitionFrameRate'] = _RefusingNode(maximum=45.0)
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            assert cam._set_free_run_frame_rate() is None
+        (message,), _ = log.warning.call_args
+        assert 'AcquisitionFrameRate' in message and 'OUT_OF_RANGE' in message
+
+    def test_a_camera_without_the_rate_node_is_not_a_warning(self):
+        from drivers import idscamera
+
+        class _NoRateNodemap(_RecordingNodemap):
+            def FindNode(self, name):
+                if name == 'AcquisitionFrameRate':
+                    raise RuntimeError('NotFound')
+                return super().FindNode(name)
+
+        cam = self._cam()
+        cam.remote_nodemap = _NoRateNodemap()
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            assert cam._set_free_run_frame_rate() is None
+        log.warning.assert_not_called()
+
 
 class TestGainDbConversion:
     """The IDS Gain node is a linear multiplier; LVP drives gain in dB. The

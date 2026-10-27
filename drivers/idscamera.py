@@ -1781,11 +1781,13 @@ class IDSCamera(Camera):
 
     def _set_free_run_frame_rate(self):
         """Set AcquisitionFrameRate to the free-run rate and return it, or None
-        when the node is unavailable.
+        when the node is unavailable or the camera refused the rate.
 
         Unbinned, the free-run rate is the current maximum (no software cap).
         Binned, it is the maximum's period plus ``_BINNED_FRAME_TIME_MARGIN_S``:
-        at the exact binned maximum the camera skips sensor slots.
+        at the exact binned maximum the camera skips sensor slots. A failed
+        binning read (-1, logged by ``get_binning_size``) takes the maximum on
+        purpose: 1x1 is nearly every image, and the margin would cost it frames.
 
         The maximum is EXPOSURE-COUPLED: a long exposure lowers it and the camera
         clamps the current rate down to it, while a later shorter exposure raises
@@ -1799,14 +1801,20 @@ class IDSCamera(Camera):
             return None
         try:
             fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
+        except Exception as e:
+            logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
+            return None
+        try:
             rate = fr.Maximum()
             if self.get_binning_size() > 1:
                 rate = 1.0 / (1.0 / rate + _BINNED_FRAME_TIME_MARGIN_S)
             fr.SetValue(rate)
-            return rate
         except Exception as e:
-            logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
+            # The rate stays where it was, which an earlier long exposure may
+            # have clamped low.
+            _cam_log.warning(f'[CAM Class ] AcquisitionFrameRate not set: {e}')
             return None
+        return rate
 
     def _log_free_run_state(self):
         """One-shot diagnostic of the throttles that govern the free-run rate, so
