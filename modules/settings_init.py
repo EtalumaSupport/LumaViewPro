@@ -753,18 +753,23 @@ def _normalize_turret_slot_keys(settings: dict) -> None:
     settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
 
 
-def bring_up_live_folder(logger: logging.Logger, live_folder: str, directory: str) -> str:
+def bring_up_live_folder(live_folder: str, directory: str) -> tuple[str, OSError | None]:
     """The live folder as it is stored: absolute, and created.
 
     The one rule for the value wherever it enters -- the settings file at
-    load, and ``update_settings`` after. The shipped template holds a
-    relative folder, which means the installation's; left relative, each
-    writer would resolve it against the process's working directory, and an
-    installed build's working directory is not writable. A folder that
-    cannot be created stays the person's: replacing it would send their
-    captures somewhere they will not look and save the replacement over
-    their choice. Captures into it are refused by the capture-location
-    owner, naming it, until it is reachable.
+    load, and ``ScopeSession.set_live_folder`` after. The shipped template
+    holds a relative folder, which means the installation's; left relative,
+    each writer would resolve it against the process's working directory,
+    and an installed build's working directory is not writable.
+
+    Returns:
+        The folder as it is stored, and the error that kept it from being
+        created, or None. What a folder that cannot be created means is the
+        entry's: at load it stays the person's, at a write it is refused.
+
+    Raises:
+        ValueError: ``live_folder`` is a string no file system can name (a
+            NUL byte).
     """
     folder = pathlib.Path(live_folder)
     if not folder.is_absolute():
@@ -773,11 +778,8 @@ def bring_up_live_folder(logger: logging.Logger, live_folder: str, directory: st
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        logger.warning(
-            f'[Settings ] The live folder {folder} could not be created ({e}); '
-            'captures into it are refused until it is reachable.'
-        )
-    return live_folder
+        return live_folder, e
+    return live_folder, None
 
 
 def prepare_settings(
@@ -960,7 +962,16 @@ def prepare_loaded(
         replaced = replace_refused_stored_values(loaded, template)
         if replaced is not None:
             _stored_replacements.append(replaced)
-    loaded['live_folder'] = bring_up_live_folder(logger, loaded['live_folder'], directory)
+    # A folder that cannot be created stays the person's: replacing it would
+    # send their captures somewhere they will not look and save the
+    # replacement over their choice. Captures into it are refused by the
+    # capture-location owner, naming it, until it is reachable.
+    loaded['live_folder'], unreachable = bring_up_live_folder(loaded['live_folder'], directory)
+    if unreachable is not None:
+        logger.warning(
+            f'[Settings ] The live folder {loaded["live_folder"]} could not be created '
+            f'({unreachable}); captures into it are refused until it is reachable.'
+        )
     return loaded
 
 

@@ -18,6 +18,8 @@ import os
 import pytest
 
 from modules import settings_init
+from modules.scope_session import ScopeSession
+from tests.installation_fixtures import copy_installation_files
 
 _REPO_TEMPLATE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'settings.json'
@@ -85,6 +87,25 @@ def test_a_folder_that_cannot_be_created_stays_the_persons(tmp_path, caplog):
     assert settings['live_folder'] == str(unreachable)
     assert not unreachable.exists()
     assert [r for r in caplog.records if str(unreachable) in r.getMessage()]
+
+
+def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_path):
+    # Every host hands create the dict it loaded, so create's door is the
+    # load path too: an unplugged drive is the person's folder, not a refusal.
+    blocker = tmp_path / 'a_file'
+    blocker.write_text('')
+    unreachable = blocker / 'capture'
+    directory = _data_dir(tmp_path, live_folder=str(unreachable))
+    copy_installation_files(directory / 'data')
+    settings, _ = settings_init.prepare_settings(
+        logging.getLogger('t'), str(directory), fall_back_to_template=False
+    )
+
+    session = ScopeSession.create(settings, source_path=str(directory), simulate=True)
+    try:
+        assert session.get_setting('live_folder') == str(unreachable)
+    finally:
+        session.shutdown()
 
 
 def test_the_late_fall_back_to_the_template_brings_the_folder_up_too(tmp_path):

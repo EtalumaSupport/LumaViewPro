@@ -44,6 +44,17 @@ try:
         )
     except SettingRefusedError as e:
         _common.ok('a live_folder that is not a path is refused', True, str(e))
+    blocker = _common.SCRATCH / 'a_file'
+    blocker.write_text('')
+    try:
+        s.set_live_folder(str(blocker / 'captures'))
+        _common.ok(
+            'a live_folder under a file is refused',
+            False,
+            repr(s.get_settings_snapshot()['live_folder']),
+        )
+    except SettingRefusedError as e:
+        _common.ok('a live_folder under a file is refused', True, str(e))
     s.set_live_folder(str(live))
 
     # --- protocol load / save --------------------------------------------

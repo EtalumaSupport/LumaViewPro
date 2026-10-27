@@ -3859,21 +3859,26 @@ class ScopeSession:
         """Make ``folder`` the live folder, where captures and runs are saved.
 
         The one writer of ``live_folder``, stored as it is at load: a folder
-        given relative to the installation is made absolute, and created. A
-        folder that cannot be created is still stored; captures into it are
-        refused, naming it, until it is reachable.
+        given relative to the installation is made absolute, and created.
 
         Raises:
             SettingRefusedError: ``'out_of_range'``, ``folder`` is a string
-                no file system can name (a NUL byte). Nothing is written.
+                no file system can name (a NUL byte), or a folder that cannot
+                be created (a file in the way, no permission, a drive that is
+                not there). Nothing is written.
         """
         try:
-            stored = settings_init.bring_up_live_folder(logger, folder, self.scope.source_path)
+            stored, unreachable = settings_init.bring_up_live_folder(folder, self.scope.source_path)
         except ValueError as e:
             # pathlib's answer to a string no file system can name (a NUL byte).
             raise SettingRefusedError(
                 'out_of_range', 'live_folder', f'{folder!r} is not a path'
             ) from e
+        if unreachable is not None:
+            # Told now, not at the first capture into it.
+            raise SettingRefusedError(
+                'out_of_range', 'live_folder', f'the folder cannot be created ({unreachable})'
+            ) from unreachable
         with self.settings_lock:
             self._store_setting('live_folder', stored)
 

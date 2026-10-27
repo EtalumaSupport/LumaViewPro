@@ -10,7 +10,9 @@ checks, because they all reach the same member. Its read by path,
 """
 
 import math
+import os
 import re
+import sys
 import threading
 
 import pytest
@@ -230,6 +232,37 @@ def test_a_live_folder_no_file_system_can_name_is_refused(session):
     assert refused.value.reason == 'out_of_range'
     assert refused.value.path == 'live_folder'
     assert session.get_settings_snapshot() == before
+
+
+def test_a_live_folder_under_a_file_is_refused_and_the_old_one_stays(session, tmp_path):
+    # Told at the write, not at the first capture into it.
+    blocker = tmp_path / 'a_file'
+    blocker.write_text('')
+    before = session.get_settings_snapshot()
+    with pytest.raises(SettingRefusedError) as refused:
+        session.set_live_folder(str(blocker / 'captures'))
+    assert (refused.value.reason, refused.value.path) == ('out_of_range', 'live_folder')
+    assert str(blocker / 'captures') in str(refused.value)
+    assert session.get_settings_snapshot() == before
+
+
+@pytest.mark.skipif(
+    sys.platform == 'win32' or os.geteuid() == 0,
+    reason='a directory mode binds neither on Windows nor for root',
+)
+def test_a_live_folder_the_os_will_not_create_is_refused(session, tmp_path):
+    # Any reason the folder cannot be made, not only a file in the way.
+    locked = tmp_path / 'locked'
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        before = session.get_settings_snapshot()
+        with pytest.raises(SettingRefusedError) as refused:
+            session.set_live_folder(str(locked / 'captures'))
+        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'live_folder')
+        assert session.get_settings_snapshot() == before
+    finally:
+        locked.chmod(0o700)
 
 
 def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):

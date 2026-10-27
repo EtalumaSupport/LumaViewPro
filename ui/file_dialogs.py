@@ -11,6 +11,7 @@ from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
+from ui.ui_helpers import run_reported
 import modules.app_context as _app_ctx
 from modules import gui_logger, image_utils
 
@@ -564,7 +565,11 @@ class FolderChooseBTN(HoverBehavior, Button):
             return
 
         if self.context == 'live_folder':
-            ctx.set_live_folder(str(pathlib.Path(path).resolve()))
+            run_reported(
+                lambda: ctx.set_live_folder(str(pathlib.Path(path).resolve())),
+                None,
+                'FOLDER_CHOOSE',
+            )
         elif self.context == 'apply_cell_count_method_to_folder':
             ctx.cell_count_content.apply_method_to_folder(path=path)
         elif self.context == 'apply_stitching_to_folder':

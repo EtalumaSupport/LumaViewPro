@@ -540,8 +540,9 @@ acceleration limit outside 1 to 100 is refused with `SettingRefusedError`
 
 `set_live_folder(folder)` stores the live folder as it is at start-up: a
 folder given relative to the installation is made absolute, and the folder
-is created. A folder that is not a path (a NUL byte) is refused with
-`SettingRefusedError` (`out_of_range`) and nothing is written.
+is created. A folder that is not a path (a NUL byte), or one that cannot be
+created (a file in the way, no permission, a drive that is not there), is
+refused with `SettingRefusedError` (`out_of_range`) and nothing is written.
 
 **A path from a wire caller is a name under the live folder.**
 `session.live_folder_path(name)` answers the absolute path `name` names
