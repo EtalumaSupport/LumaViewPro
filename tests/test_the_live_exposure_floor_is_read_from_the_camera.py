@@ -26,6 +26,6 @@ def test_no_camera_answers_none(sim_scope):
 
 
 def test_a_failed_read_raises(sim_scope):
-    sim_scope.simulation.refuse_camera_read('minimum_exposure', 'raise')
+    sim_scope.simulation.refuse_camera_read('minimum_exposure', 'failed')
     with pytest.raises(CameraReadFailedError, match='minimum exposure'):
         sim_scope.camera.read_exposure_min_ms()

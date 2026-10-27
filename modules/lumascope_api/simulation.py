@@ -55,7 +55,7 @@ class HomeFault(enum.StrEnum):
 # Built from the simulated camera's own tables, which the driver acts on
 # and so live below modules/: the API names the driver's words by these
 # sets. Which answers a node gives stays the driver's (``answers_for``,
-# ``read_answers_for``).
+# ``FAILED_READS``).
 CameraWriteNode = enum.StrEnum(
     'CameraWriteNode',
     [(node.upper(), node) for node in SimulatedCamera.WRITABLE_NODES],
@@ -70,7 +70,7 @@ CameraWriteAnswer = enum.StrEnum(
 CameraWriteAnswer.__doc__ = """What a refused camera write answers."""
 CameraReadNode = enum.StrEnum(
     'CameraReadNode',
-    [(node.upper(), node) for node in SimulatedCamera.READABLE_NODES],
+    [(node.upper(), node) for node in SimulatedCamera.FAILED_READS],
     module=__name__,
 )
 CameraReadNode.__doc__ = """A camera setting whose read a simulated fault can fail."""
@@ -599,7 +599,16 @@ class SimulationAPI:
     def refuse_camera_read(
         self, node: CameraReadNode, answer: CameraReadAnswer, count: int = 1
     ) -> None:
-        """The camera's next ``count`` reads of ``node`` fail as ``answer`` says.
+        """The camera's next ``count`` reads of ``node`` fail as the real
+        driver that reads the node fails (``SimulatedCamera.FAILED_READS``).
+
+        The gain, the exposure and the binning answer -1, the frame size
+        and the pixel format None; the black level, the frame rate, the
+        minimum exposure and the auto modes raise ``CameraReadFailedError``.
+        The minimum exposure's is IDS's answer, the one driver that reads it
+        live, offered here so the live-floor read is proven without an IDS
+        body. A real driver fails the pixel-format read only before its
+        first good read after a connect, since it keeps the format it read.
 
         Args:
             node: The setting read: ``'gain'``, ``'exposure'``,
@@ -607,30 +616,21 @@ class SimulationAPI:
                 ``'black_level'``, ``'frame_rate'``, ``'minimum_exposure'``
                 (``camera.read_exposure_min_ms``), ``'auto_gain'`` or
                 ``'auto_exposure'``.
-            answer: How the read fails: ``'raise'``; ``'sentinel'``, the
-                driver's failed-read value (-1 for the gain, the exposure
-                and the binning, nothing for the frame size; not for the
-                other nodes, whose drivers raise); or ``'removed'``, raising
-                with the camera gone from the bus during the read (it stays
-                removed for the session, as after ``remove_camera``).
+            answer: ``'failed'``, the node's answer; or ``'removed'``, the
+                same answer with the camera gone from the bus during the
+                read (it stays removed for the session, as after
+                ``remove_camera``).
             count: How many reads in a row meet it, 1 or more.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'`` for a node, or an answer that node's
-                read does not give, offering those it gives;
+                ``'not_offered'`` for a node or an answer;
                 ``'fault_bound'`` for a count below 1;
                 ``'not_injectable_on_board'`` on the FX2 camera.
         """
         target = self._camera_board('refuse_camera_read')
         if not isinstance(target, SimulatedCamera):
             raise self._not_injectable('refuse_camera_read', target)
-        refuse_unless_offered(
-            CameraReadAnswer,
-            answer,
-            'answer',
-            within=[CameraReadAnswer(a) for a in SimulatedCamera.read_answers_for(node)],
-        )
         self._bound('count', count, 'a number of reads, 1 or more', count >= 1)
         target.refuse_read(node, answer, count)
         self._record(

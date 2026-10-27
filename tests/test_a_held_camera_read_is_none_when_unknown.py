@@ -125,7 +125,7 @@ def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
 def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_camera_usable(session):
     camera = session.camera
     camera.set_auto_gain(True, _AUTO_GAIN)
-    session.scope.simulation.refuse_camera_read('gain', 'raise')
+    session.scope.simulation.refuse_camera_read('gain', 'failed')
     camera.set_auto_gain(False, _AUTO_GAIN)
     assert camera.gain_db is None
 

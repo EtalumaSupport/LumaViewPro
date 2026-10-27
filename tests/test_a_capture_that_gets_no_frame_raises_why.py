@@ -116,7 +116,7 @@ class TestARemovedCamera:
 
 class TestARecordReadTheCameraDoesNotAnswer:
     def test_it_fails_the_capture_chained_from_the_read(self, sim_scope):
-        sim_scope.simulation.refuse_camera_read('black_level', 'raise')
+        sim_scope.simulation.refuse_camera_read('black_level', 'failed')
 
         with pytest.raises(CaptureFailedError) as failed:
             sim_scope.imaging.capture_and_wait(timeout_s=1.0)

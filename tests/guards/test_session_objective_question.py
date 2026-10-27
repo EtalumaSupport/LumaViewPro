@@ -564,7 +564,7 @@ class TestT14OpticsRecord:
         )
         try:
             held = session.scope.camera.binning
-            session.scope.simulation.refuse_camera_read('binning', 'raise')
+            session.scope.simulation.refuse_camera_read('binning', 'failed')
 
             session.select_objective('10x Oly')
             assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'

@@ -113,8 +113,8 @@ _BOARD_PAIRS = (
 # the camera's `leave_bus`, `refuse_write`, `allow_write`, `release_frames`
 # the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`, and
 # `answers_for`, the answers each node's write gives; and the read door's
-# `refuse_read`, `allow_read`, `READABLE_NODES`, `FAILED_READ_ANSWERS` and
-# `read_answers_for`),
+# `refuse_read`, `allow_read`, `FAILED_READS`, the nodes a read can be
+# failed on with each node's failed-read answer, and `FAILED_READ_ANSWERS`),
 # and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
@@ -171,9 +171,8 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'answers_for'),
     (_SIMULATION, 'refuse_read'),
     (_SIMULATION, 'allow_read'),
-    (_SIMULATION, 'READABLE_NODES'),
+    (_SIMULATION, 'FAILED_READS'),
     (_SIMULATION, 'FAILED_READ_ANSWERS'),
-    (_SIMULATION, 'read_answers_for'),
 }
 
 

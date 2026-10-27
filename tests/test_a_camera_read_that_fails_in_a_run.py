@@ -87,7 +87,7 @@ def _armed_at_scan_start(session, node, count):
     def arm(*_scan):
         if not armed:
             armed.append(True)
-            session.scope.simulation.refuse_camera_read(node, 'raise', count=count)
+            session.scope.simulation.refuse_camera_read(node, 'failed', count=count)
 
     return RunEvents(scan_started=arm)
 
@@ -109,7 +109,7 @@ class TestTheSimulatorsOwnFeed:
             if len(after) >= FRAMES_AFTER:
                 arrived.set()
 
-        sim_scope.simulation.refuse_camera_read('pixel_format', 'raise', count=1)
+        sim_scope.simulation.refuse_camera_read('pixel_format', 'failed', count=1)
         sim_scope.imaging.add_frame_listener(count, name='frames after the arming')
         try:
             assert arrived.wait(FRAMES_WAIT_S), (
@@ -177,7 +177,7 @@ class TestAtRunStart:
         session, runner, run_parent = run_session
         scope = session.scope
         scope.illumination.led_on('BF', 20.0)
-        scope.simulation.refuse_camera_read(node, 'raise', count=EVERY_TIME)
+        scope.simulation.refuse_camera_read(node, 'failed', count=EVERY_TIME)
 
         outcome = _run(runner, run_parent, _four_steps())
 

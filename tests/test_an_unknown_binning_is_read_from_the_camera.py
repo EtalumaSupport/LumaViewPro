@@ -47,7 +47,7 @@ def test_a_frame_written_with_the_binning_unknown_is_framed_at_the_cameras_binni
 
 def test_a_frame_written_with_the_binning_unknown_and_unreadable_is_refused_and_not_saved(session):
     saved = dict(session.settings['frame'])
-    session.scope.simulation.refuse_camera_read('binning', 'raise')
+    session.scope.simulation.refuse_camera_read('binning', 'failed')
 
     with pytest.raises(CameraReadFailedError) as refused:
         session.camera.set_frame_size(400, 300)

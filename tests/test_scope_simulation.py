@@ -165,7 +165,7 @@ def test_a_refused_write_counted_twice_is_two_writes(scope):
     assert scope.imaging.frame_validity.target('gain') == 9.0
 
 
-@pytest.mark.parametrize('answer', ['raise', 'sentinel', 'removed'])
+@pytest.mark.parametrize('answer', ['failed', 'removed'])
 def test_a_failed_frame_size_read_fails_the_snapshot_that_reads_it(scope, answer):
     """Each failed-read answer a driver gives fails the read that met it, once."""
     bind_settings_like_a_session(scope)
@@ -177,7 +177,7 @@ def test_a_failed_frame_size_read_fails_the_snapshot_that_reads_it(scope, answer
 
 
 def test_a_failed_read_counted_twice_is_two_reads(scope):
-    scope.simulation.refuse_camera_read('black_level', 'raise', count=2)
+    scope.simulation.refuse_camera_read('black_level', 'failed', count=2)
     for _ in range(2):
         with pytest.raises(CameraReadFailedError):
             scope.camera.read_black_level()
@@ -219,11 +219,9 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         # A frame-size write answers the window it delivers, never a bare True.
         ('refuse_camera_write', ('frame_size', 'true'), 'not_offered', 'answer'),
         ('refuse_camera_write', ('gain', 'false', 0), 'fault_bound', 'count'),
-        ('refuse_camera_read', ('high_conversion_gain', 'raise'), 'not_offered', 'node'),
+        ('refuse_camera_read', ('high_conversion_gain', 'failed'), 'not_offered', 'node'),
         ('refuse_camera_read', ('gain', 'false'), 'not_offered', 'answer'),
-        # A pixel format read raises when it fails; no driver answers a failed-read value.
-        ('refuse_camera_read', ('pixel_format', 'sentinel'), 'not_offered', 'answer'),
-        ('refuse_camera_read', ('gain', 'raise', 0), 'fault_bound', 'count'),
+        ('refuse_camera_read', ('gain', 'failed', 0), 'fault_bound', 'count'),
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),
         ('delay_reply', ('motor', 0.0), 'fault_bound', 'delay_s'),
@@ -237,11 +235,13 @@ def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, rea
 def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     scope.simulation.silence('motor')
     scope.simulation.refuse_camera_write('gain', 'none')
-    scope.simulation.refuse_camera_read('black_level', 'raise')
+    scope.simulation.refuse_camera_read('black_level', 'failed')
     assert scope.simulation.injected() == (
         InjectedFault('silence', {'board': 'motor'}),
         InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'none', 'count': 1}),
-        InjectedFault('refuse_camera_read', {'node': 'black_level', 'answer': 'raise', 'count': 1}),
+        InjectedFault(
+            'refuse_camera_read', {'node': 'black_level', 'answer': 'failed', 'count': 1}
+        ),
     )
     scope.simulation.clear()
     assert scope.simulation.injected() == ()

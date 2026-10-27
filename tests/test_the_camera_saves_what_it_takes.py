@@ -363,7 +363,7 @@ def test_a_restore_whose_compare_read_fails_saves_the_binning_the_camera_took(se
     camera = session.camera
     snapshot = camera.save_camera_state('test')
     camera.set_binning(2)
-    session.scope.simulation.refuse_camera_read('frame_size', 'sentinel', count=5)
+    session.scope.simulation.refuse_camera_read('frame_size', 'failed', count=5)
 
     with pytest.raises(CameraReadFailedError):
         camera.restore_camera_state(snapshot)

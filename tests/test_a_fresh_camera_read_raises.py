@@ -26,18 +26,18 @@ from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
-# (the read, the simulator's node for it, a failed-read answer its driver gives)
+# (the read, the simulator's node for it)
 _READS = (
-    ('read_gain_db', 'gain', 'sentinel'),
-    ('read_exposure_ms', 'exposure', 'sentinel'),
-    ('read_binning', 'binning', 'sentinel'),
-    ('read_frame_size', 'frame_size', 'sentinel'),
-    ('read_pixel_format', 'pixel_format', 'raise'),
-    ('read_black_level', 'black_level', 'raise'),
-    ('read_frame_rate_fps', 'frame_rate', 'raise'),
-    ('read_exposure_min_ms', 'minimum_exposure', 'raise'),
-    ('read_auto_gain', 'auto_gain', 'raise'),
-    ('read_auto_exposure', 'auto_exposure', 'raise'),
+    ('read_gain_db', 'gain'),
+    ('read_exposure_ms', 'exposure'),
+    ('read_binning', 'binning'),
+    ('read_frame_size', 'frame_size'),
+    ('read_pixel_format', 'pixel_format'),
+    ('read_black_level', 'black_level'),
+    ('read_frame_rate_fps', 'frame_rate'),
+    ('read_exposure_min_ms', 'minimum_exposure'),
+    ('read_auto_gain', 'auto_gain'),
+    ('read_auto_exposure', 'auto_exposure'),
 )
 
 
@@ -53,14 +53,14 @@ def session(tmp_path):
 def test_every_fresh_read_is_in_the_sweep():
     """A ``read_*`` added to the camera is swept below, or this names it."""
     reads = {name for name in vars(CameraAPI) if name.startswith('read_')}
-    assert reads == {read for read, _node, _answer in _READS}
+    assert reads == {read for read, _node in _READS}
 
 
 def test_every_fresh_read_raises_naming_its_setting_when_the_camera_does_not_answer(sim_scope):
     camera = sim_scope.camera
     unraised = []
-    for read, node, answer in _READS:
-        sim_scope.simulation.refuse_camera_read(node, answer)
+    for read, node in _READS:
+        sim_scope.simulation.refuse_camera_read(node, 'failed')
         try:
             getattr(camera, read)()
         except CameraReadFailedError as failed:
@@ -75,7 +75,7 @@ def test_every_fresh_read_raises_naming_its_setting_when_the_camera_does_not_ans
 
 
 def test_with_no_camera_every_fresh_read_answers_none(diagnostic_scope):
-    answered = {read: getattr(diagnostic_scope.camera, read)() for read, _node, _answer in _READS}
+    answered = {read: getattr(diagnostic_scope.camera, read)() for read, _node in _READS}
     assert answered == dict.fromkeys(answered)
 
 
@@ -98,7 +98,7 @@ def test_a_chunkless_still_whose_exposure_read_fails_saves_nothing(session, monk
             )
         ),
     )
-    session.scope.simulation.refuse_camera_read('exposure', 'raise', count=10)
+    session.scope.simulation.refuse_camera_read('exposure', 'failed', count=10)
 
     with pytest.raises(CaptureFailedError) as failed:
         session.manual_capture.capture(false_color_on=False).result(timeout=30)

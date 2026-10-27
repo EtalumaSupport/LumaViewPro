@@ -92,7 +92,7 @@ def test_a_manual_recording_is_made_at_the_frame_the_camera_delivers(session):
 
 
 def test_a_manual_recording_whose_frame_size_cannot_be_read_does_not_start(session, tmp_path):
-    session.scope.simulation.refuse_camera_read('frame_size', 'raise')
+    session.scope.simulation.refuse_camera_read('frame_size', 'failed')
 
     with pytest.raises(CameraReadFailedError) as refused:
         session.manual_recording.start()
