@@ -129,7 +129,7 @@ class TestCompletion:
         with pytest.raises(RunWriteRefusedError) as refused:
             batch.submit(lambda: None, {}, what='The autofocus data', pace_until=None)
 
-        assert refused.value.reason == 'run_ended'
+        assert refused.value.reason == 'run_writes_ended'
         assert str(refused.value).startswith('The autofocus data was not saved')
         # Nothing broke: the run's writes had ended, and a later run takes them.
         outcome = outcome_of(refused.value)

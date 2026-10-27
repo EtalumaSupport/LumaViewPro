@@ -53,7 +53,7 @@ class TestARunIsRefusedWhileTheLidIsOpen:
         with pytest.raises(ProtocolRunRefusedError) as refused:
             _run(session, tmp_path)
 
-        assert (refused.value.reason, refused.value.title) == ('lid_open', 'Lid Open')
+        assert (refused.value.reason, refused.value.title) == ('lid_open_before_motion', 'Lid Open')
         assert 'lid is open' in refused.value.message
         assert _images(tmp_path) == []
 

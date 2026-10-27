@@ -47,7 +47,7 @@ def _status(cls: type, reason: str) -> str:
 def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(described):
     refusals = _refusals(described, '/api/v1/scope/motion/move_xy_by')
 
-    for reason in ('not_connected', 'axis_absent', 'position_unread', 'lid_open'):
+    for reason in ('not_connected', 'axis_absent', 'position_unread', 'lid_open_before_motion'):
         status = _status(HardwareCommandRefusedError, reason)
         assert reason in refusals[status]['HardwareCommandRefusedError'], (reason, status)
     assert {_status(HardwareCommandRefusedError, r) for r in ('axis_absent', 'not_connected')} == {

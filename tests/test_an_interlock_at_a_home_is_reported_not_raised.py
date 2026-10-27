@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from drivers.exceptions import MotionInterlockError
+from lib.stage_interlock import REFUSED_BEFORE_MOTION
 from modules.exceptions import HardwareCommandRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
@@ -47,7 +48,7 @@ def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_post
     turret = []
 
     def refused(axis):
-        raise HardwareCommandRefusedError(reason, 'home')
+        raise HardwareCommandRefusedError(REFUSED_BEFORE_MOTION[reason], 'home')
 
     session.run_application_session(home_fn=refused, turret_fn=turret.append)
 

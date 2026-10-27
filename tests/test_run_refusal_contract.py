@@ -726,10 +726,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_the_ls720_in_the_simulator.py::'
         'test_a_run_whose_lid_read_fails_is_not_checked_not_refused'
     ),
-    'hardware_disconnected': _FUNNEL_LOOP,
+    'not_connected': _FUNNEL_LOOP,
     'camera_not_streaming': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
-    'lid_open': _FUNNEL_LOOP,
+    'lid_open_before_motion': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'recording_active': ('test_start_refused_while_recording_holds_activity_claim'),
@@ -823,7 +823,7 @@ class TestTheRefusalFunnel:
             mp.setattr(protocol, 'validate_for_run', lambda **kw: ['step 1: out of bounds'])
             return protocol
 
-        def hardware_disconnected(mp):
+        def not_connected(mp):
             mp.setattr(scope, 'unconnected_parts', lambda: (Part.CAMERA,))
             return _make_single_step_protocol()
 
@@ -884,11 +884,11 @@ class TestTheRefusalFunnel:
             ('empty_protocol', empty_protocol),
             ('turret_objectives_unassigned', turret_objectives_unassigned),
             ('validation_failed', validation_failed),
-            ('hardware_disconnected', hardware_disconnected),
+            ('not_connected', not_connected),
             ('camera_not_streaming', camera_not_streaming),
             ('position_unknown', position_unknown),
             ('layer_not_on_scope', layer_not_on_scope),
-            ('lid_open', lid_open),
+            ('lid_open_before_motion', lid_open),
         ]
 
     def test_each_refusal_reason_is_raised_with_its_reason_and_posts_nothing(

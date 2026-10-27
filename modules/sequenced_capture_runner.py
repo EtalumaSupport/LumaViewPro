@@ -1125,7 +1125,7 @@ class SequencedCaptureRunner:
         if named:
             parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
             return self._refusal(
-                reason='hardware_disconnected',
+                reason='not_connected',
                 message=(
                     f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
                     'not connected. Check connections and try again.'
@@ -1351,7 +1351,7 @@ class SequencedCaptureRunner:
             self._hardware_state_unknown("read the stage's interlocks", ex)
         if 'lid_open' in open_interlocks:
             self._refuse(
-                reason='lid_open',
+                reason='lid_open_before_motion',
                 message=(
                     "Cannot start the run: the microscope's lid is open. "
                     'Close it, then start the run.'
@@ -1846,7 +1846,7 @@ class SequencedCaptureRunner:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError:
             raise RunStartError(
-                'capture_location_unusable',
+                'capture_location_failed',
                 f'Unable to save data to {self._parent_dir!s}. '
                 'Please select an accessible capture location.',
             ) from None
@@ -1855,7 +1855,7 @@ class SequencedCaptureRunner:
         if not result['status']:
             # The allocator's own sentence: every failure it reports is about
             # the capture location, so it shares that code.
-            raise RunStartError('capture_location_unusable', result['error'])
+            raise RunStartError('capture_location_failed', result['error'])
 
         try:
             self._initialize_run_dir()

@@ -157,7 +157,7 @@ class ProtocolsAPI:
             Protocol: The loaded Protocol instance.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 ``file_path``; ``'not_a_file'``, a folder is.
             ProtocolNotLoadedError: The file is there and cannot be read.
             ProtocolFormatError: On format issues (same surface as

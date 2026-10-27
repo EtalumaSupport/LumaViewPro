@@ -2166,7 +2166,7 @@ class ScopeSession:
         anything else.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 ``file_path``; ``'not_a_file'``, a folder is.
             ProtocolNotLoadedError: As ``ProtocolsAPI.load_protocol``.
             ProtocolFormatError: As ``ProtocolsAPI.load_protocol``.
@@ -2364,7 +2364,7 @@ class ScopeSession:
                 channel; ``'not_offered'``, ``mode`` is not an
                 ``AcquireMode`` or None.
             ConfigError: this scope's layers could not be resolved.
-            HardwareCommandRefusedError: ``'axis_absent'``, ``mode`` is not
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, ``mode`` is not
                 None and this scope does not have ``channel``.
         """
         refuse_unknown_layer(channel)
@@ -2422,7 +2422,7 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             ConfigError: this scope's layers could not be resolved.
-            HardwareCommandRefusedError: ``'axis_absent'``, ``enabled`` is
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, ``enabled`` is
                 True and this scope does not have ``channel``; or the lock's
                 ``'exclusive_activity_running'``, when a run, a diagnostic
                 or a home holds the scope.
@@ -2510,7 +2510,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``layer`` is not a layer.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``layer``.
             ConfigError: this scope's layers could not be resolved. Nothing is applied.
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
@@ -2675,7 +2675,7 @@ class ScopeSession:
                 parse (as ``get_zstack_params``).
             ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
                 is not a channel.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no layer named in ``channels``; ``'not_connected'``, with no
                 ``at``, the model's motor controller is not connected, so
                 there is no live position. Nothing is added.
@@ -2735,7 +2735,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``. Nothing is changed on either.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
@@ -2775,7 +2775,7 @@ class ScopeSession:
             ProtocolError: ``step_index`` is not a step of ``protocol``.
                 Nothing is written.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
@@ -2807,7 +2807,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
@@ -2905,7 +2905,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'not_offered'``, a name in ``axes`` that
                 is not X, Y or Z. Nothing was driven.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
                 ``MotionAPI.start_move_to_plate``. Nothing was driven.
             PositionOutOfRangeError: The bookmark is outside what this
                 stage can reach. Nothing was driven.
@@ -2941,7 +2941,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'not_offered'``, as
                 ``start_go_to_bookmark``.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
                 ``MotionAPI.start_move_to_plate``. Nothing was driven.
             PositionOutOfRangeError: The bookmark is outside what this
                 stage can reach. Nothing was driven.
@@ -2992,7 +2992,7 @@ class ScopeSession:
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
@@ -3248,7 +3248,7 @@ class ScopeSession:
                 objective in the light path. Nothing changes.
             ArgumentRefusedError: ``'channel_unknown'``, the step's colour is
                 not a layer. Nothing changes.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no layer of the step's colour. Nothing changes.
             ArgumentRefusedError: ``'channel_unknown'``, the step's
                 stimulation names a layer this release has not. Nothing
@@ -3506,7 +3506,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'illumination_out_of_range'``, its stored current
                 is outside the attached board's range.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``; ``'not_connected'``, naming the LED
                 controller the light needs or the camera; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
@@ -3575,7 +3575,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'illumination_out_of_range'``, the
                 layer's stored current is outside the attached board's
                 range.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no shown layer; ``'not_connected'``, naming the LED
                 controller the light needs; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
@@ -3970,7 +3970,7 @@ class ScopeSession:
 
         Raises:
             LiveFolderPathRefusedError: as ``live_folder_path`` raises it;
-                ``'not_found'``, ``name`` names nothing; ``'not_a_folder'``,
+                ``'path_not_found'``, ``name`` names nothing; ``'not_a_folder'``,
                 ``name`` is a file.
         """
         root = self.live_folder_path('.')
@@ -4022,7 +4022,7 @@ class ScopeSession:
         A file that is refused or fails to load leaves no path remembered.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 ``file_path``; ``'not_a_file'``, a folder is.
             ProtocolNotLoadedError: As ``load_protocol``.
             ProtocolFormatError: As ``load_protocol``.
@@ -4156,7 +4156,7 @@ class ScopeSession:
         if settings_init.settings_are_provisional():
             withheld = 'settings_provisional'
         elif self.scope.no_hardware:
-            withheld = 'no_hardware'
+            withheld = 'settings_unmeasured'
         else:
             withheld = None
         from modules.notification_center import notifications

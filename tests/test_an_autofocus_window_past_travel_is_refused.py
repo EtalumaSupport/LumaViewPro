@@ -99,7 +99,7 @@ def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(scope, monkeypatch, 
 
     # The sweep had moved the stage when it found it could not go on: a
     # failure, where the same refusal before the first move is not.
-    assert refused.value.reason == 'out_of_travel'
+    assert refused.value.reason == 'travel_exhausted'
     assert outcome_of(refused.value).kind == OutcomeKind.FAULT
     # The restore is a move; read Z once it has arrived, within a motor
     # step, since the stage lands on its own step grid.
@@ -138,7 +138,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, report
     with pytest.raises(AutofocusFailedError) as refused:
         drive_af(runner)
 
-    assert refused.value.reason == 'out_of_travel'
+    assert refused.value.reason == 'travel_exhausted'
     assert all(z >= floor for z in _z_moves(scope)), _z_moves(scope)
 
 

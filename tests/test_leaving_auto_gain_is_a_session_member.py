@@ -197,7 +197,13 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
             ArgumentRefusedError,
             'channel_unknown',
         ),  # not a layer of this release
-        (LED0, True, ('BF', LED1), HardwareCommandRefusedError, 'axis_absent'),  # no LED0 here
+        (
+            LED0,
+            True,
+            ('BF', LED1),
+            HardwareCommandRefusedError,
+            'not_on_this_scope',
+        ),  # no LED0 here
         ('BF', 'off', ('BF',), ArgumentTypeRefusedError, 'wrong_argument_type'),  # not a bool
     ],
 )

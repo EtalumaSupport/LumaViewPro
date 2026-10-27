@@ -118,7 +118,7 @@ def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
 
     refusal = _refused(lambda: light(scope.illumination))
 
-    assert (refusal.reason, refusal.missing) == ('axis_absent', part)
+    assert (refusal.reason, refusal.missing) == ('not_on_this_scope', part)
     assert sent == []
     assert led_reading(scope, 2) == LedReading(2, None, LedState.DARK, None)
 
@@ -134,7 +134,7 @@ def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
     refusal = _refused(lambda: scope.illumination.restore_led_state(snapshot))
 
     assert (refusal.reason, refusal.member, refusal.missing) == (
-        'axis_absent',
+        'not_on_this_scope',
         'restore_led_state',
         MissingPart.led_address(2),
     )
@@ -146,7 +146,7 @@ def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):
 
     refusal = _refused(lambda: scope.illumination.get_led_state(LED2))
 
-    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.led(LED2))
+    assert (refusal.reason, refusal.missing) == ('not_on_this_scope', MissingPart.led(LED2))
 
 
 _OFFS = {
@@ -292,7 +292,7 @@ def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
             parent_dir=str(tmp_path),
         )
 
-    assert exc.value.reason == 'hardware_disconnected'
+    assert exc.value.reason == 'not_connected'
     assert str(exc.value).startswith('The LED controller is not connected.')
 
 

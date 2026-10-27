@@ -88,7 +88,7 @@ def test_a_name_outside_the_live_folder_is_refused(session, name):
 
 
 @pytest.mark.parametrize(
-    ('name', 'reason'), [('plate.tsv', 'not_a_folder'), ('no_such_folder', 'not_found')]
+    ('name', 'reason'), [('plate.tsv', 'not_a_folder'), ('no_such_folder', 'path_not_found')]
 )
 def test_a_name_that_is_not_a_folder_is_refused_by_what_is_there(session, name, reason):
     with pytest.raises(LiveFolderPathRefusedError) as refused:

@@ -1084,7 +1084,7 @@ class FirmwareDiagnostics:
         except HardwareError as e:
             return str(e)
         except HardwareCommandRefusedError as e:
-            if e.reason not in HARDWARE_STATE_REASONS and e.reason != 'axis_absent':
+            if e.reason not in HARDWARE_STATE_REASONS and e.missing is None:
                 raise
             return str(e)
         return None

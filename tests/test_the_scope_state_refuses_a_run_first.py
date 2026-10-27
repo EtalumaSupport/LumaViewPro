@@ -95,9 +95,9 @@ def test_a_part_not_connected_is_told_before_an_empty_protocol(make_session, tmp
             session.create_empty_protocol(), parent_dir=str(tmp_path)
         )
 
-    assert refused.value.reason == 'hardware_disconnected'
+    assert refused.value.reason == 'not_connected'
     assert session.sequenced_capture_runner.state_refusal(session.activity_claim).reason == (
-        'hardware_disconnected'
+        'not_connected'
     )
 
 

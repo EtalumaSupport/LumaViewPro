@@ -165,7 +165,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     assert (outcome.kind, outcome.cause, outcome.reason) == (
         OutcomeKind.QUIET,
         RefusalCause.STATE,
-        'run_ended',
+        'sweep_run_ended',
     )
     assert iterations == [], 'no focus iteration may run without the LED lease'
     z_targets = [pos for axis, pos in moves if axis == 'Z']

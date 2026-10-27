@@ -142,7 +142,7 @@ _PLATE_AXES = ('X', 'Y')
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
 
-from lib.stage_interlock import INTERLOCK_TITLES
+from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from modules.axes import Axis, StageAxis
 from modules.lumascope_api._constants import (
     AxisPosition,
@@ -181,8 +181,10 @@ Interlock = enum.StrEnum(
 )
 Interlock.__doc__ = """A stage hardware interlock that, open, stops the stage.
 
-    Its value is also the reason a motion command is refused or stopped for
-    it, which stays a string, as every reason does.
+    Its value is also the reason the driver's fault carries when the
+    interlock stops a command, which stays a string, as every reason does;
+    a command it stopped before anything moved is refused with its
+    ``REFUSED_BEFORE_MOTION`` reason.
     """
 
 
@@ -611,8 +613,9 @@ class MotionAPI:
         drive as any driver error does.
 
         Raises:
-            HardwareCommandRefusedError: the interlock's reason, chained
-                from the driver's error.
+            HardwareCommandRefusedError: the interlock's refusal before
+                motion (``REFUSED_BEFORE_MOTION``), chained from the
+                driver's error.
             MoveFaultError: ``'driver_failed'``, when the driver says
                 the refused command had moved.
         """
@@ -621,7 +624,7 @@ class MotionAPI:
             self._fail_drive(axis, move, cause)
         self._give_back_states({axis: state_before})
         _api_log.info(f'{member} {axis} REFUSED: {cause.reason}')
-        raise HardwareCommandRefusedError(cause.reason, member) from cause
+        raise HardwareCommandRefusedError(REFUSED_BEFORE_MOTION[cause.reason], member) from cause
 
     def _give_back_states(self, states: Mapping[str, str]) -> None:
         """Put back the states a command the interlock refused found its axes in.
@@ -1147,7 +1150,9 @@ class MotionAPI:
                 if not e.moved:
                     self._give_back_states(states_before)
                     self._record_turret_slot(turret_before)
-                    raise HardwareCommandRefusedError(e.reason, 'home') from e
+                    raise HardwareCommandRefusedError(
+                        REFUSED_BEFORE_MOTION[e.reason], 'home'
+                    ) from e
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 raise HomingFaultError('ALL', e.reason, present_axes) from e
@@ -1944,7 +1949,7 @@ class MotionAPI:
             self._note_interlock_stop(e)
             if not e.moved:
                 self._give_back_states({'Z': state_before})
-                raise HardwareCommandRefusedError(e.reason, 'home') from e
+                raise HardwareCommandRefusedError(REFUSED_BEFORE_MOTION[e.reason], 'home') from e
             self._set_axis_state('Z', AxisState.UNKNOWN)
             raise HomingFaultError('Z', e.reason, ('Z',)) from e
         except Exception as e:
@@ -2071,7 +2076,7 @@ class MotionAPI:
         Called after a home, and by ``_init_axes``, to sync the cache
         with the hardware; during normal operation the cache is updated
         by move commands and the motion monitor. An axis whose read fails
-        is set UNKNOWN, a move it ends ending ``'position_unread'``, and its
+        is set UNKNOWN, a move it ends ending ``'position_unread_after_move'``, and its
         cache entry is left alone:
         a number nobody read is not a position, and a caller that writes
         positions into a file would otherwise record it as one.
@@ -2089,7 +2094,7 @@ class MotionAPI:
             except HardwareError as e:
                 _api_log.warning(f'position read on {ax} failed ({e}); axis UNKNOWN')
                 self._set_axis_state(
-                    ax, AxisState.UNKNOWN, fault=MoveFaultError(ax, 'position_unread')
+                    ax, AxisState.UNKNOWN, fault=MoveFaultError(ax, 'position_unread_after_move')
                 )
 
         with self._pos_cache_lock:
@@ -2381,7 +2386,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'position_unread'``, a Z move
                 with overshoot whose position the board did not report;
-                the interlock's reason (``'lid_open'``); ``'monitor_ended'``.
+                the interlock's reason (``'lid_open_before_motion'``); ``'monitor_ended'``.
                 Nothing of this axis was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take the
                 command.
@@ -2630,7 +2635,7 @@ class MotionAPI:
                 finite number. Nothing was submitted.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis;
-                ``'lid_open'``, the stage's lid is open; ``'monitor_ended'``,
+                ``'lid_open_before_motion'``, the stage's lid is open; ``'monitor_ended'``,
                 the motion monitor has ended. Nothing was driven.
             PositionOutOfRangeError: ``'position_out_of_range'``, an axis
                 given is outside the plate positions this stage can reach,
@@ -2661,7 +2666,7 @@ class MotionAPI:
             ArgumentRefusedError: ``'plate_frame_axis'`` or
                 ``'not_a_number'``, as ``start_move_to_plate``.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
                 ``start_move_to_plate``.
             PositionOutOfRangeError: As ``start_move_to_plate``.
             AxisStateUnknownError: As ``start_move_to_plate``.
@@ -2689,7 +2694,7 @@ class MotionAPI:
                 no well of that label (a plate with no wells has none).
                 Nothing was driven.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
                 ``start_move_to_plate``.
             PositionOutOfRangeError: As ``start_move_to_plate``.
             AxisStateUnknownError: As ``start_move_to_plate``.
@@ -2714,7 +2719,7 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'well_unknown'``, as ``start_move_to_well``.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
                 ``start_move_to_plate``.
             PositionOutOfRangeError: As ``start_move_to_plate``.
             AxisStateUnknownError: As ``start_move_to_plate``.
@@ -2787,7 +2792,7 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no such axis;
                 ``'monitor_ended'``, the motion monitor has ended, so
                 nothing would judge the move. Nothing was driven.
-                ``'lid_open'``, the stage's lid is open: nothing was driven
+                ``'lid_open_before_motion'``, the stage's lid is open: nothing was driven
                 when it was open before the request; when it opened after X
                 was commanded, the stage stopped X and Y was not driven.
             PositionOutOfRangeError: ``'position_out_of_range'``, an axis
@@ -2820,7 +2825,7 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as ``start_move_xy``.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'``, ``'monitor_ended'`` or ``'lid_open'``, as
+                ``'axis_absent'``, ``'monitor_ended'`` or ``'lid_open_before_motion'``, as
                 ``start_move_xy``.
             PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_xy``.
             AxisStateUnknownError: As ``start_move_xy``.
@@ -2855,7 +2860,7 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no such axis;
                 ``'position_unread'``, the board did not report a target to
                 add to; ``'monitor_ended'``, as ``start_move_xy``. Nothing
-                was driven. ``'lid_open'``, as ``start_move_xy``.
+                was driven. ``'lid_open_before_motion'``, as ``start_move_xy``.
             PositionOutOfRangeError: ``'position_out_of_range'``, a distance
                 is beyond the safety limit or its target is outside the
                 axis's travel. Nothing was driven.
@@ -2882,7 +2887,7 @@ class MotionAPI:
                 ``start_move_xy_by``.
             HardwareCommandRefusedError: ``'not_connected'``,
                 ``'axis_absent'``, ``'position_unread'``,
-                ``'monitor_ended'`` or ``'lid_open'``, as
+                ``'monitor_ended'`` or ``'lid_open_before_motion'``, as
                 ``start_move_xy_by``.
             PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_xy_by``.
             AxisStateUnknownError: As ``start_move_xy_by``.
@@ -2925,8 +2930,8 @@ class MotionAPI:
             rest, or given up, and the position listeners told: its
             ``result()`` returns None when Z arrived, and raises
             ``MoveNotCompletedError`` otherwise -- the monitor's fault
-            (``'stalled'``, ``'board_lost'``, ``'position_unread'`` or
-            ``'status_unread'``) or ``'faulted'``, each leaving Z UNKNOWN;
+            (``'stalled'``, ``'board_lost'``, ``'position_unread_after_move'``
+            or ``'status_unread'``) or ``'faulted'``, each leaving Z UNKNOWN;
             ``MoveStoppedError`` ``'stopped'``, a stop the board took while
             it moved; ``MoveStoppedError`` ``'superseded'``, another move or
             a home took Z first. The outcome is the one the move ended
@@ -3083,7 +3088,7 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller, or no Z or turret to
                 home (see ``refuse_absent``); ``'exclusive_activity_running'``,
                 a run, a diagnostic or a recording holds the scope; or
-                ``'lid_open'``, the stage's lid is open, and nothing moves.
+                ``'lid_open_before_motion'``, the stage's lid is open, and nothing moves.
             HomingFaultError: the home was driven and did not establish
                 a reference: the driver raised, or a homed axis's position
                 could not be read. The axes it names are UNKNOWN.
@@ -3283,7 +3288,8 @@ class MotionAPI:
         Raises:
             MoveFaultError: An axis it waited for ended UNKNOWN (the
                 monitor's own object when it gave the axis up: ``'stalled'``,
-                ``'board_lost'``, ``'position_unread'`` or ``'status_unread'``;
+                ``'board_lost'``, ``'position_unread_after_move'`` or
+                ``'status_unread'``;
                 else ``'faulted'``).
             MoveStoppedError: An axis it waited for ended UNKNOWN after a
                 STOP ended its move, as the close's does: ``'stopped'``, or
@@ -3679,7 +3685,7 @@ class MotionAPI:
 
         The loop ends only at the scope's close. Should it end any other
         way -- a defect in its own code -- every axis it was watching is
-        given up, ``'monitor_ended'``, before the thread exits with what
+        given up, ``'monitor_ended_mid_move'``, before the thread exits with what
         ended it, and every later drive is refused: an axis left MOVING
         with no monitor would hold every waiter, run and sweep forever.
         """
@@ -3691,7 +3697,7 @@ class MotionAPI:
                 with self._axis_state_lock:
                     moving = [ax for ax, st in self._axis_state.items() if st == AxisState.MOVING]
                 for ax in moving:
-                    self._give_axis_up(ax, 'monitor_ended')
+                    self._give_axis_up(ax, 'monitor_ended_mid_move')
 
     def _judge_moves(self):
         """Poll firmware for axis arrival, ``_MOTION_POLL_INTERVAL`` apart.
@@ -3889,7 +3895,7 @@ class MotionAPI:
                             reason = (
                                 'status_unread'
                                 if arrived is None
-                                else 'position_unread'
+                                else 'position_unread_after_move'
                                 if arrived
                                 else 'stalled'
                             )

@@ -67,7 +67,7 @@ def test_an_address_the_model_does_not_drive_is_refused_naming_the_member(scope)
         scope.illumination.led_on_by_address(1, 50.0)
 
     assert (refused.value.reason, refused.value.member, refused.value.missing) == (
-        'axis_absent',
+        'not_on_this_scope',
         'led_on_by_address',
         MissingPart.led_address(1),
     )

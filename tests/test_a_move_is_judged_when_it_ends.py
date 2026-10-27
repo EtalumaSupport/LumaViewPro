@@ -115,7 +115,7 @@ def test_a_move_a_home_cannot_read_the_position_of_ends_position_unread(session)
 
     session.scope.motion.home('Z')
 
-    assert _ending(handle) == (MoveFaultError, 'position_unread')
+    assert _ending(handle) == (MoveFaultError, 'position_unread_after_move')
 
 
 def test_a_move_that_arrived_reads_arrived_after_a_later_move_starts(session):

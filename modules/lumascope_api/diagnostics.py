@@ -1177,9 +1177,9 @@ class DiagnosticsAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
-                controller) or ``'axis_absent'``: ``MissingPart.MOTORS`` on a
-                manual scope, ``MissingPart.FAN_CONTROL`` for a controller
-                without fan control. Nothing was sent.
+                controller); ``'axis_absent'``, ``MissingPart.MOTORS`` on a
+                manual scope; or ``'not_on_this_scope'``, ``MissingPart.FAN_CONTROL``
+                for a controller without fan control. Nothing was sent.
             ArgumentRefusedError: ``'fan_duty_out_of_range'``, ``duty_pct``
                 is outside 0..100. Asked after the hardware, before anything
                 is sent.
@@ -1234,7 +1234,7 @@ class DiagnosticsAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the LED
-                controller) or ``'axis_absent'``
+                controller) or ``'not_on_this_scope'``
                 (``MissingPart.LED_ENGINEERING_MODE``, a controller without
                 the handshake). Nothing was sent.
             HardwareError: The board did not complete the handshake; the

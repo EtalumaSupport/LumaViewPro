@@ -224,7 +224,7 @@ class AutofocusRunner:
         Raises:
             AutofocusFailedError: the sweep chose no focus -- a flat or
                 invalid curve ('flat_focus_curve'), a window past Z's travel
-                after the stage moved ('out_of_travel'), or an unexpected
+                after the stage moved ('travel_exhausted'), or an unexpected
                 error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
             AutofocusRunEnded: the run it belongs to had ended before it
@@ -843,7 +843,7 @@ class AutofocusRunner:
                             self._params['z_max'] + resolution,
                             'the extended window',
                         ):
-                            raise AutofocusFailedError('out_of_travel')
+                            raise AutofocusFailedError('travel_exhausted')
                         self._params['z_max'] += resolution
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
@@ -903,7 +903,7 @@ class AutofocusRunner:
             # pass measured most densely.
             approach = best_focus_position - self._params['resolution']
             if self._past_travel(approach, best_focus_position, 'the final approach'):
-                raise AutofocusFailedError('out_of_travel')
+                raise AutofocusFailedError('travel_exhausted')
             self._move_absolute_position(position=approach)
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
@@ -946,7 +946,7 @@ class AutofocusRunner:
             best_focus_position + prev_resolution,
             'the refined window',
         ):
-            raise AutofocusFailedError('out_of_travel')
+            raise AutofocusFailedError('travel_exhausted')
         self._params['z_min'] = best_focus_position - prev_resolution
         self._params['z_max'] = best_focus_position + prev_resolution
 

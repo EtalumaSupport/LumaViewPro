@@ -178,7 +178,7 @@ class TestTheMember:
         before = _camera(session)
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.apply_layer_camera('Lumi')
-        assert refused.value.reason == 'axis_absent'
+        assert refused.value.reason == 'not_on_this_scope'
         assert _camera(session) == before
 
     def test_a_held_scope_refuses_the_apply(self, session):

@@ -79,7 +79,7 @@ def existing_file(path: str | os.PathLike, *, given: str | None = None) -> pathl
             wire caller's name under the live folder); the refusal names it.
 
     Raises:
-        LiveFolderPathRefusedError: ``'not_found'``, nothing is at ``path``;
+        LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
             ``'not_a_file'``, a folder is.
     """
     path = pathlib.Path(path)
@@ -91,7 +91,7 @@ def existing_file(path: str | os.PathLike, *, given: str | None = None) -> pathl
             'not_a_file', name, f'{name} is a folder, not a file. Give the path of a file.'
         )
     raise LiveFolderPathRefusedError(
-        'not_found', name, f'There is nothing at {name}. Give the path of a file that exists.'
+        'path_not_found', name, f'There is nothing at {name}. Give the path of a file that exists.'
     )
 
 
@@ -103,7 +103,7 @@ def existing_folder(path: str | os.PathLike, *, given: str | None = None) -> pat
             wire caller's name under the live folder); the refusal names it.
 
     Raises:
-        LiveFolderPathRefusedError: ``'not_found'``, nothing is at ``path``;
+        LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
             ``'not_a_folder'``, a file is.
     """
     path = pathlib.Path(path)
@@ -115,7 +115,9 @@ def existing_folder(path: str | os.PathLike, *, given: str | None = None) -> pat
             'not_a_folder', name, f'{name} is a file, not a folder. Give the path of a folder.'
         )
     raise LiveFolderPathRefusedError(
-        'not_found', name, f'There is nothing at {name}. Give the path of a folder that exists.'
+        'path_not_found',
+        name,
+        f'There is nothing at {name}. Give the path of a folder that exists.',
     )
 
 

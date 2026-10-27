@@ -105,7 +105,7 @@ ENDING_TITLES: dict[str, str] = {
     'captures_failed': 'Run Incomplete',
     'start_failed': 'Run failed to start',
     'dispatch_refused': 'Run failed to start',
-    'capture_location_unusable': 'Run failed to start',
+    'capture_location_failed': 'Run failed to start',
     'run_dir_init_failed': 'Run failed to start',
     'camera_lane_stalled': 'Camera Busy',
     'camera_read_failed': CameraReadFailedError.title,

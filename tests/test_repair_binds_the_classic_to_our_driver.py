@@ -191,7 +191,7 @@ def test_only_an_unusable_driver_offers_repair_and_says_where_it_can_be_installe
     assert not_here.remedy is None
     assert 'install a LumaViewPro build that carries it' in str(not_here)
     with pytest.raises(TypeError):
-        CameraNotAvailableError('camera_not_detected', repairable=True)
+        CameraNotAvailableError('not_detected', repairable=True)
 
 
 @pytest.fixture

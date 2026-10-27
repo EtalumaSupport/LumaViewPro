@@ -145,7 +145,7 @@ class TestTheLidOnAClassic:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             classic.motion.move_xy(1_000.0, 2_000.0)
 
-        assert refused.value.reason == 'lid_open'
+        assert refused.value.reason == 'lid_open_before_motion'
         assert {a: classic._motion_driver.current_pos(a) for a in ('X', 'Y')} == before
         assert classic.motion.get_axis_state('X') == AxisState.IDLE
         assert classic.motion.get_axis_state('Y') == AxisState.IDLE
@@ -167,7 +167,7 @@ class TestTheLidOnAClassic:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             classic.motion.start_move_xy(20_000.0, 2_000.0)
 
-        assert refused.value.reason == 'lid_open'
+        assert refused.value.reason == 'lid_open_before_motion'
         classic.motion.wait_until_finished_moving(timeout_s=10.0)
         assert classic.motion.get_axis_state('X') == AxisState.IDLE
         assert driver.current_pos('X') != pytest.approx(20_000.0, abs=1.0), 'X was not stopped'

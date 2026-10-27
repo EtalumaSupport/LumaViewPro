@@ -329,13 +329,13 @@ class TestAStartFailureCarriesItsCause:
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
-            RunStartError('capture_location_unusable', 'Pick a folder.'),
+            RunStartError('capture_location_failed', 'Pick a folder.'),
             PendingRunOutcome(),
         )
 
         ending = stub._ending.get()
         assert ending.status == 'failed_at_start'
-        assert ending.reason == 'capture_location_unusable'
+        assert ending.reason == 'capture_location_failed'
         assert ending.message == 'Pick a folder.'
         # No loop ever ran to unwind it, so start()'s own unwind does, once.
         assert cleaned == [ending]

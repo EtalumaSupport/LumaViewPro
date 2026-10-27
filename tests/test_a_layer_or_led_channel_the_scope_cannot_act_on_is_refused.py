@@ -8,7 +8,7 @@ KeyError, a ValueError calling it a channel, a silent off, a read of
 for Lumi on a scope with no Lumi was written to disk. Each member now asks
 one check first -- ``ArgumentRefusedError`` ``channel_unknown`` offering
 the catalogue, ``led_address_unknown`` offering the board's addresses -- and
-a layer the model lacks is absent hardware, ``axis_absent`` naming the
+a layer the model lacks is absent hardware, ``not_on_this_scope`` naming the
 layer. A value that is no name and no whole number -- None, a ``bool``, a
 float -- is the ``@api`` door's
 (``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``),

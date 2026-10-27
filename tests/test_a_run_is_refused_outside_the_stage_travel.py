@@ -100,7 +100,7 @@ def test_a_disconnected_scope_is_told_it_is_disconnected_first(
 ):
     monkeypatch.setattr(scope, 'unconnected_parts', lambda: (Part.CAMERA,))
     protocol = _make_multi_step_protocol([{'name': 'too_high', 'z': _past_z(scope)}])
-    assert _refusal(executor, protocol, tmp_path).reason == 'hardware_disconnected'
+    assert _refusal(executor, protocol, tmp_path).reason == 'not_connected'
 
 
 def test_glass_the_turret_does_not_carry_is_told_first(executor, scope, tmp_path, monkeypatch):

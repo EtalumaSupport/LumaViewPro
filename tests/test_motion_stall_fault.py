@@ -135,7 +135,7 @@ def test_an_axis_unread_from_its_first_poll_is_given_up_unread(session, centre_p
     finally:
         session.scope.simulation.clear()
 
-    assert reason in ('status_unread', 'position_unread'), reason
+    assert reason in ('status_unread', 'position_unread_after_move'), reason
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
 
 
@@ -177,7 +177,7 @@ def test_a_monitor_that_ends_gives_every_moving_axis_up_and_refuses_later_drives
     driver.current_pos_steps = defect
     operation = motion.start_move_xy(x_um=60000.0)
 
-    assert _ended(operation) == 'monitor_ended'
+    assert _ended(operation) == 'monitor_ended_mid_move'
     assert broke.is_set()
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
     driver.current_pos_steps = real

@@ -58,7 +58,7 @@ def test_the_cell_count_reader_refuses_a_missing_file(live):
     with pytest.raises(LiveFolderPathRefusedError) as refused:
         read_cell_count_image(live / 'nothing_here' / 'x.tif')
 
-    assert refused.value.reason == 'not_found'
+    assert refused.value.reason == 'path_not_found'
 
 
 def _writers(session):

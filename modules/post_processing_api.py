@@ -5,7 +5,7 @@ Stitch, z-projection, composite, video, Quick Enhance and cell count: each
 member takes a folder and its build's own settings, reports progress through
 an optional callback, and returns what the build made or raises the typed
 outcome (``LiveFolderPathRefusedError`` when nothing is at the folder,
-``'not_found'``, or a file is, ``'not_a_folder'``;
+``'path_not_found'``, or a file is, ``'not_a_folder'``;
 ``PostProcessingRefusedError`` when the folder is there and cannot yield
 it; ``PostProcessingFailedError`` when the build did not produce
 everything).
@@ -625,7 +625,7 @@ class PostProcessingAPI:
         Raises:
             ArgumentRefusedError: ``'not_offered'``, *mode* is not a
                 ``StitchMode``, before the build is queued.
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: a folder it cannot build from
                 (``ProtocolPostProcessor``): reason
@@ -657,7 +657,7 @@ class PostProcessingAPI:
         Raises:
             ArgumentRefusedError: ``'not_offered'``, *method* is not a
                 ``ZProjectMethod``, before the build is queued.
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: a folder it cannot build from
                 (``ProtocolPostProcessor``): reason
@@ -689,7 +689,7 @@ class PostProcessingAPI:
         when the build is asked for.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: a
                 folder it cannot build from (``ProtocolPostProcessor``): reason
@@ -724,7 +724,7 @@ class PostProcessingAPI:
                 text; None plays a recording at its own measured rate.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: reason ``invalid_setting``,
                 *frame_rate_fps* is not a playback rate, before the build is
@@ -790,7 +790,7 @@ class PostProcessingAPI:
         the members one by one.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: reason ``invalid_setting``, no build
                 is chosen, or a chosen build's setting is one its own member
@@ -1069,7 +1069,7 @@ class PostProcessingAPI:
             words.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *target*.
             PostProcessingRefusedError: reason ``unreadable``, *target* is
                 a file that is not an image Quick Enhance can read; reason
@@ -1254,7 +1254,7 @@ class PostProcessingAPI:
             outcome in words.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: reason ``method_invalid``, a
                 *method* sent as its fields holds what ``CellCountMethod``
@@ -1286,7 +1286,7 @@ class PostProcessingAPI:
         filling its choices does not wait behind a build.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *results*; ``'not_a_file'``, a folder is.
             PostProcessingRefusedError: ``'results_unreadable'``, the file
                 cannot be graphed; ``'axis_not_plottable'``, *x* or *y* is
@@ -1318,7 +1318,7 @@ class PostProcessingAPI:
         column's name.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *results*; ``'not_a_file'``, a folder is.
             PostProcessingRefusedError: ``'results_unreadable'``, the file
                 cannot be graphed; ``'axis_not_plottable'``, *x* or *y* is
@@ -1354,7 +1354,7 @@ class PostProcessingAPI:
             The PNG written and the outcome in words.
 
         Raises:
-            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+            LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *results*; ``'not_a_file'``, a folder is there or at *path*;
                 ``'wrong_extension'``, *path* does not end in ``.png`` (in
                 any case), which is not added; ``'not_a_folder'``, a file is

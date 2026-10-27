@@ -114,7 +114,7 @@ def test_an_arrival_never_read_is_given_up_as_that(scope, monkeypatch):
     with pytest.raises(MoveNotCompletedError) as exc:
         handle.result()
 
-    assert exc.value.reason == 'position_unread'
+    assert exc.value.reason == 'position_unread_after_move'
     assert exc.value.title == 'Motor Position Unknown'
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
     scope.simulation.clear()

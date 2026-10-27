@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
 from lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
-from lib.stage_interlock import INTERLOCK_TITLES
+from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from modules.api_surface import api_fields
 from modules.caller import Caller
 from modules.live_work import SCOPE_HOLDERS
@@ -178,7 +178,7 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
             carries a drive or a network share, or leads outside the live
             folder through ``..`` or a link. ``'capture_location_unusable'``
             -- the live folder itself is missing or not a folder.
-            ``'not_found'`` -- nothing is at the path. ``'not_a_file'`` --
+            ``'path_not_found'`` -- nothing is at the path. ``'not_a_file'`` --
             a folder is where a file is expected. ``'not_a_folder'`` -- a
             file is where a folder is expected. ``'wrong_extension'`` -- a
             file to write is named without its kind's extension (a
@@ -197,7 +197,7 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
     causes: ClassVar[dict[str, RefusalCause]] = {
         'outside_live_folder': RefusalCause.REQUEST,
         'capture_location_unusable': RefusalCause.STATE,
-        'not_found': RefusalCause.REQUEST,
+        'path_not_found': RefusalCause.REQUEST,
         'not_a_file': RefusalCause.REQUEST,
         'not_a_folder': RefusalCause.REQUEST,
         'wrong_extension': RefusalCause.REQUEST,
@@ -717,7 +717,7 @@ class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
     Attributes:
         reason: ``'settings_provisional'`` -- the app is running on the
             shipped template because the user's file could not be read, and
-            that file is left as it is until they decide. ``'no_hardware'``
+            that file is left as it is until they decide. ``'settings_unmeasured'``
             -- no hardware came up this session, so the per-channel values
             are defaults, not values measured on this scope.
         file: The file the writes would have been saved to.
@@ -731,7 +731,7 @@ class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
             'LumaViewPro is running on its default settings because that file could '
             'not be read, and it is left as it is until you decide what to do with it.'
         ),
-        'no_hardware': (
+        'settings_unmeasured': (
             'Settings changes are kept for this session only, not saved to {file}: no '
             'microscope was connected this session, so the per-channel values are '
             'defaults, not values measured on this scope.'
@@ -955,8 +955,8 @@ class CameraNotAvailableError(BringUpError):
     """The camera did not come up; the heading and the advice follow the cause.
 
     Attributes:
-        reason: ``'camera_port_in_use'``, ``'camera_not_detected'``,
-            ``'camera_driver_unavailable'`` (none found, and a camera driver
+        reason: ``'port_in_use'``, ``'not_detected'`` (the registry's own
+            causes, the LED board's too), ``'camera_driver_unavailable'`` (none found, and a camera driver
             did not load on this installation), ``'camera_firmware_missing'``
             (the firmware file a Classic's driver uploads is not installed),
             ``'camera_driver_unusable'`` (Windows has a Classic on no driver,
@@ -966,11 +966,11 @@ class CameraNotAvailableError(BringUpError):
     """
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
-        'camera_port_in_use': (
+        'port_in_use': (
             'Camera port in use',
             'Camera port is in use by another program. Close the other program and restart LVP.',
         ),
-        'camera_not_detected': (
+        'not_detected': (
             'Camera not detected',
             'Camera not found. Check USB cable and power.',
         ),
@@ -1771,10 +1771,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'files_writing_stalled': RefusalCause.STATE,
         'post_processing_running': RefusalCause.STATE,
         'autofocus_running': RefusalCause.STATE,
-        'hardware_disconnected': RefusalCause.STATE,
+        'not_connected': RefusalCause.STATE,
         'camera_not_streaming': RefusalCause.STATE,
         'position_unknown': RefusalCause.STATE,
-        'lid_open': RefusalCause.STATE,
+        'lid_open_before_motion': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
         'no_acquiring_layer': RefusalCause.STATE,
         'channel_already_in_add': RefusalCause.REQUEST,
@@ -1821,10 +1821,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
         'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
         'autofocus_running': 'Autofocus Running',
-        'hardware_disconnected': 'Hardware Disconnected',
+        'not_connected': 'Hardware Disconnected',
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'position_unknown': 'Scope Not Homed',
-        'lid_open': INTERLOCK_TITLES['lid_open'],
+        'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',
         'no_acquiring_layer': 'No Channel Set to Acquire',
         'channel_already_in_add': 'Step Not Saved',
@@ -1989,6 +1989,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         'camera_inactive': 'Camera Not Active',
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
+        'names_exhausted': 'Cannot Save Recording',
         'insufficient_disk': 'Insufficient Disk Space',
         'falsifying_change_in_flight': 'Microscope Changing',
     }
@@ -2696,7 +2697,7 @@ class AutofocusFailedError(Fault, CaptureError):
             curve with no contrast -- every point above half its maximum --
             whose fit is not concave, peaks outside the measured range, or
             shifts past twice the step spacing),
-            ``'out_of_travel'`` (a window the sweep reached after it moved
+            ``'travel_exhausted'`` (a window the sweep reached after it moved
             the stage reaches past Z's travel; refused before the stage
             moves there) or
             ``'unexpected_error'`` (the sweep raised; its cause is chained).
@@ -2705,7 +2706,7 @@ class AutofocusFailedError(Fault, CaptureError):
     title = ENDING_TITLES['autofocus_failed']
     _WORDS: ClassVar[dict[str, str]] = {
         'flat_focus_curve': 'Focus curve is flat or invalid -- check sample and illumination',
-        'out_of_travel': (
+        'travel_exhausted': (
             'Autofocus would search past the end of Z travel -- start it further from the '
             "travel limit, or narrow the objective's autofocus range."
         ),
@@ -2721,7 +2722,7 @@ class AutofocusOutOfTravelError(Refusal, CaptureError):
 
     The window is centred on where Z stands, so the same autofocus started
     further from the travel limit runs. A window the sweep reaches later,
-    after the stage has moved, is ``AutofocusFailedError('out_of_travel')``.
+    after the stage has moved, is ``AutofocusFailedError('travel_exhausted')``.
 
     Attributes:
         reason: ``'out_of_travel'``.
@@ -2769,7 +2770,7 @@ class RunWriteRefusedError(Refusal, CaptureError):
     says what was not saved. Nothing broke in declining it, and the same
     write into a live run is taken, so its cause is the state.
 
-    Reasons: ``run_ended`` (closed by the run's cleanup),
+    Reasons: ``run_writes_ended`` (closed by the run's cleanup),
     ``writes_abandoned`` (abandoned by a recovery or a shutdown) or
     ``writer_shut_down`` (the file lane itself no longer takes work).
     """
@@ -2778,7 +2779,7 @@ class RunWriteRefusedError(Refusal, CaptureError):
     title = 'Not Saved'
 
     _WHY: ClassVar[dict[str, str]] = {
-        'run_ended': 'the run it belongs to has ended',
+        'run_writes_ended': 'the run it belongs to has ended',
         'writes_abandoned': "the run's remaining writes were given up",
         'writer_shut_down': 'the file writer has shut down',
     }
@@ -2862,7 +2863,7 @@ class FileWriterStalledError(Fault, CaptureError):
         super().__init__(
             f'{self.stalled_sentence(run, stuck)} Recovering the file writer unlocks '
             f'the app: {self.cost_sentence(unsaved)}',
-            'files_writing_stalled',
+            'file_writer_stalled',
         )
         self.remedy = self.recovery(unsaved)
 
@@ -3070,8 +3071,9 @@ class HardwareCommandRefusedError(Refusal, Exception):
     too, and ``missing`` names the part: ``'not_connected'`` when the model
     has a motor controller and none is connected, whose remedy is the cable,
     or when no LED controller is connected; ``'axis_absent'`` when the
-    scope does not have the part -- a Z-only scope asked for X, a scope
-    with no turret asked for one, a manual scope asked for any motion, an
+    scope does not have the motion part -- a Z-only scope asked for X, a
+    scope with no turret asked for one, a manual scope asked for any
+    motion; ``'not_on_this_scope'`` when it does not have another part -- an
     LS560 asked to light Ex589, a motor controller without fan control asked
     to drive the fan. Nothing was driven. So does a move whose drive needs a
     position the controller did not report (``'position_unread'``): the
@@ -3100,7 +3102,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
         control_session: The name of the control session that holds, for
             ``'control_session_held'``; None otherwise.
         missing: The part the command needed and the scope does not have,
-            for ``'not_connected'`` and ``'axis_absent'``; None otherwise.
+            for ``'not_connected'``, ``'axis_absent'`` and
+            ``'not_on_this_scope'``; None otherwise.
         title: The heading shown with the sentence, which follows the reason:
             nothing connected is not a busy microscope.
 
@@ -3124,11 +3127,12 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'scope_disconnected': RefusalCause.RESTART,
         'monitor_ended': RefusalCause.RESTART,
         'position_unread': RefusalCause.STATE,
-        'lid_open': RefusalCause.STATE,
-        'stage_unpowered': RefusalCause.STATE,
+        'lid_open_before_motion': RefusalCause.STATE,
+        'stage_unpowered_before_motion': RefusalCause.STATE,
         'not_connected': RefusalCause.STATE,
         'camera_not_streaming': RefusalCause.STATE,
         'axis_absent': RefusalCause.REQUEST,
+        'not_on_this_scope': RefusalCause.REQUEST,
         'activity_ended': RefusalCause.REQUEST,
     }
 
@@ -3146,9 +3150,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'monitor_ended': 'Motion Monitor Stopped',
         'axis_absent': 'Not on This Microscope',
+        'not_on_this_scope': 'Not on This Microscope',
         'position_unread': 'Motor Controller Not Responding',
-        'lid_open': INTERLOCK_TITLES['lid_open'],
-        'stage_unpowered': INTERLOCK_TITLES['stage_unpowered'],
+        'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
+        'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
     }
 
     def __init__(
@@ -3184,7 +3189,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
 # The refusals a stage's own interlock raises: the hardware is in a state
 # that does not let it move, and the person's remedy is at the scope. The
 # interlocks' one list names them.
-INTERLOCK_REASONS = frozenset(INTERLOCK_TITLES)
+INTERLOCK_REASONS = frozenset(REFUSED_BEFORE_MOTION.values())
 
 # The refusals that describe the hardware's state rather than who holds the
 # scope. A home refused for one of them is reported where it was asked for,
@@ -3207,7 +3212,9 @@ class MissingPart:
     Attributes:
         name: The part, for the log.
         reason: ``'not_connected'`` for a controller, ``'axis_absent'``
-            otherwise.
+            for a motion part (the motors, an axis, the turret, the XY
+            stage), ``'not_on_this_scope'`` for any other part (a layer, an LED,
+            fan control, LED engineering mode).
         sentence: What the person at the scope is told.
     """
 
@@ -3247,19 +3254,19 @@ class MissingPart:
         layer's settings, its focus, a still named for it. Lumi has no LED,
         so "no Lumi LED" would be true and beside the point.
         """
-        return cls(f'{layer} layer', 'axis_absent', f'This microscope has no {layer} layer.')
+        return cls(f'{layer} layer', 'not_on_this_scope', f'This microscope has no {layer} layer.')
 
     @classmethod
     def led(cls, channel: str) -> 'MissingPart':
         """The part for a channel's LED that this scope's model does not have."""
-        return cls(f'{channel} LED', 'axis_absent', f'This microscope has no {channel} LED.')
+        return cls(f'{channel} LED', 'not_on_this_scope', f'This microscope has no {channel} LED.')
 
     @classmethod
     def led_address(cls, address: int) -> 'MissingPart':
         """The part for an LED board address no channel of this scope's model drives."""
         return cls(
             f'LED address {address}',
-            'axis_absent',
+            'not_on_this_scope',
             f'This microscope has no LED at address {address}.',
         )
 
@@ -3287,12 +3294,12 @@ MissingPart.LED_CONTROLLER = MissingPart(
 MissingPart.CAMERA = MissingPart('camera', 'not_connected', 'The camera is not connected.')
 MissingPart.FAN_CONTROL = MissingPart(
     'fan control',
-    'axis_absent',
+    'not_on_this_scope',
     "This microscope's motor controller does not support fan control.",
 )
 MissingPart.LED_ENGINEERING_MODE = MissingPart(
     'LED engineering mode',
-    'axis_absent',
+    'not_on_this_scope',
     "This microscope's LED controller has no engineering mode.",
 )
 _AXIS_PARTS = {
@@ -3303,7 +3310,7 @@ _AXIS_PARTS = {
 }
 
 
-_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent'})
+_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent', 'not_on_this_scope'})
 
 
 _HOLDER_NOUNS = {
@@ -3346,9 +3353,9 @@ def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
             'The motor controller did not report the stage position, so the move '
             'was not sent. Try again; if it repeats, check the USB cable.'
         )
-    if reason == 'lid_open':
+    if reason == 'lid_open_before_motion':
         return "The microscope's lid is open. Close it to move or home the stage."
-    if reason == 'stage_unpowered':
+    if reason == 'stage_unpowered_before_motion':
         return "The stage has no power. Check the stage's power supply, then home."
     if reason == 'camera_not_streaming':
         return (
@@ -4097,14 +4104,14 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             command (chained from the driver's error). ``'stalled'`` --
             the motion monitor gave the axis up: its position stopped
             changing short of its target, and the stage was halted.
-            ``'monitor_ended'`` -- the motion monitor ended while the axis
-            moved, so nothing could judge the move. ``'board_lost'`` -- the
+            ``'monitor_ended_mid_move'`` -- the motion monitor ended while the
+            axis moved, so nothing could judge the move. ``'board_lost'`` -- the
             monitor lost the motor board while the axis moved.
             ``'faulted'`` -- something else set the axis UNKNOWN during
             the move, carrying no fault of its own, with no stop before it.
-            ``'position_unread'`` -- the board did not report where the
-            axis is: within the stall window after it reported the axis
-            arrived, or when a home read every axis's position.
+            ``'position_unread_after_move'`` -- the board did not report
+            where the axis is: within the stall window after it reported the
+            axis arrived, or when a home read every axis's position.
             ``'status_unread'`` -- the board did not report whether the
             axis arrived, within the stall window. Each leaves the axis
             UNKNOWN.
@@ -4121,7 +4128,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             'it stopped moving before it reached its target, and the stage was '
             'halted. Check for an obstruction, then home the axis and retry.'
         ),
-        'monitor_ended': (
+        'monitor_ended_mid_move': (
             'the software that watches moves stopped while it moved. The {axis} '
             'position is now unknown -- restart the application before moving it again.'
         ),
@@ -4133,7 +4140,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             'it stalled or the board was lost during the move. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
         ),
-        'position_unread': (
+        'position_unread_after_move': (
             'it stopped, but the motor board did not report where. The {axis} '
             'position is now unknown -- home the scope before moving it again.'
         ),
@@ -4147,9 +4154,9 @@ class MoveFaultError(Fault, MoveNotCompletedError):
         'driver_failed': 'Move Did Not Complete',
         'faulted': 'Move Did Not Complete',
         'stalled': 'Motor Axis Stalled',
-        'monitor_ended': 'Motion Monitor Stopped',
+        'monitor_ended_mid_move': 'Motion Monitor Stopped',
         'board_lost': 'Motor Board Disconnected',
-        'position_unread': 'Motor Position Unknown',
+        'position_unread_after_move': 'Motor Position Unknown',
         'status_unread': 'Motor Position Unknown',
     }
 
@@ -4212,14 +4219,14 @@ class LaneCallStillRunningError(Fault, Exception):
     which means only that the caller's own wait ran out.
 
     Attributes:
-        reason: ``'still_running'``.
+        reason: ``'call_overran'``.
         member: The API member whose call is still running.
         timeout_s: The bound that ran out.
     """
 
     words_for_person = True
     title = 'Still Running'
-    reason = 'still_running'
+    reason = 'call_overran'
 
     def __init__(self, member: str, timeout_s: float):
         super().__init__(
@@ -4387,7 +4394,7 @@ class AutofocusStopped(Quiet, AutofocusAborted):
     Recorded, never shown: the run's own end is the report.
 
     Attributes:
-        reason: ``'stopped'``.
+        reason: ``'sweep_stopped'``.
     """
 
     title = 'Autofocus Stopped'
@@ -4396,7 +4403,7 @@ class AutofocusStopped(Quiet, AutofocusAborted):
 
     def __init__(self):
         super().__init__('Autofocus was stopped before it chose a focus.')
-        self.reason = 'stopped'
+        self.reason = 'sweep_stopped'
 
 
 class AutofocusRunEnded(Quiet, AutofocusAborted):
@@ -4406,7 +4413,7 @@ class AutofocusRunEnded(Quiet, AutofocusAborted):
     the run's own end is the report.
 
     Attributes:
-        reason: ``'run_ended'``.
+        reason: ``'sweep_run_ended'``.
     """
 
     title = 'Autofocus Not Started'
@@ -4415,7 +4422,7 @@ class AutofocusRunEnded(Quiet, AutofocusAborted):
 
     def __init__(self):
         super().__init__('Autofocus did not start: the run it belongs to had ended.')
-        self.reason = 'run_ended'
+        self.reason = 'sweep_run_ended'
 
 
 class AutofocusLedsHeldError(Refusal, AutofocusAborted):

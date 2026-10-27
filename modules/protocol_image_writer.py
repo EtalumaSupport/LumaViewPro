@@ -438,7 +438,7 @@ class RunWriteBatch:
         if self._abandoned:
             raise RunWriteRefusedError('writes_abandoned', what)
         if self._closed:
-            raise RunWriteRefusedError('run_ended', what)
+            raise RunWriteRefusedError('run_writes_ended', what)
 
     def _counted(self, action, write: _Write):
         # functools.wraps keeps the action's name, which is what a stall

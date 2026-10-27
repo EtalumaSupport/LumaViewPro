@@ -167,7 +167,7 @@ class TestApplyFocusToLayerSteps:
 # A name that is no layer is the request's; a layer this scope lacks is absent hardware.
 NOT_ON_THIS_SCOPE = [
     ('Purple', ArgumentRefusedError, 'channel_unknown'),
-    ('Lumi', HardwareCommandRefusedError, 'axis_absent'),
+    ('Lumi', HardwareCommandRefusedError, 'not_on_this_scope'),
 ]
 
 

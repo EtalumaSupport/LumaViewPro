@@ -25,6 +25,7 @@ import time
 import pytest
 
 from drivers.exceptions import MotionInterlockError
+from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
     INTERLOCK_REASONS,
@@ -60,15 +61,19 @@ def _refuse(reason, *, moved=False, stopped=True):
 
 class TestTheRefusalsWords:
     def test_each_interlock_reason_has_its_title_and_words(self):
-        lid = HardwareCommandRefusedError('lid_open', 'move_xy')
-        power = HardwareCommandRefusedError('stage_unpowered', 'home')
+        lid = HardwareCommandRefusedError('lid_open_before_motion', 'move_xy')
+        power = HardwareCommandRefusedError('stage_unpowered_before_motion', 'home')
 
         assert (lid.title, str(lid)) == ('Lid Open', LID_WORDS)
         assert (power.title, str(power)) == ('No Stage Power', POWER_WORDS)
 
     def test_the_hardware_state_reasons_are_no_board_and_the_interlocks(self):
-        assert {'lid_open', 'stage_unpowered'} == INTERLOCK_REASONS
-        assert {'not_connected', 'lid_open', 'stage_unpowered'} == HARDWARE_STATE_REASONS
+        assert {'lid_open_before_motion', 'stage_unpowered_before_motion'} == INTERLOCK_REASONS
+        assert {
+            'not_connected',
+            'lid_open_before_motion',
+            'stage_unpowered_before_motion',
+        } == HARDWARE_STATE_REASONS
 
     def test_a_home_the_lid_ended_and_one_a_stop_ended_say_so(self):
         lid = HomingFaultError('ALL', 'lid_open', ('X', 'Y', 'Z'))
@@ -86,7 +91,7 @@ class TestAMoveTheLidRefuses:
         with pytest.raises(HardwareCommandRefusedError) as raised:
             getattr(scope.motion, member)(1000.0)
 
-        assert (raised.value.reason, raised.value.member) == ('lid_open', member)
+        assert (raised.value.reason, raised.value.member) == ('lid_open_before_motion', member)
         assert isinstance(raised.value.__cause__, MotionInterlockError)
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
         assert scope.motion.position_is_known('X')
@@ -166,10 +171,13 @@ class TestAHomeTheInterlockRefuses:
             with pytest.raises(HardwareCommandRefusedError) as raised:
                 scope.motion.home(route)
 
-            assert (raised.value.reason, raised.value.member) == (reason, 'home')
+            assert (raised.value.reason, raised.value.member) == (
+                REFUSED_BEFORE_MOTION[reason],
+                'home',
+            )
             assert {axis: scope.motion.get_axis_state(axis) for axis in before} == before
 
-        failed = failing_cases(sorted(INTERLOCK_REASONS), check)
+        failed = failing_cases(sorted(INTERLOCK_TITLES), check)
         assert not failed, failed
 
     def test_a_turret_keeps_its_slot(self, monkeypatch):

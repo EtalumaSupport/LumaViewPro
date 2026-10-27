@@ -34,7 +34,7 @@ def test_a_missing_file_is_refused_naming_it(tmp_path):
     path = tmp_path / 'nowhere.tif'
     with pytest.raises(LiveFolderPathRefusedError) as refused:
         read_cell_count_image(path)
-    assert refused.value.reason == 'not_found'
+    assert refused.value.reason == 'path_not_found'
     assert str(path) in str(refused.value)
 
 

@@ -86,9 +86,9 @@ class TestTheLaneIsHeld:
             session.sequenced_capture_runner._write_batch = batch
 
             assert _wait_for(
-                lambda: any(n.reason == 'files_writing_stalled' for n in centre_posts), 5.0
+                lambda: any(n.reason == 'file_writer_stalled' for n in centre_posts), 5.0
             ), 'the stall behind the held lane was not reported'
-            stall = next(n for n in centre_posts if n.reason == 'files_writing_stalled')
+            stall = next(n for n in centre_posts if n.reason == 'file_writer_stalled')
             assert 'simulated_stuck_write' in stall.message
         finally:
             session.shutdown()

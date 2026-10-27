@@ -340,7 +340,7 @@ def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_st
             sequence_name='s',
             parent_dir=str(tmp_path),
         )
-    assert run.value.reason == 'hardware_disconnected'
+    assert run.value.reason == 'not_connected'
     with pytest.raises(ProtocolRunRefusedError):
         runner.start_autofocus(channel='BF')
     with pytest.raises(RecordingRefusedError):

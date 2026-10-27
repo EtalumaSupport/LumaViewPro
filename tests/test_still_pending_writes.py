@@ -168,7 +168,7 @@ class TestStillPendingWrites:
             _close(writer)
             with pytest.raises(RunWriteRefusedError) as refused:
                 _submit(writer)
-            assert refused.value.reason == 'run_ended'
+            assert refused.value.reason == 'run_writes_ended'
 
         assert _owed(writer) == 0, (
             'a write the executor never took cannot be owed, or the run ends '

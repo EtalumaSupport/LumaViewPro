@@ -39,7 +39,7 @@ class TestCameraNotifyVoice:
         exc = NoLiveDriverError(
             'camera', DriverFallback('not_detected', ('PylonCamera', 'IDSCamera'))
         )
-        assert _camera_failure_cause(exc) == 'camera_not_detected'
+        assert _camera_failure_cause(exc) == 'not_detected'
         body = _body(exc)
         assert body  # non-empty, actionable
         assert 'NoLiveDriverError' not in body
@@ -60,7 +60,7 @@ class TestCameraNotifyVoice:
 
     def test_a_held_camera_port_is_port_in_use(self):
         exc = NoLiveDriverError('camera', DriverFallback('port_in_use', ('PylonCamera',)))
-        assert _camera_failure_cause(exc) == 'camera_port_in_use'
+        assert _camera_failure_cause(exc) == 'port_in_use'
 
     def test_a_missing_firmware_file_is_its_own_cause(self):
         exc = CameraFirmwareMissingError(['/opt/lvp/firmware/LumascopeClassic.hex'])

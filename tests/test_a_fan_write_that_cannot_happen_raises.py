@@ -44,7 +44,7 @@ def test_a_controller_without_fan_control_is_refused_and_sent_nothing(make_sessi
 
     refusal = _refused(lambda: scope.diagnostics.set_motor_fan_duty(50))
 
-    assert refusal.reason == 'axis_absent'
+    assert refusal.reason == 'not_on_this_scope'
     assert refusal.missing is MissingPart.FAN_CONTROL
     assert str(refusal) == MissingPart.FAN_CONTROL.sentence
     assert not [c for c in sent if str(c).startswith('FAN')]

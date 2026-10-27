@@ -268,8 +268,8 @@ class PartAbsentError(Fault, HardwareError):
     board, an active camera or an SDK node.
 
     A fault, not a refusal: the API refuses a command for a part the scope
-    lacks before the driver is asked (``axis_absent``, ``not_connected``),
-    so only a caller below the API reaches this.
+    lacks before the driver is asked (``axis_absent``, ``not_on_this_scope``,
+    ``not_connected``), so only a caller below the API reaches this.
     """
 
     reason = 'part_absent'

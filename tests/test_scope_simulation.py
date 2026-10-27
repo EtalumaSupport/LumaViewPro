@@ -316,7 +316,7 @@ def test_the_ls720s_open_lid_refuses_an_x_move_until_cleared(ls720):
     ls720.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         ls720.motion.move_xy(x_um=1_000)
-    assert refused.value.reason == 'lid_open'
+    assert refused.value.reason == 'lid_open_before_motion'
     ls720.simulation.clear()
     ls720.motion.move_xy(x_um=1_000)
 

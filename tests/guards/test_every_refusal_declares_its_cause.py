@@ -15,9 +15,10 @@ The tables are held to the raise sites both ways: for
 (``tests/test_run_refusal_contract.py``), for the other two mixed types here.
 ``HardwareCommandRefusedError``'s reasons arrive from four modules and a
 driver, so a reason handed on from a part or from the stage's interlock is
-resolved to the set its source declares, and the drivers' interlock
-literals are held to ``INTERLOCK_REASONS``, since a driver cannot import the
-table.
+resolved to the set its source declares: a part's own, and for an
+interlock the refusal before motion its ``REFUSED_BEFORE_MOTION`` names.
+The drivers' interlock literals are held to the interlocks' one list
+(``INTERLOCK_TITLES``), whose keys the driver's fault carries.
 """
 
 import ast
@@ -25,6 +26,7 @@ import importlib
 
 import pytest
 
+from lib.stage_interlock import INTERLOCK_TITLES
 from modules.exceptions import (
     INTERLOCK_REASONS,
     AlreadyStartedError,
@@ -171,9 +173,10 @@ class _RaisedReasons(ast.NodeVisitor):
 
     A reason is the ``reason`` keyword or the first argument. A name's
     ``.reason`` resolves to the missing parts' reasons when the call passes
-    ``missing=``, and to ``INTERLOCK_REASONS`` when the name is bound to a
-    ``MotionInterlockError`` (an ``except ... as`` or an annotated
-    parameter); anything else is unread, and fails the census.
+    ``missing=``. When the name is bound to a ``MotionInterlockError`` (an
+    ``except ... as`` or an annotated parameter), its ``.reason`` resolves to
+    the interlocks' own list, and ``REFUSED_BEFORE_MOTION[name.reason]`` to
+    ``INTERLOCK_REASONS``. Anything else is unread, and fails the census.
     """
 
     def __init__(self, rel, type_name, raised, unread):
@@ -222,9 +225,19 @@ class _RaisedReasons(ast.NodeVisitor):
             and reason.attr == 'reason'
             and isinstance(reason.value, ast.Name)
         )
+        before_motion = (
+            isinstance(reason, ast.Subscript)
+            and _base_name(reason.value) == 'REFUSED_BEFORE_MOTION'
+            and isinstance(reason.slice, ast.Attribute)
+            and reason.slice.attr == 'reason'
+            and isinstance(reason.slice.value, ast.Name)
+            and reason.slice.value.id in self.interlocks[-1]
+        )
         if handed_on and any(kw.arg == 'missing' for kw in node.keywords):
             self.raised.update(_missing_part_reasons())
         elif handed_on and reason.value.id in self.interlocks[-1]:
+            self.raised.update(INTERLOCK_TITLES)
+        elif before_motion:
             self.raised.update(INTERLOCK_REASONS)
         else:
             text = ast.unparse(reason) if reason is not None else '(none)'
@@ -255,5 +268,5 @@ def test_the_drivers_interlock_reasons_are_the_tables():
     for rel, tree in ast_seams.iter_package_modules(('drivers',)):
         _RaisedReasons(rel, 'MotionInterlockError', raised, unread).visit(tree)
     assert unread == [], unread
-    assert raised == INTERLOCK_REASONS
+    assert raised == set(INTERLOCK_TITLES)
     assert set(HardwareCommandRefusedError.causes) >= INTERLOCK_REASONS

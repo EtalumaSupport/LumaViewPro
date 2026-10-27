@@ -113,7 +113,7 @@ def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
     for axis in ('X', 'Y'):
         with pytest.raises(HardwareCommandRefusedError) as refused:
             axis_move(homed.motion, axis, 1_000)
-        assert refused.value.reason == 'lid_open'
+        assert refused.value.reason == 'lid_open_before_motion'
     homed.motion.move_z(1_000)
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert _at(homed, 'X') == 117_690.0
@@ -159,7 +159,7 @@ def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monk
     monkeypatch.setattr(frame_validity, 'invalidate', _held_until_x_ends)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home('Z')
-    assert refused.value.reason == 'lid_open'
+    assert refused.value.reason == 'lid_open_before_motion'
     assert x_ended == ['stopped']
     # X set out from its index position, down toward 100 mm.
     assert 100_000 < _at(homed, 'X') < 117_690
@@ -170,7 +170,7 @@ def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
     homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home()
-    assert refused.value.reason == 'lid_open'
+    assert refused.value.reason == 'lid_open_before_motion'
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert homed.motion.has_homed()
 

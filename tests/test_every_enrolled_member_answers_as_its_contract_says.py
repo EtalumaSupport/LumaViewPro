@@ -657,7 +657,7 @@ def _bad_rows() -> list[Bad]:
             'ScopeSession.load_protocol',
             lambda s: s.session.load_protocol(s.live / 'nothing_here' / 'p.tsv'),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
             ('/api/v1/load_protocol', lambda s: {'file_path': 'nothing_here/p.tsv'}),
         ),
         Bad(
@@ -673,7 +673,7 @@ def _bad_rows() -> list[Bad]:
             'ScopeSession.open_protocol',
             lambda s: s.session.open_protocol(s.live / 'nothing_here' / 'p.tsv'),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
         ),
         Bad(
             'open_protocol a folder',
@@ -711,7 +711,7 @@ def _bad_rows() -> list[Bad]:
             'ScopeSession.live_folder_listing',
             lambda s: s.session.live_folder_listing('nothing_here'),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
             ('/api/v1/live_folder_listing', lambda s: {'name': 'nothing_here'}),
         ),
         Bad(
@@ -727,7 +727,7 @@ def _bad_rows() -> list[Bad]:
             'PostProcessingAPI.enhance',
             lambda s: pp(s).enhance(s.live / 'nothing_here'),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
             ('/api/v1/post_processing/enhance', lambda s: {'target': 'nothing_here'}),
         ),
         Bad(
@@ -743,7 +743,7 @@ def _bad_rows() -> list[Bad]:
             'PostProcessingAPI.count_cells',
             lambda s: pp(s).count_cells(s.live / 'nothing_here', method=method),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
             (
                 '/api/v1/post_processing/count_cells',
                 lambda s: {'folder': 'nothing_here', 'method': method.to_dict()},
@@ -770,7 +770,7 @@ def _bad_rows() -> list[Bad]:
             'PostProcessingAPI.graph_options',
             lambda s: pp(s).graph_options(s.live / 'nothing_here.csv'),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
             ('/api/v1/post_processing/graph_options', lambda s: {'results': 'nothing_here.csv'}),
         ),
         Bad(
@@ -809,7 +809,7 @@ def _bad_rows() -> list[Bad]:
                 s.live / 'nothing_here.csv', s.live / 'g.png', x='count', y='mean_area'
             ),
             LiveFolderPathRefusedError,
-            'not_found',
+            'path_not_found',
             (
                 '/api/v1/post_processing/graph',
                 lambda s: {
@@ -910,7 +910,7 @@ def _bad_rows() -> list[Bad]:
                 member,
                 lambda s, call=call: call(s, s.live / 'nothing_here'),
                 LiveFolderPathRefusedError,
-                'not_found',
+                'path_not_found',
                 (route, lambda s, extra=wire_extra: {'folder': 'nothing_here', **extra}),
             )
         )
@@ -1007,7 +1007,7 @@ def _fault_rows() -> list[Fault]:
             lambda s: s.session.scope.simulation.interlock(lid_open=True),
             lambda s: s.session.scope.motion.home(),
             HardwareCommandRefusedError,
-            'lid_open',
+            'lid_open_before_motion',
             ('/api/v1/scope/motion/home', lambda s: {}),
         ),
         Fault(
@@ -1018,7 +1018,7 @@ def _fault_rows() -> list[Fault]:
             lambda s: s.session.scope.simulation.interlock(lid_open=True),
             lambda s: s.session.scope.motion.move_xy(x_um=1000.0),
             HardwareCommandRefusedError,
-            'lid_open',
+            'lid_open_before_motion',
             ('/api/v1/scope/motion/move_xy', lambda s: {'x_um': 1000.0}),
         ),
     ]

@@ -141,7 +141,7 @@ class TestATimedOutCall:
         _drain(lane)
 
         assert not isinstance(raised.value, TimeoutError)
-        assert (raised.value.reason, raised.value.member) == ('still_running', 'move')
+        assert (raised.value.reason, raised.value.member) == ('call_overran', 'move')
         assert 'may still finish' in str(raised.value)
         assert outcome_of(raised.value).kind == OutcomeKind.FAULT
 

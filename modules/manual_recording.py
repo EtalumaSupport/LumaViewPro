@@ -324,7 +324,9 @@ class ManualRecordingController:
                 turret or frame change is under way; ``'camera_inactive'``, the
                 camera is not streaming; ``'camera_exposure_unknown'``, it has
                 no known exposure; ``'capture_location_unusable'``, the save
-                location cannot be used; ``'insufficient_disk'``, free disk is
+                location cannot be used; ``'names_exhausted'``, the recording's
+                name and every numbered variant are taken there;
+                ``'insufficient_disk'``, free disk is
                 below the floor.
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
@@ -443,10 +445,9 @@ class ManualRecordingController:
                     ),
                 ) from exc
             except path_utils.CaptureLocationError as exc:
-                raise RecordingRefusedError(
-                    reason='capture_location_unusable',
-                    message=str(exc),
-                ) from exc
+                # The location's own reason, kept: every numbered name taken
+                # is a different fact from a location that is not there.
+                raise RecordingRefusedError(reason=exc.reason, message=str(exc)) from exc
 
         resolved_layer = read_light(scope.illumination, self._shown_layer()).channel
 

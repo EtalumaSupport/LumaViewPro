@@ -182,12 +182,12 @@ class TestEachPartNamesItsCause:
         )
         try:
             camera = s.bring_up_record().part(Part.CAMERA)
-            assert (camera.up, camera.cause) == (False, 'camera_port_in_use')
+            assert (camera.up, camera.cause) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             by_reason = {n.reason: n for n in faults}
-            assert by_reason['camera_port_in_use'].title == 'Camera port in use'
-            assert by_reason['camera_port_in_use'].category == 'Camera'
+            assert by_reason['port_in_use'].title == 'Camera port in use'
+            assert by_reason['port_in_use'].category == 'Camera'
             assert 'Camera (port in use)' in by_reason['partial_hardware'].message
         finally:
             s.shutdown()
@@ -207,7 +207,7 @@ class TestEachPartNamesItsCause:
         try:
             failed = [e for e in reported if isinstance(e, CameraNotAvailableError)]
             assert len(failed) == 1
-            assert failed[0].reason == 'camera_not_detected'
+            assert failed[0].reason == 'not_detected'
             assert failed[0].__cause__ is backend_error
         finally:
             s.shutdown()

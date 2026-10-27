@@ -79,7 +79,7 @@ def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path, monkeypatch
     finally:
         session.shutdown()
 
-    assert caught.value.reason == 'not_found'
+    assert caught.value.reason == 'path_not_found'
     assert 'gone.tif' in str(caught.value)
     assert ran_on and ran_on[0] != threading.main_thread().name, (
         'refused on the lane, not the caller'

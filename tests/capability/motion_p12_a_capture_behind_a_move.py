@@ -4,7 +4,7 @@ A move leaves frame validity pending until the stage settles, so a
 `capture_and_wait` asked as a move starts drains frames for the whole move.
 The capture's wait on the camera lane is a wall-time bound (at least
 `_CAPTURE_WAIT_TIMEOUT_S`, 30 s), so a move longer than that bound would
-end the capture `still_running` rather than with a frame (W2d plan E4,
+end the capture `call_overran` rather than with a frame (W2d plan E4,
 bench row B2).
 
 For X and Y the probe starts a move across SPAN_UM, for Z a rise of

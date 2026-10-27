@@ -204,4 +204,4 @@ def test_a_scope_with_no_hardware_keeps_its_writes_unsaved_and_says_so_once(
 
     assert not (tmp_path / 'current.json').exists()
     told = [n for n in heard if n.title == 'Settings not saved']
-    assert [n.reason for n in told] == ['no_hardware']
+    assert [n.reason for n in told] == ['settings_unmeasured']

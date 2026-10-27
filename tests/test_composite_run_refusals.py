@@ -217,7 +217,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         with pytest.raises(ProtocolRunRefusedError) as refusal:
             runner.start_composite(sequence_name='camera_off', parent_dir=str(tmp_path))
 
-        assert refusal.value.reason == 'hardware_disconnected', (
+        assert refusal.value.reason == 'not_connected', (
             f'a composite with no camera was refused for {refusal.value.reason!r}'
         )
         assert session.activity_claim.run_holder is None, (
@@ -232,7 +232,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         # the run flag or the claim set, the next click reports
         # 'already_running' -- a phantom run the user can neither see nor
         # stop, and every later click refused for it. The reason staying
-        # 'hardware_disconnected' is what proves the first refusal
+        # 'not_connected' is what proves the first refusal
         # released everything it touched.
         session, runner, tmp_path = composite_session
         session.scope._camera_driver.disconnect()
@@ -242,7 +242,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         with pytest.raises(ProtocolRunRefusedError) as second:
             runner.start_composite(sequence_name='camera_off_2', parent_dir=str(tmp_path))
 
-        assert second.value.reason == 'hardware_disconnected', (
+        assert second.value.reason == 'not_connected', (
             f'the second click was refused for {second.value.reason!r} -- the first '
             f'refusal left run state behind, so the camera is no longer the reason'
         )

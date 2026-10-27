@@ -516,13 +516,13 @@ class IlluminationAPI:
         order: the board, then the model. A scope with no LED controller
         connected refuses (``not_connected``); an address off the attached
         board's table is ``led_address_unknown``; an address no channel of
-        this model drives (an LS560's 2) is ``axis_absent``. A model this
+        this model drives (an LS560's 2) is ``not_on_this_scope``. A model this
         release does not know (identity unresolved) has no channels to
         judge an address by, so its addresses are the board's.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, naming the missing part.
+                ``'not_on_this_scope'``, naming the missing part.
             ArgumentRefusedError: ``'led_address_unknown'``, offering the
                 board's addresses.
         """
@@ -554,11 +554,11 @@ class IlluminationAPI:
         Asked on the lane of a name the door has judged
         (``refuse_unknown_layer``), in the address lane's order: the
         board, then the model, so an LED this model does not have is
-        ``axis_absent`` named as the command named it.
+        ``not_on_this_scope`` named as the command named it.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, naming the missing part.
+                ``'not_on_this_scope'``, naming the missing part.
         """
         self.refuse_controller_not_connected(member)
         address = self._drivable_address(channel)
@@ -703,7 +703,7 @@ class IlluminationAPI:
                 ``'led_address_unknown'``, ``address`` is not on the attached
                 board's table.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
-                controller connected; ``'axis_absent'`` for an address this
+                controller connected; ``'not_on_this_scope'`` for an address this
                 model does not drive; ``'exclusive_activity_running'`` while
                 a lease other than ``_lease`` holds the LEDs. Nothing was
                 sent.
@@ -785,7 +785,7 @@ class IlluminationAPI:
             ArgumentRefusedError: ``'led_address_unknown'``, ``'not_a_number'``
                 or ``'illumination_out_of_range'``, as ``_led_on_impl`` says.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, as ``_led_on_impl`` says.
+                ``'not_on_this_scope'``, as ``_led_on_impl`` says.
         """
         self._refuse_unless_lightable(address, member)
         refuse_unless_finite_number(illumination_ma, 'illumination_ma')
@@ -1092,7 +1092,7 @@ class IlluminationAPI:
                 not on the attached board's table, offering its addresses;
                 nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'`` (``MissingPart.led_address``) or
+                ``'not_on_this_scope'`` (``MissingPart.led_address``) or
                 ``'exclusive_activity_running'``, as ``_led_on_impl`` says;
                 nothing was sent.
             BoardNoReplyError: the board did not answer; what it wrote is
@@ -1238,7 +1238,7 @@ class IlluminationAPI:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` names no
                 layer.
-            HardwareCommandRefusedError: ``'axis_absent'``, the unit's
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, the unit's
                 identity gives the layer no LED.
         """
         refuse_unknown_layer(channel, argument='channel')
@@ -1600,7 +1600,7 @@ class IlluminationAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                ``'not_connected'`` or ``'axis_absent'``, before anything
+                ``'not_connected'`` or ``'not_on_this_scope'``, before anything
                 is written.
             ArgumentRefusedError: ``'led_address_unknown'``,
                 ``'not_a_number'`` or ``'illumination_out_of_range'`` for a

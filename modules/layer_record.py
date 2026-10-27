@@ -266,7 +266,7 @@ class ChannelIdentity:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``.
-            HardwareCommandRefusedError: ``'axis_absent'``, naming the
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, naming the
                 layer (``MissingPart.layer``).
             ConfigurationDefectError: ``'layers_unresolved'``, this unit's
                 layers could not be resolved, so ``channel`` cannot ``then``.

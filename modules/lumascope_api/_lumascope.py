@@ -242,18 +242,18 @@ def _camera_failure_cause(exc: BaseException) -> str:
     if isinstance(exc, NoLiveDriverError):
         fallback = exc.fallback
         if fallback.cause == 'port_in_use':
-            return 'camera_port_in_use'
+            return 'port_in_use'
         if fallback.cause in ('not_detected', 'no_driver') and fallback.declined:
             return 'camera_driver_unavailable'
         if fallback.cause == 'not_detected':
-            return 'camera_not_detected'
+            return 'not_detected'
         return 'camera_not_initialized'
     if isinstance(exc, CameraFirmwareMissingError):
         return 'camera_firmware_missing'
     if isinstance(exc, CameraUsbDriverUnusableError):
         return 'camera_driver_unusable'
     if isinstance(exc, PermissionError):
-        return 'camera_port_in_use'
+        return 'port_in_use'
     return 'camera_not_initialized'
 
 

@@ -89,7 +89,7 @@ def _batch(
 
 
 def _stalls(centre_posts):
-    return [n for n in centre_posts if n.reason == 'files_writing_stalled']
+    return [n for n in centre_posts if n.reason == 'file_writer_stalled']
 
 
 class TestTheStallIsReported:

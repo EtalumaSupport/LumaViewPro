@@ -133,7 +133,7 @@ def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
 def test_a_home_ends_when_its_board_ends_it_however_long_it_takes(scope, monkeypatch):
     """The API puts no bound of its own on a home: the board's or the
     driver's ends it. Before, the API's wait ran out while the home still
-    drove and raised ``still_running``, so a home that went on to succeed
+    drove and raised ``call_overran``, so a home that went on to succeed
     was told to its caller as given up."""
     release = threading.Event()
     zhome = scope._motion_driver.zhome

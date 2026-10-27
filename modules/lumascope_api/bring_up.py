@@ -52,8 +52,6 @@ CAUSE_PHRASES = {
     'not_responding': 'not responding',
     'connect_failed': 'connect failed',
     'no_driver': 'no driver',
-    'camera_port_in_use': 'port in use',
-    'camera_not_detected': 'not detected',
     'camera_driver_unavailable': 'not detected; a driver did not load',
     'camera_firmware_missing': 'firmware file missing',
     'camera_driver_unusable': 'on no driver, or one LumaViewPro cannot use',
