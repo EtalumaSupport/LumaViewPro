@@ -354,7 +354,6 @@ class SimulatedCamera(Camera):
         self,
         width: int = _SENSOR['width'],
         height: int = _SENSOR['height'],
-        grab_delay: float = 0.0,
         scope_inputs: Callable[[], dict[str, tuple[object, int | None]]] | None = None,
         depth_of_field_func: Callable[[], float | None] | None = None,
         pixel_size_func: Callable[[], float | None] | None = None,
@@ -375,7 +374,6 @@ class SimulatedCamera(Camera):
         self._native_height = height
         self._width = width
         self._height = height
-        self._grab_delay = grab_delay
 
         self._exposure_us = 10_000.0  # 10 ms in microseconds
         self._gain = 1.0
@@ -471,7 +469,7 @@ class SimulatedCamera(Camera):
         # pixel at binning 1); None when no objective or no optics are known.
         self._pixel_size_func = pixel_size_func
 
-        # Apply timing preset (overrides grab_delay if preset given)
+        # The timing preset is the one setter of the transfer time.
         self.set_timing_mode(timing)
 
         # Let the base class call connect()

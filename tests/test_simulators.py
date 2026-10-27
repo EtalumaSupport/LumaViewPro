@@ -1041,7 +1041,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
     # -- Z-dependent focus simulation --
 
     def test_focus_target_pattern(self):
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         frame = grab_a_frame_made_after_now(cam)
@@ -1049,12 +1049,12 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert frame.image.std() > 5
 
     def test_set_get_z_position(self):
-        cam = SimulatedCamera(grab_delay=0)
+        cam = SimulatedCamera()
         cam.set_z_position(3000.0)
         assert cam.get_z_position() == 3000.0
 
     def test_set_get_focal_z(self):
-        cam = SimulatedCamera(grab_delay=0)
+        cam = SimulatedCamera()
         cam.set_focal_z(7000.0)
         assert cam.get_focal_z() == 7000.0
 
@@ -1062,7 +1062,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         """Vollath F4 focus score should be highest at the focal point."""
         from modules.autofocus_functions import focus_vollath4_original
 
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
@@ -1081,7 +1081,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         """Focus score should decrease as we move away from focal point."""
         from modules.autofocus_functions import focus_vollath4_original
 
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
@@ -1108,7 +1108,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         """Focus scores should be roughly symmetric around focal point."""
         from modules.autofocus_functions import focus_vollath4_original
 
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
@@ -1127,7 +1127,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_a_z_told_to_the_sensor_is_where_the_next_frames_are_exposed(self):
         """The scope tells the sensor where Z stands; frames exposed after it are made there."""
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.set_z_position(5000.0)
         cam.open_and_start()
         try:
@@ -1175,7 +1175,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_no_blur_at_focal_point(self):
         """Image at focal point should be identical to unblurred target."""
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)

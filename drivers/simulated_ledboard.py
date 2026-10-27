@@ -51,7 +51,6 @@ class SimulatedLEDBoard:
 
     def __init__(
         self,
-        delay: float = 0.0,
         timing: str = 'fast',
         firmware_version: str | None = '2.0.1',
         firmware_date: str | None = None,
@@ -66,7 +65,6 @@ class SimulatedLEDBoard:
         self.port = '/dev/simulated_led'
         self.baudrate = 115200
         self.driver = True  # truthy sentinel -- not a real serial port
-        self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         # The date INFO carries; None as the original firmware's version is.
         self.firmware_date = firmware_date
@@ -78,7 +76,7 @@ class SimulatedLEDBoard:
         # Failure injection
         self._fail_on = fail_on or set()  # return None for these commands
 
-        # Apply timing preset (overrides delay if preset given)
+        # The timing preset is the one setter of the command delay.
         self.set_timing_mode(timing)
         self._enabled = True
         self._channel_states = dict.fromkeys(self._ADDRESSES, 0)  # channel -> mA

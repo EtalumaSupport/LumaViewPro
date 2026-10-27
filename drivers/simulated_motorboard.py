@@ -118,8 +118,6 @@ class SimulatedMotorBoard:
         self,
         model: str = 'LS850',
         serial_number: str = 'SIM-001',
-        move_delay: float = 0.0,
-        cmd_delay: float = 0.0,
         timing: str = 'fast',
         firmware_version: str | None = '2.0.1',
         firmware_date: str | None = None,
@@ -164,8 +162,6 @@ class SimulatedMotorBoard:
         self.driver = True  # truthy sentinel
         self._fullinfo = {'model': model, 'serial_number': serial_number}
         self._connect_fails = 0
-        self._cmd_delay = cmd_delay
-        self._move_delay = move_delay
         self._simulate_move_duration = False
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         # The date INFO carries; None as the original firmware's version is.
@@ -174,7 +170,7 @@ class SimulatedMotorBoard:
         self.firmware_responding = True
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
 
-        # Apply timing preset (overrides cmd_delay/move_delay if preset given)
+        # The timing preset is the one setter of the command and move delays.
         self.set_timing_mode(timing)
 
         # Internal position state (in usteps)
