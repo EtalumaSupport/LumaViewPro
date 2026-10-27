@@ -3500,20 +3500,27 @@ class PylonCamera(Camera):
         would never see: it would answer ``Once`` for good.
 
         Raises:
-            genicam.GenericException: As the SDK raises it; the API reports
-                it as a read the camera did not answer.
+            CameraReadFailedError: The node's lookup or its read failed;
+                the camera is kept, as ``get_black_level`` keeps it.
         """
-        return self._read_auto_mode(self.active.GainAuto)
+        return self._read_auto_mode('GainAuto')
 
     def get_auto_exposure_mode(self) -> str:
         """Read ``ExposureAuto`` from the camera, past GenApi's node cache,
         as ``get_auto_gain_mode`` reads ``GainAuto``."""
-        return self._read_auto_mode(self.active.ExposureAuto)
+        return self._read_auto_mode('ExposureAuto')
 
-    @staticmethod
-    def _read_auto_mode(node) -> str:
-        """The mode ``node`` holds on the camera now (``IgnoreCache``)."""
-        return str(node.GetCurrentEntry(False, True).GetSymbolic())
+    def _read_auto_mode(self, name: str) -> str:
+        """The mode node ``name`` holds on the camera now (``IgnoreCache``).
+
+        The lookup is inside the ``try``: the SDK raises there, before the
+        read, when the node is unavailable.
+        """
+        try:
+            node = getattr(self.active, name)
+            return str(node.GetCurrentEntry(False, True).GetSymbolic())
+        except Exception as e:
+            raise CameraReadFailedError(f'{name} read failed: {type(e).__name__}: {e}') from e
 
     def is_connected(self) -> bool:
         """Return True if connected, from the removal flag and the open camera.
