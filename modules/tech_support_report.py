@@ -1822,7 +1822,7 @@ class TechSupportReport:
         return sn
 
     def _step_firmware_info_cached(self, tmp, skip):
-        """Step 1 while another activity holds the scope.
+        """Step 1 while the scope is in use: another activity holds it, or a control session.
 
         The board queries go through the raw command channel, which the
         lane refuses to anyone but the holder. What the drivers cached at
