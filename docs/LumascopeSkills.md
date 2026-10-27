@@ -705,10 +705,11 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # (capabilities.frame_rules): the clock rule, where the camera has a clock
 # latch and a measured delay for the source, counts a frame that started
 # exposing after the change plus that delay; every move on such a camera
-# runs it, from the axis's stop when no delay is measured, so a frame that
-# started while the axis could still move never counts; the credit rule
-# counts one once the source's frame count was met before it, a move's by
-# frames that arrived after its stop.
+# whose record measured no move count runs it, from the axis's stop when no
+# delay is measured, so a frame that started while the axis could still move
+# never counts; the credit rule counts one once the source's frame count
+# (the rule's count, as measured for the camera, else shipped) was met
+# before it, a move's by frames that arrived after its stop.
 # A capture judges the frame it returns (a sum's first frame) against each
 # source's last change; the answers ride its record
 # (last_capture_info['frame_record'].judgments), its saved file
@@ -1573,6 +1574,7 @@ still states the major version.
 | level 38 | An LED is lit by its channel's name: `scope.illumination.led_on(channel, illumination_ma)` and `led_off(channel)` take a name only, a number refused at the door (`wrong_argument_type`); a board address is `led_on_by_address` / `led_off_by_address`'s. `ch2color` and `color2ch` are not on the surface (no route); a channel's addresses are its record's `led_addresses`. `ScopeCapabilities.led_channels` and `ChannelRecord.led_channel` are gone, with no alias. |
 | level 39 | A fluorescence channel is named for its excitation: the release's keys are `BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex550`, `Ex589`, `Ex640` and `Lumi`, and a stock unit's are `Ex405` / `Ex488` / `Ex589` on LEDs 0 / 1 / 2, where `Blue` / `Green` / `Red` were. A fluorescence `ChannelRecord`'s `display_name` is `None` (its `label` is its excitation, `'405 nm'`). A caller's old name is refused, not translated: a channel `channel_unknown`, a settings path `not_a_setting`; a stored file's old names are read by the LED they were made with (see "Color channel reference"). |
 | level 40 | Every steady stamp the scope takes is on one clock, the scope's, read by `session.host_steady_ns()` (in-process; `scope.host_steady_ns()`): a frame's `arrived_ns`, a `Change`'s `written_ns`, `earliest_ns` and `in_force_ns`, `Owed.until_ns`, a `ClockMapping`'s `host_ns`. It resolves to a microsecond or better on every supported Python and platform (`time.perf_counter_ns`), where on Windows under Python 3.12 the stamps were `time.monotonic_ns`, a 15.6 ms step. A plugin sets its own "now" against them by this member only, never by a clock of its own. |
+| level 41 | A camera timing record is schema 3: per source and direction, its `validity` group holds a list of measured entries, each an `apply_delay_us` or a `delivered_frames` spread with its `trials` and `provenance`, a `delivered_frames` entry's provenance naming its `microscope` model and its `max` a whole number of frames; `FrameValidity.check_timing_record` refuses schema 2. A `FrameRule` carries the source's `count`: the largest `delivered_frames.max` the record holds for it over its directions and microscopes, every move (`xy_move`, `z_move`, `turret`) taking the largest over the moves, with that entry's `provenance` under the credit rule; else the shipped count, with none. A measured move count runs the credit rule on a camera with a clock latch too, where the rule at the stop ran. A change's `skip` is its source's rule's count; frame validity holds no per-scope `SKIP_FRAMES`, and `FrameValidity.SKIP_FRAMES` is the shipped counts. `scope.imaging.held_frame_rules(record)` (in-process) is a `with` block: the changes recorded inside it wait the counts of `record`, schema 3, checked as a file is (`wrong_kind` otherwise), and the installation's rules are back when it ends, however it ends; it is a guarded write. |
 
 ### Configuration queries
 
@@ -3407,6 +3409,7 @@ Reached through `session.scope.imaging`.
 - `get_delivered_rate`
 - `get_image` (in-process)
 - `get_image_from_buffer` (in-process)
+- `held_frame_rules` (in-process)
 - `is_streaming`
 - `judge_frame` (in-process)
 - `last_capture_info` (in-process)
@@ -4093,6 +4096,7 @@ Reached through each `SavedStill`'s `frame`, from `session.manual_capture.captur
 
 Reached through each value of `ScopeCapabilities.frame_rules`, and a `Change`'s `rule`.
 
+- `count`
 - `delay_us`
 - `provenance`
 - `rule`

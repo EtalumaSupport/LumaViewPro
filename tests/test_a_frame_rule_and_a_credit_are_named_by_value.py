@@ -7,7 +7,7 @@ plain and wire form carry the value (``'clock'``, ``'preview'``), not the
 member's name.
 """
 
-from modules.frame_validity import CREDIT_RULE, Counter, Credit
+from modules.frame_validity import Counter, Credit, FrameValidity
 from modules.wire_encoding import plain
 
 
@@ -19,4 +19,4 @@ def test_a_credit_built_with_the_plain_word_holds_the_member_and_answers_its_val
 
 
 def test_a_frame_rule_answers_its_rule_by_value():
-    assert plain(CREDIT_RULE)['rule'] == 'credit'
+    assert plain(FrameValidity.credit_rules()['gain'])['rule'] == 'credit'

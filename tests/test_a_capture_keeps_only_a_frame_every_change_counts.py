@@ -43,7 +43,9 @@ def _clock_rule_for(scope, source: str, delay_us: float) -> None:
     """``source`` runs the clock rule at ``delay_us`` for the changes recorded from now on."""
     frame_validity = scope.imaging.frame_validity
     rules = dict(frame_validity.credit_rules())
-    rules[source] = FrameRule(rule=Rule.CLOCK, delay_us=delay_us, provenance=_PROVENANCE)
+    rules[source] = FrameRule(
+        rule=Rule.CLOCK, count=rules[source].count, delay_us=delay_us, provenance=_PROVENANCE
+    )
     frame_validity.use_rules(rules)
 
 

@@ -325,6 +325,7 @@ def test_capture_wait_carries_the_time_a_clock_rule_change_is_owed(sim_scope, ex
     rules = dict(imaging.frame_validity.credit_rules())
     rules['gain'] = FrameRule(
         rule=Rule.CLOCK,
+        count=rules['gain'].count,
         delay_us=delay_s * 1e6,
         provenance={'run_id': 'run-1', 'measured_date': '2026-10-20'},
     )

@@ -9,12 +9,13 @@ _camera_temp_event. The camera's settings and state are CameraAPI's
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime
 import logging as _logging
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -26,6 +27,7 @@ from drivers.camera import Frame
 from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
+from modules.activity_claim import a_guarded_write
 from modules.exceptions import (
     ArgumentRefusedError,
     CameraStreamStalledError,
@@ -1863,6 +1865,54 @@ class ImagingAPI:
         return self.frame_validity.changes()
 
     @api(in_process=True)
+    @contextlib.contextmanager
+    def held_frame_rules(self, record: dict) -> Iterator[None]:
+        """Judge the changes recorded inside the ``with`` block by counts not yet on disk.
+
+        Use as ``with scope.imaging.held_frame_rules(record): ...``. The
+        rules are built from ``record`` as bring-up builds them from the
+        camera's timing record file (``capabilities.frame_rules``), and are
+        handed to the gate for the block: each change recorded inside it
+        waits its held count. When the block ends, however it ends, the
+        installation's rules are back, and each change recorded after it
+        waits the installation's count. A change keeps the rule it was
+        recorded under, on either side. For a characterization's verify
+        phase, which captures under the counts it just measured before they
+        are saved; ``capabilities.frame_rules`` still publishes the
+        installation's.
+
+        Args:
+            record: A camera timing record, schema 3, checked as a file is
+                (``FrameValidity.check_timing_record``).
+
+        Raises:
+            ArgumentRefusedError: ``'wrong_kind'``, a record this release
+                cannot take as measured; nothing was held.
+            ControlSessionRefusedError: ``'control_session_held'``, a control
+                session is held by someone else; nothing was held.
+        """
+        try:
+            if not isinstance(record, dict):
+                raise ValueError('not a dictionary')
+            FrameValidity.check_timing_record(record)
+        except ValueError as refused:
+            raise ArgumentRefusedError(
+                'wrong_kind',
+                argument='record',
+                value=record,
+                kind=f'a camera timing record this release reads ({refused})',
+            ) from refused
+        rules = FrameValidity.rules_from_record(
+            record, self._scope.capabilities.camera_has_clock_latch
+        )
+        with a_guarded_write(self._scope._activity_claim):
+            self.frame_validity.use_rules(rules)
+        try:
+            yield
+        finally:
+            self.frame_validity.use_rules(self._scope.capabilities.frame_rules)
+
+    @api(in_process=True)
     def get_image(
         self,
         force_to_8bit: bool = True,
@@ -2580,7 +2630,7 @@ class ImagingAPI:
             # to reach its output have come.
             if self._stream_bound_dropped_at is None:
                 self._stream_bound_dropped_at = stored
-            in_pipeline = self.frame_validity.SKIP_FRAMES[FrameValiditySource.EXPOSURE]
+            in_pipeline = self.frame_validity.rules()[FrameValiditySource.EXPOSURE].count
             if stored - self._stream_bound_dropped_at < in_pipeline:
                 bound_s = held_s
             else:

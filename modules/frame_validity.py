@@ -27,8 +27,9 @@ with a clock latch and a measured delay for the source, or any move on such
 a camera, counts a frame that started exposing, on the camera's clock,
 after the change plus that delay (a move's change is its stop); the credit
 rule, for every other source, counts a frame once the source's frame count
-was met before it. Which rule each source runs is decided at
-bring-up and published as ``capabilities.frame_rules``.
+was met before it: the count the camera's timing record measured, else the
+shipped count (``SKIP_FRAMES``). Which rule each source runs, and at what
+count, is decided at bring-up and published as ``capabilities.frame_rules``.
 
 Usage:
     fv = FrameValidity(lambda: camera.frames_delivered)
@@ -68,10 +69,14 @@ if TYPE_CHECKING:
     from modules.lumascope_api.frame_record import ClockMapping
 
 # The camera timing record's version this release reads, and what its
-# validity group's values must carry (``FrameValidity.check_timing_record``).
-TIMING_RECORD_SCHEMA = 2
+# validity group's entries must carry (``FrameValidity.check_timing_record``).
+TIMING_RECORD_SCHEMA = 3
 TIMING_MEASURES = ('apply_delay_us', 'delivered_frames')
 TIMING_PROVENANCE = ('run_id', 'host', 'os', 'lvp_version', 'plugin_version', 'measured_date')
+# A count of frames is the camera's on one microscope model: the record
+# keeps an entry per microscope it was measured on, and the gate takes the
+# largest.
+TIMING_MICROSCOPE = 'microscope'
 
 
 def _is_amount(value) -> bool:
@@ -126,7 +131,7 @@ class Rule(enum.StrEnum):
     CREDIT = 'credit'
 
 
-@api_fields('rule', 'delay_us', 'provenance')
+@api_fields('rule', 'count', 'delay_us', 'provenance')
 @dataclasses.dataclass(frozen=True)
 class FrameRule:
     """The rule a source's changes are judged by, and where it came from.
@@ -134,46 +139,64 @@ class FrameRule:
     Attributes:
         rule: ``Rule.CLOCK`` when the camera has a clock latch and its timing
             record holds a measured delay for the source, or the source is a
-            move; ``Rule.CREDIT`` otherwise.
+            move with no measured count; ``Rule.CREDIT`` otherwise.
+        count: The frames a change of the source needs counted after it,
+            which under the credit rule come before the first that counts:
+            the largest ``delivered_frames.max`` the camera's timing record
+            holds for the source, over its directions and the microscopes it
+            was measured on, a move taking the largest over every move; else
+            the shipped count (``SKIP_FRAMES``).
         delay_us: Under the clock rule, the source's measured delay: the
             larger of its directions' ``apply_delay_us``, each the least
             start over its trials of the first frame showing the change. A
             frame starting later than the change plus this shows it. 0 for
             a move with none measured. None under the credit rule.
         provenance: Under the clock rule, the run that measured the delay
-            (``TIMING_PROVENANCE``), or that none did (``AT_THE_STOP_RULE``);
-            None under the credit rule.
+            (``TIMING_PROVENANCE``), or that none did (``at_the_stop``).
+            Under the credit rule, the run that measured the count, naming
+            the microscope it was measured on (``TIMING_MICROSCOPE``); None
+            for a shipped count.
 
     Raises:
-        ValueError: a clock rule without its delay or provenance, or a
-            credit rule with either.
+        ValueError: a count that is not a whole number, 0 or more; a clock
+            rule without its delay or provenance; a credit rule with a delay.
     """
 
     rule: Rule
+    count: int
     delay_us: float | None
     provenance: Mapping[str, str] | None
 
     def __post_init__(self):
+        if not (
+            isinstance(self.count, int) and not isinstance(self.count, bool) and self.count >= 0
+        ):
+            raise ValueError(
+                f'a {self.rule.value} rule with count {self.count!r}, not a whole number 0 or more'
+            )
         clock = self.rule == Rule.CLOCK
-        if (self.delay_us is not None) != clock or (self.provenance is not None) != clock:
+        if (self.delay_us is not None) != clock or (clock and self.provenance is None):
             raise ValueError(
                 f'a {self.rule.value} rule with delay {self.delay_us!r} and '
-                f'provenance {self.provenance!r}: the clock rule carries both, the credit rule neither'
+                f'provenance {self.provenance!r}: the clock rule carries both, the credit rule no delay'
             )
 
 
-CREDIT_RULE = FrameRule(rule=Rule.CREDIT, delay_us=None, provenance=None)
+_AT_THE_STOP = types.MappingProxyType({'measured': 'none: a frame started after the stop'})
 
-# A move with no measured delay, on a camera with a clock latch: a frame
-# counts once it started exposing after the axis was read stopped. A frame
-# that started before the stop was exposed while the axis could still move,
-# whenever it arrived; the stop is read after the motor stops, so no frame
-# that started after it was.
-AT_THE_STOP_RULE = FrameRule(
-    rule=Rule.CLOCK,
-    delay_us=0.0,
-    provenance=types.MappingProxyType({'measured': 'none: a frame started after the stop'}),
-)
+
+def at_the_stop(count: int) -> FrameRule:
+    """A move's rule on a camera with a clock latch, with no delay or count measured.
+
+    A frame counts once it started exposing after the axis was read stopped.
+    A frame that started before the stop was exposed while the axis could
+    still move, whenever it arrived; the stop is read after the motor stops,
+    so no frame that started after it was.
+
+    Args:
+        count: The move's shipped count.
+    """
+    return FrameRule(rule=Rule.CLOCK, count=count, delay_us=0.0, provenance=_AT_THE_STOP)
 
 
 @api_fields(
@@ -223,7 +246,7 @@ class Change:
             judges from ``written_ns`` or ``in_force_ns``, the latest, so the
             pair never accepts a frame early.
         written_at: Host wall-clock time of the same moment, for a reader.
-        skip: The frames the change needed, as the count stood when it was
+        skip: The frames the change needed, its rule's count when it was
             recorded.
         rule: The rule the change is judged by, as its source's stood when
             it was recorded.
@@ -352,11 +375,10 @@ class FrameValidity:
     Motion sources additionally require physical completion (axis stopped).
     """
 
-    # Per-source skip frame counts (camera pipeline flush): the counts the
-    # credit rule runs. A source whose camera has a clock latch and a
-    # measured delay runs the clock rule instead (``frame_rules``). Each
-    # instance copies them, so one scope's counts never outlive it into the
-    # next scope in the process.
+    # Per-source shipped frame counts (camera pipeline flush), and the
+    # sources' names: the count a source's rule carries when the camera's
+    # timing record measured none (``rules_from_record``). A change takes
+    # its count from its source's rule, never from here.
     SKIP_FRAMES: ClassVar[dict[FrameValiditySource, int]] = {
         FrameValiditySource.LED: 2,  # LED on/off or current change (measured: 2 on a2A3536)
         FrameValiditySource.GAIN: 2,  # Camera gain change (measured: 2 on a2A3536)
@@ -453,7 +475,6 @@ class FrameValidity:
         self._lock = threading.Lock()
         self._frames_delivered = frames_delivered
         self._frame_counter = 0
-        self.SKIP_FRAMES = dict(FrameValidity.SKIP_FRAMES)
         # Each source's last change, kept after it settles so a capture can be
         # judged against it; and the sources whose last change has not.
         self._changes: dict[str, Change] = {}
@@ -461,8 +482,9 @@ class FrameValidity:
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
         self._last_counted_seq = None  # ordinal of the last counted frame
-        # Each source's rule; the credit rule until bring-up hands over the
-        # scope's (use_rules), as for a camera with no measured record.
+        # Each source's rule; the credit rule at its shipped count until
+        # bring-up hands over the scope's (use_rules), as for a camera with no
+        # measured record.
         self._rules = self.credit_rules()
         # Monotone per-source invalidation history. Unlike _pending, entries
         # are never consumed by frames -- count_frame and reset() leave this
@@ -491,8 +513,13 @@ class FrameValidity:
 
     @classmethod
     def credit_rules(cls) -> Mapping[FrameValiditySource, FrameRule]:
-        """Every source on the credit rule: the rules of a camera with no measured delay."""
-        return types.MappingProxyType(dict.fromkeys(cls.SKIP_FRAMES, CREDIT_RULE))
+        """Every source on the credit rule at its shipped count: the rules of a camera with no record."""
+        return types.MappingProxyType(
+            {
+                source: FrameRule(rule=Rule.CREDIT, count=count, delay_us=None, provenance=None)
+                for source, count in cls.SKIP_FRAMES.items()
+            }
+        )
 
     @classmethod
     def rules_from_record(
@@ -500,14 +527,21 @@ class FrameValidity:
     ) -> Mapping[FrameValiditySource, FrameRule]:
         """Each source's rule, from a camera's checked timing record.
 
+        A source the record holds a ``delivered_frames`` entry for runs the
+        credit rule at the largest ``max`` over its directions and entries,
+        every microscope's, with that entry's provenance: a capture waits
+        the most frames any microscope the camera ships in needs, whichever
+        way the change went. A move's count is the camera's whatever the
+        axis, so every move takes the largest over the moves the record
+        holds. A source the record measured no count for keeps its shipped
+        count, with no provenance.
+
         On a camera with a clock latch, a source the record holds an
         ``apply_delay_us`` for runs the clock rule at the larger of its
-        directions' delays with that direction's provenance: a capture
-        waits one delay per source, whichever way the change went. A move
-        the record holds no delay for, or every move when there is no
-        record, runs it at the stop (``AT_THE_STOP_RULE``). Every other
-        source runs the credit rule, as every source does on a camera
-        without a latch.
+        directions' delays with that direction's provenance; a move with
+        neither a delay nor a measured count runs it at the stop
+        (``at_the_stop``). A camera without a latch runs the credit rule for
+        every source.
 
         Args:
             record: The camera's timing record, already checked
@@ -516,17 +550,45 @@ class FrameValidity:
                 the host's (``capabilities.camera_has_clock_latch``).
         """
         rules = dict(cls.credit_rules())
+        validity = record['validity'] if record is not None else {}
+
+        def entries(sources, measure):
+            return [
+                entry
+                for source in sources
+                for direction in validity.get(source, {}).values()
+                for entry in direction
+                if measure in entry
+            ]
+
+        counted = {
+            source: entries((source,), 'delivered_frames')
+            for source in rules
+            if source not in cls.MOTION_SOURCES
+        }
+        moves = entries(cls.MOTION_SOURCES, 'delivered_frames')
+        counted.update(dict.fromkeys(cls.MOTION_SOURCES, moves))
+        for source, measured in counted.items():
+            if measured:
+                largest = max(measured, key=lambda e: e['delivered_frames']['max'])
+                rules[source] = FrameRule(
+                    rule=Rule.CREDIT,
+                    count=int(largest['delivered_frames']['max']),
+                    delay_us=None,
+                    provenance=types.MappingProxyType(dict(largest['provenance'])),
+                )
         if not has_clock_latch:
             return types.MappingProxyType(rules)
-        rules.update(dict.fromkeys(cls.MOTION_SOURCES, AT_THE_STOP_RULE))
-        if record is None:
-            return types.MappingProxyType(rules)
-        for source, directions in record['validity'].items():
-            delays = [v for v in directions.values() if 'apply_delay_us' in v]
+        if not moves:
+            for source in cls.MOTION_SOURCES:
+                rules[source] = at_the_stop(rules[source].count)
+        for source in rules:
+            delays = entries((source,), 'apply_delay_us')
             if delays:
-                slowest = max(delays, key=lambda v: v['apply_delay_us'])
-                rules[FrameValiditySource(source)] = FrameRule(
+                slowest = max(delays, key=lambda e: e['apply_delay_us'])
+                rules[source] = FrameRule(
                     rule=Rule.CLOCK,
+                    count=rules[source].count,
                     delay_us=float(slowest['apply_delay_us']),
                     provenance=types.MappingProxyType(dict(slowest['provenance'])),
                 )
@@ -535,16 +597,24 @@ class FrameValidity:
     def use_rules(self, rules: Mapping[FrameValiditySource, FrameRule]) -> None:
         """Judge each change recorded from now on by its source's rule in ``rules``.
 
-        Bring-up hands over the scope's ``capabilities.frame_rules``.
+        Bring-up hands over the scope's ``capabilities.frame_rules``; a
+        verify phase holds rules of its own for a while
+        (``ImagingAPI.held_frame_rules``). A change already recorded keeps
+        the rule and count it was recorded under.
 
         Raises:
-            ValueError: ``rules`` leaves a source with a skip count without a rule.
+            ValueError: ``rules`` leaves a source without a rule.
         """
         missing = sorted(set(self.SKIP_FRAMES) - set(rules))
         if missing:
             raise ValueError(f'frame rules name no rule for {missing}')
         with self._lock:
             self._rules = rules
+
+    def rules(self) -> Mapping[FrameValiditySource, FrameRule]:
+        """Each source's rule a change recorded now is judged by, and its count."""
+        with self._lock:
+            return self._rules
 
     def invalidate(self, source: FrameValiditySource, *, began_ns: int | None) -> Change:
         """Record that hardware state changed and frames need to settle.
@@ -560,13 +630,17 @@ class FrameValidity:
             Change: The change as recorded, now the source's last change.
 
         Raises:
-            ValueError: ``source`` has no skip count. A source that settled
-                on a silent default had a count nobody chose.
+            ValueError: ``source`` has no rule. A source that settled on a
+                silent default had a count nobody chose.
         """
-        skip = self.SKIP_FRAMES.get(source)
-        if skip is None:
-            raise ValueError(f'frame validity has no skip count for source {source!r}')
         with self._lock:
+            # The rule is read with the ordinal, so a change recorded while
+            # held rules are handed back is never given one's count and the
+            # other's rule.
+            rule = self._rules.get(source)
+            if rule is None:
+                raise ValueError(f'frame validity has no rule for source {source!r}')
+            skip = rule.count
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,
             # which is this whole class of bug reintroduced by a race.
@@ -578,7 +652,7 @@ class FrameValidity:
                 earliest_ns=written_ns if began_ns is None else began_ns,
                 written_at=datetime.datetime.now(),
                 skip=skip,
-                rule=self._rules[source],
+                rule=rule,
                 credits=(),
                 needs_in_force=source in self.MOTION_SOURCES and self._settle_check_fn is not None,
                 in_force_ns=None,
@@ -1051,7 +1125,8 @@ class FrameValidity:
 
         A record (``data/camera_timing/<model>.json``) states, in its
         ``validity`` group, how late each change reaches a frame: per source
-        and direction, either ``apply_delay_us``, the least start over the
+        and direction, a list of measured entries, each either
+        ``apply_delay_us``, the least start over the
         ``trials``, on the camera's clock and after the change was in force,
         of the first frame showing it -- a bound the sensor's true delay never
         exceeds, so a frame starting after it shows the change, where the
@@ -1059,15 +1134,17 @@ class FrameValidity:
         below that lets a stale frame through -- or, for a camera without a
         clock, the frames delivered after the change's arrival position before
         the first that shows it (``delivered_frames``) as
-        ``{'p50', 'p95', 'max'}`` over its ``trials``; each with the
-        ``provenance`` of the run that measured it. A value with no run
-        behind it is not a measurement. The gate's own counts are
-        ``SKIP_FRAMES``; nothing here changes them.
+        ``{'p50', 'p95', 'max'}`` over its ``trials``, its ``max`` a whole
+        number of frames; each with the ``provenance`` of the run that
+        measured it, a count's naming the microscope model it was measured
+        on (``TIMING_MICROSCOPE``), since a count is the camera's on one
+        microscope. A value with no run behind it is not a measurement.
 
         Raises:
             ValueError: the record is not ``TIMING_RECORD_SCHEMA``, names a
-                source this gate has no change for, or holds a value without
-                exactly one measure, its trials or its provenance.
+                source this gate has no change for, holds a direction that
+                is not a list of entries, or an entry without exactly one
+                measure, its trials or its provenance.
         """
         if record.get('schema') != TIMING_RECORD_SCHEMA:
             raise ValueError(
@@ -1082,36 +1159,50 @@ class FrameValidity:
                 raise ValueError(f'validity names {source!r}, a source with no change')
             if not isinstance(directions, dict):
                 raise ValueError(f'validity.{source} is not a group of directions')
-            for direction, value in directions.items():
-                where = f'validity.{source}.{direction}'
-                if not isinstance(value, dict):
-                    raise ValueError(f'{where} is not a measured value')
-                measures = [m for m in TIMING_MEASURES if m in value]
-                if len(measures) != 1:
+            for direction, entries in directions.items():
+                if not (isinstance(entries, list) and entries):
                     raise ValueError(
-                        f'{where} holds {measures or "no measure"}, not one of {TIMING_MEASURES}'
+                        f'validity.{source}.{direction} is not a list of measured entries'
                     )
-                measured = value[measures[0]]
-                if measures[0] == 'apply_delay_us':
-                    if not _is_amount(measured):
-                        raise ValueError(f'{where}.apply_delay_us is not one number, 0 or more')
-                elif not (
-                    isinstance(measured, dict)
-                    and set(measured) == {'p50', 'p95', 'max'}
-                    and all(_is_amount(v) for v in measured.values())
-                ):
-                    raise ValueError(
-                        f'{where}.{measures[0]} is not p50, p95 and max, each 0 or more'
-                    )
-                trials = value.get('trials')
-                if not (isinstance(trials, int) and not isinstance(trials, bool) and trials > 0):
-                    raise ValueError(f'{where} states no trials')
-                provenance = value.get('provenance')
-                if not isinstance(provenance, dict):
-                    raise ValueError(f'{where} has no provenance')
-                missing = [k for k in TIMING_PROVENANCE if not provenance.get(k)]
-                if missing:
-                    raise ValueError(f'{where} has no provenance for {missing}')
+                for index, value in enumerate(entries):
+                    cls._check_timing_entry(f'validity.{source}.{direction}[{index}]', value)
+
+    @staticmethod
+    def _check_timing_entry(where: str, value) -> None:
+        """Refuse one measured entry of a timing record (``check_timing_record``)."""
+        if not isinstance(value, dict):
+            raise ValueError(f'{where} is not a measured value')
+        measures = [m for m in TIMING_MEASURES if m in value]
+        if len(measures) != 1:
+            raise ValueError(
+                f'{where} holds {measures or "no measure"}, not one of {TIMING_MEASURES}'
+            )
+        measured = value[measures[0]]
+        if measures[0] == 'apply_delay_us':
+            if not _is_amount(measured):
+                raise ValueError(f'{where}.apply_delay_us is not one number, 0 or more')
+        elif not (
+            isinstance(measured, dict)
+            and set(measured) == {'p50', 'p95', 'max'}
+            and all(_is_amount(v) for v in measured.values())
+        ):
+            raise ValueError(f'{where}.{measures[0]} is not p50, p95 and max, each 0 or more')
+        elif not float(measured['max']).is_integer():
+            raise ValueError(
+                f'{where}.delivered_frames.max is {measured["max"]!r}, not a whole number of frames'
+            )
+        trials = value.get('trials')
+        if not (isinstance(trials, int) and not isinstance(trials, bool) and trials > 0):
+            raise ValueError(f'{where} states no trials')
+        provenance = value.get('provenance')
+        if not isinstance(provenance, dict):
+            raise ValueError(f'{where} has no provenance')
+        needed = TIMING_PROVENANCE
+        if measures[0] == 'delivered_frames':
+            needed = (*needed, TIMING_MICROSCOPE)
+        missing = [k for k in needed if not provenance.get(k)]
+        if missing:
+            raise ValueError(f'{where} has no provenance for {missing}')
 
     def reset(self) -> None:
         """Clear all pending invalidations and reset frame counter.

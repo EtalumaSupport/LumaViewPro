@@ -432,12 +432,15 @@ class ScopeCapabilities:
         default_factory=FrameValidity.credit_rules
     )
     """Per frame-validity source, the rule a frame is judged by against its
-    changes (``FrameValidity.judge``): the clock rule, with its measured
-    delay and the run that measured it, where the camera has a clock latch
-    and its timing record holds a delay for the source, and for every move
-    on such a camera, from its stop when no delay is measured; the credit
-    rule, the source's frame count, everywhere else. Read once at bring-up from
-    the camera's timing record."""
+    changes (``FrameValidity.judge``), and the source's frame count: the
+    clock rule, with its measured delay and the run that measured it, where
+    the camera has a clock latch and its timing record holds a delay for the
+    source, and for every move on such a camera whose record measured no
+    move count, from its stop; the credit rule everywhere else. The count is
+    the largest the record measured for the source over the microscopes the
+    camera was measured on, with the run and microscope in its
+    ``provenance``, else the shipped count with none. Read once at bring-up
+    from the camera's timing record (``FrameValidity.rules_from_record``)."""
 
     camera_supports_black_level: bool = False
     """True if the camera's black level can be set

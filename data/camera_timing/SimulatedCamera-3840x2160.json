@@ -1,166 +1,190 @@
 {
-  "schema": 2,
+  "schema": 3,
   "camera_model": "SimulatedCamera-3840x2160",
   "validity": {
     "exposure": {
-      "short_to_long": {
-        "apply_delay_us": 38205.0,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      "short_to_long": [
+        {
+          "apply_delay_us": 38205.0,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      },
-      "long_to_short": {
-        "apply_delay_us": 119093.144,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      ],
+      "long_to_short": [
+        {
+          "apply_delay_us": 119093.144,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      }
+      ]
     },
     "gain": {
-      "up": {
-        "apply_delay_us": 38630.416,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_220714_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      "up": [
+        {
+          "apply_delay_us": 38630.416,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_220714_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      },
-      "down": {
-        "apply_delay_us": 37703.563,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_220714_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      ],
+      "down": [
+        {
+          "apply_delay_us": 37703.563,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_220714_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      }
+      ]
     },
     "black_level": {
-      "up": {
-        "apply_delay_us": 118774.626,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_220714_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      "up": [
+        {
+          "apply_delay_us": 118774.626,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_220714_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      },
-      "down": {
-        "apply_delay_us": 114637.52,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      ],
+      "down": [
+        {
+          "apply_delay_us": 114637.52,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      }
+      ]
     },
     "led": {
-      "off_to_on": {
-        "apply_delay_us": 97370.563,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      "off_to_on": [
+        {
+          "apply_delay_us": 97370.563,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      },
-      "on_to_off": {
-        "apply_delay_us": 91428.104,
-        "trials": 10,
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      ],
+      "on_to_off": [
+        {
+          "apply_delay_us": 91428.104,
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      }
+      ]
     },
     "xy_move": {
-      "out": {
-        "apply_delay_us": 55729.667,
-        "trials": 10,
-        "distance": "well_pitch",
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      "out": [
+        {
+          "apply_delay_us": 55729.667,
+          "trials": 10,
+          "distance": "well_pitch",
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      },
-      "back": {
-        "apply_delay_us": 51267.084,
-        "trials": 10,
-        "distance": "well_pitch",
-        "provenance": {
-          "run_id": "2026-10-20_220714_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      ],
+      "back": [
+        {
+          "apply_delay_us": 51267.084,
+          "trials": 10,
+          "distance": "well_pitch",
+          "provenance": {
+            "run_id": "2026-10-20_220714_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      }
+      ]
     },
     "z_move": {
-      "out": {
-        "apply_delay_us": 74422.292,
-        "trials": 10,
-        "distance": "af_max",
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      "out": [
+        {
+          "apply_delay_us": 74422.292,
+          "trials": 10,
+          "distance": "af_max",
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      },
-      "back": {
-        "apply_delay_us": 96878.458,
-        "trials": 10,
-        "distance": "af_max",
-        "provenance": {
-          "run_id": "2026-10-20_223230_unspecified_camera_only",
-          "host": "Mac",
-          "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
-          "lvp_version": "4.0.0-beta38",
-          "plugin_version": "1.0.94",
-          "measured_date": "2026-10-20"
+      ],
+      "back": [
+        {
+          "apply_delay_us": 96878.458,
+          "trials": 10,
+          "distance": "af_max",
+          "provenance": {
+            "run_id": "2026-10-20_223230_unspecified_camera_only",
+            "host": "Mac",
+            "os": "macOS-26.7.1-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta38",
+            "plugin_version": "1.0.94",
+            "measured_date": "2026-10-20"
+          }
         }
-      }
+      ]
     }
   },
   "measured_date": "2026-10-20"

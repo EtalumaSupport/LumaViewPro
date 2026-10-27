@@ -51,7 +51,9 @@ def _clocked(source: str, delay_us: float, settle_check=None) -> FrameValidity:
     if settle_check is not None:
         fv.set_settle_check(settle_check)
     rules = dict(fv.credit_rules())
-    rules[source] = FrameRule(rule=Rule.CLOCK, delay_us=delay_us, provenance=_PROVENANCE)
+    rules[source] = FrameRule(
+        rule=Rule.CLOCK, count=rules[source].count, delay_us=delay_us, provenance=_PROVENANCE
+    )
     fv.use_rules(rules)
     return fv
 
@@ -158,11 +160,17 @@ def test_an_unmeasured_move_on_a_clock_camera_counts_a_frame_started_after_its_s
     assert (during.counts, after.counts) == (False, True)
 
 
-def test_a_rule_states_its_delay_and_provenance_under_the_clock_only():
+def test_a_rule_states_a_whole_count_and_its_delay_under_the_clock_only():
+    """Every rule carries a whole count; the clock rule a delay and the run
+    behind it; the credit rule no delay, its provenance the run that measured
+    its count or None for a shipped one."""
     wrong = {
-        'a clock rule without a delay': (Rule.CLOCK, None, _PROVENANCE),
-        'a clock rule without provenance': (Rule.CLOCK, 1.0, None),
-        'a credit rule with a delay': (Rule.CREDIT, 1.0, None),
+        'a clock rule without a delay': (Rule.CLOCK, 2, None, _PROVENANCE),
+        'a clock rule without provenance': (Rule.CLOCK, 2, 1.0, None),
+        'a credit rule with a delay': (Rule.CREDIT, 2, 1.0, None),
+        'a count of frames that is not whole': (Rule.CREDIT, 2.5, None, None),
+        'a negative count': (Rule.CREDIT, -1, None, None),
+        'a count that is a bool': (Rule.CREDIT, True, None, None),
     }
     accepted = []
     for name, fields in wrong.items():
@@ -173,6 +181,7 @@ def test_a_rule_states_its_delay_and_provenance_under_the_clock_only():
             pass
 
     assert accepted == []
+    assert FrameRule(Rule.CREDIT, 4, None, _PROVENANCE).provenance == _PROVENANCE
 
 
 def test_a_move_counts_the_third_frame_to_arrive_after_its_stop():
