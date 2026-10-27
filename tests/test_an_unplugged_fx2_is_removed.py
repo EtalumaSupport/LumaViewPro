@@ -24,10 +24,10 @@ import pytest
 
 from drivers import fx2driver
 from drivers.exceptions import BoardPortFailedError, CameraWriteFailedError
-from drivers.fx2driver import _ByteStream
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
 from modules.scope_session import ScopeSession
+from tests.camera_fakes import fx2_stream
 from tests.protocol_drives import held_run_claim
 from tests.settings_fixtures import complete_settings
 
@@ -354,8 +354,7 @@ def test_a_second_stop_of_the_stream_does_not_reach_the_transport(session, monke
 
 
 def test_the_stream_says_how_long_since_a_byte_arrived():
-    stream = _ByteStream()
-    stream.restart()
+    stream = fx2_stream()
     time.sleep(0.2)
     assert stream.seconds_since_arrival(time.monotonic()) >= 0.2
     stream.packet(b'z')
@@ -388,7 +387,7 @@ def _streaming_transport(monkeypatch, gone):
     monkeypatch.setattr(fx2driver.usb1, 'USBErrorNoDevice', NoDeviceError, raising=False)
     monkeypatch.setattr(fx2driver.usb1, 'USBErrorNotFound', NotFoundError, raising=False)
     transport = fx2driver._LibusbTransport()
-    transport._stream = _ByteStream()
+    transport._stream = fx2_stream()
     transport._on_error = lambda: None
     transport._on_gone = lambda: gone.append(1)
     transport._streaming = True

@@ -29,8 +29,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from drivers import fx2driver
+from drivers import fx2driver, host_clock
+from drivers.camera import ImageHandlerBase
 from modules.scope_session import ScopeSession
+from tests.camera_fakes import fx2_stream
 from tests.settings_fixtures import complete_settings
 
 T = fx2driver.ISO_TRANSACTION_SIZE
@@ -53,14 +55,14 @@ def _feed(stream, packets):
 
 
 def _lengths(stream):
-    return [(len(data), damaged) for data, damaged in stream.take_frames()]
+    return [(len(data), damaged) for data, damaged, _ in stream.take_frames()]
 
 
 # -- the bench's shapes --------------------------------------------------------
 
 
 def test_a_frame_whose_delimiter_was_lost_is_still_two_whole_frames():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     _feed(stream, [DELIM, *_frame(1024 + R), *_frame(2048 + R), DELIM])
 
     assert _lengths(stream) == [(FB, False), (FB, False)]
@@ -69,7 +71,7 @@ def test_a_frame_whose_delimiter_was_lost_is_still_two_whole_frames():
 
 
 def test_a_frame_whose_delimiter_was_overwritten_is_still_two_whole_frames():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     _feed(stream, [DELIM, *_frame(1024 + R), WRONG, *_frame(2048 + R), DELIM])
 
     assert _lengths(stream) == [(FB, False), (FB, False)]
@@ -78,7 +80,7 @@ def test_a_frame_whose_delimiter_was_overwritten_is_still_two_whole_frames():
 
 
 def test_clean_frames_count_no_delimiter_fault():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     _feed(stream, [DELIM, *_frame(2048 + R), DELIM, *_frame(1024 + R), DELIM])
 
     assert _lengths(stream) == [(FB, False), (FB, False)]
@@ -91,7 +93,7 @@ def test_clean_frames_count_no_delimiter_fault():
 
 
 def test_a_failed_packet_damages_its_frame_and_not_the_next():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     first = _frame(2048 + R)
     stream.packet(DELIM)
     _feed(stream, first[:10])
@@ -116,7 +118,7 @@ def _transfer(status, packets=()):
 
 
 def test_a_libusb_transfer_that_fails_whole_damages_the_frame_it_fell_in():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     transport = _libusb_transport(stream)
     ok = fx2driver.usb1.TRANSFER_COMPLETED
     first = _frame(2048 + R)
@@ -130,7 +132,7 @@ def test_a_libusb_transfer_that_fails_whole_damages_the_frame_it_fell_in():
 
 
 def test_libusb_hands_each_packet_on_as_a_packet():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     transport = _libusb_transport(stream)
     ok = fx2driver.usb1.TRANSFER_COMPLETED
     packets = [DELIM, *_frame(1024 + R), *_frame(2048 + R)]
@@ -159,7 +161,7 @@ def test_the_windows_reader_feeds_packets_and_failures_to_the_stream(monkeypatch
 
     monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
     monkeypatch.setattr(fx2driver._WinUsbTransport, '_release_idle', lambda self: None)
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     fx2driver._WinUsbTransport().start_stream(stream, on_gone=lambda: None)
     on_data, on_error = readers[0].kwargs['on_data'], readers[0].kwargs['on_error']
 
@@ -178,7 +180,7 @@ def test_the_windows_reader_feeds_packets_and_failures_to_the_stream(monkeypatch
 
 
 def test_a_stream_that_opens_on_the_delimiter_keeps_its_first_frame():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     _feed(stream, [DELIM, *_frame(2048 + R)])
 
     assert _lengths(stream) == [(FB, False)]
@@ -186,7 +188,7 @@ def test_a_stream_that_opens_on_the_delimiter_keeps_its_first_frame():
 
 
 def test_a_stream_that_opens_mid_frame_loses_only_that_frame():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     _feed(stream, [*_frame(2048 + R)[100:], DELIM, *_frame(2048 + R)])
 
     frames = _lengths(stream)
@@ -195,7 +197,7 @@ def test_a_stream_that_opens_mid_frame_loses_only_that_frame():
 
 
 def test_a_flush_just_after_a_frame_end_counts_no_missing_delimiter():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     _feed(stream, [DELIM, *_frame(2048 + R)])
     stream.flush()  # a window change, before the delimiter after that end came
     _feed(stream, _frame(2048 + R))
@@ -205,7 +207,7 @@ def test_a_flush_just_after_a_frame_end_counts_no_missing_delimiter():
 
 
 def test_a_flush_mid_frame_drops_what_was_assembled():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     stream.packet(DELIM)
     _feed(stream, _frame(2048 + R)[:500])  # half a frame of the old window
     stream.flush()
@@ -224,7 +226,7 @@ def _grab_loop_on(stream, w, h):
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, arrived_ns, significant_bits, wire_bytes: stored.append(
+        _store_frame=lambda image, ts, handed_over, significant_bits, wire_bytes: stored.append(
             image.shape
         )
     )
@@ -232,7 +234,7 @@ def _grab_loop_on(stream, w, h):
 
 
 def test_a_frame_a_failure_fell_in_is_not_stored_even_at_its_length():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     cam, stored = _grab_loop_on(stream, 1896, 1896)
     first = _frame(2048 + R)
     stream.packet(DELIM)
@@ -254,8 +256,36 @@ def test_a_frame_a_failure_fell_in_is_not_stored_even_at_its_length():
     assert cam.stream_stats.summary()['partial_frames'] == 1
 
 
+def test_a_frame_is_numbered_and_timed_where_it_ends_by_the_handler_the_stream_feeds():
+    """The ordinal and steady time are taken at the frame's end, not when the grab loop takes it.
+
+    A frame ended while a write goes out, and still waiting for the grab
+    loop, is then placed before the write. The count is the handler's, so a
+    flush or a restart of the stream, which outlives every handler, never
+    takes it back.
+    """
+    handler = ImageHandlerBase()
+    stream = fx2_stream(handler)
+    began_ns = host_clock.steady_ns()
+    _feed(stream, [DELIM, *_frame(2048 + R)])
+    ended_ns = host_clock.steady_ns()
+
+    assert handler.frames_delivered == 1  # numbered before any take
+    ((_, _, first),) = stream.take_frames()
+    assert first.seq == 1
+    assert began_ns <= first.arrived_ns <= ended_ns
+
+    _feed(stream, [DELIM, *_frame(2048 + R)])
+    stream.flush()  # a window change drops the frame, and its number with it
+    stream.restart(handler.hand_over)  # every grab start
+    _feed(stream, [DELIM, *_frame(2048 + R)])
+    ((_, _, after),) = stream.take_frames()
+
+    assert after.seq == 3
+
+
 def test_a_stream_with_no_frame_end_is_held_to_one_largest_frame():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     longest = fx2driver.frame_layout(fx2driver.IMG_WIDTH, fx2driver.IMG_HEIGHT).frame_bytes
     held = 0
     for _ in range(3 * longest // T):
@@ -271,7 +301,7 @@ def test_a_stream_with_no_frame_end_is_held_to_one_largest_frame():
 def test_the_unpatched_firmwares_packets_are_never_stored_whole():
     # The original hex commits no short packet: its delimiter rides at the end
     # of a data microframe (1028, 2052 bytes), so each frame ends there short.
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     body = FB - FB % T
     packets = [b'\x07' * T] * (body // T - 1) + [b'\x07' * T + DELIM]
     _feed(stream, packets * 2)
@@ -360,7 +390,7 @@ def test_a_simulated_unplugs_failed_transfers_reach_the_stream():
     from drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
-    sim.connection.start_stream()
+    sim.connection.start_stream(ImageHandlerBase().hand_over)
     sim.connection.stream.take_counts()
     sim.connection._transport.unplug(resubmit_failures=2)
 

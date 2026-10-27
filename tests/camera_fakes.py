@@ -19,7 +19,7 @@ from types import MappingProxyType
 from unittest.mock import MagicMock
 
 from drivers import host_clock
-from drivers.camera import Camera, Frame
+from drivers.camera import Camera, Frame, ImageHandlerBase
 
 
 def _base_state(cam):
@@ -471,6 +471,20 @@ def delivered_frame(
         ),
         chunks=MappingProxyType(dict(chunks)) if chunks is not None else None,
     )
+
+
+def fx2_stream(handler: ImageHandlerBase | None = None):
+    """An FX2 byte stream started for ``handler`` (a handler of its own by default).
+
+    Started the way ``_FX2Connection.start_stream`` starts the stream, so each
+    frame it ends is numbered by that handler's ``hand_over``: the transport
+    feeds only a started stream.
+    """
+    from drivers import fx2driver
+
+    stream = fx2driver._ByteStream()
+    stream.restart((handler if handler is not None else ImageHandlerBase()).hand_over)
+    return stream
 
 
 def frames_carrying(monkeypatch, driver, pixels) -> None:

@@ -486,7 +486,7 @@ class Lumascope:
         self._activity_claim: ActivityClaim | None = None
 
     def _frames_delivered(self) -> int:
-        """Frames the camera has delivered so far, for frame validity.
+        """Frames the camera's driver has handed over so far, for frame validity.
 
         Zero with no driver attached: no frame has arrived, which is what
         the number says. A write recorded against 0 is then satisfied by the

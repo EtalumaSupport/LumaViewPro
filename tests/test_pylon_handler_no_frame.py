@@ -34,7 +34,7 @@ def detached_camera():
         np.zeros((4, 4), dtype=np.uint16),
         datetime.datetime.now(),
         chunks=None,
-        arrived_ns=0,
+        handed_over=handler.hand_over(),
         significant_bits=12,
         wire_bytes=0,
     )

@@ -15,6 +15,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from drivers import fx2driver
+from tests.camera_fakes import fx2_stream
 
 COMPLETED = fx2driver.usb1.TRANSFER_COMPLETED
 CANCELLED = fx2driver.usb1.TRANSFER_CANCELLED
@@ -27,13 +28,13 @@ def _camera():
     Not streaming, so the callback does not resubmit the transfer.
     """
     transport = fx2driver._LibusbTransport()
-    transport._stream = fx2driver._ByteStream()
+    transport._stream = fx2_stream()
     return transport
 
 
 def _received(cam):
     """Each frame the stream ended, with whether a failure fell inside it."""
-    return [(bytes(data), damaged) for data, damaged in cam._stream.take_frames()]
+    return [(bytes(data), damaged) for data, damaged, _ in cam._stream.take_frames()]
 
 
 def _transfer(status, packets=()):

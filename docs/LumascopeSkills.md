@@ -713,10 +713,12 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # source's last change; the answers ride its record
 # (last_capture_info['frame_record'].judgments), its saved file
 # ('frame_validity' in the metadata) and one line in api.log. A Judgment
-# carries counts, frames_after, after_write_ms, after_in_force_ms (motion:
-# from the axis settling), under the clock rule frame_start_ticks and
-# qualifies_after_ticks, and the change's rule and credits, each frame
-# counted toward its wait with who counted it (drain, grab or preview).
+# carries counts, frames_after (frames handed over after the change, up to
+# and including this one: an upper bound on the frames stored after it),
+# after_write_ms, after_in_force_ms (motion: from the axis settling), under
+# the clock rule frame_start_ticks and qualifies_after_ticks, and the
+# change's rule and credits, each frame counted toward its wait with who
+# counted it (drain, grab or preview).
 # Beside each grab a capture maps the camera's timestamp clock onto the
 # scope's steady clock (session.host_steady_ns()): the record's clock_mapping, a
 # ClockMapping (host_ns, camera_ticks, tick_hz, uncertainty_ns, half the
@@ -2367,9 +2369,9 @@ scope.imaging.remove_frame_listener(on_frame)
 
 - **The frame record.** A listener is called with one argument, the camera's `Frame`, the record its frame store built, shared with every other reader:
   - `image`: the pixels, cropped to the camera's window;
-  - `seq`: the arrival number, which only goes up (order frames by it, not by a clock);
+  - `seq`: the hand-over number, taken where the driver first had the frame, before any host queue; it only goes up (order frames by it, not by a clock) and may skip a number for a frame handed over and never stored;
   - `timestamp`: the host's wall-clock time at arrival, for what a person reads;
-  - `arrived_ns`: the scope's steady clock at arrival, `session.host_steady_ns()`'s clock, a steady time compared only with that clock and the scope's other steady stamps;
+  - `arrived_ns`: the scope's steady clock at the hand-over, `session.host_steady_ns()`'s clock, a steady time compared only with that clock and the scope's other steady stamps;
   - `significant_bits`: the payload depth of these pixels (12 for Mono12 in a uint16 container);
   - `chunks`: the camera's per-frame metadata (`ExposureTime`, `Gain`, `FrameID`, `Timestamp` on a Basler), or `None` for a camera that stamps none (IDS, FX2, the simulator).
 - **Read-only frame.** The record is read-only: `frame.image` refuses a write (`ValueError`) and `frame.chunks` is a read-only mapping. Never set the image writeable again (`flags.writeable = True`): every other holder would see the change. Draw on your own copy (`frame.image.copy()`). Keeping the record is safe: no later frame changes it.
@@ -3029,7 +3031,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `refuse_camera_write(node, answer, count=1)` | the next `count` writes of `node` (`'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, `'auto_gain_once'`, `'auto_gain_target_brightness'`) answer `'false'`, `'none'`, `'true'` (not for `'frame_size'`, whose write answers the window it delivers) or `'raise'`; with `'removed'` False as the camera leaves the bus during the write; with `'no_answer'` `CameraNoAnswerError`, the camera still on the bus. The API sends an unanswered write once more, so `count=2` makes one go unanswered | camera | camera | refused |
 | `refuse_camera_read(node, answer, count=1)` | the next `count` reads of `node` (`'gain'`, `'exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'frame_rate'`, `'minimum_exposure'`, `'auto_gain'`, `'auto_exposure'`) fail: `'raise'`; `'sentinel'`, the driver's failed-read value (-1 for the gain, the exposure and the binning, nothing for the frame size; not for the other nodes, whose drivers raise); or `'removed'`, raising as the camera leaves the bus during the read | camera | camera | refused |
 | `stall_stream(after_s, for_s)` | no frame for `for_s` s, starting in `after_s` s | camera | camera | refused (`silence('led')`) |
-| `delay_delivery(frames)` | each frame reaches the host once `frames` more have been made after it, as through a link or driver queue that has fallen behind | camera | camera | refused |
+| `delay_delivery(frames)` | each frame is stored once `frames` more have been handed over after it, as through a driver queue that has fallen behind; it is numbered and timed at its hand-over | camera | camera | refused |
 | `refuse_stream_start(count=1)` | the next `count` stream starts are refused, the camera staying on the bus; the start raises `CameraStreamStartFailedError` (`camera_stream_start_failed`) to its caller | refused (the simulated camera is made like a Pylon body, whose driver logs a start that fails) | refused | FX2 |
 | `bind_camera_usb_driver(hardware_id, service)` | Windows binds one USB identity of the FX2 (`USB\VID_04B4&PID_8613` or `USB\VID_04B4&PID_EA17`) to `service` (`'libusbK'`; None for no driver), as a Zadig run would; the camera already up keeps running, `diagnostics.get_camera_usb_bindings` reads the new binding, and the next connect checks it | refused | refused | FX2 |
 | `refuse_led_write(count=1)` | the LED board's next `count` writes are refused, the board staying on the bus (an FX2 LED command is three writes); the command raises the LED board's `BoardPortFailedError` (`board_port_failed`) to its caller, and the LED stays connected | refused | refused | FX2 |

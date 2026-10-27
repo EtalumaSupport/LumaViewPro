@@ -19,8 +19,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import ids_peak_ipl
+import numpy as np
 import pytest
 
+from drivers import host_clock
+from drivers.camera import HandOver
 from drivers.camera_profiles import CameraProfile
 from drivers.idscamera import (
     IDSCamera,
@@ -406,17 +409,18 @@ class TestLatestBufferSlot:
         requeued = []
         return _LatestBufferSlot(requeued.append), requeued
 
-    def test_put_then_get_returns_buffer_without_requeue(self):
+    def test_put_then_get_returns_buffer_and_its_hand_over_without_requeue(self):
         slot, rq = self._slot()
-        slot.put('a')
-        assert slot.get(timeout=0) == 'a'
+        handed_over = HandOver(1, 0)
+        slot.put('a', handed_over)
+        assert slot.get(timeout=0) == ('a', handed_over)
         assert rq == []  # nothing displaced -> nothing re-queued
 
     def test_newest_wins_requeues_the_displaced_buffer(self):
         slot, rq = self._slot()
-        slot.put('old')
-        slot.put('new')
-        assert slot.get(timeout=0) == 'new'
+        slot.put('old', HandOver(1, 0))
+        slot.put('new', HandOver(2, 0))
+        assert slot.get(timeout=0) == ('new', HandOver(2, 0))
         assert rq == ['old']  # the stale buffer went back to the pool
         assert slot.dropped == 1
         assert slot.get(timeout=0) is None
@@ -437,7 +441,7 @@ class TestLatestBufferSlot:
         from drivers.idscamera import _LatestBufferSlot
 
         slot, rq = self._slot()
-        slot.put('held')
+        slot.put('held', HandOver(1, 0))
         slot.stop()
         # The held buffer goes back to the pool (not to the worker), then STOP.
         assert rq == ['held']
@@ -453,10 +457,10 @@ class TestLatestBufferSlot:
         t = threading.Thread(target=consume)
         t.start()
         time.sleep(0.05)  # let the consumer park in get()
-        slot.put('arrived')
+        slot.put('arrived', HandOver(1, 0))
         t.join(timeout=2.0)
         assert not t.is_alive()
-        assert out == ['arrived']
+        assert out == [('arrived', HandOver(1, 0))]
 
 
 class _FakeDataStream:
@@ -1008,7 +1012,8 @@ class TestIncompleteFrameEscalation:
         ds.WaitForFinishedBuffer.side_effect = _next
         h._poll_loop()
         h._parent._handle_device_lost.assert_not_called()  # one blip is absorbed
-        h._slot.put.assert_called_once_with(good)  # the complete frame reached the worker
+        h._slot.put.assert_called_once()  # the complete frame reached the worker
+        assert h._slot.put.call_args.args[0] is good
 
     def test_a_complete_frame_resets_the_bad_frame_run(self, monkeypatch):
         from drivers import idscamera
@@ -1742,8 +1747,8 @@ class TestPipelineLifecycle:
         h = _ids_handler(ds)
         stored = []
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda img, ts, *, arrived_ns, significant_bits, wire_bytes: stored.append(
-            (img, significant_bits, wire_bytes)
+        h._store_frame = lambda img, ts, *, handed_over, significant_bits, wire_bytes: (
+            stored.append((img, significant_bits, wire_bytes))
         )
         h.start()
         self._wait_until(lambda: stored)
@@ -1817,8 +1822,8 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = slow_unpack
-        h._store_frame = lambda img, ts, *, arrived_ns, significant_bits, wire_bytes: stored.append(
-            img
+        h._store_frame = lambda img, ts, *, handed_over, significant_bits, wire_bytes: (
+            stored.append(img)
         )
         h.start()
         time.sleep(0.3)  # all three drain while the worker is held on b0
@@ -1848,14 +1853,49 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = flaky_unpack
-        h._store_frame = lambda img, ts, *, arrived_ns, significant_bits, wire_bytes: stored.append(
-            img
+        h._store_frame = lambda img, ts, *, handed_over, significant_bits, wire_bytes: (
+            stored.append(img)
         )
         h.start()
         self._wait_until(lambda: 'good' in stored)
         h.stop()
         assert 'good' in stored  # the exception on 'boom' didn't kill the worker
         assert ds.requeued.count(boom) == 1  # re-queued via finally despite raising
+
+    def test_a_frame_is_numbered_and_timed_where_the_poll_thread_hands_it_over(self):
+        """The ordinal and steady time are the poll thread's, before the worker's unpack.
+
+        The worker is held in its unpack, as a host that has fallen behind
+        holds it: the frame is already numbered, and the time it carries is
+        from before the worker was let go. Numbered at the store instead, a
+        frame waiting for the worker when a write went out would be placed
+        after the write.
+        """
+        ds = _FakeDataStream([_FakeBuffer('b0')])
+        h = _ids_handler(ds)
+        release = threading.Event()
+
+        def held_unpack(buf):
+            release.wait(timeout=5)
+            return np.zeros((2, 2), dtype=np.uint16), 12
+
+        h._unpack = held_unpack
+        h.start()
+        try:
+            self._wait_until(lambda: h.frames_delivered == 1)
+            assert h.frames_delivered == 1, (
+                'the poll thread did not number the frame it handed over'
+            )
+            assert h.delivered_counts[0] == 0  # the worker has stored nothing yet
+            released_ns = host_clock.steady_ns()
+            release.set()
+            self._wait_until(lambda: h.get_last_image() is not None)
+        finally:
+            release.set()
+            h.stop()
+        frame = h.get_last_image()
+        assert frame.seq == 1
+        assert frame.arrived_ns < released_ns
 
     def test_stop_is_idempotent_and_joins(self):
         ds = _FakeDataStream([])

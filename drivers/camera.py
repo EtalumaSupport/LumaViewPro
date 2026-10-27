@@ -22,6 +22,7 @@ except ImportError:
     # are unguarded, so a None fallback turns every one into an AttributeError the
     # moment the dedicated camera logger is unavailable.
     _cam_log = logger
+from drivers import host_clock
 from drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
@@ -77,6 +78,29 @@ class FrameWindow:
         return cls(plan.acq_width, plan.acq_height, crop)
 
 
+@dataclass(frozen=True, slots=True)
+class HandOver:
+    """Where a driver first had a frame: its ordinal and its steady time, taken together.
+
+    A driver takes it from its handler (``ImageHandlerBase.hand_over``) at the
+    point the frame leaves the camera's side -- the SDK callback, the poll
+    thread, the end of the frame on the wire -- and carries it with the frame
+    through whatever queue stands between there and the store. A change is
+    placed in the frame stream by the same count, so a frame that was on its
+    way when the change was made is numbered before it however long the
+    host's queue held it.
+
+    Attributes:
+        seq: The handler's hand-over ordinal: unique, only rising, and may
+            skip a number for a frame handed over but never stored.
+        arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
+            the hand-over.
+    """
+
+    seq: int
+    arrived_ns: int
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class Frame:
     """One delivered frame and the facts known when it was stored.
@@ -90,12 +114,14 @@ class Frame:
 
     Attributes:
         image: The pixels, cropped to the camera's window, read-only.
-        seq: Arrival ordinal: how many frames this camera had delivered when
-            it was stored. Only goes up, whatever the clocks do.
+        seq: Hand-over ordinal: how many frames this camera's handler had
+            been handed when the driver first had this one (``HandOver``).
+            Only goes up, whatever the clocks do, and may skip a number for a
+            frame handed over and never stored.
         timestamp: Host wall-clock time at arrival, for what a person reads
             (file names, logs). It can step backwards; order by ``seq``.
         arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
-            arrival, taken where the driver first had the frame: a steady time
+            the hand-over, where the driver first had the frame: a steady time
             to set against when a change was made.
         significant_bits: Payload depth of these pixels (12 for Mono12 in a
             uint16 container), from the frame's own format.
@@ -128,15 +154,19 @@ class ImageHandlerBase:
         # another's facts. None until a frame is stored, and after a failed
         # grab or a reset.
         self._last_frame: Frame | None = None
-        # Arrival ordinal: how many frames this handler has delivered, and the
-        # ordinal of the buffered one. Frame validity decides whether a frame
-        # predates a hardware write by comparing these, so the value must be
-        # something that cannot run backwards -- a wall clock can (DST, an NTP
-        # step, a VM resume), and a settle count measured against a timestamp
-        # that jumped forward never completes.
-        self._frames_delivered = 0
-        # The bytes those frames took on the link, counted beside them so the
-        # wire rate is measured over the same frames as the frame rate.
+        # Hand-over ordinal: how many frames the driver has handed this
+        # handler, counted where it first had each, whatever thread that is.
+        # Frame validity decides whether a frame predates a hardware write by
+        # comparing these, so the value must be something that cannot run
+        # backwards -- a wall clock can (DST, an NTP step, a VM resume), and a
+        # settle count measured against a timestamp that jumped forward never
+        # completes. Counted at the hand-over, not the store, so a frame still
+        # in a host queue when a write goes out is numbered before it.
+        self._frames_handed_over = 0
+        # How many frames were stored, and the bytes they took on the link,
+        # counted together so the wire rate is measured over the same frames
+        # as the frame rate.
+        self._frames_stored = 0
         self._bytes_delivered = 0
         self._failed_grabs = 0
         # The camera's window, pushed here by the camera (set_frame_size, a
@@ -166,26 +196,41 @@ class ImageHandlerBase:
         )
         self._last_arrival_t = None
 
-    @property
-    def frames_delivered(self) -> int:
-        """How many frames this handler has stored since construction.
+    def hand_over(self) -> HandOver:
+        """Number a frame the driver has just had from the camera, and time it.
 
-        Read at the moment a hardware write is issued, this is the ordinal of
-        the last frame that had already arrived -- so a later frame can be
-        told apart from one that was already in flight.
+        Called once per frame where the driver first has it, before any queue
+        between there and ``_store_frame``. A frame handed over and then
+        dropped (displaced, damaged, of another window) leaves its number
+        unused; nothing reads the numbers as consecutive.
         """
         with self._frame_lock:
-            return self._frames_delivered
+            self._frames_handed_over += 1
+            return HandOver(self._frames_handed_over, host_clock.steady_ns())
+
+    @property
+    def frames_delivered(self) -> int:
+        """How many frames the driver has handed this handler since construction.
+
+        Read at the moment a hardware write is issued, this is the ordinal of
+        the last frame the driver already had -- so a later frame can be told
+        apart from one that was already in flight, including one still in a
+        host queue on its way to the store.
+        """
+        with self._frame_lock:
+            return self._frames_handed_over
 
     @property
     def delivered_counts(self) -> tuple[int, int]:
         """``(frames, wire bytes)`` this handler has stored since construction.
 
         Read together under the lock, so a rate taken from two readings
-        counts the bytes of exactly the frames it counts.
+        counts the bytes of exactly the frames it counts. A store that has
+        stopped while frames are still handed over stops these, so a wedged
+        store stage reads as a stalled stream.
         """
         with self._frame_lock:
-            return self._frames_delivered, self._bytes_delivered
+            return self._frames_stored, self._bytes_delivered
 
     def _detached(self) -> bool:
         """True when the buffered frame's device is no longer attached.
@@ -219,7 +264,7 @@ class ImageHandlerBase:
     def reset(self) -> None:
         """Clear frame buffer and failure counter.
 
-        Deliberately leaves ``_frames_delivered`` alone. It is an ordinal, not
+        Deliberately leaves ``_frames_handed_over`` alone. It is an ordinal, not
         buffer state: restarting it would let a frame arriving after a reset
         carry a lower number than one that arrived before, which is exactly
         the backwards step the ordinal exists to rule out. The buffered
@@ -262,7 +307,7 @@ class ImageHandlerBase:
         timestamp: datetime.datetime,
         chunks: dict | None = None,
         *,
-        arrived_ns: int,
+        handed_over: HandOver,
         significant_bits: int,
         wire_bytes: int,
     ) -> Frame | None:
@@ -273,10 +318,10 @@ class ImageHandlerBase:
             timestamp: datetime when the frame arrived host-side.
             chunks: optional per-frame chunk metadata dict. None for cameras
                 without chunk support.
-            arrived_ns: The scope's steady clock (``host_clock.steady_ns``)
-                where the driver first had the frame, taken beside
-                ``timestamp`` -- REQUIRED, so no frame is stored without a
-                steady time a change can be set against.
+            handed_over: The frame's ``hand_over()``, taken where the driver
+                first had it -- REQUIRED, so no frame is stored without the
+                ordinal and steady time a change is set against, and none is
+                numbered by when a host queue let it through.
             significant_bits: payload depth of THIS frame -- REQUIRED, so a frame
                 can never be buffered without the depth needed to interpret it.
                 The subclass derives it from the frame itself (the grab result's
@@ -328,13 +373,13 @@ class ImageHandlerBase:
             self._last_arrival_t = _arrive_t
         chunks = MappingProxyType(dict(chunks)) if chunks is not None else None
         with self._frame_lock:
-            self._frames_delivered += 1
+            self._frames_stored += 1
             self._bytes_delivered += wire_bytes
             frame = Frame(
                 image=image,
-                seq=self._frames_delivered,
+                seq=handed_over.seq,
                 timestamp=timestamp,
-                arrived_ns=arrived_ns,
+                arrived_ns=handed_over.arrived_ns,
                 significant_bits=significant_bits,
                 chunks=chunks,
             )
@@ -1437,13 +1482,14 @@ class Camera(ABC):
 
     @property
     def frames_delivered(self) -> int:
-        """Frames this camera has delivered since the handler was built.
+        """Frames the driver has handed this camera's handler since it was built.
 
         Read when a hardware register is written, this names the last frame
-        that had already arrived, so a frame handed to frame validity later
-        can be told apart from one that was already in flight when the write
-        went out. Returns 0 before a handler exists -- no frame has arrived,
-        which is what the number means.
+        the driver already had, so a frame handed to frame validity later can
+        be told apart from one that was already in flight when the write went
+        out, a frame still in a host queue included. Returns 0 before a
+        handler exists -- no frame has arrived, which is what the number
+        means.
         """
         handler = self.cam_image_handler
         return handler.frames_delivered if handler is not None else 0

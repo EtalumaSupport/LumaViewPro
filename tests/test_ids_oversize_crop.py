@@ -343,7 +343,13 @@ def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypat
 
     store = ImageHandlerBase()
     store.frame_window = FrameWindow(1920, 1900, (10, 0, 1900, 1900))
-    store._store_frame(array, 'TS', arrived_ns=0, significant_bits=significant_bits, wire_bytes=0)
+    store._store_frame(
+        array,
+        'TS',
+        handed_over=store.hand_over(),
+        significant_bits=significant_bits,
+        wire_bytes=0,
+    )
     # Exactly the centered 1900-wide window of the 1920 frame.
     assert np.array_equal(store.get_last_image().image, full[0:1900, 10:1910])
 

@@ -581,7 +581,7 @@ class _WireSpy:
     def _spy(self):
         ended = self._take()
         with self._lock:
-            for frame, _damaged in ended:
+            for frame, _damaged, _handed_over in ended:
                 self.sizes[len(frame)] += 1
                 if len(self.frames) < self._keep:
                     self.frames.append(bytes(frame))

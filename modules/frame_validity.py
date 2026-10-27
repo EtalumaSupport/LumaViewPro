@@ -198,9 +198,10 @@ class Change:
 
     Attributes:
         source: What changed.
-        at_seq: The frame the camera had already delivered when the change
-            was recorded; for a move, once in force, when its stop was
-            stamped (``FrameValidity.motion_settled``). A frame already in
+        at_seq: The last frame the camera's driver had been handed when the
+            change was recorded, a frame still in a host queue included; for
+            a move, once in force, when its stop was stamped
+            (``FrameValidity.motion_settled``). A frame already in
             the camera's pipeline when the
             register was written cannot show the new state, so crediting it
             would retire the skip count against frames that predate the
@@ -270,9 +271,11 @@ class Judgment:
     Attributes:
         change: The change judged against, as it stood when judged; its
             ``rule`` is the rule it was judged by.
-        frame_seq: The frame's arrival ordinal.
-        frames_after: Frames delivered after the change was recorded, up to
-            and including this one.
+        frame_seq: The frame's hand-over ordinal.
+        frames_after: Frames handed over after the change was recorded, up
+            to and including this one: an upper bound on the frames stored
+            after it, since a frame handed over may be dropped before the
+            store.
         after_write_ms: Milliseconds from the change's recording to the
             frame's arrival.
         after_in_force_ms: Milliseconds from the change's in-force time to
@@ -439,8 +442,9 @@ class FrameValidity:
         """
         Args:
             frames_delivered: zero-argument callable returning how many frames
-                the camera has delivered so far. REQUIRED -- without it a write
-                cannot be placed in the frame stream, every frame would credit
+                the camera's driver has handed over so far (``HandOver``).
+                REQUIRED -- without it a write cannot be placed in the frame
+                stream, every frame would credit
                 every pending source, and that is precisely the defect this
                 class exists to prevent. Passing a callable rather than the
                 driver keeps the lookup late: the composition root assigns the

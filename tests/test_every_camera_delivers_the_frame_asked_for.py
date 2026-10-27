@@ -26,7 +26,7 @@ def _store(handler, w, h):
     handler._store_frame(
         np.zeros((h, w), dtype=np.uint8),
         datetime.datetime.now(),
-        arrived_ns=0,
+        handed_over=handler.hand_over(),
         significant_bits=8,
         wire_bytes=0,
     )
@@ -100,9 +100,9 @@ def test_a_frame_from_a_window_no_longer_set_is_not_stored():
     cam.set_frame_size(1897, 1101)
     handler = cam.cam_image_handler
     _store(handler, 1920, 1200)
-    assert handler.frames_delivered == 0
+    assert handler.delivered_counts[0] == 0
     _store(handler, 1900, 1102)
-    assert handler.frames_delivered == 1
+    assert handler.delivered_counts[0] == 1
 
 
 def test_a_binning_change_lets_the_new_frame_through_until_a_window_is_set(sim_camera):

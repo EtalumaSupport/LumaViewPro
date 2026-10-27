@@ -11,12 +11,15 @@ change it waited for.
 from __future__ import annotations
 
 import threading
+import time
 
 import numpy as np
 import pytest
 
+from drivers import host_clock
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import ArgumentRefusedError
+from modules.frame_validity import FrameValiditySource
 from tests.camera_fakes import delivered_frame
 from tests.scope_fakes import build_scope
 
@@ -47,6 +50,15 @@ def _frames_from(scope, change, wanted: int) -> list:
     return frames
 
 
+def _wait_for(predicate, timeout_s=5.0):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
 def test_a_backlog_delivers_frames_made_before_the_change(sim_scope):
     camera = sim_scope.camera
     before = camera.read_gain_db()
@@ -65,6 +77,68 @@ def test_a_backlog_delivers_frames_made_before_the_change(sim_scope):
     # Every frame started before the write and every one held behind them
     # arrived after it began: the frames collected before it are extra.
     assert old >= in_flight, made_under
+
+
+def test_a_frame_held_before_the_store_is_placed_before_a_change_made_while_it_was_held(sim_scope):
+    """The frames on their way to the store when a change is recorded are numbered before it.
+
+    A frame is numbered where the driver first has it, so one still in a
+    host queue when the write goes out sits at or below the change's
+    ``at_seq`` however long the queue holds it. Numbered at the store, it
+    would sit above it and be credited toward the change it predates, and
+    a count measured on one host would then cover that host's queue.
+    """
+    camera = sim_scope.camera
+    sim_scope.simulation.delay_delivery(BACKLOG)
+    _frames_from(sim_scope, lambda: None, 1)  # the backlog stands
+    received = []
+
+    def on_frame(frame):
+        received.append((frame, host_clock.steady_ns()))
+
+    sim_scope.imaging.add_frame_listener(on_frame, name='after the change')
+    try:
+        camera.set_gain_db(camera.read_gain_db() + 6.0)
+        change = sim_scope.imaging.recorded_changes()[FrameValiditySource.GAIN]
+
+        def stored_after():
+            return [f for f, at in list(received) if at > change.written_ns]
+
+        assert _wait_for(lambda: len(stored_after()) > BACKLOG), 'too few frames came after'
+    finally:
+        sim_scope.imaging.remove_frame_listener(on_frame)
+
+    held = [f.seq for f in stored_after() if f.seq <= change.at_seq]
+    assert len(held) >= BACKLOG, (held, change.at_seq)
+
+
+def test_a_capture_under_a_backlog_returns_a_frame_stored_after_it_asked(sim_scope):
+    """The simulator's capture waits on the frames stored, never on those handed over.
+
+    Under a backlog the camera has handed over frames it has not stored, so
+    a wait on the hand-over count against a stored count is met at once and
+    hands back the frame stored before the capture asked.
+    """
+    sim_scope.simulation.delay_delivery(BACKLOG)
+    _frames_from(sim_scope, lambda: None, 1)  # the backlog stands
+    asked = threading.Event()
+    stored_since = []
+
+    def on_frame(frame):
+        if asked.is_set():
+            stored_since.append(frame)
+
+    sim_scope.imaging.add_frame_listener(on_frame, name='since the capture asked')
+    try:
+        asked.set()
+        frame = sim_scope._camera_driver.grab_new_capture(5.0)
+    finally:
+        sim_scope.imaging.remove_frame_listener(on_frame)
+
+    assert frame is not None
+    assert any(f is frame for f in stored_since), (
+        'the capture returned a frame stored before it asked'
+    )
 
 
 def test_clear_releases_the_held_frames(sim_scope):

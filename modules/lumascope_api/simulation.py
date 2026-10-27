@@ -663,15 +663,16 @@ class SimulationAPI:
 
     @api(in_process=True)
     def delay_delivery(self, frames: int) -> None:
-        """The camera's frames reach the host ``frames`` behind the camera from
-        now on, as through a link or a driver queue that has fallen behind.
+        """The camera's frames are stored ``frames`` behind their hand-over
+        from now on, as through a driver queue that has fallen behind.
 
-        Each frame arrives once ``frames`` more have been made after it, so
-        a frame made before a change can arrive well after it, numbered and
-        timed at its arrival. The backlog builds over the next ``frames``
-        frames, in which none arrives; the first frame to arrive after this
+        Each frame is numbered and timed when the driver has it, and stored
+        once ``frames`` more have been handed over after it, so a frame
+        handed over before a change can be stored well after it and is still
+        placed before it. The backlog builds over the next ``frames``
+        frames, in which none is stored; the first frame stored after this
         call says it stands. ``clear`` takes it back and the held frames
-        arrive at once.
+        are stored at once.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;

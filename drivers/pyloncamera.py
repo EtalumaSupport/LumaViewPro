@@ -12,11 +12,11 @@ from typing import Any
 
 from pypylon import genicam, pylon
 
-from drivers import host_clock
 from drivers.camera import (
     Camera,
     Frame,
     FrameGrid,
+    HandOver,
     ImageHandlerBase,
     declared_speed,
     link_info,
@@ -4655,9 +4655,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 except Exception:
                     owned = None
                 try:
-                    self._worker.enqueue(
-                        'fail', owned, datetime.datetime.now(), host_clock.steady_ns()
-                    )
+                    self._worker.enqueue('fail', owned, datetime.datetime.now(), None)
                     _outcome = 'exception_grabsucceeded'
                 except queue.Full:
                     _outcome = 'queue_full_dropped_failure'
@@ -4665,7 +4663,6 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 return
 
             ts = datetime.datetime.now()
-            arrived_ns = host_clock.steady_ns()
 
             # H2/H3 diagnostic: Stage A is otherwise silent on the success
             # enqueue path. Log the GrabSucceeded value + grabResult identity
@@ -4708,7 +4705,10 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     # CGrabResultPtrImpl refcount); the result is an owning
                     # wrapper that survives cross-thread handoff.
                     owned = pylon.GrabResult(grabResult)
-                    self._worker.enqueue('frame', owned, ts, arrived_ns)
+                    # Numbered here, where the driver first has the frame, so
+                    # a frame still in the worker queue when a write goes out
+                    # is placed before it.
+                    self._worker.enqueue('frame', owned, ts, self.hand_over())
                     _outcome = 'success_enqueued_frame'
                 except queue.Full:
                     # Stage B is wedged; drop this frame rather than
@@ -4745,7 +4745,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     # GetErrorDescription / GetBlockID across threads.
                     try:
                         owned = pylon.GrabResult(grabResult)
-                        self._worker.enqueue('fail', owned, ts, arrived_ns)
+                        self._worker.enqueue('fail', owned, ts, None)
                         _outcome = 'failure_enqueued'
                     except queue.Full:
                         _outcome = 'queue_full_dropped_failure'
@@ -4898,7 +4898,11 @@ class _PylonImageGrabWorker:
         self._thread.start()
 
     def enqueue(
-        self, kind: str, grabResult: pylon.GrabResult, ts: datetime.datetime, arrived_ns: int
+        self,
+        kind: str,
+        grabResult: pylon.GrabResult,
+        ts: datetime.datetime,
+        handed_over: HandOver | None,
     ) -> None:
         """Hand a Stage A item off to Stage B.
 
@@ -4915,13 +4919,13 @@ class _PylonImageGrabWorker:
                 NOT access it after this returns (single-thread invariant
                 on CGrabResultData).
             ts: Capture timestamp from Stage A's `datetime.now()`.
-            arrived_ns: Stage A's read of the scope's steady clock
-                (`host_clock.steady_ns`), taken beside `ts`: the frame's steady
-                arrival time.
+            handed_over: A frame's ``hand_over()``, taken by Stage A where
+                the driver first had it; None for a failure, which is no
+                frame.
         """
         if self._stop_event.is_set():
             return
-        self._worker_queue.put_nowait((kind, grabResult, ts, arrived_ns))
+        self._worker_queue.put_nowait((kind, grabResult, ts, handed_over))
 
     def stop(self, timeout: float = 1.0) -> None:
         """Signal stop, post sentinel, join with bounded timeout.
@@ -4967,7 +4971,7 @@ class _PylonImageGrabWorker:
         # released." Only consult the event when get() comes back empty.
         while True:
             try:
-                kind, grabResult, ts, arrived_ns = self._worker_queue.get(
+                kind, grabResult, ts, handed_over = self._worker_queue.get(
                     timeout=self._GET_POLL_TIMEOUT_S
                 )
             except queue.Empty:
@@ -4987,7 +4991,7 @@ class _PylonImageGrabWorker:
                     # smart pointer so the SDK can reclaim the buffer.
                     continue
                 if kind == 'frame':
-                    self._process_frame(grabResult, ts, arrived_ns)
+                    self._process_frame(grabResult, ts, handed_over)
                 elif kind == 'fail':
                     self._process_failure(grabResult, ts)
             except Exception as e:
@@ -4999,7 +5003,7 @@ class _PylonImageGrabWorker:
                 # when the grab results are never released."
                 del grabResult
 
-    def _process_frame(self, grabResult, ts, arrived_ns: int) -> None:
+    def _process_frame(self, grabResult, ts, handed_over: HandOver) -> None:
         """Stage B success path: 16 MB memcpy + chunks + store + legacy queue.
 
         A GetArray() failure is one failed grab, counted toward the
@@ -5062,7 +5066,7 @@ class _PylonImageGrabWorker:
             img,
             ts,
             chunks=chunks,
-            arrived_ns=arrived_ns,
+            handed_over=handed_over,
             significant_bits=significant_bits,
             wire_bytes=grabResult.GetPayloadSize(),
         )

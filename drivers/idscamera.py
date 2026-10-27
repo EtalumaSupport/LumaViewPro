@@ -25,11 +25,11 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers import host_clock
 from drivers.camera import (
     Camera,
     Frame,
     FrameGrid,
+    HandOver,
     ImageHandlerBase,
     declared_speed,
     link_info,
@@ -3440,6 +3440,10 @@ class _LatestBufferSlot:
     so dropping intermediate live frames changes nothing a consumer can observe;
     protocol capture runs on the separate grab_new_capture() path.
 
+    Each buffer travels with its ``HandOver``, taken by the poll thread as it
+    put the buffer here, so the frame is numbered where the driver first had
+    it and not when the worker got to it.
+
     get() blocks until a buffer arrives or the slot is stopped, draining any
     pending buffer before it reports the stop sentinel. stop() re-queues a
     still-held buffer so teardown leaks nothing.
@@ -3452,39 +3456,40 @@ class _LatestBufferSlot:
         # buffer newest-wins displaces, so a dropped buffer never leaks.
         self._requeue = requeue
         self._cond = threading.Condition()
-        self._buffer = None
+        # The waiting buffer and its hand-over, or None.
+        self._held: tuple[object, HandOver] | None = None
         self._stopped = False
         self.dropped = 0
 
-    def put(self, buffer):
+    def put(self, buffer: object, handed_over: HandOver) -> None:
         with self._cond:
-            stale = self._buffer
-            self._buffer = buffer
+            stale = self._held
+            self._held = (buffer, handed_over)
             if stale is not None:
                 self.dropped += 1
             self._cond.notify()
         # Re-queue the displaced buffer OUTSIDE the lock (QueueBuffer may block).
         if stale is not None:
-            self._requeue(stale)
+            self._requeue(stale[0])
 
-    def get(self, timeout):
-        """Return the latest buffer, None on timeout, or _STOP when stopped+empty."""
+    def get(self, timeout: float) -> tuple[object, HandOver] | object | None:
+        """Return the latest ``(buffer, hand-over)``, None on timeout, or _STOP when stopped+empty."""
         with self._cond:
-            if self._buffer is None and not self._stopped:
+            if self._held is None and not self._stopped:
                 self._cond.wait(timeout)
-            if self._buffer is not None:
-                buffer, self._buffer = self._buffer, None
-                return buffer
+            if self._held is not None:
+                held, self._held = self._held, None
+                return held
             return self._STOP if self._stopped else None
 
-    def stop(self):
+    def stop(self) -> None:
         with self._cond:
             self._stopped = True
-            stale = self._buffer
-            self._buffer = None
+            stale = self._held
+            self._held = None
             self._cond.notify_all()
         if stale is not None:
-            self._requeue(stale)
+            self._requeue(stale[0])
 
 
 class ImageHandler(ImageHandlerBase):
@@ -3714,9 +3719,10 @@ class ImageHandler(ImageHandlerBase):
             # a good frame.
             self._bad_frames_since_complete = 0
 
-            # Hand the buffer to the worker. A buffer this displaces is re-queued
-            # by the slot; the worker re-queues this one once it has unpacked it.
-            self._slot.put(buffer)
+            # Hand the buffer to the worker, numbered here, where the driver
+            # first has it. A buffer this displaces is re-queued by the slot;
+            # the worker re-queues this one once it has unpacked it.
+            self._slot.put(buffer, self.hand_over())
 
     def _note_bad_frame(self) -> bool:
         """Count a frame that arrived but yielded no usable image (incomplete, or
@@ -3989,13 +3995,14 @@ class ImageHandler(ImageHandlerBase):
     def _worker_loop(self):
         """Stage B: unpack the freshest buffer, store it, and re-queue it."""
         while True:
-            buffer = self._slot.get(self._WORKER_POLL_S)
-            if buffer is _LatestBufferSlot._STOP:
+            held = self._slot.get(self._WORKER_POLL_S)
+            if held is _LatestBufferSlot._STOP:
                 return
-            if buffer is None:  # idle poll, no buffer waiting
+            if held is None:  # idle poll, no buffer waiting
                 if self._stop_event.is_set():
                     return
                 continue
+            buffer, handed_over = held
             try:
                 array, significant_bits = self._unpack(buffer)
                 # Stamp the frame with the depth it was captured under so depth
@@ -4003,7 +4010,7 @@ class ImageHandler(ImageHandlerBase):
                 self._store_frame(
                     array,
                     datetime.datetime.now(),
-                    arrived_ns=host_clock.steady_ns(),
+                    handed_over=handed_over,
                     significant_bits=significant_bits,
                     wire_bytes=buffer.DeliveredDataSize(),
                 )

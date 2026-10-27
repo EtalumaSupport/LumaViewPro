@@ -15,6 +15,8 @@ import time
 from types import SimpleNamespace
 
 from drivers import fx2driver
+from drivers.camera import ImageHandlerBase
+from tests.camera_fakes import fx2_stream
 
 W = H = 100
 _LAYOUT = fx2driver.frame_layout(W, H)
@@ -25,7 +27,7 @@ _PACKETS = [_BODY[i : i + _STEP] for i in range(0, len(_BODY), _STEP)]
 
 
 def test_a_stream_counts_the_bytes_that_arrived_not_the_bytes_taken():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     stream.packet(b'0123456789')
     stream.take_frames()
     stream.packet(b'abc')
@@ -36,7 +38,7 @@ def test_a_stream_counts_the_bytes_that_arrived_not_the_bytes_taken():
 
 
 def test_the_grab_loop_counts_a_frame_it_waited_on_once():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(
         stream=stream, take_gone_report=lambda: False, off_the_bus=lambda: False
@@ -46,7 +48,7 @@ def test_the_grab_loop_counts_a_frame_it_waited_on_once():
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, arrived_ns, significant_bits, wire_bytes: stored.append(
+        _store_frame=lambda image, ts, handed_over, significant_bits, wire_bytes: stored.append(
             image.shape
         )
     )
@@ -74,15 +76,15 @@ def test_the_grab_loop_counts_a_frame_it_waited_on_once():
 
 
 def test_a_new_stream_counts_nothing_from_the_last_one():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     stream.packet(b'left over from the last stream')
-    stream.restart()
+    stream.restart(ImageHandlerBase().hand_over)
     assert stream.take_counts().arrived == 0
     assert stream.take_frames() == []  # nothing assembled from the last stream
 
 
 def test_a_stop_counts_what_arrived_after_the_grab_loops_last_pass():
-    stream = fx2driver._ByteStream()
+    stream = fx2_stream()
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(stream=stream, stop_stream=lambda: None)
     cam._state_lock = threading.Lock()

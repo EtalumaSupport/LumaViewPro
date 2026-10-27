@@ -22,7 +22,7 @@ import numpy as np
 
 from lvp_logger import logger
 from drivers import host_clock
-from drivers.camera import Camera, Frame, FrameGrid, ImageHandlerBase, link_info
+from drivers.camera import Camera, Frame, FrameGrid, HandOver, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
 from drivers.exceptions import CameraNoAnswerError, PartAbsentError
 from drivers.registry import camera_registry
@@ -165,13 +165,13 @@ class _SimImageHandler(ImageHandlerBase):
         self._stored = threading.Condition()
 
     def _store_frame(
-        self, image, timestamp, chunks=None, *, arrived_ns, significant_bits, wire_bytes
+        self, image, timestamp, chunks=None, *, handed_over, significant_bits, wire_bytes
     ) -> Frame | None:
         frame = super()._store_frame(
             image,
             timestamp,
             chunks,
-            arrived_ns=arrived_ns,
+            handed_over=handed_over,
             significant_bits=significant_bits,
             wire_bytes=wire_bytes,
         )
@@ -180,10 +180,16 @@ class _SimImageHandler(ImageHandlerBase):
         return frame
 
     def wait_for_frame_after(self, since: int, timeout_s: float) -> bool:
-        """True once a frame later than ordinal ``since`` is stored; False on timeout."""
+        """True once more than ``since`` frames are stored; False on timeout.
+
+        ``since`` is a stored count (``delivered_counts[0]``), never the
+        hand-over ordinal: a frame handed over before the call but still on
+        its way to the store would satisfy an ordinal, and the capture would
+        take the frame stored before it asked.
+        """
         deadline = time.monotonic() + timeout_s
         with self._stored:
-            while self.frames_delivered <= since:
+            while self.delivered_counts[0] <= since:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return False
@@ -225,8 +231,8 @@ class SimulatedCamera(Camera):
     # with. The simulated camera's own constant, never the gate's skip count
     # or the timing record (b) runs on: coupled to either, a test of the gate
     # passes by construction. Two is the depth of a frame exposing and a
-    # frame reading out; frames held on the way to the host are the
-    # simulated backlog's.
+    # frame reading out; frames held between the hand-over and the store
+    # are the simulated backlog's.
     SENSOR_PIPELINE_FRAMES = 2
 
     # How long after a change the sensor's exposures show it: a register
@@ -398,9 +404,9 @@ class SimulatedCamera(Camera):
         self._latched_ticks = 0
         # The camera's frame counter: one per exposure started.
         self._frames_started = 0
-        # How many made frames wait on the way to the host before the
-        # oldest reaches it: a host backlog (``delay_delivery``). 0 delivers
-        # each frame as it is made.
+        # How many frames handed over wait on the way to the store before
+        # the oldest reaches it: a host backlog (``delay_delivery``). 0
+        # stores each frame as it is handed over.
         self._backlog_frames = 0
         # What each recently delivered frame was exposed under, by its
         # FrameID, oldest first (``exposed_under``).
@@ -765,13 +771,13 @@ class SimulatedCamera(Camera):
         self._held_window = None
 
     def delay_delivery(self, frames: int) -> None:
-        """Hold ``frames`` made frames on the way to the host from now on.
+        """Hold ``frames`` handed-over frames on the way to the store from now on.
 
-        A frame reaches the host only once ``frames`` more have been made
-        behind it, as a frame waits in a link or a driver queue that has
-        fallen behind: it arrives later than it was made, numbered and
-        timed at its arrival. 0 delivers each frame as it is made, and the
-        frames still held arrive at once.
+        A frame is stored only once ``frames`` more have been handed over
+        behind it, as a frame waits in a driver's queue that has fallen
+        behind: it is numbered and timed at its hand-over and stored later.
+        0 stores each frame as it is handed over, and the frames still held
+        are stored at once.
         """
         self._backlog_frames = frames
 
@@ -825,7 +831,8 @@ class SimulatedCamera(Camera):
         """
         next_due = time.monotonic()
         stalled = False
-        # Made frames on their way to the host, oldest first (delay_delivery).
+        # Frames handed over and on their way to the store, oldest first
+        # (delay_delivery).
         on_the_way: collections.deque = collections.deque()
         # The frames started and not yet delivered, oldest first.
         with self._lock:
@@ -886,10 +893,11 @@ class SimulatedCamera(Camera):
             held = self._held_window
             if held is not None and held[0] <= time.monotonic() < held[1]:
                 continue
-            # A frame reaches the host once the backlog behind it is made;
-            # with none it goes at once, and a backlog taken back releases
-            # every frame it held.
-            on_the_way.append((image, bits, chunks, exposure))
+            # The host has the frame here: it is numbered and timed now, as
+            # a real driver's SDK callback does, and stored once the backlog
+            # behind it is handed over; with none it goes at once, and a
+            # backlog taken back releases every frame it held.
+            on_the_way.append((handler.hand_over(), image, bits, chunks, exposure))
             while len(on_the_way) > self._backlog_frames:
                 self._deliver(handler, *on_the_way.popleft())
             # The next frame's own exposure is the inter-frame interval,
@@ -904,12 +912,13 @@ class SimulatedCamera(Camera):
     def _deliver(
         self,
         handler: _SimImageHandler,
+        handed_over: HandOver,
         image: np.ndarray,
         bits: int,
         chunks: dict,
         exposure: SensorExposure,
     ) -> None:
-        """Hand one made frame to the host, and keep what it was exposed under."""
+        """Store one handed-over frame, and keep what it was exposed under."""
         with self._lock:
             self._exposure_records[exposure.frame_id] = exposure
             while len(self._exposure_records) > self.EXPOSURE_RECORDS_KEPT:
@@ -921,7 +930,7 @@ class SimulatedCamera(Camera):
             image,
             datetime.datetime.now(),
             chunks,
-            arrived_ns=host_clock.steady_ns(),
+            handed_over=handed_over,
             significant_bits=bits,
             wire_bytes=image.nbytes,
         )
@@ -1534,7 +1543,7 @@ class SimulatedCamera(Camera):
         handler = self.cam_image_handler
         if not self._grabbing or handler is None:
             return None
-        if not handler.wait_for_frame_after(handler.frames_delivered, timeout_s):
+        if not handler.wait_for_frame_after(handler.delivered_counts[0], timeout_s):
             return None
         return self.grab()
 

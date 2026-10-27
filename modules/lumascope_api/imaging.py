@@ -1831,10 +1831,10 @@ class ImagingAPI:
         the rule each change's source runs (``capabilities.frame_rules``): a
         capture's record carries it for the frame it returns, and a frame
         listener can ask it of any frame it receives. Each ``Judgment``
-        carries the change it was judged against: the frame the camera had
-        delivered when it was recorded, when it was recorded, its rule, the
-        frames it needed and who counted them, and for a move when its axis
-        settled.
+        carries the change it was judged against: the last frame the driver
+        had been handed when it was recorded, when it was recorded, its rule,
+        the frames it needed and who counted them, and for a move when its
+        axis settled.
 
         Args:
             frame: A frame the camera delivered (a frame listener's ``Frame``).
@@ -1853,8 +1853,8 @@ class ImagingAPI:
         """Each source's last recorded change, settled or not, by source.
 
         What a frame is judged against (``judge_frame``): when the change was
-        recorded, the frame the camera had delivered then, its rule, and for
-        a move when its axis settled. A change stays its source's until the
+        recorded, the last frame the driver had been handed then, its rule,
+        and for a move when its axis settled. A change stays its source's until the
         next one replaces it.
 
         Raises:
@@ -2567,7 +2567,11 @@ class ImagingAPI:
             return
         exposure_s = max(0.0, self._camera.longest_exposure_ms or 0.0) / 1000.0
         bound_s = prologue_stall_threshold_s(exposure_s)
-        delivered = self._scope._frames_delivered()
+        # Frames stored, not handed over: a store stage that has wedged while
+        # the camera still hands frames over (Pylon's worker, the IDS unpack
+        # worker, the FX2 grab loop) delivers nothing a reader can have. A
+        # stream that is wanted has a driver (``streaming`` above).
+        stored, _ = driver.delivered_counts
         held_s = self._stream_watch_bound_s
         if held_s is not None and bound_s < held_s:
             # A shorter exposure: the frames already in the camera's pipeline
@@ -2575,9 +2579,9 @@ class ImagingAPI:
             # as many frames as the camera's measured exposure change takes
             # to reach its output have come.
             if self._stream_bound_dropped_at is None:
-                self._stream_bound_dropped_at = delivered
+                self._stream_bound_dropped_at = stored
             in_pipeline = self.frame_validity.SKIP_FRAMES[FrameValiditySource.EXPOSURE]
-            if delivered - self._stream_bound_dropped_at < in_pipeline:
+            if stored - self._stream_bound_dropped_at < in_pipeline:
                 bound_s = held_s
             else:
                 self._stream_bound_dropped_at = None
@@ -2590,9 +2594,9 @@ class ImagingAPI:
             watch = self._stream_watch = StallWatch(bound_s)
             self._stream_watch_bound_s = bound_s
         now = time.monotonic()
-        if not watch.stalled(delivered, now):
+        if not watch.stalled(stored, now):
             if self._stream_stall_reported:
-                logger.info(f'[CAM Class ] Camera stream resumed: frames_delivered={delivered}')
+                logger.info(f'[CAM Class ] Camera stream resumed: frames_stored={stored}')
             self._stream_stall_reported = False
             return
         if self._stream_stall_reported:
@@ -2600,7 +2604,7 @@ class ImagingAPI:
         self._stream_stall_reported = True
         seconds = watch.quiet_for_s(now)
         logger.info(
-            f'[CAM Class ] Camera stream stalled: frames_delivered={delivered} unchanged '
+            f'[CAM Class ] Camera stream stalled: frames_stored={stored} unchanged '
             f'for {seconds:.1f} s (bound {bound_s:.1f} s at exposure {exposure_s * 1000.0:.1f} ms)'
         )
         notifications.report_outcome(

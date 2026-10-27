@@ -45,7 +45,7 @@ class TestABufferedFrameKeepsItsDepth:
         h._store_frame(
             np.zeros((4, 4), dtype=np.uint16),
             datetime.datetime.now(),
-            arrived_ns=0,
+            handed_over=h.hand_over(),
             significant_bits=12,
             wire_bytes=0,
         )

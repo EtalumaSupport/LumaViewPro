@@ -18,12 +18,12 @@ import pytest
 from drivers.camera import ImageHandlerBase
 
 
-def _store(handler, value, *, chunks=None, seq_hint=0):
+def _store(handler, value, *, chunks=None, handed_over=None):
     return handler._store_frame(
         np.full((4, 4), value, dtype=np.uint8),
         datetime.datetime.now(),
         chunks=chunks,
-        arrived_ns=1_000 + seq_hint,
+        handed_over=handed_over if handed_over is not None else handler.hand_over(),
         significant_bits=8,
         wire_bytes=16,
     )
@@ -32,11 +32,14 @@ def _store(handler, value, *, chunks=None, seq_hint=0):
 class TestTheStoreBuildsOneRecord:
     def test_the_record_carries_the_frames_pixels_number_times_depth_and_chunks(self):
         handler = ImageHandlerBase()
-        stored = _store(handler, 7, chunks={'ExposureTime': 14530.0, 'FrameID': 12})
+        handed_over = handler.hand_over()
+        stored = _store(
+            handler, 7, chunks={'ExposureTime': 14530.0, 'FrameID': 12}, handed_over=handed_over
+        )
 
         assert handler.get_last_image() is stored
         assert stored.seq == 1
-        assert stored.arrived_ns == 1_000
+        assert stored.arrived_ns == handed_over.arrived_ns
         assert stored.significant_bits == 8
         assert int(stored.image[0, 0]) == 7
         assert dict(stored.chunks) == {'ExposureTime': 14530.0, 'FrameID': 12}
@@ -59,7 +62,7 @@ class TestTheStoreBuildsOneRecord:
     def test_the_next_frame_replaces_the_record_and_leaves_the_last_one_as_it_was(self):
         handler = ImageHandlerBase()
         first = _store(handler, 1, chunks={'ExposureTime': 14530.0, 'Gain': 1.0})
-        second = _store(handler, 2, chunks={'ExposureTime': 30000.0}, seq_hint=1)
+        second = _store(handler, 2, chunks={'ExposureTime': 30000.0})
 
         assert handler.get_last_image() is second
         assert dict(second.chunks) == {'ExposureTime': 30000.0}

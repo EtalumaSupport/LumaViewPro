@@ -98,11 +98,11 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers import host_clock
 from drivers.camera import (
     Camera,
     Frame,
     FrameGrid,
+    HandOver,
     ImageHandlerBase,
     link_info,
     no_hardware_auto_mode,
@@ -995,6 +995,12 @@ class _ByteStream:
     The grab loop takes the frames ended since it last asked, all of them,
     and flushes at a window change. Every access goes through these methods,
     so a reader can never be left feeding a buffer the parser no longer reads.
+
+    A frame is numbered where it ends, by the handler the stream was started
+    for (``restart``): that is where the driver first has it, so a frame
+    still waiting for the grab loop when a write goes out is placed before
+    the write. The count is the handler's, so this stream, which outlives
+    every handler, never resets it.
     """
 
     def __init__(self):
@@ -1004,7 +1010,10 @@ class _ByteStream:
         self._longest = frame_layout(IMG_WIDTH, IMG_HEIGHT).frame_bytes
         self._frame = bytearray()
         self._damaged = False
-        self._ended: list[tuple[bytearray, bool]] = []
+        self._ended: list[tuple[bytearray, bool, HandOver]] = []
+        # The handler's hand_over, set by each restart; no packet arrives
+        # before the first, since the transport is fed only once started.
+        self._hand_over: Callable[[], HandOver] | None = None
         # Whether the last packet ended a frame, so the next one is due to
         # be the delimiter.
         self._delimiter_due = False
@@ -1048,12 +1057,12 @@ class _ByteStream:
             self._damaged = True
 
     def _end_frame(self) -> None:
-        self._ended.append((self._frame, self._damaged))
+        self._ended.append((self._frame, self._damaged, self._hand_over()))
         self._frame = bytearray()
         self._damaged = False
 
-    def take_frames(self) -> list[tuple[bytearray, bool]]:
-        """The frames ended since the last call, oldest first, each with whether it is damaged."""
+    def take_frames(self) -> list[tuple[bytearray, bool, HandOver]]:
+        """The frames ended since the last call, oldest first, each with whether it is damaged and its hand-over."""
         with self._lock:
             ended, self._ended = self._ended, []
             return ended
@@ -1086,13 +1095,17 @@ class _ByteStream:
         with self._lock:
             self._clear()
 
-    def restart(self) -> None:
+    def restart(self, hand_over: Callable[[], HandOver]) -> None:
         """A new stream: nothing assembled and nothing counted from the last one.
 
-        The silence is timed from here, so a stream is not heard as silent
-        before its first bytes have had time to come.
+        ``hand_over`` numbers each frame as it ends: the handler the stream
+        now feeds (``ImageHandlerBase.hand_over``), so the ordinal lives and
+        dies with the handler, never with this stream. The silence is timed
+        from here, so a stream is not heard as silent before its first bytes
+        have had time to come.
         """
         with self._lock:
+            self._hand_over = hand_over
             self._clear()
             self._zero_counts()
             self._last_arrival = time.monotonic()
@@ -1975,10 +1988,10 @@ class _FX2Connection:
 
     # -- the stream ---------------------------------------------------------
 
-    def start_stream(self) -> None:
-        """Start the device streaming into ``stream``, emptied first."""
+    def start_stream(self, hand_over: Callable[[], HandOver]) -> None:
+        """Start the device streaming into ``stream``, emptied first, its frames numbered by ``hand_over``."""
         with self._lock:
-            self.stream.restart()
+            self.stream.restart(hand_over)
             self._gone_reported.clear()
             try:
                 self._transport.start_stream(self.stream, self._gone_reported.set)
@@ -2511,7 +2524,7 @@ class FX2Camera(Camera):
         if _cam_log is not None:
             _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
-        self._fx2.start_stream()
+        self._fx2.start_stream(self.cam_image_handler.hand_over)
         # After the stream started, so a start that raised leaves the camera
         # not grabbing and the next start tries again; before the grab thread
         # that checks it.
@@ -2592,7 +2605,7 @@ class FX2Camera(Camera):
                 continue
             stats.record_counts(counts)
 
-            for frame_data, damaged in frames:
+            for frame_data, damaged, handed_over in frames:
                 # Only a frame of exactly its window's length, with nothing
                 # lost on USB, is stored: the length is fixed for a window,
                 # and anything else would be reshaped from a misaligned
@@ -2617,7 +2630,7 @@ class FX2Camera(Camera):
                     self.cam_image_handler._store_frame(
                         image,
                         datetime.now(),
-                        arrived_ns=host_clock.steady_ns(),
+                        handed_over=handed_over,
                         significant_bits=image.dtype.itemsize * 8,
                         wire_bytes=len(FRAME_DELIM) + len(frame_data),
                     )

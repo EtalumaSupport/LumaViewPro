@@ -20,6 +20,7 @@ import unittest
 import weakref
 from unittest.mock import MagicMock
 
+from drivers.camera import HandOver
 from drivers.pyloncamera import (
     _PYLON_ERR_BUFFER_CANCELED,
     _PYLON_ERR_PAYLOAD_DISCARDED,
@@ -165,19 +166,20 @@ class TestProcessFrame(unittest.TestCase):
         # the static method.
         worker, _, base, frame_queue = _make_worker()
         gr = _FakeGrabResult()
-        worker._process_frame(gr, 12345.0, 777)
+        handed_over = HandOver(5, 777)
+        worker._process_frame(gr, 12345.0, handed_over)
         base._store_frame.assert_called_once()
         # The wire bytes are the grab result's own payload, not the array's,
-        # and the steady arrival time is Stage A's.
+        # and the number and steady time are Stage A's hand-over.
         assert base._store_frame.call_args.kwargs['wire_bytes'] == 4321
-        assert base._store_frame.call_args.kwargs['arrived_ns'] == 777
+        assert base._store_frame.call_args.kwargs['handed_over'] is handed_over
         # The capture's queue holds the record the store built.
         self.assertIs(frame_queue.get_nowait(), base._store_frame.return_value)
 
     def test_drains_stale_before_putting(self):
         worker, _, base, frame_queue = _make_worker()
         frame_queue.put_nowait('stale record')
-        worker._process_frame(_FakeGrabResult(), 99.0, 0)
+        worker._process_frame(_FakeGrabResult(), 99.0, HandOver(1, 0))
         self.assertIs(frame_queue.get_nowait(), base._store_frame.return_value)
         self.assertTrue(frame_queue.empty())
 
@@ -217,7 +219,7 @@ class TestTheCapturesQueueCarriesTheStoredFrame(unittest.TestCase):
     def test_the_queue_carries_the_cropped_stored_frame(self):
         worker, base, frame_queue = self._worker_with_a_cropping_store()
 
-        worker._process_frame(_ArrayGrabResult(6, 8), 1.0, 0)
+        worker._process_frame(_ArrayGrabResult(6, 8), 1.0, base.hand_over())
 
         queued = frame_queue.get_nowait()
         self.assertIs(queued, base.get_last_image())
@@ -226,7 +228,7 @@ class TestTheCapturesQueueCarriesTheStoredFrame(unittest.TestCase):
     def test_a_frame_of_another_window_never_reaches_the_queue(self):
         worker, _base, frame_queue = self._worker_with_a_cropping_store()
 
-        worker._process_frame(_ArrayGrabResult(10, 10), 1.0, 0)
+        worker._process_frame(_ArrayGrabResult(10, 10), 1.0, _base.hand_over())
 
         self.assertTrue(frame_queue.empty())
 
@@ -300,7 +302,7 @@ class TestRunLoop(unittest.TestCase):
         worker, _, base, _frame_queue = _make_worker()
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 42.0, 0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 42.0, HandOver(1, 0)))
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._store_frame.called:
@@ -315,7 +317,7 @@ class TestRunLoop(unittest.TestCase):
         worker.start()
         try:
             worker._worker_queue.put_nowait(
-                ('fail', _FakeGrabResult(err_code=999, err_desc='x'), 0.0, 0)
+                ('fail', _FakeGrabResult(err_code=999, err_desc='x'), 0.0, None)
             )
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
@@ -331,7 +333,7 @@ class TestRunLoop(unittest.TestCase):
         parent._device_removed = True
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 0.0, 0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 0.0, HandOver(1, 0)))
             # Worker should consume but NOT call _process_frame.
             time.sleep(0.2)
             base._store_frame.assert_not_called()
@@ -343,11 +345,11 @@ class TestRunLoop(unittest.TestCase):
         base._store_frame.side_effect = RuntimeError('boom')
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 1.0, 0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 1.0, HandOver(1, 0)))
             time.sleep(0.2)
             self.assertTrue(worker._thread.is_alive())
             base._store_frame.side_effect = None
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 2.0, 0))
+            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 2.0, HandOver(1, 0)))
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._store_frame.call_count >= 2:
@@ -361,8 +363,8 @@ class TestRunLoop(unittest.TestCase):
 class TestDrainAndRelease(unittest.TestCase):
     def test_drain_releases_items(self):
         worker, _, _, _ = _make_worker()
-        worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 0.0, 0))
-        worker._worker_queue.put_nowait(('fail', _FakeGrabResult(err_code=1), 0.0, 0))
+        worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 0.0, HandOver(1, 0)))
+        worker._worker_queue.put_nowait(('fail', _FakeGrabResult(err_code=1), 0.0, None))
         worker._drain_and_release()
         self.assertTrue(worker._worker_queue.empty())
 
@@ -379,7 +381,9 @@ class TestDrainAndRelease(unittest.TestCase):
         worker.start()
         try:
             for i in range(3):
-                worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), float(i), 0))
+                worker._worker_queue.put_nowait(
+                    ('frame', _FakeGrabResult(), float(i), HandOver(1, 0))
+                )
         finally:
             worker.stop()
         self.assertFalse(worker._thread.is_alive())
@@ -418,7 +422,7 @@ class TestGrabResultRelease(unittest.TestCase):
         ref = weakref.ref(gr)
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('fail', gr, 0.0, 0))
+            worker._worker_queue.put_nowait(('fail', gr, 0.0, None))
             # Wait for processing.
             time.sleep(0.2)
         finally:

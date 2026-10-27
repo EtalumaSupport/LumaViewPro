@@ -99,6 +99,16 @@ class TestAStallIsReported:
         assert notice.solicited is False
         assert len(_stall_lines(caplog)) == 1
 
+    def test_frames_handed_over_and_never_stored_are_a_stall(self, session, shown):
+        """A store stage that has wedged while the camera still hands frames
+        over -- Pylon's worker, the IDS unpack worker, the FX2 grab loop --
+        delivers nothing a reader can have, so it is a stall. The simulator's
+        backlog holds every frame between its hand-over and the store, as
+        such a wedge does: the hand-over count keeps rising and the stored
+        count does not."""
+        session.scope.simulation.delay_delivery(1_000_000)
+        assert _wait_for(lambda: shown, 3.0), 'frames handed over and never stored were not a stall'
+
     def test_the_check_rearms_when_frames_resume(self, session, caplog):
         with caplog.at_level(logging.INFO):
             session.scope.simulation.stall_stream(0.1, 1.0)
