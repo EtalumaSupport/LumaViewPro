@@ -17,7 +17,9 @@ fraction of a second.
 
 from __future__ import annotations
 
+import itertools
 import logging
+import threading
 import time
 
 import pytest
@@ -160,16 +162,30 @@ class TestWhatIsNotAStall:
         at_change = scope.imaging.recorded_changes()['exposure'].at_seq
         in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
         assert _wait_for(lambda: scope._frames_delivered() > at_change + in_flight, 3.0)
-        started = time.monotonic()
-        before = scope._frames_delivered()
-        with caplog.at_level(logging.INFO):
-            assert _wait_for(lambda: scope._frames_delivered() - before >= 3, 10.0), (
-                'precondition: the long-exposure stream delivered'
-            )
-        # Three frames span at least two 0.8 s gaps, each past the floor; a
-        # slow host only lengthens the span.
-        elapsed = time.monotonic() - started
-        assert elapsed >= 1.5, f'precondition: frames arrived {elapsed:.2f} s apart for three'
+        arrivals = []
+        three = threading.Event()
+
+        def arrived(frame):
+            arrivals.append(time.monotonic())
+            if len(arrivals) >= 3:
+                three.set()
+
+        scope.imaging.add_frame_listener(arrived)
+        try:
+            with caplog.at_level(logging.INFO):
+                assert three.wait(10.0), 'precondition: the long-exposure stream delivered'
+        finally:
+            scope.imaging.remove_frame_listener(arrived)
+        # The check saw the stream silent past the floor and reported nothing.
+        # Measured between arrivals, the clock the check runs on: frames come
+        # on the camera's schedule, so a frame a paused host took late is
+        # followed at once by the next one due, and a span over the frames
+        # can be shorter than their exposures; the longest silence is never
+        # shorter.
+        longest = max(b - a for a, b in itertools.pairwise(arrivals))
+        assert longest > video_cadence.STALL_FLOOR_S, (
+            f'precondition: the stream was never silent past the floor (longest {longest:.2f} s)'
+        )
         assert shown == []
         assert _stall_lines(caplog) == []
 
