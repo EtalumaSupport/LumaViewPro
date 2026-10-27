@@ -901,7 +901,7 @@ class SimulatedCamera(Camera):
         handed_over: HandOver,
         image: np.ndarray,
         bits: int,
-        chunks: dict,
+        chunks: dict[str, int | float],
         exposure: SensorExposure,
     ) -> None:
         """Store one handed-over frame, and keep what it was exposed under."""

@@ -26,6 +26,11 @@ from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import HomeTarget, Interlock, MotionAPI
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.lumascope_api.runtime_state import RuntimeState
+from modules.api_surface import api_fields
+
+# The camera driver defines the record and cannot import the marker, so the
+# API publishes its fields here.
+api_fields('image', 'seq', 'timestamp', 'arrived_ns', 'significant_bits', 'chunks')(Frame)
 
 __all__ = [
     'Axis',

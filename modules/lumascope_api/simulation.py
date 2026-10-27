@@ -82,6 +82,26 @@ CameraReadAnswer = enum.StrEnum(
 CameraReadAnswer.__doc__ = """How a failed camera read fails."""
 
 
+# The simulated camera defines the records it hands out and cannot import
+# the marker, so the API publishes their fields here.
+api_fields('after_s', 'for_s')(SimulatedStall)
+api_fields(
+    'frame_id',
+    'started_ticks',
+    'exposure_us',
+    'gain_db',
+    'black_level',
+    'illumination_ma',
+    'light',
+    'x_um',
+    'y_um',
+    'z_um',
+    'z_end_um',
+    'depth_of_field_um',
+    'pixel_size_um',
+)(SensorExposure)
+
+
 @api_fields('member', 'arguments')
 @dataclasses.dataclass(frozen=True)
 class InjectedFault:

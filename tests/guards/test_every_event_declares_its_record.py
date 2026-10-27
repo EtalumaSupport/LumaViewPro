@@ -22,13 +22,11 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-import importlib
 import inspect
-import pkgutil
-import warnings
 
 import pytest
 
+from modules import wire_encoding
 from modules.api_surface import event_of, field_event, fields_of, mark_of
 from tests.ast_seams import MemberNames
 
@@ -41,20 +39,7 @@ NOT_HANDLERS = MemberNames('modules/run_events.py', {'on_ui_thread'})
 
 @pytest.fixture(scope='module')
 def universe() -> dict[str, type]:
-    import modules
-
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', FutureWarning)
-        for info in pkgutil.walk_packages(modules.__path__, 'modules.'):
-            importlib.import_module(info.name)
-    found = {}
-    for name, module in list(importlib.sys.modules.items()):
-        if not name.startswith('modules'):
-            continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                found[cname] = obj
-    return found
+    return wire_encoding.project_classes()
 
 
 def _norm(text: str) -> str:

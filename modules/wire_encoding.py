@@ -145,27 +145,139 @@ class NotHandedOutError(NoWireFormError):
     title = 'Not Handed Out'
 
 
-def project_classes() -> dict[str, type]:
-    """Every class defined under ``modules/``, by name, every module imported."""
+# The repository's top-level import names: a class defined in one of them is
+# a project class. Read from the module's name, never its file, because a
+# frozen build puts every module's file, numpy's and the standard library's
+# too, in the one folder that holds ``modules/``.
+PROJECT_PACKAGES = frozenset(
+    {
+        'modules',
+        'drivers',
+        'lib',
+        'rest',
+        'ui',
+        'tools',
+        'lumaviewpro',
+        'lvp_logger',
+        'lvp_fx2_driver_step',
+    }
+)
+
+
+def _import_modules() -> None:
     import modules
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', FutureWarning)
         for info in pkgutil.walk_packages(modules.__path__, 'modules.'):
             importlib.import_module(info.name)
-    found = {}
-    for name, module in list(importlib.sys.modules.items()):
-        if not name.startswith('modules'):
+
+
+def _defined_under_modules() -> set[type]:
+    _import_modules()
+    return {
+        obj
+        for name, module in list(importlib.sys.modules.items())
+        if name.startswith('modules')
+        for obj in vars(module).values()
+        if inspect.isclass(obj) and obj.__module__ == name
+    }
+
+
+def _classes_in(hint: object) -> Iterable[type]:
+    """Each class a resolved annotation holds: through unions, generics, a ``Callable``'s arguments and aliases."""
+    if isinstance(hint, typing.TypeAliasType):
+        yield from _classes_in(hint.__value__)
+        return
+    if isinstance(hint, list):
+        # A ``Callable``'s argument list.
+        for argument in hint:
+            yield from _classes_in(argument)
+        return
+    origin = typing.get_origin(hint)
+    if origin is not None:
+        yield from _classes_in(origin)
+    elif inspect.isclass(hint):
+        yield hint
+    for argument in typing.get_args(hint):
+        yield from _classes_in(argument)
+
+
+def _published_hints(cls: type, namespace: dict[str, object]) -> list[object]:
+    """The resolved annotation of each member *cls* marks and each field it publishes."""
+    hints = []
+    if fields_of(cls):
+        try:
+            resolved = typing.get_type_hints(cls, localns=namespace)
+        except NameError as e:
+            raise NameError(f'{cls.__qualname__}: {e}', name=e.name) from e
+        hints += [resolved[name] for name in fields_of(cls) if name in resolved]
+    for name, value in vars(cls).items():
+        if mark_of(value) is None:
             continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                found[cname] = obj
-    return found
+        function = value.fget if isinstance(value, property) else getattr(value, '__func__', value)
+        try:
+            resolved = typing.get_type_hints(inspect.unwrap(function), localns=namespace)
+        except NameError as e:
+            raise NameError(f'{cls.__qualname__}.{name}: {e}', name=e.name) from e
+        hints += resolved.values()
+    return hints
+
+
+def closure(roots: Iterable[type], namespace: dict[str, object]) -> dict[str, type]:
+    """*roots* and every project class their marked members and published fields resolve to, by name.
+
+    Each annotation is resolved, with *namespace* for the names its module
+    does not bind, and followed; the members of every project class it
+    reaches are read in turn, until nothing new is reached. A project class
+    is one defined in ``PROJECT_PACKAGES``.
+
+    Raises:
+        NameError: an annotation names something that does not resolve.
+        TypeError: two classes share a name, which an annotation cannot
+            tell apart.
+    """
+    found = set(roots)
+    pending = list(found)
+    while pending:
+        for hint in _published_hints(pending.pop(), namespace):
+            for cls in _classes_in(hint):
+                if cls not in found and cls.__module__.partition('.')[0] in PROJECT_PACKAGES:
+                    found.add(cls)
+                    pending.append(cls)
+    by_name: dict[str, list[type]] = {}
+    for cls in found:
+        by_name.setdefault(cls.__name__, []).append(cls)
+    shared = sorted(
+        f'{name}: {sorted(f"{c.__module__}.{c.__qualname__}" for c in classes)}'
+        for name, classes in by_name.items()
+        if len(classes) > 1
+    )
+    if shared:
+        raise TypeError(
+            'two classes share each of these names, which an annotation cannot tell '
+            f'apart: {shared}'
+        )
+    return {name: classes[0] for name, classes in by_name.items()}
+
+
+def project_classes() -> dict[str, type]:
+    """Every class the API can name, by name: each defined under ``modules/`` and its ``closure``.
+
+    So a driver's record the API hands out (a frame listener's ``Frame``)
+    is judged and described as one defined under ``modules/`` is.
+
+    Raises:
+        NameError: as ``closure`` says.
+        TypeError: as ``closure`` says.
+    """
+    defined = _defined_under_modules()
+    return closure(defined, {cls.__name__: cls for cls in defined} | project_type_aliases())
 
 
 def project_type_aliases() -> dict[str, typing.TypeAliasType]:
     """Every ``type`` alias defined under ``modules/``, by name, as the alias itself."""
-    project_classes()
+    _import_modules()
     found = {}
     for name, module in list(importlib.sys.modules.items()):
         if not name.startswith('modules'):

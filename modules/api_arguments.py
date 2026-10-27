@@ -27,7 +27,6 @@ an annotation needs every class under ``modules/`` loaded.
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import enum
 import inspect
 import os
@@ -65,21 +64,12 @@ _namespace: dict[str, object] | None = None
 
 
 def _names() -> dict[str, object]:
-    """The names an annotation may use: every project class and alias, and the outside ones.
-
-    ``SimulatedStall`` is the one class from ``drivers/`` an annotation
-    names; ``datetime`` and ``np`` are named by module.
-    """
+    """The names an annotation may use: every project class the API names, and every alias."""
     global _namespace
     if _namespace is None:
-        from drivers.simulated_camera import SimulatedStall
-
         _namespace = {
             **wire_encoding.project_classes(),
             **wire_encoding.project_type_aliases(),
-            'SimulatedStall': SimulatedStall,
-            'datetime': datetime,
-            'np': np,
         }
     return _namespace
 

@@ -32,6 +32,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING
 
 import modules.settings_init as settings_init
+from drivers.simulated_camera import SimulatedStall
 from lvp_logger import logger
 from modules import (
     common_utils,
@@ -164,7 +165,6 @@ _LAYER_SETTINGS_KEYS = (
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
-    from drivers.simulated_camera import SimulatedStall
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.diagnostics import UsbIdentityBindings

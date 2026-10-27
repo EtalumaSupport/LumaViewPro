@@ -14,7 +14,7 @@ import pathlib
 import re
 
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -324,7 +324,7 @@ def arrival_facts(
 def tiff_frame_metadata(
     timestamp_s: float,
     frame_number: int,
-    chunks: Mapping[str, Any] | None,
+    chunks: Mapping[str, int | float] | None,
     tick_freq_hz: float | None,
     pixel_size_um: float | None,
     fact: FrameFact,

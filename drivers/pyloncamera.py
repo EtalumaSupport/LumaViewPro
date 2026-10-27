@@ -4517,13 +4517,13 @@ _CHUNK_GRAB_RESULT_ATTRS = (
 )
 
 
-def _read_validity_chunks(grabResult) -> dict | None:
+def _read_validity_chunks(grabResult) -> dict[str, int | float] | None:
     """Extract validity chunks from a successful GrabResult.
 
     Returns dict like {'ExposureTime': float, 'Gain': float, 'FrameID': int},
     or None if no chunks readable (chunks unsupported or not enabled).
     """
-    chunks: dict = {}
+    chunks: dict[str, int | float] = {}
     for chunk_attr, key in _CHUNK_GRAB_RESULT_ATTRS:
         try:
             node = getattr(grabResult, chunk_attr, None)

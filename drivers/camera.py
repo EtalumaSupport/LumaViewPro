@@ -135,7 +135,7 @@ class Frame:
     timestamp: datetime.datetime
     arrived_ns: int
     significant_bits: int
-    chunks: Mapping[str, Any] | None
+    chunks: Mapping[str, int | float] | None
 
 
 class ImageHandlerBase:
@@ -305,7 +305,7 @@ class ImageHandlerBase:
         self,
         image,
         timestamp: datetime.datetime,
-        chunks: dict | None = None,
+        chunks: dict[str, int | float] | None = None,
         *,
         handed_over: HandOver,
         significant_bits: int,

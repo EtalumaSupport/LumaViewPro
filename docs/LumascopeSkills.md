@@ -3056,7 +3056,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 
 The fast LED board refuses every link fault: it has no link to fault. The fast motor board runs no firmware, so its home cannot fail; the firmware's axis reaches its target whatever is injected, so a move cannot be held there. `injected()` lists the faults injected since the last `clear()` as `InjectedFault` records (`member`, `arguments`), one-shot faults included after they are spent. `clear()` takes every fault back: drops, holds, refused writes and stalls lifted, boards plugged in and answering, hardware faults removed; a board that found its cable pulled stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way stay as they are, as on a real scope.
 
-The simulated camera is made like a Basler body: a written setting reaches its register at once, and the `SENSOR_PIPELINE_FRAMES` frames it had started come out under the old settings. Each frame carries the chunks a Basler stamps (`FrameID`, `Timestamp` on the camera's 1 GHz clock at its exposure start, and `ExposureTime` and `Gain` from the register as it is tagged, so a stale frame's chunk already names the new value). `exposed_under(frame)` answers what a delivered frame was made under, a `SensorExposure` (`frame_id`, `started_ticks`, `exposure_us`, `gain_db`, `black_level`, `illumination_ma`, `x_um`, `y_um`, `z_um`, `z_end_um`, `depth_of_field_um`, `pixel_size_um`), so a test judges a frame by what its pixels show; it refuses a frame it holds no record for (`exposure_not_recorded`) and the FX2. The light scales with the LED current. The specimen lies on the stage: a frame shows the window centred where the stage's X and Y stand, at the current objective's image scale (the `PhysicalSizeX` every saved image carries), so a move of D um shifts the image D over that pixel size, toward lower column and row as X and Y grow, and two frames whose fields overlap on the stage overlap in their images. The sample does not repeat, a turret move or an objective change rescales it, and the simulated FX2 sensor images the same sample. With no objective selected, or on a model that does not declare its optics, it is drawn at a nominal 2 um per pixel, the scene's own scale, which no image records; a scope with no XY stage images it at 0, 0.
+The simulated camera is made like a Basler body: a written setting reaches its register at once, and the `SENSOR_PIPELINE_FRAMES` frames it had started come out under the old settings. Each frame carries the chunks a Basler stamps (`FrameID`, `Timestamp` on the camera's 1 GHz clock at its exposure start, and `ExposureTime` and `Gain` from the register as it is tagged, so a stale frame's chunk already names the new value). `exposed_under(frame)` answers what a delivered frame was made under, a `SensorExposure` (`frame_id`, `started_ticks`, `exposure_us`, `gain_db`, `black_level`, `illumination_ma`, `light`, `x_um`, `y_um`, `z_um`, `z_end_um`, `depth_of_field_um`, `pixel_size_um`), so a test judges a frame by what its pixels show; it refuses a frame it holds no record for (`exposure_not_recorded`) and the FX2. The light scales with the LED current. The specimen lies on the stage: a frame shows the window centred where the stage's X and Y stand, at the current objective's image scale (the `PhysicalSizeX` every saved image carries), so a move of D um shifts the image D over that pixel size, toward lower column and row as X and Y grow, and two frames whose fields overlap on the stage overlap in their images. The sample does not repeat, a turret move or an objective change rescales it, and the simulated FX2 sensor images the same sample. With no objective selected, or on a model that does not declare its optics, it is drawn at a nominal 2 um per pixel, the scene's own scale, which no image records; a scope with no XY stage images it at 0, 0.
 
 The two stalls a launch can ask for are `create`'s `sim_camera_stall` (which calls `stall_stream`) and `sim_file_stall` (above); the GUI's `--sim-camera-stall` and `--sim-file-stall` pass them.
 
@@ -4079,6 +4079,17 @@ Reached through each item of `RunOutcome.focus_failures`.
 - `step_index`
 - `step_name`
 
+### Frame
+
+Reached through each `FrameDelivered`'s `frame`, from `scope.imaging.add_frame_listener`; taken back by `scope.imaging.judge_frame` and `scope.simulation.exposed_under`.
+
+- `arrived_ns`
+- `chunks`
+- `image`
+- `seq`
+- `significant_bits`
+- `timestamp`
+
 ### FrameCaptured
 
 Reached through the event `RunEvents.frame_captured` delivers.
@@ -4533,6 +4544,24 @@ Reached through a REST problem, whose members carry it.
 - `part_reasons`
 - `parts`
 
+### SensorExposure
+
+Reached through returned by `scope.simulation.exposed_under`.
+
+- `black_level`
+- `depth_of_field_um`
+- `exposure_us`
+- `frame_id`
+- `gain_db`
+- `illumination_ma`
+- `light`
+- `pixel_size_um`
+- `started_ticks`
+- `x_um`
+- `y_um`
+- `z_end_um`
+- `z_um`
+
 ### SettingRefusedError
 
 Reached through a REST problem, whose members carry it.
@@ -4565,6 +4594,13 @@ Reached through `session.shown_channel`, returned by `session.show_channel` and 
 Reached through built by the caller and passed as `sim_model_answer=` to `ScopeSession.create`.
 
 - `model`
+
+### SimulatedStall
+
+Reached through `ScopeSession.create`'s `sim_camera_stall` and `sim_file_stall`.
+
+- `after_s`
+- `for_s`
 
 ### SizeSliderStops
 

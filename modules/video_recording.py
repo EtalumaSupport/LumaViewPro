@@ -41,7 +41,7 @@ import json
 import pathlib
 import queue
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -379,7 +379,12 @@ class VideoRecordingEngine:
             self._held_claim.claim.announce()
 
     def ingest_frame(
-        self, image: Any, timestamp_s: float, chunks: Any = None, *, fact: Any
+        self,
+        image: Any,
+        timestamp_s: float,
+        chunks: Mapping[str, int | float] | None = None,
+        *,
+        fact: Any,
     ) -> None:
         """Offer one delivered camera frame: select + enqueue only.
 

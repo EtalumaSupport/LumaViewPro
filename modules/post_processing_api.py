@@ -34,6 +34,7 @@ import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import numpy as np
 from matplotlib.figure import Figure
 
 from lvp_logger import logger
@@ -56,7 +57,6 @@ from modules.zproject_method import ZProjectMethod
 from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
 
     from modules.api_surface import ProgressCallback

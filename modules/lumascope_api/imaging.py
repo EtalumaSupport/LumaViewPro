@@ -16,7 +16,7 @@ import logging as _logging
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -422,7 +422,7 @@ class ImagingAPI:
         """
         return self._scope._camera_driver
 
-    def _chunk_target_mismatch(self, chunks: Mapping[str, Any] | None) -> str | None:
+    def _chunk_target_mismatch(self, chunks: Mapping[str, int | float] | None) -> str | None:
         """Name the first chunk-validatable source whose value in ``chunks``
         does not match its recorded target, or None if all match.
 
@@ -1206,7 +1206,7 @@ class ImagingAPI:
     def _build_frame_record(
         self,
         *,
-        chunks: dict,
+        chunks: dict[str, int | float],
         lit: frozenset[tuple[int, float]],
         captured_at: datetime.datetime,
         clock_mapping: ClockMapping | None,

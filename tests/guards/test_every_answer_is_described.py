@@ -16,9 +16,10 @@ over a simulated session builds:
 - the untyped places in what answers and events carry -- a keyless
   object, an array of nothing said, a value of no type -- are counted, a
   ratchet, so they only fall as their owners type them;
-- no two classes an answer or argument reaches share a name, and no
-  component name is one FastAPI made up for a clash, since the last class
-  of a name would silently stand for every annotation that names it;
+- no component name is one FastAPI made up for a clash, or one of the
+  server's own models, since the last class of a name would silently stand
+  for every annotation that names it; two project classes of one name are
+  refused by the table every answer is read from (``wire_encoding.closure``);
 - every enum an answer or argument reaches crosses as its name, a
   ``StrEnum`` as its value: what ``encode`` sends is what is declared.
 """
@@ -26,10 +27,8 @@ over a simulated session builds:
 from __future__ import annotations
 
 import enum
-import inspect
 import json
 import pathlib
-import sys
 import typing
 
 import pytest
@@ -271,31 +270,9 @@ def _reached(member_routes: list[rest_routes.Route], records: dict[str, type]) -
     return found
 
 
-def _same_named(reached: set[type], every: dict[str, set[type]]) -> list[str]:
-    """Each reached class whose name another project class also has."""
-    return sorted(
-        f'{cls.__name__}: {sorted(f"{c.__module__}.{c.__qualname__}" for c in every[cls.__name__])}'
-        for cls in reached
-        if len(every.get(cls.__name__, ())) > 1
-    )
-
-
-def _every_project_class() -> dict[str, set[type]]:
-    wire_encoding.project_classes()
-    every: dict[str, set[type]] = {}
-    for name, module in list(sys.modules.items()):
-        if not name.startswith('modules'):
-            continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                every.setdefault(cname, set()).add(obj)
-    return every
-
-
 def test_no_two_classes_on_the_wire_share_a_name(built):
     described, member_routes, events, records = built
     reached = _reached(member_routes, records)
-    assert _same_named(reached, _every_project_class()) == []
     event_models = {
         m.__name__ for m in events.values() if m not in rest_routes._ANSWER_RECORDS.values()
     }
@@ -303,18 +280,6 @@ def test_no_two_classes_on_the_wire_share_a_name(built):
     assert clashing == [], 'a project class is named as one of the server models'
     made_up = [n for n in described['components']['schemas'] if '__' in n]
     assert made_up == [], f'FastAPI renamed clashing components: {made_up}'
-
-
-def test_a_second_class_of_a_reached_name_is_caught():
-    from modules.lumascope_api._constants import AxisPosition
-
-    other = type('AxisPosition', (), {'__module__': 'modules.elsewhere'})
-    every = {'AxisPosition': {AxisPosition, other}}
-
-    assert _same_named({AxisPosition}, every) == [
-        "AxisPosition: ['modules.elsewhere.AxisPosition', "
-        "'modules.lumascope_api._constants.AxisPosition']"
-    ]
 
 
 def test_every_enum_on_the_wire_crosses_in_its_declared_form(built, tmp_path):

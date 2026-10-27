@@ -5,7 +5,9 @@ A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
-guard holds four things over every class defined under ``modules/``:
+guard holds nine things over every class the API can name
+(``wire_encoding.project_classes``): each defined under ``modules/``, and each
+project class a marked annotation resolves to, a driver's record among them:
 
 1. **Equal.** The marked set equals the ``## API reference`` index in
    ``docs/LumascopeSkills.md``, both ways, in-process labels included. The
@@ -20,7 +22,8 @@ guard holds four things over every class defined under ``modules/``:
    return, the typing idiom for a return the API ignores.
 4. **Closed.** Every project class an annotation names is an enum, an
    exception, or a class with marked members or fields, so nothing published
-   hands out or asks for an object whose own members are not API.
+   hands out or asks for an object whose own members are not API. Rules 3
+   and 4 read a ``type`` alias as its value, so an alias cannot hide either.
 5. **Paths declared.** A parameter of a member on the wire (marked, not
    in-process) that takes a file-system path is annotated exactly
    ``FilePath`` or ``FilePath | None``, so a wire client can tell a path
@@ -55,9 +58,10 @@ guard holds four things over every class defined under ``modules/``:
    its reason. An answer keeps the address, a listener's callback's
    arguments among them.
 
-Annotations are read as strings and resolved by class name over the loaded
-classes, never through ``typing.get_type_hints``, which raises on the
-``TYPE_CHECKING`` imports the API modules use. A static read: no session.
+The rules read annotations as strings and look each name up in that table,
+which resolves them once, so a class an annotation names cannot be missing
+from it unseen: the table raises instead. Rules 3, 4 and 8 are shown on
+fixtures to catch a class from outside ``modules/``. A static read: no session.
 """
 
 from __future__ import annotations
@@ -65,14 +69,14 @@ from __future__ import annotations
 import ast
 import dataclasses
 import enum
-import importlib
 import inspect
-import pkgutil
 import re
-import warnings
+from typing import Any
 
 import pytest
 
+from modules import wire_encoding
+from modules.api_surface import api
 from tests.ast_seams import REPO_ROOT, RetiredNames, Words
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
@@ -95,30 +99,21 @@ _BLIND = Words({'Any', 'object'})
 
 @pytest.fixture(scope='module')
 def universe() -> dict[str, type]:
-    """Every class defined under modules/, by name, every module imported."""
-    import modules
+    """Every class the API can name, by name (``wire_encoding.project_classes``)."""
+    return wire_encoding.project_classes()
 
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', FutureWarning)
-        for info in pkgutil.walk_packages(modules.__path__, 'modules.'):
-            importlib.import_module(info.name)
-    classes: dict[str, set[type]] = {}
-    for name, module in list(importlib.sys.modules.items()):
-        if not name.startswith('modules'):
-            continue
-        for cname, obj in vars(module).items():
-            if inspect.isclass(obj) and obj.__module__ == name:
-                classes.setdefault(cname, set()).add(obj)
-    ambiguous = sorted(n for n, found in classes.items() if len(found) > 1)
-    assert not ambiguous, (
-        f'two classes under modules/ share each of these names: {ambiguous}. An '
-        'annotation names a class by name, so the closure check cannot tell them apart'
-    )
-    return {n: next(iter(found)) for n, found in classes.items()}
+
+@pytest.fixture(scope='module')
+def aliases() -> dict[str, str]:
+    return wire_encoding.project_aliases()
 
 
 @pytest.fixture(scope='module')
 def marked(universe: dict[str, type]) -> dict[str, str]:
+    return _marked(universe)
+
+
+def _marked(universe: dict[str, type]) -> dict[str, str]:
     """``Class.member`` -> ``api`` or ``in_process``; fields -> ``api``."""
     from modules.api_surface import fields_of, mark_of
 
@@ -321,7 +316,25 @@ def _named(text: str, *, holds_callbacks: bool = True) -> tuple[set[str], set[st
     return blind, names
 
 
-def test_the_api_is_typed_and_closed(universe: dict[str, type], marked: dict[str, str]) -> None:
+def _named_through_aliases(
+    text: str, aliases: dict[str, str], *, holds_callbacks: bool
+) -> tuple[set[str], set[str]]:
+    """``_named``, with each ``type`` alias it uses read as its value too."""
+    blind, names = _named(text, holds_callbacks=holds_callbacks)
+    read, pending = set(), names & aliases.keys()
+    while pending:
+        alias = pending.pop()
+        read.add(alias)
+        inner_blind, inner = _named(aliases[alias], holds_callbacks=holds_callbacks)
+        blind |= inner_blind
+        names |= inner
+        pending |= (inner & aliases.keys()) - read
+    return blind, names
+
+
+def test_the_api_is_typed_and_closed(
+    universe: dict[str, type], marked: dict[str, str], aliases: dict[str, str]
+) -> None:
     owners = {name.split('.', 1)[0] for name in marked}
     untyped, blind, unpublished = [], [], {}
     for name in sorted(marked):
@@ -330,7 +343,9 @@ def test_the_api_is_typed_and_closed(universe: dict[str, type], marked: dict[str
             if text is None:
                 untyped.append(f'{name} {edge}')
                 continue
-            blind_names, names = _named(text, holds_callbacks=edge != 'return')
+            blind_names, names = _named_through_aliases(
+                text, aliases, holds_callbacks=edge != 'return'
+            )
             if blind_names:
                 blind.append(f'{name} {edge}: {text}')
             for used in names & universe.keys():
@@ -467,6 +482,10 @@ UNITLESS: dict[str, str] = {
     'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
     'CameraAPI.set_black_level parameter level': 'a raw sensor level',
     'FrameRecord.black_level field': 'a raw sensor level',
+    'SensorExposure.black_level field': 'a raw sensor level',
+    'SensorExposure.light field': (
+        "the simulated scene's light per second of exposure at unity gain, in its own scale"
+    ),
     'CameraAPI.update_auto_gain_target_brightness parameter target_brightness': (
         'a fraction of full scale'
     ),
@@ -636,6 +655,7 @@ OPEN_STRINGS: dict[str, str] = {
     'FailedCapture.step_name field': _STEP,
     'FocusFailure.cause field': _REASON,
     'FocusFailure.step_name field': _STEP,
+    'Frame.chunks field': _CAMERA,
     'FrameRecord.camera_model field': _CAMERA,
     'FrameRecord.held_channel field': _CHANNEL,
     'FrameRule.provenance field': _PROVENANCE,
@@ -963,3 +983,94 @@ def test_an_led_is_lit_by_its_channels_name(
         "A member outside engineering takes an LED address: take the channel's name, or mark "
         'it engineering=True (C11):\n  ' + '\n  '.join(offenders)
     )
+
+
+# --- The table is what the API names -----------------------------------------
+# Each fixture is a class from outside modules/ that a marked member names,
+# added to the real API's table through the one walk that builds it, so the
+# rule's own reach checks hold and the fixture is the only offender.
+
+
+class _DriverRecord:
+    """Handed out by a marked member, with no marked member of its own."""
+
+    __module__ = 'drivers.fixture'
+
+
+class _DriverWord(enum.Enum):
+    """A driver's closed set that is not a StrEnum."""
+
+    __module__ = 'drivers.fixture'
+    ONE = 'one'
+
+
+type _HidesAny = dict[str, Any]
+
+
+class _HandsOutADriverRecord:
+    @api
+    def record(self) -> _DriverRecord:
+        raise NotImplementedError
+
+
+class _AnswersADriverWord:
+    @api
+    def word(self) -> _DriverWord:
+        raise NotImplementedError
+
+
+class _AnswersAnAlias:
+    @api
+    def hidden(self) -> _HidesAny:
+        raise NotImplementedError
+
+
+class _NamesNothing:
+    @api
+    def nowhere(self) -> _Nowhere:  # noqa: F821 -- the name that resolves to nothing
+        raise NotImplementedError
+
+
+def _with(root: type) -> dict[str, type]:
+    return wire_encoding.project_classes() | wire_encoding.closure({root}, {})
+
+
+def test_an_unpublished_class_from_outside_modules_is_not_closed() -> None:
+    universe = _with(_HandsOutADriverRecord)
+    assert universe['_DriverRecord'] is _DriverRecord
+
+    with pytest.raises(
+        AssertionError,
+        match=r"_DriverRecord is named by \['_HandsOutADriverRecord\.record return'\]",
+    ):
+        test_the_api_is_typed_and_closed(
+            universe, _marked(universe), wire_encoding.project_aliases()
+        )
+
+
+def test_a_drivers_plain_enum_is_not_a_closed_set() -> None:
+    universe = _with(_AnswersADriverWord)
+
+    with pytest.raises(AssertionError, match=r"_AnswersADriverWord\.word return: _DriverWord'\]"):
+        test_every_fixed_word_is_a_closed_set(universe, _marked(universe))
+
+
+def test_an_alias_cannot_hide_any() -> None:
+    universe = _with(_AnswersAnAlias)
+    aliases = wire_encoding.project_aliases() | {'_HidesAny': 'dict[str, Any]'}
+
+    with pytest.raises(AssertionError, match=r'_AnswersAnAlias\.hidden return: _HidesAny'):
+        test_the_api_is_typed_and_closed(universe, _marked(universe), aliases)
+
+
+def test_a_name_that_resolves_to_nothing_raises() -> None:
+    with pytest.raises(NameError, match=r'_NamesNothing\.nowhere'):
+        wire_encoding.closure({_NamesNothing}, {})
+
+
+def test_two_classes_under_one_name_raise() -> None:
+    first = type('_Twin', (), {'__module__': 'drivers.one'})
+    second = type('_Twin', (), {'__module__': 'drivers.two'})
+
+    with pytest.raises(TypeError, match=r"_Twin: \['drivers.one._Twin', 'drivers.two._Twin'\]"):
+        wire_encoding.closure({first, second}, {})
