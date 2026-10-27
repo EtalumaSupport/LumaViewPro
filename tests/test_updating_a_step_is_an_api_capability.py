@@ -14,19 +14,19 @@ Add Step's refusals, and the Session composes its inputs.
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
 from modules.protocol import StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pytest fixture
+    clear_the_slot_in_the_light_path,
     turret_in_a_known_slot,
 )
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
@@ -37,7 +37,6 @@ from tests.stock_channels import LED0, LED1
 
 ADDED_AT = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)
 UPDATED_TO = PlateLocation(x_mm=30.0, y_mm=40.0, z_um=6000.0)
-OBJECTIVE = '4x Oly'
 
 
 def _layer_configs(**stim_enabled_by_layer):
@@ -60,7 +59,6 @@ def _protocol_with_one_bf_step(scope):
         layer_configs={'BF': _layer_configs()['BF']},
         stim_configs={},
         plate_position=ADDED_AT,
-        objective_id=OBJECTIVE,
         before_step_index=0,
     )
     return protocol
@@ -71,7 +69,6 @@ def _update(
     protocol,
     *,
     layer=LED0,
-    objective_id=OBJECTIVE,
     label=None,
     layer_configs=None,
     stim_configs=None,
@@ -83,7 +80,6 @@ def _update(
         layer_configs=layer_configs if layer_configs is not None else _layer_configs(),
         stim_configs=stim_configs if stim_configs is not None else {},
         plate_position=UPDATED_TO,
-        objective_id=objective_id,
         label=label,
     )
 
@@ -95,15 +91,15 @@ def _step(protocol):
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiRefuses:
     def test_an_unknown_axis_position_is_refused_and_the_step_is_unchanged(
-        self, scope, monkeypatch, centre_posts
+        self, scope, centre_posts
     ):
         # The defect: after a failed home the position read keeps answering
         # the last real position, and Update Step saved it.
         protocol = _protocol_with_one_bf_step(scope)
         before = _step(protocol)
+        clear_the_slot_in_the_light_path(scope)
         with scope.motion._axis_state_lock:
             scope.motion._axis_state['X'] = AxisState.UNKNOWN
-        monkeypatch.setattr(scope.motion, 'is_current_slot_objective_set', lambda: False)
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -120,39 +116,18 @@ class TestTheApiRefuses:
         assert list(captured) == []
         assert _step(protocol) == before
 
-    def test_an_unset_turret_objective_is_refused_and_the_step_is_unchanged(
-        self, scope, monkeypatch, centre_posts
+    def test_a_slot_with_no_objective_is_refused_and_the_step_is_unchanged(
+        self, scope, centre_posts
     ):
         protocol = _protocol_with_one_bf_step(scope)
         before = _step(protocol)
-        monkeypatch.setattr(
-            scope, 'capabilities', dataclasses.replace(scope.capabilities, has_turret=True)
-        )
-        monkeypatch.setattr(scope.motion, 'is_current_slot_objective_set', lambda: False)
+        clear_the_slot_in_the_light_path(scope)
         captured = _capture_notifications(centre_posts)
 
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+        with pytest.raises(ObjectiveUnknownError) as excinfo:
             _update(scope, protocol)
 
-        assert (excinfo.value.reason, excinfo.value.title) == (
-            'turret_objective_unset',
-            'Step Not Saved',
-        )
-        assert list(captured) == []
-        assert _step(protocol) == before
-
-    def test_an_unknown_objective_is_refused_and_the_step_is_unchanged(self, scope, centre_posts):
-        protocol = _protocol_with_one_bf_step(scope)
-        before = _step(protocol)
-        captured = _capture_notifications(centre_posts)
-
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _update(scope, protocol, objective_id=None)
-
-        assert (excinfo.value.reason, excinfo.value.title) == (
-            'objective_unknown',
-            'Step Not Saved',
-        )
+        assert excinfo.value.reason == 'slot_unassigned'
         assert list(captured) == []
         assert _step(protocol) == before
 
@@ -173,15 +148,16 @@ class TestTheApiRefuses:
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiUpdates:
-    def test_the_step_takes_the_position_channel_and_objective_given(self, scope):
+    def test_the_step_takes_the_position_channel_and_the_active_objective(self, scope):
         protocol = _protocol_with_one_bf_step(scope)
+        scope.motion.move_turret(2)
 
-        name = _update(scope, protocol, objective_id='10x Oly')
+        name = _update(scope, protocol)
 
         step = _step(protocol)
         assert (step['X'], step['Y'], step['Z']) == (30.0, 40.0, 6000.0)
         assert step['Color'] == LED0
-        assert step['Objective'] == '10x Oly'
+        assert step['Objective'] == '20x Oly'
         assert name == step['Name']
 
     def test_a_label_renames_and_none_keeps_the_label(self, scope):

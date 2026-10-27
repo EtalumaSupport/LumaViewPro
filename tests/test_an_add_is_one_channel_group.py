@@ -66,7 +66,6 @@ def _added(scope, adds=ADDS):
             layer_configs=_layer_configs(acquiring),
             stim_configs={},
             plate_position=AT,
-            objective_id=OBJECTIVE,
             channel_order=list(acquiring),
         )
     return protocol
@@ -347,7 +346,6 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
                 layer_configs=_layer_configs(('BF', LED1)),
                 stim_configs={},
                 plate_position=AT,
-                objective_id=OBJECTIVE,
             )
 
         assert refused.value.reason == 'channel_already_in_add'
@@ -364,7 +362,6 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
             layer_configs=_layer_configs(('BF', LED1)),
             stim_configs={},
             plate_position=AT,
-            objective_id=OBJECTIVE,
         )
 
         assert list(protocol.steps()['Color']) == ['BF', 'BF']

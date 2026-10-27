@@ -2663,14 +2663,15 @@ class ScopeSession:
 
         Raises:
             ProtocolRunRefusedError: ``'step_position_unknown'``, an axis does
-                not know its position; ``'turret_objective_unset'``, the
-                turret's current slot has no objective; ``'objective_unknown'``,
-                the objective in the light path is unknown;
-                ``'no_acquiring_layer'``, no layer acquires. With
-                ``use_zstacking``, also ``'zstack_not_configured'``,
-                ``'positions_unreachable'`` or ``'zslices_outside_travel'``, as
-                ``apply_zstacking`` refuses the stored stack. Logged and
-                notified once; nothing is added.
+                not know its position; ``'no_acquiring_layer'``, no layer
+                acquires. With ``use_zstacking``, also
+                ``'zstack_not_configured'``, ``'positions_unreachable'`` or
+                ``'zslices_outside_travel'``, as ``apply_zstacking`` refuses
+                the stored stack. Logged and notified once; nothing is added.
+            ObjectiveUnknownError: the objective in the light path is
+                unknown, as ``runtime_state.resolve_current_objective`` says
+                why (``'slot_unassigned'``, the turret's current slot has no
+                objective). Nothing is added.
             ConfigError: with ``use_zstacking``, the stored z-stack will not
                 parse (as ``get_zstack_params``).
             ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
@@ -2698,14 +2699,11 @@ class ScopeSession:
                 if layer_config['acquire'] is None:
                     layer_config['acquire'] = AcquireMode.IMAGE
             channel_order = list(channels)
-        # None when unknown: the protocols API refuses that by name, notified.
-        objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.add_step(
             protocol,
             layer_configs=layer_configs,
             stim_configs=self.get_stim_configs(),
             plate_position=at if at is not None else self.plate_position_on(protocol.labware_id()),
-            objective_id=objective_id,
             channel_order=channel_order,
             before_step_index=before_step_index,
             after_step_index=after_step_index,
@@ -2727,9 +2725,9 @@ class ScopeSession:
         The entry point a caller with no GUI uses to do what Update Step
         does: step ``step_index`` takes ``channel``'s settings, the live stage
         position on the protocol's plate and the current objective. The
-        protocols API performs the update and refuses it when the position
-        or the objective is unknown; this composes its inputs from the
-        session the same way ``add_step`` does.
+        protocols API performs the update, reads the objective, and refuses
+        it when the position or the objective is unknown; this composes its
+        other inputs from the session the same way ``add_step`` does.
 
         Returns the step's name after the update.
 
@@ -2737,12 +2735,14 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``. Nothing is changed on either.
+            ObjectiveUnknownError: the objective in the light path is
+                unknown, as ``add_step`` raises it (``'slot_unassigned'``, the
+                turret's current slot has no objective). The step is
+                unchanged.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'update_step', then='take a step'
         )
-        # None when unknown: the protocols API refuses that by name, notified.
-        objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.update_step(
             protocol,
             step_index,
@@ -2750,7 +2750,6 @@ class ScopeSession:
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware_id()),
-            objective_id=objective_id,
             label=label,
         )
 

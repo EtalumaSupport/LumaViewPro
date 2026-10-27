@@ -14,17 +14,16 @@ GUI does.
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError, RefusalCause
+from modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES, configure_turret_like_bringup, home_sim_scope
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
@@ -32,7 +31,8 @@ from modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1
 
 PLATE_POSITION = PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0)
-OBJECTIVE = '4x Oly'
+# The active objective a step records: slot 1's, where the home leaves the turret.
+OBJECTIVE = TEST_TURRET_OBJECTIVES[1]
 
 
 def _layer_configs(**acquire_by_layer):
@@ -43,15 +43,19 @@ def _layer_configs(**acquire_by_layer):
     return config_helpers.get_layer_configs(settings)
 
 
-def _add(scope, protocol, layer_configs, *, objective_id=OBJECTIVE, **kwargs):
+def _add(scope, protocol, layer_configs, **kwargs):
     return scope.protocols.add_step(
         protocol,
         layer_configs=layer_configs,
         stim_configs={},
         plate_position=PLATE_POSITION,
-        objective_id=objective_id,
         **kwargs,
     )
+
+
+def clear_the_slot_in_the_light_path(scope):
+    """The turret in slot 1 with no objective assigned to it, as bring-up leaves it."""
+    configure_turret_like_bringup(scope, {**TEST_TURRET_OBJECTIVES, 1: None})
 
 
 @pytest.fixture
@@ -75,60 +79,31 @@ class TestTheApiRefuses:
         assert list(captured) == []
         assert protocol.num_steps() == 0
 
-    def test_an_unset_turret_objective_is_refused_before_anything_is_read(
-        self, scope, monkeypatch, centre_posts
-    ):
+    def test_a_slot_with_no_objective_is_refused_and_adds_nothing(self, scope, centre_posts):
+        # A step records the objective it was taken with; a slot that holds
+        # none has nothing true to record. The class and reason every other
+        # member that needs the objective refuses it with.
         protocol = _empty_protocol_for_add()
-        monkeypatch.setattr(
-            scope, 'capabilities', dataclasses.replace(scope.capabilities, has_turret=True)
-        )
-        monkeypatch.setattr(scope.motion, 'is_current_slot_objective_set', lambda: False)
+        clear_the_slot_in_the_light_path(scope)
         captured = _capture_notifications(centre_posts)
 
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+        with pytest.raises(ObjectiveUnknownError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), before_step_index=0)
 
-        assert (excinfo.value.reason, excinfo.value.title) == (
-            'turret_objective_unset',
-            'Step Not Saved',
-        )
+        assert excinfo.value.reason == 'slot_unassigned'
         assert list(captured) == []
         assert protocol.num_steps() == 0
 
-    def test_an_unknown_objective_is_refused_and_adds_nothing(self, scope, centre_posts):
-        # A step records the objective it was taken with; with no one able
-        # to say which objective is in the light path, there is nothing
-        # true to record.
-        protocol = _empty_protocol_for_add()
-        captured = _capture_notifications(centre_posts)
-
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _add(
-                scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step_index=0
-            )
-
-        assert (excinfo.value.reason, excinfo.value.title) == (
-            'objective_unknown',
-            'Step Not Saved',
-        )
-        # The objective in the light path becomes known on a home or a
-        # select, so the same add can succeed later.
-        assert excinfo.value.cause == RefusalCause.STATE
-        assert list(captured) == []
-        assert protocol.num_steps() == 0
-
-    def test_an_unknown_axis_position_is_refused_before_anything_else(
-        self, scope, monkeypatch, centre_posts
-    ):
+    def test_an_unknown_axis_position_is_refused_before_anything_else(self, scope, centre_posts):
         # An axis that lost its reference keeps answering the last number it
         # reported, so the position handed in looks real and is not. Asked
-        # ahead of the turret check, whose advice is wrong when the slot
-        # itself is what is unknown.
+        # ahead of the objective, whose advice is wrong when the slot itself
+        # is what is unknown.
         protocol = _empty_protocol_for_add()
+        clear_the_slot_in_the_light_path(scope)
         with scope.motion._axis_state_lock:
             scope.motion._axis_state['Y'] = AxisState.UNKNOWN
             scope.motion._axis_state['Z'] = AxisState.HOMING
-        monkeypatch.setattr(scope.motion, 'is_current_slot_objective_set', lambda: False)
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -337,3 +312,30 @@ class TestAnAddCanBeAZStack:
         assert excinfo.value.reason == 'zslices_outside_travel'
         assert 'the new BF step' in str(excinfo.value)
         assert protocol.num_steps() == 0
+
+
+def test_a_slot_with_no_objective_refuses_a_step_as_it_refuses_a_new_protocol(tmp_path):
+    """One state, one class and one reason at every member that needs the objective.
+
+    A step added with the turret's slot unassigned was refused
+    ``ProtocolRunRefusedError`` ``turret_objective_unset`` while a new
+    protocol in the same state was ``ObjectiveUnknownError``
+    ``slot_unassigned``: two URNs over the wire for one fact.
+    """
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+    )
+    try:
+        home_sim_scope(session.scope)
+        session.clear_current_turret_objective()
+        protocol = session.create_empty_protocol()
+
+        with pytest.raises(ObjectiveUnknownError) as added:
+            session.add_step(protocol, channels=('BF',))
+        with pytest.raises(ObjectiveUnknownError) as created:
+            session.new_protocol()
+
+        assert added.value.reason == created.value.reason == 'slot_unassigned'
+        assert protocol.num_steps() == 0
+    finally:
+        session.shutdown()

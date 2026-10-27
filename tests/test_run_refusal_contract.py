@@ -771,10 +771,6 @@ RUNNER_REFUSAL_COVERAGE = {
     'composite_two_transmitted_layers': (
         'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
     ),
-    'turret_objective_unset': (
-        'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
-    ),
-    'objective_unknown': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
     'objective_not_in_catalogue': (
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan'

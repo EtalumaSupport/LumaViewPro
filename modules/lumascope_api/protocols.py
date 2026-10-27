@@ -329,7 +329,6 @@ class ProtocolsAPI:
         layer_configs: dict,
         stim_configs: dict,
         plate_position: PlateLocation,
-        objective_id: str | None,
         channel_order: list[str] | None = None,
         before_step_index: int | None = None,
         after_step_index: int | None = None,
@@ -341,9 +340,10 @@ class ProtocolsAPI:
         whose ``acquire`` is None contributes no step, and when no layer
         acquires the add is refused rather than silently doing nothing:
         the click used to return bare, so the user saw nothing happen and
-        nothing said why. On a turret scope the current slot must name an
-        objective, or the step would record glass the scope cannot say it
-        has.
+        nothing said why. The step records the active objective, read
+        where the add is judged; when no one can say which objective is in
+        the light path the add is refused, or the step would record glass
+        the scope cannot say it has.
 
         ``channel_order`` names the layers whose steps come first, in that
         order; layers it does not name follow in the order given. Each
@@ -351,9 +351,6 @@ class ProtocolsAPI:
         reads in that order. The steps of one add share one channel group
         id, and that, not their order, is what makes them one composite:
         two adds at one position are two composites.
-
-        ``objective_id`` is the active objective, or None when no one can say
-        which objective is in the light path.
 
         ``before_step_index`` or ``after_step_index`` places the steps; with neither
         they follow the last step, which is what a script building a
@@ -369,10 +366,13 @@ class ProtocolsAPI:
         slices when stacked.
 
         Raises:
-            ProtocolRunRefusedError: an axis does not know its position, no
-                layer acquires, the turret's current slot has no objective,
-                or the active objective is unknown. Logged and notified once.
-                With ``zstack_params``, also what ``apply_zstacking`` refuses.
+            ProtocolRunRefusedError: an axis does not know its position, or
+                no layer acquires. Logged and notified once. With
+                ``zstack_params``, also what ``apply_zstacking`` refuses.
+            ObjectiveUnknownError: the active objective is unknown, for the
+                reason ``runtime_state.resolve_current_objective`` gives (on a
+                turret scope, ``'slot_unassigned'`` for a slot with no
+                objective). Asked after the position.
             ArgumentRefusedError: with ``zstack_params``, as
                 ``apply_zstacking``.
             ProtocolError: an impossible ``before_step_index`` / ``after_step_index``,
@@ -380,7 +380,7 @@ class ProtocolsAPI:
         """
         from modules.protocol import Protocol
 
-        self._refuse_unrecordable_step(verb='add', objective_id=objective_id)
+        objective_id = self._recordable_objective(verb='add')
         self.refuse_no_acquiring_layer(layer_configs)
 
         ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
@@ -473,7 +473,6 @@ class ProtocolsAPI:
         layer_configs: dict,
         stim_configs: dict,
         plate_position: PlateLocation,
-        objective_id: str | None,
         label: str | None = None,
     ) -> str:
         """Rewrite step ``step_index`` of ``protocol`` from ``layer`` at ``plate_position``.
@@ -495,13 +494,14 @@ class ProtocolsAPI:
         Returns the step's name after the update.
 
         Raises:
-            ProtocolRunRefusedError: an axis does not know its position, the
-                turret's current slot has no objective, the active objective
-                is unknown, or the layer the step takes is not set to
-                acquire (reason ``no_acquiring_layer``, as an add), or
-                another step of the same add already takes that channel
-                (reason ``channel_already_in_add``). Logged and notified
-                once; the step is unchanged.
+            ProtocolRunRefusedError: an axis does not know its position, or
+                the layer the step takes is not set to acquire (reason
+                ``no_acquiring_layer``, as an add), or another step of the
+                same add already takes that channel (reason
+                ``channel_already_in_add``). Logged and notified once; the
+                step is unchanged.
+            ObjectiveUnknownError: the active objective is unknown, as an
+                add refuses it; the step is unchanged.
             ProtocolError: ``step_index`` is not a step of ``protocol``
                 (raised by the protocol), judged before anything else: an
                 empty protocol has no step to update, whatever the layer.
@@ -509,7 +509,7 @@ class ProtocolsAPI:
         from modules.protocol import Protocol
 
         step = protocol.step_row(step_index=step_index)
-        self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
+        objective_id = self._recordable_objective(verb='update')
 
         stim_config = layer_configs[layer].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
@@ -862,12 +862,17 @@ class ProtocolsAPI:
             if (limits := self._scope.motion.get_axis_limits(axis)) is not None
         }
 
-    def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
-        """Refuse to save a step the scope cannot vouch for.
+    def _recordable_objective(self, *, verb: str) -> str:
+        """The active objective a step records, once the scope can vouch for the step.
 
         The one rule behind adding and updating a step, so the two cannot
         drift apart: a step records where the scope is and which objective
         it is looking through, and either can be unknown.
+
+        Raises:
+            ProtocolRunRefusedError: ``'step_position_unknown'``.
+            ObjectiveUnknownError: the active objective is unknown, as
+                ``runtime_state.resolve_current_objective`` says why.
         """
         # First, because a step is a saved position and ``plate_position``
         # is only as good as the axes it was read from: an axis that lost
@@ -875,7 +880,7 @@ class ProtocolsAPI:
         # step would save a real-looking place the scope no longer vouches
         # for. Every axis, Z and T included, even when the step's Z comes
         # from the layer's saved focus -- a step is where the scope will be
-        # sent. And ahead of the turret check, whose advice (set the slot's
+        # sent. And ahead of the objective, whose advice (set the slot's
         # objective) is wrong when the slot itself is what is unknown.
         unknown_axes = self._scope.motion.axes_without_position()
         if unknown_axes:
@@ -886,23 +891,8 @@ class ProtocolsAPI:
                     + unknown_positions_sentence(unknown_axes, then=f'{verb} the step')
                 ),
             )
-        if self._scope.capabilities.has_turret and (
-            not self._scope.motion.is_current_slot_objective_set()
-        ):
-            self._refuse(
-                reason='turret_objective_unset',
-                message=(
-                    f'Cannot {verb} the step. Please set objective for current turret position.'
-                ),
-            )
-        if objective_id is None:
-            self._refuse(
-                reason='objective_unknown',
-                message=(
-                    f'Cannot {verb} the step: the objective in the light path is unknown, so '
-                    'the step could not say which objective it was taken with.'
-                ),
-            )
+        objective_id, _ = self._scope.runtime_state.resolve_current_objective()
+        return objective_id
 
     @staticmethod
     def _stim_configs_with_invalid_channels_disabled(stim_configs: dict) -> dict:
