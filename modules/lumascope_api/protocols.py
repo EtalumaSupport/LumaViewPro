@@ -562,10 +562,12 @@ class ProtocolsAPI:
             AxisStateUnknownError: Z lost its reference, so the number it
                 answers is the last one it reported. Reported once by the
                 motion API.
+            AxisMovingError: ``'axis_moving'``, Z is moving, so its number
+                is a place it is passing through.
         """
         self._refuse_no_focus_axis(then)
         self._scope.motion.refuse_unknown_positions(('Z',), recording=True, then=then)
-        return self._scope.motion.get_current_position('Z')
+        return self._scope.motion.settled_positions(('Z',))['Z']
 
     def check_focus_z(self, z_um: float, *, then: str) -> float:
         """A given Z, as a focus to save into a layer: one this scope's Z can reach.

@@ -317,8 +317,11 @@ def run_folders(tmp_path_factory):
         session.set_channel_acquire(LED0, 'image')
 
         def scan(tiling: str) -> object:
+            # Parked first: a run that ended may still be returning Z to its
+            # start, and the config's current Z is refused while Z moves.
+            positions = _over_a_well(session)
             config = session.get_sequenced_capture_config(tiling=tiling, use_zstacking=False)
-            config['positions'] = _over_a_well(session)
+            config['positions'] = positions
             return session.scope.protocols.create_protocol(input_config=config)
 
         launch = {'parent_dir': str(live), 'enable_image_saving': True}

@@ -45,6 +45,7 @@ from lvp_logger import logger
 from modules.finite_number import refuse_unless_finite_number, refuse_unless_wait_s
 from modules.exceptions import (
     ArgumentRefusedError,
+    AxisMovingError,
     AxisStateUnknownError,
     ControlSessionRefusedError,
     HardwareCommandRefusedError,
@@ -2050,6 +2051,50 @@ class MotionAPI:
             for ax, state in states.items()
             if ax != Axis.T
         }
+
+    def settled_positions(self, axes: Iterable[str]) -> dict[Axis, float]:
+        """The positions of ``axes`` to keep, refused while any of them moves.
+
+        The one read every path that saves a position takes its number
+        from. While an axis is MOVING its cached number is the motion
+        monitor's last poll, behind the board by up to a poll, so a save
+        then would keep a place the axis was passing through. The states
+        and the numbers come from one snapshot, as ``axis_positions``
+        takes them, so a move that ends between a separate state question
+        and the read cannot pass a number taken while it ran; an IDLE
+        number is true, written only with a read taken after the arrival.
+
+        Only MOVING is refused. An axis whose position is not known
+        (UNKNOWN, HOMING) answers its cached number, and every caller's
+        owner refuses it in its own words: the save's
+        ``refuse_unknown_positions``, a step's ``step_position_unknown``, a
+        run's ``prepare``. For that reason it is not part of the L2 API
+        surface: alone it would hand a caller the stale number
+        ``axis_positions`` withholds. No serial I/O.
+
+        Args:
+            axes: The axes the caller keeps, each one this scope has a
+                position for.
+
+        Returns:
+            dict[Axis, float]: Axis to its position, in the order asked.
+
+        Raises:
+            ArgumentRefusedError: ``'not_offered'``, a name in *axes* is no
+                axis name.
+            AxisMovingError: ``'axis_moving'``, naming every asked axis
+                that is moving. Raised, not reported: the caller's boundary
+                reports it.
+        """
+        wanted = [refuse_unless_offered(Axis, axis, 'axes') for axis in axes]
+        with self._axis_state_lock:
+            states = dict(self._axis_state)
+            with self._pos_cache_lock:
+                cache = dict(self._pos_cache)
+        moving = [axis for axis in wanted if states.get(axis) == AxisState.MOVING]
+        if moving:
+            raise AxisMovingError(moving)
+        return {axis: cache.get(axis, 0.0) for axis in wanted}
 
     def _raise_unread_axes(self, home: str, homed: tuple | list, read: set[str]) -> None:
         """After a home: raise when a homed axis could not be read.

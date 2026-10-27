@@ -2113,8 +2113,9 @@ class ScopeSession:
 
         Its ``current_z`` is Z's position, or None while Z has none, so a
         config never carries a number nobody read; ``new_protocol`` refuses
-        that before a step would be saved at it. A scope with no Z motor
-        takes the plate read's answer.
+        that before a step would be saved at it. While Z moves it is refused,
+        so a config never carries a place Z was passing through. A scope
+        with no Z motor takes the plate read's answer.
 
         Raises:
             ObjectiveUnknownError: the objective in the light path is unknown:
@@ -2127,17 +2128,25 @@ class ScopeSession:
                 ``get_zstack_params``).
             AxisStateUnknownError: a scope with no Z motor, and an axis it has
                 does not know its position (as ``get_current_plate_position``).
+            AxisMovingError: ``'axis_moving'``, Z is moving, or, on a scope
+                with no Z motor, an axis the plate read reads.
             HardwareCommandRefusedError: ``'not_connected'``, a scope with no Z
                 motor whose model's motor controller is not connected.
         """
         import modules.config_helpers as config_helpers
 
         z = self.scope.motion.axis_positions().get('Z')
+        if z is None:
+            current_z = self.get_current_plate_position().z_um
+        elif z.position_um is None:
+            current_z = None
+        else:
+            current_z = self.scope.motion.settled_positions(('Z',))['Z']
         return config_helpers.get_sequenced_capture_config_from_settings(
             self.capture_settings_snapshot(),
             objective_helper=self.scope.objective_helper,
             wellplate_loader=self.scope.wellplate_loader,
-            current_z=z.position_um if z is not None else self.get_current_plate_position().z_um,
+            current_z=current_z,
             tiling=tiling,
             use_zstacking=use_zstacking,
         )
@@ -2580,6 +2589,8 @@ class ScopeSession:
             AxisStateUnknownError: an acquiring layer has no saved focus, so
                 its steps would save the current Z, and Z does not know its
                 position. Reported once.
+            AxisMovingError: ``'axis_moving'``, Z is moving, so the current
+                Z is a place it is passing through. Nothing is built.
         """
         from modules.protocol import Protocol, schedule_from_units
 
@@ -2654,6 +2665,9 @@ class ScopeSession:
         slices when stacked.
 
         Raises:
+            AxisMovingError: ``'axis_moving'``, with no ``at``, an axis is
+                moving, so the live position is a place it is passing
+                through. Nothing is added.
             ProtocolRunRefusedError: ``'step_position_unknown'``, an axis does
                 not know its position; ``'no_acquiring_layer'``, no layer
                 acquires. With ``use_zstacking``, also
@@ -2724,6 +2738,9 @@ class ScopeSession:
         Returns the step's name after the update.
 
         Raises:
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the live
+                position is a place it is passing through. The step is
+                unchanged.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``. Nothing is changed on either.
@@ -2763,6 +2780,8 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
+            AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
+                place it is passing through. Nothing is written.
             ProtocolError: ``step_index`` is not a step of ``protocol``.
                 Nothing is written.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
@@ -2840,18 +2859,27 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'not_offered'``, a name in ``axes`` that
                 is not X, Y or Z. Nothing is written.
-            AxisStateUnknownError: an axis's position is not known, so the
-                number it reports is not one to save. Nothing is written.
+            AxisStateUnknownError: an axis in ``axes`` does not know its
+                position, so the number it reports is not one to save.
+                Nothing is written.
+            AxisMovingError: ``'axis_moving'``, an axis it reads is moving, so
+                its number is a place it is passing through: the axes in
+                ``axes``, X and Y together. Nothing is written.
             HardwareCommandRefusedError: ``'not_connected'`` -- the motor
                 controller is not connected; ``'axis_absent'`` -- this scope
                 has no motor for an axis in ``axes``, so there is no place on
                 it to save. Nothing is written.
         """
+        import modules.config_helpers as config_helpers
+
         axes = tuple(axes)
         for axis in axes:
             self.scope.motion.refuse_absent('save_bookmark', axis)
         self.scope.motion.refuse_unknown_positions(axes, recording=True, then='save the bookmark')
-        position = self.get_current_plate_position()
+        # Only the axes kept are read, so a Z bookmark is saved while X moves.
+        position = config_helpers.get_current_plate_position(
+            self.scope, self.settings['protocol']['labware'], axes
+        )
         saved = PlateLocation(
             x_mm=position.x_mm if 'X' in axes else None,
             y_mm=position.y_mm if 'Y' in axes else None,
@@ -2961,6 +2989,8 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
+            AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
+                place it is passing through. Nothing is written.
         """
         z = self.scope.protocols.focus_z_um(then='save the bookmarks')
         layers = sorted(self._layers_on_scope())
@@ -2982,6 +3012,8 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
+            AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
+                place it is passing through. Nothing is written.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
@@ -5317,6 +5349,8 @@ class ScopeSession:
             AxisStateUnknownError: an axis the scope has does not know its
                 position (before a home, after a lost reference), so there
                 is no position to convert. Reported once.
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so its
+                number is a place it is passing through.
             HardwareCommandRefusedError: ``'not_connected'``, the model's
                 motor controller is not connected.
         """
@@ -5333,8 +5367,9 @@ class ScopeSession:
 
         For a caller that states the position on a plate other than the
         session's live selection: a protocol's own plate, or the plate in a
-        run's settings snapshot. It asks nothing about the axes; the step or
-        run the position goes into is refused there when one is unknown.
+        run's settings snapshot. It refuses a moving axis, whose number is a
+        place it is passing through; the step or run the position goes into
+        is refused there when an axis's position is unknown.
         It is not part of the L2 API surface: a caller states a position
         through the step and run members that read it.
 
@@ -5344,6 +5379,8 @@ class ScopeSession:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the model's
                 motor controller is not connected.
+            AxisMovingError: ``'axis_moving'``, an axis it reads is moving,
+                so its number is a place it is passing through.
             ConfigError: ``labware_id`` is not a plate the catalogue has.
         """
         import modules.config_helpers as config_helpers

@@ -26,6 +26,7 @@ _READERS = MemberNames(
         'get_target_positions',
         'get_actual_position',
         'axis_positions',
+        'settled_positions',
     },
 )
 
@@ -55,6 +56,7 @@ CLASSIFIED = {
     'modules/scope_session.py::ScopeSession.status_at_edge': DISPLAYS,
     'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
     'ui/motion_settings.py::XYStageControl.get_xy_targets': DISPLAYS,
+    'ui/protocol_settings.py::ProtocolSettings.insert_step_ex': DISPLAYS,
     'ui/shader.py::ShaderViewer._update_status_bar': DISPLAYS,
     'ui/stage.py::Stage.draw_labware_io_calculations': DISPLAYS,
     'ui/vertical_control.py::VerticalControl._show_z_target': DISPLAYS,

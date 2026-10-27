@@ -1018,10 +1018,14 @@ class ProtocolSettings(FloatLayout):
         shown = session.shown_channel.channel
         of_shown = [idx for idx in added if self._protocol.step_row(idx)['Color'] == shown]
         if len(of_shown) > 1:
-            # A stack's slices: read after the add, which refuses a position
-            # no axis vouches for.
-            live_z = session.get_current_plate_position().z_um
-            of_shown.sort(key=lambda idx: abs(self._protocol.step_row(idx)['Z'] - live_z))
+            # A stack's slices: the one nearest where Z stands, so the move to
+            # it is the shortest. A choice of which step to show, not a saved
+            # position, so it reads the snapshot, which never refuses: the
+            # steps are already added, and a refusal now would report a
+            # failed add for one that succeeded.
+            z = _app_ctx.ctx.scope.motion.axis_positions()['Z'].position_um
+            if z is not None:
+                of_shown.sort(key=lambda idx: abs(self._protocol.step_row(idx)['Z'] - z))
         self.curr_step = of_shown[0] if of_shown else first_added
 
         self.go_to_step(step_index=self.curr_step)

@@ -195,6 +195,9 @@ class ProtocolRunner:
             the run's outcome.
 
         Raises:
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the
+                position the run is built around is a place it is passing
+                through. Nothing is started.
             ProtocolRunRefusedError: Fewer than two channels are set to
                 capture an image, so nothing could be merged; or the
                 runner refused the run itself (already running, files
@@ -286,6 +289,9 @@ class ProtocolRunner:
             the run's outcome.
 
         Raises:
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the
+                position the run is built around is a place it is passing
+                through. Nothing is started.
             ArgumentRefusedError: ``'channel_unknown'``, or
                 ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
@@ -451,6 +457,9 @@ class ProtocolRunner:
             the run's outcome.
 
         Raises:
+            AxisMovingError: ``'axis_moving'``, an axis is moving, so the
+                position the run is built around is a place it is passing
+                through. Nothing is started.
             ArgumentRefusedError: ``'channel_unknown'``, or
                 ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.

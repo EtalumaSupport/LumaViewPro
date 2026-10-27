@@ -4002,6 +4002,11 @@ class PositionOutOfRangeError(Refusal, ValueError):
 _AXIS_HOMING = 'homing'
 
 
+def _names(names: list[str]) -> str:
+    """Axis names as a person lists them: "Z", "X and Y", "X, Y and Z"."""
+    return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
+
+
 def describe_unknown_positions(axes: dict[str, str]) -> str:
     """Say which axes do not know their position, in the words a user acts on.
 
@@ -4020,9 +4025,6 @@ def describe_unknown_positions(axes: dict[str, str]) -> str:
             are unknown", with no leading capital or closing full stop, so
             each caller ends it with the action its own situation needs.
     """
-
-    def _names(names: list[str]) -> str:
-        return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
 
     homing = [axis for axis, state in axes.items() if state == _AXIS_HOMING]
     lost = [axis for axis, state in axes.items() if state != _AXIS_HOMING]
@@ -4105,6 +4107,47 @@ class AxisStateUnknownError(Refusal, Exception):
         super().__init__(unknown_positions_sentence(axes, then))
         self.axes = dict(axes)
         self.axis = next(iter(axes))
+
+
+class AxisMovingError(Refusal, Exception):
+    """A position was asked for to be kept while an axis it records is moving.
+
+    While an axis moves, the number it answers is the motion monitor's
+    last poll, behind the board by up to a poll, so a focus, a bookmark or
+    a step saved then records a place the axis was passing through, real-
+    looking and never where it stopped. The state and the number are read
+    in one snapshot, so a move that ends between the two cannot pass a
+    number taken while it ran.
+
+    Distinct from ``AxisStateUnknownError``: a moving axis knows its frame
+    and needs only to stop; the user waits, never homes.
+
+    Attributes:
+        reason: ``'axis_moving'``.
+        axes: Every moving axis asked for, in the order asked.
+        axis: The first of them, for callers that map a refusal to a
+            response by a single axis (REST status codes, SDK branches).
+    """
+
+    title = 'Axis Moving'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'axis_moving': RefusalCause.STATE}
+
+    def __init__(self, axes: Iterable[str]):
+        """Build the refusal for ``axes``.
+
+        Args:
+            axes: Every moving axis. Must not be empty.
+        """
+        axes = list(axes)
+        moving = 'is' if len(axes) == 1 else 'are'
+        them = 'it' if len(axes) == 1 else 'them'
+        super().__init__(
+            f'{_names(axes)} {moving} still moving, so there is no position to keep. '
+            f'Wait for {them} to stop, then try again.'
+        )
+        self.reason = 'axis_moving'
+        self.axes = axes
+        self.axis = axes[0]
 
 
 class MoveNotCompletedError(_Umbrella, Exception):

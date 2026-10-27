@@ -317,7 +317,9 @@ def model_has_turret(scopes: 'Mapping[str, ScopeModel]', model: str | None) -> b
 # ---------------------------------------------------------------------------
 
 
-def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLocation:
+def get_current_plate_position(
+    scope: 'Lumascope', labware_id: str, axes: 'typing.Iterable[str]' = ('X', 'Y', 'Z')
+) -> PlateLocation:
     """Get current plate position in plate coordinates.
 
     Args:
@@ -325,6 +327,9 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLoca
             on its protocol's plate, which need not be the scope's
             selection; converting through another plate puts it in a frame
             the run will not drive it in.
+        axes: The stage axes the caller keeps; an axis not named is None and
+            is not read, so a move on it refuses nothing. X and Y are one
+            conversion to the plate, so naming either reads both.
 
     Returns:
         The position on the plate: X and Y in mm, Z in um. An axis this
@@ -337,6 +342,8 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLoca
             model has a motor controller and none is connected, so there is
             no position to read. A step or a run recorded at a made-up
             position would image the wrong place under the right name.
+        AxisMovingError: ``'axis_moving'``, an axis it reads is moving, so
+            its number is a place it is passing through.
         CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
             is not a plate the catalogue has. Converting through a different
             plate would put every position
@@ -344,15 +351,20 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLoca
     """
     scope.motion.refuse_controller_not_connected('get_current_plate_position')
     labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
-    axes = scope.capabilities.axes
-    pos = scope.motion.get_current_positions() if axes else {}
+    wanted = set(axes)
+    if wanted & {'X', 'Y'}:
+        wanted |= {'X', 'Y'}
+    present = scope.capabilities.axes
+    pos = scope.motion.settled_positions(
+        axis for axis in ('X', 'Y', 'Z') if axis in wanted and axis in present
+    )
 
     x_mm = y_mm = z_um = None
-    if 'X' in axes and 'Y' in axes:
+    if 'X' in pos and 'Y' in pos:
         plate = scope.runtime_state.stage_to_plate(pos['X'], pos['Y'], labware_id=labware_id)
         x_mm = round(plate.x_mm, common_utils.max_decimal_precision('x'))
         y_mm = round(plate.y_mm, common_utils.max_decimal_precision('y'))
-    if 'Z' in axes:
+    if 'Z' in pos:
         z_um = round(pos['Z'], common_utils.max_decimal_precision('z'))
     return PlateLocation(x_mm=x_mm, y_mm=y_mm, z_um=z_um)
 
