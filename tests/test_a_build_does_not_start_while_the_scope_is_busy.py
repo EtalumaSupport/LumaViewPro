@@ -63,8 +63,14 @@ def test_a_build_asked_while_a_runs_files_are_written_is_refused(session, tmp_pa
 
 def test_a_build_queued_before_a_hold_is_refused_when_its_turn_comes(session, tmp_path):
     lane = session.post_processing.lane
+    running = threading.Event()
     release = threading.Event()
-    lane.submit(IOTask(action=release.wait), 'test.blocker')
+
+    def block():
+        running.set()
+        release.wait(QUEUED_WAIT_S)
+
+    lane.submit(IOTask(action=block), 'test.blocker')
     outcome = {}
 
     def ask():
@@ -74,16 +80,25 @@ def test_a_build_queued_before_a_hold_is_refused_when_its_turn_comes(session, tm
             outcome['raised'] = e
 
     caller = threading.Thread(target=ask, name='queued_build')
-    caller.start()
-    # The lane's queue is the one signal that the build is waiting its turn.
-    deadline = time.monotonic() + QUEUED_WAIT_S
-    while lane.queue_size() < 1 and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert lane.queue_size() == 1, 'the build never queued behind the blocker'
+    try:
+        # Off the queue and on the worker before the build is asked, so the
+        # one task queued is the build: a worker that woke late left the
+        # blocker queued beside it, or alone before it.
+        assert running.wait(QUEUED_WAIT_S), 'the blocker never reached the lane'
+        caller.start()
+        # The lane's queue is the one signal that the build is waiting its turn.
+        deadline = time.monotonic() + QUEUED_WAIT_S
+        while lane.queue_size() < 1 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert lane.queue_size() == 1, 'the build never queued behind the blocker'
 
-    with session.diagnostic_claim():
+        with session.diagnostic_claim():
+            release.set()
+            caller.join(QUEUED_WAIT_S)
+    finally:
+        # A blocker left waiting holds the lane, and the session's close
+        # waits on the lane: a failure here would hang the teardown.
         release.set()
-        caller.join(QUEUED_WAIT_S)
 
     assert not caller.is_alive()
     assert isinstance(outcome.get('raised'), PostProcessingRefusedError), outcome
