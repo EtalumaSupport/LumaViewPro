@@ -381,7 +381,7 @@ class TestARunWhoseCleanupFailedSaysWhich:
             session.scope.camera.restore_camera_state = unreachable
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
         assert outcome.status == 'completed', outcome
-        assert outcome.cleanup_failures == ('Restore camera gain/exposure',), outcome
+        assert outcome.cleanup_failures == ('Restore camera settings',), outcome
         assert len(reported) == 1, reported
 
     def test_a_clean_cleanup_names_none(self, tmp_path):

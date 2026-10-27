@@ -1260,7 +1260,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         for step in (
             'Cancel scheduled events',
             'Restore LED states',
-            'Restore camera gain/exposure',
+            'Restore camera settings',
             'Return to position',
         ):
             assert step in body, f'step "{step}" missing from the summary; got: {body}'

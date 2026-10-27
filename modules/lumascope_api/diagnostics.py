@@ -710,7 +710,7 @@ class DiagnosticsAPI:
 
         results['total_elapsed_s'] = round(time.monotonic() - t_overall_start, 3)
 
-        # Restore caller's gain/exposure so vary_settings doesn't leak state.
+        # Restore the caller's camera settings so vary_settings doesn't leak state.
         try:
             if saved_camera_state is not None:
                 self._scope.camera.restore_camera_state(saved_camera_state)

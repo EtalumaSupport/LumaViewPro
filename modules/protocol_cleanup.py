@@ -279,9 +279,9 @@ def run_cleanup(
         except Exception as ex:
             cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
 
-    # --- Restore camera gain and exposure ---
+    # --- Restore the camera settings ---
     # Before the return moves and the executors' end: live preview after the
-    # stop must not briefly run at the run's gain and exposure. The restore
+    # stop must not briefly run at the run's camera settings. The restore
     # dispatches onto the camera lane; cleanup acts under the run's taking,
     # so it goes through the run's door while the lane is still in protocol
     # mode.
@@ -291,7 +291,7 @@ def run_cleanup(
             logger.info(f'[{logger_name}] Cleanup: restoring camera state tag={tag}')
             scope.camera.restore_camera_state(saved_camera_state)
     except Exception as ex:
-        cleanup_errors.append(('Restore camera gain/exposure', f'{type(ex).__name__}: {ex}'))
+        cleanup_errors.append(('Restore camera settings', f'{type(ex).__name__}: {ex}'))
 
     # --- Show the layer shown before the run ---
     # The run's steps moved the shown channel to the last step's layer while
