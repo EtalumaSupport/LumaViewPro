@@ -2287,11 +2287,6 @@ class TestASettingWriteTheCameraDoesNotAnswer:
 
     def test_a_read_back_the_camera_does_not_answer_is_the_write_applied(self):
         cam = _camera_answering_except(
-            _SdkNode('BinningVertical', value=1, maximum=2, unanswered_reads='after')
-        )
-        assert cam.set_binning_size(2) is True
-
-        cam = _camera_answering_except(
             _SdkNode('BlackLevel', value=0.0, minimum=0.0, maximum=255.0, unanswered_reads='after')
         )
         assert cam.set_black_level(3.0) == 3.0

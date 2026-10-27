@@ -2495,10 +2495,7 @@ class PylonCamera(Camera):
             return False
 
         try:
-            logger.debug(
-                f'[CAM Class ] Binning {self.get_binning_size()} -> {size}, '
-                f'frame {self.get_frame_size()}'
-            )
+            logger.debug(f'[CAM Class ] Binning -> {size}')
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon BinningVertical/Horizontal.SetValue({size}) Sum (geometry-realloc)'
@@ -2509,10 +2506,7 @@ class PylonCamera(Camera):
                 self.active.BinningHorizontal.SetValue(size)
                 self.active.BinningHorizontalMode.SetValue('Sum')
 
-            logger.debug(
-                f'[CAM Class ] Binning set to {self.get_binning_size()}, '
-                f'frame now {self.get_frame_size()}'
-            )
+            logger.debug(f'[CAM Class ] Binning set to {size}')
 
             return True
         except genicam.TimeoutException as e:

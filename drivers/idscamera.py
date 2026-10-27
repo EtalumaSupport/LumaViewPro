@@ -3052,9 +3052,7 @@ class IDSCamera(Camera):
             return False
 
         try:
-            logger.debug(
-                f'[CAM Class ] Binning {self.get_binning_size()} -> {size}, frame {self.get_frame_size()}'
-            )
+            logger.debug(f'[CAM Class ] Binning -> {size}')
             with self.update_camera_config():
                 self.remote_nodemap.FindNode('BinningVertical').SetValue(size)
                 self.remote_nodemap.FindNode('BinningHorizontal').SetValue(size)
@@ -3068,9 +3066,7 @@ class IDSCamera(Camera):
                 # reads it again.
                 self._sensor_max = None
 
-            logger.debug(
-                f'[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}'
-            )
+            logger.debug(f'[CAM Class ] Binning set to {size}')
             return True
         except Exception as e:
             _raise_if_unanswered(e, 'write', f'Binning {size}')
