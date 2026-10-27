@@ -1900,7 +1900,7 @@ class ImagingAPI:
                 'wrong_kind',
                 argument='record',
                 value=record,
-                kind=f'a camera timing record this release reads ({refused})',
+                takes=f'a camera timing record this release reads ({refused})',
             ) from refused
         rules = FrameValidity.rules_from_record(
             record, self._scope.capabilities.camera_has_clock_latch

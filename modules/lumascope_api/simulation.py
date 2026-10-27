@@ -188,33 +188,39 @@ class SimulationAPI:
         """
         self._refuse_unless_simulated(member)
         if board not in self._boards:
-            raise ArgumentRefusedError(
-                'fault_unknown', argument='board', value=board, offered=tuple(self._boards)
-            )
+            raise self._absent(board)
         return self._boards[board]
 
     def _camera_board(self, member: str) -> SimulatedCamera | SimulatedFX2:
+        """The simulated camera, on a simulated scope whose camera came up.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'`` on a real
+                scope; ``'fault_unknown'`` when its camera did not come
+                up, refused as a board it lacks.
+        """
         self._refuse_unless_simulated(member)
         if self._camera is None:
-            raise ArgumentRefusedError(
-                'not_injectable_on_board',
-                argument=member,
-                value=None,
-                kind='a scope with no camera',
-            )
+            raise self._absent(Part.CAMERA)
         return self._camera
+
+    def _absent(self, board: Part) -> ArgumentRefusedError:
+        """The refusal of a fault on ``board``, a board this scope lacks: the boards it has are offered."""
+        return ArgumentRefusedError(
+            'fault_unknown', argument='board', value=board, offered=tuple(self._boards)
+        )
 
     @staticmethod
     def _not_injectable(member: str, board: object) -> ArgumentRefusedError:
         return ArgumentRefusedError(
-            'not_injectable_on_board', argument=member, value=None, kind=_family(board)
+            'not_injectable_on_board', argument=member, value=None, board=_family(board)
         )
 
     @staticmethod
     def _bound(argument: str, value: object, words: str, holds: bool) -> None:
         refuse_unless_finite_number(value, argument)
         if not holds:
-            raise ArgumentRefusedError('fault_bound', argument=argument, value=value, kind=words)
+            raise ArgumentRefusedError('fault_bound', argument=argument, value=value, takes=words)
 
     def _record(self, member: str, undo: Callable[[], None], **arguments: object) -> None:
         self._injected.append((InjectedFault(member, arguments), undo))
@@ -267,14 +273,16 @@ class SimulationAPI:
                     'argument_not_on_board',
                     argument='command',
                     value=command,
-                    kind=f'{_family(target)}, whose link drops the next reply whatever its command',
+                    board=_family(target),
+                    takes='no command: its link drops the next reply, whatever its command',
                 )
             if count is None:
                 raise ArgumentRefusedError(
                     'argument_not_on_board',
                     argument='count',
                     value=count,
-                    kind=f'{_family(target)}, whose link drops a counted few replies; '
+                    board=_family(target),
+                    takes='a count of 1 or more: its link drops a counted few replies; '
                     'a board that answers nothing is unplug',
                 )
             target.drop_next_reply(count)
@@ -458,7 +466,8 @@ class SimulationAPI:
                     'argument_not_on_board',
                     argument='how',
                     value=how,
-                    kind=f'{_family(target)}, whose home fails by its switch',
+                    board=_family(target),
+                    takes=f"'{HomeFault.SWITCH_NEVER_TRIPS}' only: its home fails by its switch",
                 )
             target.break_right_switch(axis)
             undo = lambda: target.break_right_switch(axis, broken=False)
@@ -557,7 +566,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_injectable_on_board'`` on a scope with no camera.
+                ``'fault_unknown'`` on a scope whose camera did not come up.
         """
         target = self._camera_board('remove_camera')
         if isinstance(target, SimulatedFX2):
@@ -821,7 +830,6 @@ class SimulationAPI:
                 'exposure_not_recorded',
                 argument='frame',
                 value=frame.seq,
-                kind=f'it kept the last {SimulatedCamera.EXPOSURE_RECORDS_KEPT} it delivered',
             )
         return exposure
 

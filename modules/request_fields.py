@@ -74,4 +74,4 @@ def refuse_unless_kind(value: object, kind: str, argument: str, *, nullable: boo
         return
     words, test = _KINDS[kind]
     if not test(value):
-        raise ArgumentRefusedError('wrong_kind', argument=argument, value=value, kind=words)
+        raise ArgumentRefusedError('wrong_kind', argument=argument, value=value, takes=words)

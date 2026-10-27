@@ -19,6 +19,7 @@ from modules.exceptions import (
     MotorStopFailedError,
     MoveNotCompletedError,
 )
+from modules.lumascope_api import _lumascope
 from modules.lumascope_api.simulation import InjectedFault
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 
@@ -188,19 +189,19 @@ def test_the_fast_led_board_refuses_a_link_fault_by_name(scope):
     for member in (scope.simulation.drop_replies, scope.simulation.unplug):
         refused = _refused(member, 'led')
         assert refused.reason == 'not_injectable_on_board'
-        assert refused.kind == 'the fast simulated LED board'
+        assert refused.board == 'the fast simulated LED board'
 
 
 def test_the_fast_boards_refuse_a_late_reply_by_name(scope):
     for board in ('motor', 'led'):
         refused = _refused(scope.simulation.delay_reply, board, 0.5)
         assert refused.reason == 'not_injectable_on_board'
-        assert refused.kind == f'the fast simulated {"motor" if board == "motor" else "LED"} board'
+        assert refused.board == f'the fast simulated {"motor" if board == "motor" else "LED"} board'
 
 
 def test_the_fast_motor_board_cannot_fail_a_home(scope):
     refused = _refused(scope.simulation.fail_home, 'X', 'stall')
-    assert (refused.reason, refused.kind) == (
+    assert (refused.reason, refused.board) == (
         'not_injectable_on_board',
         'the fast simulated motor board',
     )
@@ -230,6 +231,29 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
 def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, reason, argument):
     refused = _refused(getattr(scope.simulation, member), *args)
     assert (refused.reason, refused.argument) == (reason, argument)
+
+
+def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards_it_has(
+    monkeypatch,
+):
+    # The camera is a board the scope lacks, refused as a missing motor
+    # board is: the boards it has are offered.
+    def _no_camera(*args, **kwargs):
+        raise RuntimeError('no camera found')
+
+    # a stand-in by design: the simulator has no member that fails the
+    # camera at bring-up, so its factory raises as a camera not found does.
+    monkeypatch.setattr(_lumascope.camera_registry, 'create', _no_camera)
+    scope = build_scope(simulate=True, register_atexit=False)
+
+    refused = _refused(scope.simulation.stall_stream, 0.0, 1.0)
+
+    assert (refused.reason, refused.argument, refused.value, refused.offered) == (
+        'fault_unknown',
+        'board',
+        'camera',
+        ('motor', 'led'),
+    )
 
 
 def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
@@ -323,9 +347,15 @@ def test_the_ls720s_open_lid_refuses_an_x_move_until_cleared(ls720):
 
 def test_the_ls720_fails_a_home_by_its_switch_only(ls720):
     refused = _refused(ls720.simulation.fail_home, 'X', 'stall')
-    assert (refused.reason, refused.argument) == ('argument_not_on_board', 'how')
+    # The board and what it takes are two fields, so a client reads either.
+    assert (refused.reason, refused.argument, refused.board, refused.takes) == (
+        'argument_not_on_board',
+        'how',
+        'the simulated TMCM-6110',
+        "'switch_never_trips' only: its home fails by its switch",
+    )
     refused = _refused(ls720.simulation.hold_axis, 'X')
-    assert (refused.reason, refused.kind) == ('not_injectable_on_board', 'the simulated TMCM-6110')
+    assert (refused.reason, refused.board) == ('not_injectable_on_board', 'the simulated TMCM-6110')
 
 
 def test_the_ls720s_broken_home_switch_fails_the_home_until_cleared(ls720, monkeypatch):
@@ -355,4 +385,4 @@ def test_the_fx2_refuses_what_its_device_cannot_show(ls620):
         (ls620.simulation.replug, ('led',)),
     ):
         refused = _refused(member, *args)
-        assert (refused.reason, refused.kind) == ('not_injectable_on_board', 'the simulated FX2')
+        assert (refused.reason, refused.board) == ('not_injectable_on_board', 'the simulated FX2')

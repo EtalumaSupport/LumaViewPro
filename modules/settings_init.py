@@ -930,7 +930,7 @@ def prepare_loaded(
         if handed:
             where, want, _got, value = problems[0]
             raise ArgumentRefusedError(
-                'wrong_kind', argument=f'{source}.{where}', value=value, kind=f'a {want}'
+                'wrong_kind', argument=f'{source}.{where}', value=value, takes=f'a {want}'
             )
         raise SettingsFileError(
             f'{source}: structure does not match settings.json -- '

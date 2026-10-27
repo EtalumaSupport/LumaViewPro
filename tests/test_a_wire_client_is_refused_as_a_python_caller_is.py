@@ -222,6 +222,15 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     )
 
 
+def test_a_well_the_plate_lacks_answers_with_the_plate_it_was_looked_for_on(client, session):
+    plate = session.scope.runtime_state.get_labware().name
+
+    body = _problem(client.post('/api/v1/scope/motion/move_to_well', json={'well': 'Z99'}), 422)
+
+    assert (body['reason'], body['plate']) == ('well_unknown', plate)
+    assert body['detail'] == f"{plate} has no well 'Z99'."
+
+
 @pytest.mark.parametrize(
     ('method', 'route', 'body', 'reason', 'published'),
     [

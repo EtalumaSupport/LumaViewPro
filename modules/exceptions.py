@@ -3564,7 +3564,7 @@ def under_control_sentence(holder_trigger: Caller | None, control_session: str |
     return f'{who}{through} has control of the microscope. Ask it to end, or take back control.'
 
 
-@api_fields('argument', 'limits', 'member', 'offered')
+@api_fields('argument', 'board', 'limits', 'member', 'offered', 'plate', 'takes')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
 
@@ -3587,7 +3587,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
             - ``'well_unknown'`` -- a well label the selected plate
-              (``kind``) does not have.
+              (``plate``) does not have.
             - ``'out_of_range'`` -- a number outside the ``limits`` its
               member takes.
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
@@ -3606,7 +3606,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'missing_key'`` -- a dictionary argument lacks a key its
               member reads; ``argument`` names the key's path.
             - ``'wrong_kind'`` -- an argument, or a value in a dictionary
-              argument, is not of the kind its member reads (``kind``, in
+              argument, is not of the kind its member reads (``takes``, in
               words).
             - ``'protocol_source_ambiguous'`` -- not exactly one of the
               protocol sources ``offered`` was given.
@@ -3633,12 +3633,13 @@ class ArgumentRefusedError(Refusal, ValueError):
               device's hardware ID, that is not one of ``offered``: sets
               this scope's boards and this machine's devices decide.
             - ``'fault_bound'`` -- a simulated fault's count, fraction or
-              time outside what it takes (``kind``, in words).
+              time outside what it takes (``takes``, in words).
             - ``'not_injectable_on_board'`` -- a simulated fault the board
               that would present it cannot produce; ``argument`` names the
-              ``scope.simulation`` member, ``kind`` the board.
+              ``scope.simulation`` member, ``board`` the board.
             - ``'argument_not_on_board'`` -- an argument of a simulated
-              fault the board cannot take; ``kind`` names the board.
+              fault the board cannot take; ``board`` names the board,
+              ``takes`` what it takes for that argument.
             - ``'slot_not_holding_objective'`` -- a turret slot given for
               steps naming an objective the slot does not hold now
               (``offered``: the slots that hold it).
@@ -3662,21 +3663,28 @@ class ArgumentRefusedError(Refusal, ValueError):
             None otherwise.
         limits: The lowest and highest value the argument takes, where it
             takes a range that depends on the scope; None otherwise.
-        kind: The kind of value the argument takes, in words, for
-            ``'wrong_kind'`` and ``'fault_bound'``; the simulated board,
-            in words, for ``'not_injectable_on_board'`` and
+        takes: The value the argument takes, in words, for
+            ``'wrong_kind'``, ``'fault_bound'`` and
             ``'argument_not_on_board'``; None otherwise.
+        board: The simulated board, in words, for
+            ``'not_injectable_on_board'`` and ``'argument_not_on_board'``;
+            None otherwise.
+        plate: The name of the plate looked on, for ``'well_unknown'``;
+            None otherwise.
         member: The member to read instead, for ``'has_member'``; None
             otherwise.
 
-    ``argument``, ``offered``, ``limits`` and ``member`` are published, so
-    a REST problem carries them beside the words; the client already holds
-    the value it sent.
+    ``argument``, ``offered``, ``limits``, ``takes``, ``board``, ``plate``
+    and ``member`` are published, so a REST problem carries them beside the
+    words; the client already holds the value it sent.
     """
 
     argument: str
     offered: tuple[str | int, ...] | None
     limits: tuple[float, float] | None
+    takes: str | None
+    board: str | None
+    plate: str | None
     member: str | None
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_offered': (
@@ -3693,7 +3701,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'well_unknown': (
             'Not a Well',
-            '{kind} has no well {value!r}.',
+            '{plate} has no well {value!r}.',
         ),
         'out_of_range': (
             'Value Out of Range',
@@ -3725,7 +3733,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'wrong_kind': (
             'Wrong Kind of Value',
-            '{argument} must be {kind}; {value!r} is not.',
+            '{argument} must be {takes}; {value!r} is not.',
         ),
         'protocol_source_ambiguous': (
             'Protocol Source Ambiguous',
@@ -3755,7 +3763,8 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'exposure_not_recorded': (
             'No Exposure Record',
-            '{argument} is not a frame the simulated camera holds a record for: {kind}.',
+            '{argument} is not a frame the simulated camera holds a record for: one it did '
+            'not deliver, or one older than the records it keeps.',
         ),
         'not_an_installation': (
             'Not an Installation',
@@ -3768,15 +3777,15 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'fault_bound': (
             'Not a Simulated Fault',
-            '{argument} must be {kind}; {value!r} is not.',
+            '{argument} must be {takes}; {value!r} is not.',
         ),
         'not_injectable_on_board': (
             'Fault Not Injectable',
-            'On {kind}, {argument} is not a fault that can be injected.',
+            'On {board}, {argument} is not a fault that can be injected.',
         ),
         'argument_not_on_board': (
             'Fault Not Injectable',
-            '{argument} {value!r} is not taken by {kind}.',
+            '{argument} {value!r} is not taken by {board}; it takes {takes}.',
         ),
         'slot_not_holding_objective': (
             'Slot Does Not Hold That Objective',
@@ -3819,7 +3828,9 @@ class ArgumentRefusedError(Refusal, ValueError):
         value: object,
         offered: tuple[str | int, ...] | None = None,
         limits: tuple[float, float] | None = None,
-        kind: str | None = None,
+        takes: str | None = None,
+        board: str | None = None,
+        plate: str | None = None,
         member: str | None = None,
     ):
         if reason not in self._WORDS:
@@ -3833,10 +3844,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes limits exactly when its words name them'
             )
-        if ('{kind}' in words) != (kind is not None):
-            raise TypeError(
-                f'ArgumentRefusedError({reason!r}) takes a kind exactly when its words name it'
-            )
+        for name, given in (('takes', takes), ('board', board), ('plate', plate)):
+            if ('{' + name + '}' in words) != (given is not None):
+                raise TypeError(
+                    f'ArgumentRefusedError({reason!r}) takes {name} exactly when its words name it'
+                )
         if ('{member}' in words) != (member is not None):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes a member exactly when its words name it'
@@ -3851,7 +3863,9 @@ class ArgumentRefusedError(Refusal, ValueError):
                 offered=_offered_words(offered or ()),
                 low=low,
                 high=high,
-                kind=kind,
+                takes=takes,
+                board=board,
+                plate=plate,
                 member=member,
             )
         )
@@ -3860,7 +3874,9 @@ class ArgumentRefusedError(Refusal, ValueError):
         self.value = value
         self.offered = offered
         self.limits = limits
-        self.kind = kind
+        self.takes = takes
+        self.board = board
+        self.plate = plate
         self.member = member
 
 

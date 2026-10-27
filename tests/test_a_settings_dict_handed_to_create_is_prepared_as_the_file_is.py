@@ -101,7 +101,7 @@ def test_a_container_of_the_wrong_kind_is_refused_as_the_argument():
     settings['motion'] = [100]
     with pytest.raises(ArgumentRefusedError) as refused:
         ScopeSession.create(settings, simulate=True)
-    assert (refused.value.reason, refused.value.argument, refused.value.kind) == (
+    assert (refused.value.reason, refused.value.argument, refused.value.takes) == (
         'wrong_kind',
         'settings.motion',
         'a dict',

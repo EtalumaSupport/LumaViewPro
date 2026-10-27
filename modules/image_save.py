@@ -712,7 +712,7 @@ def save_image(
     """
     if array is None:
         raise ArgumentRefusedError(
-            'wrong_kind', argument='array', value=None, kind='an image array'
+            'wrong_kind', argument='array', value=None, takes='an image array'
         )
 
     # The one place the two facts meet, and they meet on the rendering side

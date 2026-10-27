@@ -315,7 +315,7 @@ session.go_to_bookmark(('X', 'Y'))  # the axes asked, as save_bookmark stored th
 ```
 
 `move_to_well` refuses a label the selected plate does not have
-(`well_unknown`). `session.go_to_bookmark(axes)` and its started form
+(`well_unknown`, its `plate` naming the plate). `session.go_to_bookmark(axes)` and its started form
 `start_go_to_bookmark(axes)` move each axis given to `session.bookmark`, X
 and Y in plate mm and Z in um, and leave the others where they are.
 
@@ -3032,7 +3032,7 @@ A scope brought up through `ScopeSession.create()` is already streaming. A bare 
 
 `scope.simulation` presents the faults a real board or camera can, so code under test meets them through the production driver path and asserts what the API answers: the same exception, reason and outcome as on hardware. A fault is armed for the next command, not the one in flight. The members are in-process only (Python, MATLAB calling Python), and each refuses on a real scope (`ArgumentRefusedError`, `needs_simulated_scope`).
 
-Which board answers a member depends on how the model is simulated. The **fast** tier (`simulator_tier` `fast`) runs simulated boards in place of the drivers, a move and a home taking milliseconds; it is the tier a machine without the firmware runtime falls back to, with a warning in the log. The shipped settings choose the **realistic** tier, where a home and a move take the stage's time. The **firmware** and **realistic** tiers run the production EL-0940 drivers over the board firmware in simulation; a **Classic** model (the LS720's TMCM-6110; the LS620 and LS560's FX2) runs its production drivers over a simulated device on every tier. A board that cannot produce a fault refuses it (`not_injectable_on_board`, naming the board), and an argument it cannot take is refused as `argument_not_on_board`. `board` is a `Part`, `'motor'` or `'led'` (any other word refused `not_offered`; `fault_unknown` for a board the model lacks). A home fault's `how` and a camera fault's `node` and `answer` are closed sets (`HomeFault`, `CameraWriteNode`, `CameraWriteAnswer`, `CameraReadNode`, `CameraReadAnswer`, in `modules.lumascope_api.simulation`): a word outside one is refused `not_offered`, and so is a write answer the node does not give, offering those it gives.
+Which board answers a member depends on how the model is simulated. The **fast** tier (`simulator_tier` `fast`) runs simulated boards in place of the drivers, a move and a home taking milliseconds; it is the tier a machine without the firmware runtime falls back to, with a warning in the log. The shipped settings choose the **realistic** tier, where a home and a move take the stage's time. The **firmware** and **realistic** tiers run the production EL-0940 drivers over the board firmware in simulation; a **Classic** model (the LS720's TMCM-6110; the LS620 and LS560's FX2) runs its production drivers over a simulated device on every tier. A board that cannot produce a fault refuses it (`not_injectable_on_board`, its `board` naming the board), and an argument it cannot take is refused as `argument_not_on_board`, its `board` naming the board and its `takes` what the board takes for that argument. `board` is a `Part`, `'motor'` or `'led'` (any other word refused `not_offered`; `fault_unknown` for a board the model lacks, its `offered` the boards it has). A camera fault on a scope whose camera did not come up is refused `fault_unknown` the same way, naming `'camera'`. A home fault's `how` and a camera fault's `node` and `answer` are closed sets (`HomeFault`, `CameraWriteNode`, `CameraWriteAnswer`, `CameraReadNode`, `CameraReadAnswer`, in `modules.lumascope_api.simulation`): a word outside one is refused `not_offered`, and so is a write answer the node does not give, offering those it gives.
 
 | Member | The fault | Fast | Firmware | Classic |
 |---|---|---|---|---|
@@ -3722,9 +3722,12 @@ Reached through returned by `scope.camera.applied_gain_db_for`.
 Reached through a REST problem, whose members carry it.
 
 - `argument`
+- `board`
 - `limits`
 - `member`
 - `offered`
+- `plate`
+- `takes`
 
 ### ArgumentTypeRefusedError
 

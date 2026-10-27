@@ -611,7 +611,10 @@ _HEADER = "the protocol file format's header line"
 
 OPEN_STRINGS: dict[str, str] = {
     'ArgumentRefusedError.argument field': _MEMBER,
+    'ArgumentRefusedError.board field': _PROSE,
     'ArgumentRefusedError.member field': _MEMBER,
+    'ArgumentRefusedError.plate field': _LABWARE,
+    'ArgumentRefusedError.takes field': _PROSE,
     'CompositeFailedError.merge_failure field': _REASON,
     'CompositeFailedError.run_ending field': _REASON,
     'ArgumentRefusedError.offered field': _OFFERED,
