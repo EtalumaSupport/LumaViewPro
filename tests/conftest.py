@@ -19,6 +19,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 
 import faulthandler
 import functools
+import json
 import os
 import sys
 import tempfile
@@ -336,22 +337,79 @@ if not _flag_in_argv('--run-hardware'):
     _install_serial_refusers()
 
 
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
+# A real scope takes its installation's instance lock, on the port that
+# installation's settings name. One built on the checkout's installation, or
+# on a copy of its data/, takes the port a LumaViewPro, a REST server or a
+# bench script on this machine holds: the shipped template's, or the
+# checkout's own current.json's. The test then fails whenever one runs and
+# passes when none does. Unless --run-hardware is set, such a take fails the
+# test at its end, by name, whether or not the port was free; a test's real
+# scope is built on `installation_of_its_own()`, whose port is 0.
+SHIPPED_LOCK_BANNER = 'SHIPPED INSTANCE-LOCK PORT TAKEN'
+_shipped_lock_takes: list[int] = []
+
+
+def _install_shipped_lock_recorder():
+    import modules.lumascope_api._lumascope as lumascope_module
+    from modules.app_config import get_lvp_lock_port
+    from modules.path_utils import get_source_root
+
+    checkout = get_source_root()
+    shipped = json.loads((checkout / 'data' / 'settings.json').read_text(encoding='utf-8'))
+    template = shipped['lvp_lock_port']
+    held_here = {template, get_lvp_lock_port(checkout)} - {0}
+    real_take = lumascope_module.take_scope_lock
+
+    @functools.wraps(real_take)
+    def recorded_take(source_path):
+        port = get_lvp_lock_port(source_path)
+        if port in held_here:
+            _shipped_lock_takes.append(port)
+        return real_take(source_path)
+
+    lumascope_module.take_scope_lock = recorded_take
+
+
+if not _flag_in_argv('--run-hardware'):
+    _install_shipped_lock_recorder()
+
+
+def _shipped_lock_failure(item, call) -> str | None:
+    if not _shipped_lock_takes:
+        return None
+    ports = sorted(set(_shipped_lock_takes))
+    _shipped_lock_takes.clear()
+    return (
+        f'{SHIPPED_LOCK_BANNER}: {item.nodeid} built a real scope on port(s) {ports} during '
+        f'{call.when}, the port a LumaViewPro or a bench session on this machine holds, so '
+        'it fails whenever one runs. Build it on '
+        'tests.settings_fixtures.installation_of_its_own(), whose port is 0.'
+    )
+
+
+def _serial_failure(item, call) -> str | None:
     if not _serial_touches:
-        return
+        return None
     touches = list(_serial_touches)
     _serial_touches.clear()
     kind, detail = touches[0]
-    report = outcome.get_result()
-    report.outcome = 'failed'
-    report.longrepr = (
+    return (
         f'{SERIAL_REFUSAL_BANNER}: {item.nodeid} reached the real serial layer during '
         f'{call.when} ({len(touches)} touch(es); first: {kind} {detail}). Build the scope '
         'with simulate=True or a simulated driver, or give a bare SerialBoard a port; '
         'a real port is opened only under --run-hardware.'
     )
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    failures = [f for f in (_serial_failure(item, call), _shipped_lock_failure(item, call)) if f]
+    if not failures:
+        return
+    report = outcome.get_result()
+    report.outcome = 'failed'
+    report.longrepr = '\n\n'.join(failures)
 
 
 @pytest.fixture(autouse=True)

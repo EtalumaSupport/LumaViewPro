@@ -126,7 +126,7 @@ def test_the_support_report_scope_never_traces(monkeypatch):
         lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
 
-    scope = lumascope_module.Lumascope.create_diagnostic()
+    scope = lumascope_module.Lumascope.create_diagnostic(source_path=installation_of_its_own())
     try:
         # The diagnostic scope is built without __init__, so the flag its
         # illumination API reads is set by create_diagnostic itself.

@@ -13,6 +13,7 @@ import modules.lumascope_api._lumascope as lumascope_module
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.settings_fixtures import installation_of_its_own
 
 
 def test_the_support_report_scope_builds_its_motor_board_with_the_shipped_defaults(
@@ -31,7 +32,7 @@ def test_the_support_report_scope_builds_its_motor_board_with_the_shipped_defaul
         lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
 
-    scope = lumascope_module.Lumascope.create_diagnostic()
+    scope = lumascope_module.Lumascope.create_diagnostic(source_path=installation_of_its_own())
     try:
         assert asked == [{'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS}]
     finally:

@@ -12,8 +12,9 @@ def test_the_diagnostic_path_swallows_the_refusal_into_null_boards():
     """Passes on its own terms: create_diagnostic hands back null boards when
     the real constructors find no port. The guard must fail it anyway."""
     from modules.lumascope_api import Lumascope
+    from tests.settings_fixtures import installation_of_its_own
 
-    instance = Lumascope.create_diagnostic()
+    instance = Lumascope.create_diagnostic(source_path=installation_of_its_own())
     try:
         assert instance._motion_driver is not None
     finally:
