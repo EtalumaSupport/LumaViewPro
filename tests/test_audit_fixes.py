@@ -8477,12 +8477,11 @@ class TestPreReleaseFutureWarning:
         assert len(future_warnings) >= 1
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
 
-    def test_warning_text_references_migration_plan(self):
-        """The live warning message must point users at the migration
-        plan and a support contact -- editing the bundle text without
-        those pointers breaks the warning's purpose. The README banner
-        and the LumascopeSkills preface are the other two pieces,
-        verified outside this test file."""
+    def test_warning_text_states_the_preface_s_horizon_and_a_support_contact(self):
+        """The live warning says what the LumascopeSkills preface says: the
+        API may change until 4.0.0 ships. It names no wave or plan the
+        reader cannot open, and it names a support contact. The README
+        banner and the preface are the other two pieces of the notice."""
         import warnings
 
         with warnings.catch_warnings(record=True) as caught:
@@ -8491,7 +8490,8 @@ class TestPreReleaseFutureWarning:
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert future_warnings, 'PRE-RELEASE FutureWarning must fire on first Lumascope()'
         msg = str(future_warnings[0].message)
-        assert 'migration plan' in msg, f'warning text must point at the migration plan; got: {msg}'
+        assert 'until 4.0.0 ships' in msg, f'warning text must state the horizon; got: {msg}'
+        assert 'Wave' not in msg, f'warning text names an internal wave; got: {msg}'
         assert 'support' in msg.lower(), f'warning text must name a support contact; got: {msg}'
 
 

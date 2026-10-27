@@ -171,10 +171,9 @@ def _wire_timing(sim_tier: str) -> str:
 _PRE_RELEASE_WARNING_FIRED = False
 _PRE_RELEASE_WARNING_TEXT = (
     'The Lumascope SDK API is PRE-RELEASE and subject to breaking '
-    'changes through LVP 4.2 (Wave 7 sub-API decomposition, capability '
-    '+ wire-contract changes, REST endpoint conventions). See '
-    'LumaViewPro/docs/LumascopeSkills.md preface for the migration '
-    'plan. Contact Etaluma support if you depend on this API.'
+    'changes until 4.0.0 ships. See the LumaViewPro/docs/LumascopeSkills.md '
+    'preface for what is still fluid. Contact Etaluma support if you '
+    'depend on this API.'
 )
 
 
