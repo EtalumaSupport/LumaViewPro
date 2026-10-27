@@ -31,13 +31,13 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-from typing import ClassVar
+from typing import ClassVar, NamedTuple
 
 from fastapi.responses import JSONResponse
 
 from modules import notification_center, wire_encoding
 from lib.lumascope_error import Fault, LumascopeError, defined_classes
-from modules.api_surface import raises_of
+from modules.api_surface import api_fields, raises_of
 from modules.exceptions import Refusal, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
@@ -192,20 +192,36 @@ def result(value: object) -> Answer:
     return Answer(200, value)
 
 
+@api_fields('loc', 'msg', 'type')
+class UnfitArgument(NamedTuple):
+    """One argument of a request that does not fit its member, as the request reader found it."""
+
+    # Where the argument is: ``body``, ``query`` or ``path``, then its name
+    # and, inside it, the key or index.
+    loc: tuple[str | int, ...]
+    # Why it does not fit, in the reader's words.
+    msg: str
+    # The reader's code for why.
+    type: str
+
+
+@api_fields('errors')
 class ServerRefusedError(Refusal, Exception):
     """A request the server itself answers: it never reached a member.
 
     A refusal, answered with its own status rather than its cause's: a
     server too busy says 503 and when to ask again, where a member's refusal
-    for the scope's state says 409.
+    for the scope's state says 409. The status and the headers are how the
+    answer is sent, so they are this module's to read, not the problem's.
 
     Attributes:
-        status: The HTTP status, the reason's.
         reason: The machine-readable code.
         title: The heading, the reason's.
-        headers: Headers the answer carries, such as ``Retry-After``.
-        extra: Further members of the problem, such as ``errors``.
+        errors: For ``'invalid_request'`` from the request reader, each
+            argument that does not fit; None otherwise.
     """
+
+    errors: tuple[UnfitArgument, ...] | None
 
     causes: ClassVar[dict[str, RefusalCause]] = {
         'not_found': RefusalCause.REQUEST,
@@ -252,14 +268,14 @@ class ServerRefusedError(Refusal, Exception):
         detail: str,
         *,
         headers: dict[str, str] | None = None,
-        extra: dict[str, object] | None = None,
+        errors: tuple[UnfitArgument, ...] | None = None,
     ) -> None:
         super().__init__(detail)
         self.reason = reason
-        self.status = self._STATUSES[reason]
         self.title = self._TITLES[reason]
-        self.headers = headers or {}
-        self.extra = extra or {}
+        self.errors = errors
+        self._status = self._STATUSES[reason]
+        self._headers = headers or {}
 
 
 def not_found(detail: str) -> ServerRefusedError:
@@ -267,9 +283,11 @@ def not_found(detail: str) -> ServerRefusedError:
     return ServerRefusedError('not_found', detail)
 
 
-def invalid_request(detail: str, **extra: object) -> ServerRefusedError:
+def invalid_request(
+    detail: str, errors: tuple[UnfitArgument, ...] | None = None
+) -> ServerRefusedError:
     """A request whose arguments do not fit the member."""
-    return ServerRefusedError('invalid_request', detail, extra=extra)
+    return ServerRefusedError('invalid_request', detail, errors=errors)
 
 
 def method_not_allowed(detail: str) -> ServerRefusedError:
@@ -306,17 +324,13 @@ def no_frame_yet(retry_after_s: int) -> ServerRefusedError:
 
 def refused_by_server(refusal: ServerRefusedError, request_id: str) -> Answer:
     """The problem for a request the server answered itself."""
-    body = _problem(
-        type_=TYPE_PREFIX + refusal.reason,
-        title=refusal.title,
-        detail=str(refusal),
-        status=refusal.status,
-        request_id=request_id,
-        kind=OutcomeKind.REFUSAL,
-        reason=refusal.reason,
-        remedy=None,
-    )
-    return Answer(refusal.status, {**body, **refusal.extra}, dict(refusal.headers))
+    body = {
+        'type': TYPE_PREFIX + refusal.reason,
+        **wire_encoding.outcome_fields(refusal, wire_form),
+        'status': refusal._status,
+        'instance': f'urn:uuid:{request_id}',
+    }
+    return Answer(refusal._status, body, dict(refusal._headers))
 
 
 def answered_by_member(exception: Exception, request_id: str) -> Answer:
@@ -340,26 +354,3 @@ def answered_by_member(exception: Exception, request_id: str) -> Answer:
         'instance': f'urn:uuid:{request_id}',
     }
     return Answer(status, body)
-
-
-def _problem(
-    *,
-    type_: str,
-    title: str,
-    detail: str,
-    status: int,
-    request_id: str,
-    kind: OutcomeKind,
-    reason: str | None,
-    remedy: dict | None,
-) -> dict[str, object]:
-    return {
-        'type': type_,
-        'title': title,
-        'detail': detail,
-        'status': status,
-        'instance': f'urn:uuid:{request_id}',
-        'kind': kind.value,
-        'reason': reason,
-        'remedy': remedy,
-    }

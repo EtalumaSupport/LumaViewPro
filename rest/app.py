@@ -647,8 +647,10 @@ async def _body_does_not_fit(
     the reader took is no JSON, so the answer would fail where the refusal
     is due.
     """
-    errors = [{k: e[k] for k in ('loc', 'msg', 'type')} for e in error.errors()]
-    words = '; '.join(f'{"/".join(str(p) for p in e["loc"])}: {e["msg"]}' for e in errors)
+    errors = tuple(
+        problems.UnfitArgument(tuple(e['loc']), e['msg'], e['type']) for e in error.errors()
+    )
+    words = '; '.join(f'{"/".join(str(p) for p in e.loc)}: {e.msg}' for e in errors)
     return problems.refused_by_server(
         problems.invalid_request(words, errors=errors), request.state.request_id
     ).response()

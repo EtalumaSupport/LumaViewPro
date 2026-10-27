@@ -16,18 +16,10 @@ import modules.exceptions
 from modules.api_surface import fields_of
 from rest import problems
 
-# The members every problem has, which no published field may replace.
-PROBLEM_MEMBERS = frozenset(
-    problems._problem(
-        type_='',
-        title='',
-        detail='',
-        status=0,
-        request_id='',
-        kind=problems.OutcomeKind.REFUSAL,
-        reason=None,
-        remedy=None,
-    )
+# The members every problem has, which no published field may replace: a
+# problem's keys, less the fields its type publishes.
+PROBLEM_MEMBERS = frozenset(problems.refused_by_server(problems.not_found(''), 'id').body) - set(
+    fields_of(problems.ServerRefusedError)
 )
 
 
