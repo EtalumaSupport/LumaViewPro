@@ -791,7 +791,7 @@ class AutofocusRunner:
             try:
                 image = self._scope.imaging.capture_and_wait(accept_dark=True)
             except CaptureFailedError as failed:
-                _af_log.warning(f'  DARK FRAME kept: its retry got no frame ({failed.reason})')
+                _af_log.warning(f'  DARK FRAME kept: its retry failed ({failed.reason})')
 
         # Use center quarter of image for focusing
         height, width = image.shape

@@ -1131,7 +1131,7 @@ class ImagingAPI:
         failed = grabbed if isinstance(grabbed, _NoFrame) else None
         if failed is not None:
             logger.warning(
-                f'[SCOPE API ] capture_and_wait: no frame -- {failed.reason} at the '
+                f'[SCOPE API ] capture_and_wait: nothing captured -- {failed.reason} at the '
                 f'{failed.leg} (drained={drain_iterations}, rechecks={recheck_cycles})'
             )
         # A camera found gone is refused, and its refusal is the report: a
