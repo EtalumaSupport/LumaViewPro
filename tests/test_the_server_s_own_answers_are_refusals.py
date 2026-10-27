@@ -14,7 +14,7 @@ from modules.exceptions import RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest import problems
 
-REQUEST, STATE = RefusalCause.REQUEST, RefusalCause.STATE
+REQUEST, STATE, RESTART = RefusalCause.REQUEST, RefusalCause.STATE, RefusalCause.RESTART
 
 
 @pytest.mark.parametrize(
@@ -25,7 +25,7 @@ REQUEST, STATE = RefusalCause.REQUEST, RefusalCause.STATE
         (problems.method_not_allowed('x'), 405, REQUEST),
         (problems.unsupported_media_type('x'), 415, REQUEST),
         (problems.overloaded('x', 1), 503, STATE),
-        (problems.server_closing(), 503, STATE),
+        (problems.server_closing(), 503, RESTART),
         (problems.no_frame_yet(1), 503, STATE),
     ],
     ids=lambda v: v.reason if isinstance(v, problems.ServerRefusedError) else None,
@@ -43,7 +43,7 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'invalid_request': (422, 'Invalid Request'),
         'method_not_allowed': (405, 'Method Not Allowed'),
         'unsupported_media_type': (415, 'Unsupported Media Type'),
-        'handle_shared': (409, 'Handle Shared'),
+        'handle_shared': (422, 'Handle Shared'),
         'overloaded': (503, 'Overloaded'),
         'server_closing': (503, 'Server Closing'),
         'no_frame_yet': (503, 'No Frame Yet'),

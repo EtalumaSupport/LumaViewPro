@@ -767,7 +767,7 @@ class TestTheRestDoor:
             'the id is the only proof of holding: a client that read it could act as the holder'
         )
 
-    def test_a_request_naming_an_ended_session_is_refused_409(self, sim_session, client):
+    def test_a_request_naming_an_ended_session_is_refused_422(self, sim_session, client):
         session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
         with calling(Caller.GUI):
             sim_session.end_control(session_id)
@@ -777,7 +777,18 @@ class TestTheRestDoor:
             json={'limit_pct': 40},
             headers={'Control-Session': session_id},
         )
-        assert refused.status_code == 409
+        # An ended id never becomes the live one again: the client takes control anew.
+        assert refused.status_code == 422
+        assert refused.json()['reason'] == 'control_session_ended'
+
+    def test_an_id_never_issued_is_answered_as_an_ended_one(self, client):
+        # The client does the same for both, take control again, so one answer.
+        refused = client.put(
+            '/api/v1/acceleration_limit_pct',
+            json={'limit_pct': 40},
+            headers={'Control-Session': 'never-issued'},
+        )
+        assert refused.status_code == 422
         assert refused.json()['reason'] == 'control_session_ended'
 
     @staticmethod

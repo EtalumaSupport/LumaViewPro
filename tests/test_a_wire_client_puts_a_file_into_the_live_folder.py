@@ -67,7 +67,9 @@ def test_a_file_already_there_is_refused_and_kept(client, live):
 
     refused = client.put('/api/v1/files/live_BF_000001.tiff', content=b'an upload')
 
-    assert refused.status_code == 409
+    # The request must change: an upload never replaces a file, so the same
+    # name is refused again however long the client waits.
+    assert refused.status_code == 422
     assert refused.json()['reason'] == 'file_exists'
     assert (live / 'live_BF_000001.tiff').read_bytes() == b'what the capture wrote'
 

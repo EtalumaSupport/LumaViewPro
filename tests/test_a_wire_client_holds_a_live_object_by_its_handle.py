@@ -127,7 +127,7 @@ def test_forgetting_an_id_lets_go_of_the_id_and_the_shared_runner_is_kept(client
     assert client.get(f'/api/v1/handles/Protocol/{protocol["handle"]}/num_steps').status_code == (
         404
     )
-    assert client.delete(f'/api/v1/handles/ProtocolRunner/{runner["handle"]}').status_code == 409
+    assert client.delete(f'/api/v1/handles/ProtocolRunner/{runner["handle"]}').status_code == 422
     assert client.get('/api/v1/handles').json() == [runner]
 
 

@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The root every exception the scope raises descends from, the fault kind,
-and the umbrella mixin.
+the umbrella mixin, and the causes an outcome declares.
 
 Here, not in ``modules/exceptions.py``, because drivers raise faults and
 name a subject (``HardwareError``), and may not import ``modules/``; the
@@ -13,7 +13,38 @@ class that keeps the built-in base it has (``Exception``, ``ValueError``,
 ...), so joining the root changes what no ``except`` catches.
 """
 
+from enum import StrEnum
 from typing import ClassVar
+
+
+class RefusalCause(StrEnum):
+    """Whether a refused request could succeed later, and what must change for it to.
+
+    Declared on the refusal's type, per reason where one type mixes them, so
+    a server answers from the declaration (REST: 409 for ``STATE``, 422 for
+    ``REQUEST``, 503 for ``RESTART``) and never from the exception's base: a
+    ``ValueError`` can be refused for the scope's state, as a live folder on
+    an unplugged drive is. A string enum, so the value crosses a wire as
+    itself.
+
+    Attributes:
+        STATE: The scope's state refused it -- a run is live, an axis is not
+            homed, a drive is unplugged -- and the same request may succeed
+            later.
+        REQUEST: As sent, the request cannot succeed on this scope: a bad
+            argument, a value outside a fixed rule or this hardware's range,
+            hardware this scope does not have, a handle or a control session
+            that no longer names anything live, a file already at the name.
+            The caller changes the request.
+        RESTART: Nothing the caller changes makes it succeed while this
+            process runs -- the scope is disconnected, the motion monitor
+            has ended, the session or the server is closing. Do not retry:
+            the application must be restarted.
+    """
+
+    STATE = 'state'
+    REQUEST = 'request'
+    RESTART = 'restart'
 
 
 class LumascopeError(BaseException):

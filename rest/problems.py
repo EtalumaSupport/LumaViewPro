@@ -12,16 +12,17 @@ argument, so a client corrects its request without reading the words.
 A member's outcome is read as every host reads it
 (``notification_center.outcome_of``), so a wire client is refused in the
 words and with the reason a Python caller is. A refusal or quiet outcome is
-422 when the request as sent cannot succeed on this scope and 409 when the
-scope's state refused it, as its type declares (``RefusalCause``), so a
-client retries only a 409; one that declares no cause (a by-contract
+409 when the same request can succeed later, 422 when the request must
+change, and 503 with no ``Retry-After`` when this server cannot do it again
+until the application restarts, as its type declares (``RefusalCause``), so
+a client retries only a 409; one that declares no cause (a by-contract
 cancel) is 409. A fault is 500.
 
 The server's own answers carry their own reasons, kind ``refusal``:
 ``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
 ``unsupported_media_type`` 415, ``overloaded`` 503, ``server_closing`` 503
 for a member asked while the server closes, ``no_frame_yet`` 503 for a
-live view the camera has sent no frame to, ``handle_shared`` 409 for an
+live view the camera has sent no frame to, ``handle_shared`` 422 for an
 id every client shares, and ``not_cancellable`` 409 for a stop asked of a
 job that holds no operation.
 """
@@ -66,19 +67,25 @@ OPENAPI_RESPONSES: dict[int | str, dict] = {
     for code, words in (
         (
             '4XX',
-            'Refused: 422 when the request cannot succeed on this scope, 409 when its state refused it or a stop ended it; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
+            "Refused: 409 when the same request can succeed later (the scope's state refused it, or a stop ended it), 422 when the request must change; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.",
         ),
         (
             '5XX',
-            'A fault (500), or the server overloaded or closing (503, `Retry-After` when asking again may succeed).',
+            'A fault (500); or 503: with `Retry-After` when asking again later may succeed (the server overloaded, no frame yet), without it when this server cannot do it again until the application restarts (the scope disconnected, the motion monitor ended, the session or the server closing).',
         ),
     )
 }
 TYPE_PREFIX = 'urn:lumascope:problem:'
 
 # What each cause of a refusal, quiet outcome or raised notice answers: a
-# notice ends a request that nothing failed, as a stopped move does.
-_CAUSE_STATUS = {RefusalCause.REQUEST: 422, RefusalCause.STATE: 409, None: 409}
+# notice ends a request that nothing failed, as a stopped move does. A
+# restart's 503 carries no Retry-After, since no wait makes it succeed.
+_CAUSE_STATUS = {
+    RefusalCause.STATE: 409,
+    RefusalCause.REQUEST: 422,
+    RefusalCause.RESTART: 503,
+    None: 409,
+}
 # What a fault answers.
 _FAULT_STATUS = 500
 
@@ -221,9 +228,9 @@ class ServerRefusedError(Refusal, Exception):
         'unsupported_media_type': RefusalCause.REQUEST,
         'handle_shared': RefusalCause.REQUEST,
         'overloaded': RefusalCause.STATE,
-        'server_closing': RefusalCause.STATE,
+        'server_closing': RefusalCause.RESTART,
         'no_frame_yet': RefusalCause.STATE,
-        'not_cancellable': RefusalCause.REQUEST,
+        'not_cancellable': RefusalCause.STATE,
         'idempotency_key_reused': RefusalCause.REQUEST,
     }
 
@@ -232,7 +239,7 @@ class ServerRefusedError(Refusal, Exception):
         'invalid_request': 422,
         'method_not_allowed': 405,
         'unsupported_media_type': 415,
-        'handle_shared': 409,
+        'handle_shared': 422,
         'overloaded': 503,
         'server_closing': 503,
         'no_frame_yet': 503,

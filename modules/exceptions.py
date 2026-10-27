@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
-from lib.lumascope_error import Fault, LumascopeError, _Umbrella
+from lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
 from lib.stage_interlock import INTERLOCK_TITLES
 from modules.api_surface import api_fields
 from modules.caller import Caller
@@ -145,29 +145,6 @@ class Refusal(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
         return reason
 
 
-class RefusalCause(StrEnum):
-    """Whether a refused request could succeed later with the caller changing nothing.
-
-    Declared on the refusal's type, per reason where one type mixes them, so
-    a server answers from the declaration (REST: 422 for ``REQUEST``, 409 for
-    ``STATE``) and never from the exception's base: a ``ValueError`` can be
-    refused for the scope's state, as a live folder on an unplugged drive is.
-    A string enum, so the value crosses a wire as itself.
-
-    Attributes:
-        REQUEST: As sent, the request cannot succeed on this scope: a bad
-            argument, a value outside a fixed rule or this hardware's range,
-            hardware this scope does not have, a handle that no longer names
-            anything live. The caller changes the request.
-        STATE: The scope's state refused it -- a run is live, an axis is not
-            homed, a drive is unplugged -- and the same request may succeed
-            later.
-    """
-
-    REQUEST = 'request'
-    STATE = 'state'
-
-
 def _require_a_cause(cls: type, mixin: type, names: tuple[str, ...]) -> None:
     """Refuse, at import, an outcome type that declares no cause.
 
@@ -214,8 +191,9 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
     title = 'Path Not Available'
     # A missing live folder is an unplugged drive, which comes back; a path
     # that is missing or of the wrong kind is answered again unchanged, so a
-    # polling client must not wait on it. A file already there is the live
-    # folder's state, which its owner may change.
+    # polling client must not wait on it. A file already there is answered
+    # again unchanged too: an upload never replaces one, so the caller gives
+    # a new name.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'outside_live_folder': RefusalCause.REQUEST,
         'capture_location_unusable': RefusalCause.STATE,
@@ -223,7 +201,7 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
         'not_a_file': RefusalCause.REQUEST,
         'not_a_folder': RefusalCause.REQUEST,
         'wrong_extension': RefusalCause.REQUEST,
-        'file_exists': RefusalCause.STATE,
+        'file_exists': RefusalCause.REQUEST,
     }
 
     def __init__(self, reason: str, name: str, message: str):
@@ -1094,7 +1072,7 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
         'no_classic_bindings': RefusalCause.REQUEST,
         'repair_declined': RefusalCause.STATE,
         'driver_not_accepted': RefusalCause.STATE,
-        'driver_already_usable': RefusalCause.STATE,
+        'driver_already_usable': RefusalCause.REQUEST,
     }
     _WORDS: ClassVar[dict[str, str]] = {
         'repair_needs_windows': (
@@ -3134,15 +3112,17 @@ class HardwareCommandRefusedError(Refusal, Exception):
     control_session: str | None
 
     # A part the scope does not have is never found by asking again, and a
-    # task made under a taking that has ended is never sent under it.
+    # task made under a taking that has ended is never sent under it. A
+    # scope whose lanes are shut, or whose motion monitor has ended, takes
+    # no command again until the application restarts.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'exclusive_activity_running': RefusalCause.STATE,
         'control_session_held': RefusalCause.STATE,
         'capture_in_flight': RefusalCause.STATE,
         'home_in_flight': RefusalCause.STATE,
         'home_not_stoppable': RefusalCause.STATE,
-        'scope_disconnected': RefusalCause.STATE,
-        'monitor_ended': RefusalCause.STATE,
+        'scope_disconnected': RefusalCause.RESTART,
+        'monitor_ended': RefusalCause.RESTART,
         'position_unread': RefusalCause.STATE,
         'lid_open': RefusalCause.STATE,
         'stage_unpowered': RefusalCause.STATE,
@@ -3454,7 +3434,8 @@ class SessionClosingError(Refusal, Exception):
         activity: The kind of activity that was refused.
     """
 
-    cause = RefusalCause.STATE
+    # A closing session never takes the scope again.
+    cause = RefusalCause.RESTART
     title = 'Closing'
 
     def __init__(self, activity: str):
@@ -3498,12 +3479,14 @@ class ControlSessionRefusedError(Refusal, Exception):
     holder_trigger: Caller | None
     control_session: str | None
 
+    # An id that is not the live session's never becomes it again: the
+    # caller takes control anew.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'control_session_held': RefusalCause.STATE,
         'exclusive_activity_running': RefusalCause.STATE,
         'write_in_flight': RefusalCause.STATE,
         'work_finishing': RefusalCause.STATE,
-        'control_session_ended': RefusalCause.STATE,
+        'control_session_ended': RefusalCause.REQUEST,
     }
 
     _TITLES: ClassVar[dict[str, str]] = {

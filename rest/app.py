@@ -267,7 +267,7 @@ def _add_upload_route(
         ``ScopeSession.put_live_folder_file``, reached as every write is: on
         a call thread, as a REST client, in the control session the
         ``Control-Session`` header names. A file already at the name is
-        refused, ``file_exists`` (409); it answers ``201`` with the file's
+        refused, ``file_exists`` (422); it answers ``201`` with the file's
         path.
         """
         _refuse_query(request)

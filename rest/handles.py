@@ -90,7 +90,7 @@ class HandleRegistry:
 
         Raises:
             ServerRefusedError: ``not_found``, no such id is held for that class;
-                ``handle_shared`` (409), the id is one every client shares.
+                ``handle_shared`` (422), the id is one every client shares.
         """
         obj = self.get(handle, cls)
         if self._kept(obj):
