@@ -337,10 +337,12 @@ def answered_by_member(exception: Exception, request_id: str) -> Answer:
     """The problem for a member's outcome, reported once as every answered outcome is.
 
     Logged and shown to nobody: the problem is the answer, given to the
-    client that asked.
+    client that asked. The log line carries the request's id, the one the
+    problem's ``instance`` names, so a fault's developer words, which the
+    client is not sent, are found from the client's answer.
     """
     notification_center.notifications.report_outcome(
-        exception, solicited=True, category='REST', log_only=True
+        exception, solicited=True, category=f'REST {request_id}', log_only=True
     )
     outcome = outcome_of(exception)
     if outcome.kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET, OutcomeKind.NOTICE):

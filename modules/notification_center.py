@@ -47,6 +47,8 @@ logger = logging.getLogger('LVP.notifications')
 _outcome_logger = logging.getLogger('LVP.outcomes')
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
+# The heading of a fault whose type declares none, where no catch names one.
+UNTYPED_FAULT_TITLE = 'Operation failed'
 
 # Set on an exception object once each half of its report is done, so the
 # same object reported again -- by the lane that raised it and then by the
@@ -166,6 +168,11 @@ class Outcome:
     remedy: Remedy | None
     fatal: bool
     cause: RefusalCause | None = None
+
+    @property
+    def shown_words(self) -> str:
+        """What a person reads: ``words`` when written for one, else the generic sentence."""
+        return self.words if self.for_person else _UNTYPED_FAULT_BODY
 
 
 def outcome_of(exception: BaseException) -> Outcome:
@@ -610,7 +617,7 @@ class NotificationCenter:
         solicited: bool,
         category: str,
         log_only: bool = False,
-        untyped_title: str = 'Operation failed',
+        untyped_title: str = UNTYPED_FAULT_TITLE,
         operation_key: str = '',
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
@@ -723,7 +730,7 @@ class NotificationCenter:
                 outcome_id=outcome_id,
             )
         else:
-            body = words if outcome.for_person else _UNTYPED_FAULT_BODY
+            body = outcome.shown_words
             title = outcome.title or untyped_title
             fatal = outcome.fatal
             # The fault's one line is the reporter's, written above.

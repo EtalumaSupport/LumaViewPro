@@ -4,7 +4,10 @@
 Every answer that is not a result is an RFC 9457 problem
 (``application/problem+json``): ``type`` names the reason
 (``urn:lumascope:problem:<reason>``, or ``about:blank`` with none), ``title``
-and ``detail`` are the outcome's own, ``instance`` names the request, and
+and ``detail`` are the outcome's own -- a fault whose words are a
+developer's, or a defect of no type of ours, answers the generic sentence
+and title, its words logged under the request's id -- ``instance`` names
+the request, and
 ``kind``, ``reason`` and ``remedy`` are what a client branches on, beside
 the fields the outcome's type publishes (a refused argument's name). A
 member's outcome is read as every host reads it (``outcome_of``) and
@@ -29,6 +32,7 @@ from modules.exceptions import (
     LiveFolderPathRefusedError,
     Remedy,
 )
+from modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
@@ -94,7 +98,8 @@ def test_a_refusal_is_the_python_callers_refusal_and_is_logged_once(client, sess
     )
     ((exception, how),) = reported
     assert isinstance(exception, LiveFolderPathRefusedError)
-    assert how == {'solicited': True, 'category': 'REST', 'log_only': True}
+    request_id = body['instance'].removeprefix('urn:uuid:')
+    assert how == {'solicited': True, 'category': f'REST {request_id}', 'log_only': True}
 
 
 def test_a_refusal_the_scopes_state_gave_is_409(client, live):
@@ -106,7 +111,9 @@ def test_a_refusal_the_scopes_state_gave_is_409(client, live):
     assert body['reason'] == 'capture_location_unusable'
 
 
-def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, monkeypatch):
+def test_a_defect_is_500_in_the_generic_words_and_its_own_are_logged_under_the_request(
+    client, session, monkeypatch, reported
+):
     def fails():
         raise ValueError('bad shape (3,)')
 
@@ -116,10 +123,14 @@ def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, mo
 
     assert (body['type'], body['title'], body['detail']) == (
         'about:blank',
-        'ValueError',
-        'bad shape (3,)',
+        UNTYPED_FAULT_TITLE,
+        _UNTYPED_FAULT_BODY,
     )
     assert (body['kind'], body['reason']) == ('fault', None)
+    # The developer's words reach the log the client's answer leads to.
+    ((exception, how),) = reported
+    assert str(exception) == 'bad shape (3,)'
+    assert how['category'] == f'REST {body["instance"].removeprefix("urn:uuid:")}'
 
 
 def test_a_hardware_fault_answers_500_naming_which_fault_it_was(client, session, monkeypatch):
@@ -403,7 +414,7 @@ def test_a_call_the_server_cannot_start_is_a_fault_and_holds_no_count(client, mo
         failed = fresh.get('/api/v1/app_version')
 
     body = _problem(failed, 500)
-    assert (body['kind'], body['detail']) == ('fault', "can't start new thread")
+    assert (body['kind'], body['detail']) == ('fault', _UNTYPED_FAULT_BODY)
     # The failed start left no call counted: one call still fits under a limit of one.
     monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
     assert client.get('/api/v1/app_version').status_code == 200

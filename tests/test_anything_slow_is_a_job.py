@@ -31,6 +31,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import rest.jobs
+from modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
 from modules.scope_session import ScopeSession
 from rest import problems
 from rest.app import build_app
@@ -166,8 +167,8 @@ def test_a_job_that_fails_reads_200_with_its_problem(client, session, monkeypatc
     assert job['status'] == 'failed'
     assert (job['error']['status'], job['error']['title'], job['error']['detail']) == (
         500,
-        'ValueError',
-        'bad shape (3,)',
+        UNTYPED_FAULT_TITLE,
+        _UNTYPED_FAULT_BODY,
     )
 
 
@@ -195,7 +196,7 @@ def test_an_answer_the_wire_cannot_carry_is_a_failed_job_and_the_listing_still_r
     job = ended.json()
     assert job['status'] == 'failed'
     assert (job['error']['status'], job['error']['kind']) == (500, 'fault')
-    assert 'nan is not a finite number' in job['error']['detail']
+    assert job['error']['reason'] == 'no_wire_form'
     assert client.get('/api/v1/jobs').status_code == 200
 
 

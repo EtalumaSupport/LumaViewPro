@@ -33,6 +33,7 @@ from modules.api_surface import (
 )
 from modules.coord_transformations import StageOffset
 from modules.lumascope_api.illumination import LedReading, LedState
+from modules.notification_center import UNTYPED_FAULT_TITLE
 from modules.operation import Operation
 from modules.scope_session import ScopeSession
 from rest.app import SERVER_SEGMENTS, build_app
@@ -523,4 +524,4 @@ def test_a_call_that_ends_its_thread_is_answered_as_a_fault(session, monkeypatch
 
     assert answer.status_code == 500
     assert answer.headers['content-type'] == 'application/problem+json'
-    assert (answer.json()['kind'], answer.json()['title']) == ('fault', 'RuntimeError')
+    assert (answer.json()['kind'], answer.json()['title']) == ('fault', UNTYPED_FAULT_TITLE)

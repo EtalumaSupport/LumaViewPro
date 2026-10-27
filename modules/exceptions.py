@@ -181,6 +181,7 @@ class LiveFolderFileNotWrittenError(Fault, Exception):
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'live_folder_file_not_written': None}
+    words_for_person = True
     title = 'File Not Written'
 
     def __init__(self, name: str, cause: OSError):
