@@ -313,7 +313,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     from modules.run_events import RunEvents
 
     scope = MagicMock()
-    scope.camera.significant_bits = 16  # save-time state disagrees
+    scope.imaging.significant_bits = 16  # the published depth at save time disagrees
     writer = ProtocolImageWriter(
         scope=scope,
         events=RunEvents(),
