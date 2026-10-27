@@ -450,7 +450,7 @@ class PostProcessing:
                 os.remove(temp_path)
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'The results could not be written to {results_file_path} ({e}).',
+                missing=f'The results could not be written to {results_file_path} ({e.strerror}).',
             ) from e
 
         if not_counted:

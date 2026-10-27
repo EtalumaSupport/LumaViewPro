@@ -267,7 +267,7 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
         except OSError as exc:
             raise CaptureLocationError(
                 'capture_location_unusable',
-                f'Could not create {candidate} in the capture location: {exc}',
+                f'Could not create {candidate} in the capture location ({exc.strerror}).',
             ) from exc
         return candidate
     raise CaptureLocationError(

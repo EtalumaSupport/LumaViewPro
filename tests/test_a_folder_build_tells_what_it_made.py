@@ -12,6 +12,7 @@ pass is a failure that carries what it did save.
 
 from __future__ import annotations
 
+import errno
 import os
 
 import numpy as np
@@ -127,11 +128,14 @@ def test_a_failed_results_write_raises_and_keeps_the_previous_results(
     _write_tiff(tmp_path / 'a.tif')
 
     def refuse(src, dst):
-        raise OSError('disk full')
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), dst)
 
     monkeypatch.setattr(os, 'replace', refuse)
-    with pytest.raises(PostProcessingFailedError):
+    with pytest.raises(PostProcessingFailedError) as raised:
         counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+    # Why, in the system's words, not Python's rendering of the error.
+    assert os.strerror(errno.ENOSPC) in str(raised.value)
+    assert '[Errno' not in str(raised.value)
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
     assert sorted(p.name for p in tmp_path.iterdir()) == ['a.tif', 'results.csv']
 

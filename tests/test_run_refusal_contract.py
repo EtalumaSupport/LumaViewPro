@@ -514,6 +514,9 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         with pytest.raises(RunCheckFailedError) as excinfo:
             _prepare(executor, protocol2, tmp_path)
         assert excinfo.value.reason == 'validation_crashed'
+        # The crash is chained for the log, never quoted to the person.
+        assert 'OSError' not in str(excinfo.value)
+        assert 'labware config unreadable' not in str(excinfo.value)
 
         # Observationally a no-op: the record getters still answer for
         # the FIRST run, nothing holds the scope, and the disk is

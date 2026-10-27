@@ -904,7 +904,8 @@ class SequencedCaptureRunner:
         """A hardware read the gate needs crashed instead of answering.
 
         Not a refusal: nothing was declined, the question could not be
-        asked. The crash is chained so its traceback is logged with this.
+        asked. The crash is chained, not quoted: its traceback is logged
+        with this, and the person reads what could not be read.
 
         Raises:
             RunCheckFailedError: ``'hardware_state_unknown'``, naming what
@@ -912,9 +913,7 @@ class SequencedCaptureRunner:
         """
         raise RunCheckFailedError(
             reason='hardware_state_unknown',
-            message=(
-                f'Could not {what}: {type(ex).__name__}: {ex}. Reconnect the scope and try again.'
-            ),
+            message=f'Could not {what}. Reconnect the scope and try again.',
         ) from ex
 
     @staticmethod
@@ -1251,8 +1250,8 @@ class SequencedCaptureRunner:
             raise RunCheckFailedError(
                 reason='validation_crashed',
                 message=(
-                    f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
-                    f'Check the labware + objectives configuration and try again.'
+                    'Pre-run validation could not run. '
+                    'Check the labware + objectives configuration and try again.'
                 ),
             ) from ex
         if validation_errors:
@@ -1801,7 +1800,7 @@ class SequencedCaptureRunner:
             ):
                 raise RunStartError(
                     'dispatch_refused',
-                    str(dispatch_future.exception()),
+                    'The run could not be started. See the log for details.',
                 ) from dispatch_future.exception()
         except Exception as exc:
             self._fail_run_at_start(exc, handle)

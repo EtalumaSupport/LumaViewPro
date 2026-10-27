@@ -861,6 +861,23 @@ def test_allocator_refuses_when_the_parent_is_missing(tmp_path):
     assert 'capture location' in str(excinfo.value)
 
 
+def test_allocator_refuses_a_location_the_system_refuses_in_the_systems_words(tmp_path):
+    # The person reads why the folder was refused, not Python's rendering
+    # of the error ("[Errno 13] ...: '<path>'").
+    from modules.path_utils import CaptureLocationError, allocate_directory
+
+    tmp_path.chmod(0o500)
+    try:
+        with pytest.raises(CaptureLocationError) as excinfo:
+            allocate_directory(tmp_path / 'Video_x')
+    finally:
+        tmp_path.chmod(0o700)
+
+    assert excinfo.value.reason == 'capture_location_unusable'
+    assert 'Permission denied' in str(excinfo.value)
+    assert '[Errno' not in str(excinfo.value)
+
+
 def test_allocator_refuses_visibly_when_exhausted(tmp_path, monkeypatch):
     from modules import path_utils
 
