@@ -37,7 +37,7 @@ from modules.exceptions import (
     RefusalCause,
     Remedy,
 )
-from modules.api_surface import api_fields
+from modules.api_surface import api, api_fields
 
 logger = logging.getLogger('LVP.notifications')
 # The reporter's own record -- what happened, with the traceback when it is
@@ -175,6 +175,7 @@ class Outcome:
         return self.words if self.for_person else _UNTYPED_FAULT_BODY
 
 
+@api(in_process=True)
 def outcome_of(exception: BaseException) -> Outcome:
     """What *exception* is, as its type says: the one reading of an outcome's kind and words."""
     # Quiet first: a quiet outcome is never shown, whatever else its type is.
