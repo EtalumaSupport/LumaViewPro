@@ -14,7 +14,7 @@ faulthandler_timeout = 180
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
-    "slow: a test that takes 5 s or more; a push to the trunk runs `-m \"not slow\"`, the trunk-to-shipping merge runs every test",
+    "slow: a test that takes 5 s or more, a fact about the test; no gate reads the mark, and the push suite runs every test",
 ]
 
 [tool.coverage.run]
