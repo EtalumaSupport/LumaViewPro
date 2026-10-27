@@ -12,6 +12,13 @@ carries is the same fact only when the class names that class in
 ``same_fact_as``. An outcome built with a reason its class does not declare
 fails where it is built, whichever class builds it.
 
+Two record vocabularies carry reasons outside any class: the run's endings
+(``run_outcome.ENDINGS``, each with its kind) and the bring-up record's
+causes (``bring_up.CAUSE_PHRASES``, why a part is not up). A string in
+either that a class also carries is carried with the record's kind: a
+failed run's ending and a part's cause by a fault, a stopped run's ending by
+a notice or a quiet outcome, and a completed run's by no class.
+
 Each class a test defines lives until it is collected, and a live one is a
 carrier to every later definition; the fixture collects them after each test.
 """
@@ -37,8 +44,10 @@ from modules.exceptions import (
     SessionClosingError,
     SettingRefusedError,
 )
+from modules.lumascope_api.bring_up import CAUSE_PHRASES
 from modules.path_utils import CaptureLocationError
 from modules.plugins import PluginRegistrationError
+from modules.run_outcome import ENDINGS, EndingKind
 from rest.problems import ServerRefusedError, outcome_classes
 from tests.case_walk import failing_cases
 from tests.guards.test_every_outcome_joins_the_root import RAISABLE
@@ -283,3 +292,60 @@ def test_only_the_server_s_own_refusal_answers_a_status_per_reason():
         if cls is not ServerRefusedError and {'_STATUSES', 'status'} & set(vars(cls))
     ]
     assert own == [], f'a status per reason outside ServerRefusedError: {own}'
+
+
+# The kinds that may carry a record's string, by what the record says it is.
+_KINDS_OF_ENDING = {
+    EndingKind.FAILURE: (Fault,),
+    EndingKind.STOP: (Notice, Quiet),
+    EndingKind.COMPLETION: (),
+}
+_KINDS_OF_PART_CAUSE = (Fault,)
+
+
+def _carried_with_another_kind(kinds_of: dict[str, tuple[type, ...]], classes) -> list[str]:
+    """Each class that carries a record's string with a kind the record does not allow."""
+    return [
+        f'{cls.__name__} carries {reason!r}, which the record allows only on '
+        f'{[kind.__name__ for kind in kinds] or "no class"}'
+        for reason, kinds in kinds_of.items()
+        for cls in classes
+        if reason in (getattr(cls, 'causes', None) or {}) and not issubclass(cls, kinds or ())
+    ]
+
+
+def _endings_kinds():
+    return {reason: _KINDS_OF_ENDING[kind] for reason, (_, kind) in ENDINGS.items()}
+
+
+def _part_causes_kinds():
+    return dict.fromkeys(CAUSE_PHRASES, _KINDS_OF_PART_CAUSE)
+
+
+def test_a_run_ending_a_class_carries_is_carried_with_the_ending_s_kind():
+    assert _carried_with_another_kind(_endings_kinds(), RAISABLE) == []
+
+
+def test_a_bring_up_cause_a_class_carries_is_carried_as_a_fault():
+    assert _carried_with_another_kind(_part_causes_kinds(), RAISABLE) == []
+
+
+def test_a_record_string_carried_with_another_kind_is_named():
+    # Strings no class carries, so the definition check has nothing to refuse.
+    class _ShutdownFaultError(Fault, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {'shutdown': None}
+
+    class _StreamRefusedError(Refusal, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {
+            'stream_not_started': RefusalCause.STATE
+        }
+
+    planted = (_ShutdownFaultError, _StreamRefusedError)
+    assert _carried_with_another_kind(_endings_kinds(), planted) == [
+        "_ShutdownFaultError carries 'shutdown', which the record allows only on "
+        "['Notice', 'Quiet']"
+    ]
+    assert _carried_with_another_kind(_part_causes_kinds(), planted) == [
+        "_StreamRefusedError carries 'stream_not_started', which the record allows only on "
+        "['Fault']"
+    ]
