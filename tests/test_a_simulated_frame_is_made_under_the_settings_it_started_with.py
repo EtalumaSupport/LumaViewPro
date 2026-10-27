@@ -17,6 +17,7 @@ import threading
 
 import pytest
 
+from drivers import host_clock
 from drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import grab_a_frame_made_after_now
 
@@ -97,6 +98,36 @@ def test_a_stale_frames_chunk_already_carries_the_new_value():
     assert any(f.chunks['Gain'] == 20.0 for f in stale), (
         'no frame made at the old gain was tagged after the write'
     )
+
+
+def test_a_frame_is_numbered_as_it_leaves_the_pipeline_before_its_transfer():
+    """A frame is numbered and timed as it leaves the sensor's pipeline, before the host makes and carries it.
+
+    The camera numbers a frame on its own time, whatever the host is doing.
+    A write waits on the camera's lock while a frame is made and can land
+    while it is carried, so a frame numbered after those would be placed
+    after a change it predates, and the count a change needs would grow
+    with the host's image time.
+    """
+    transfer_s = SimulatedCamera.TIMING_REALISTIC['grab_delay']
+    cam = SimulatedCamera(width=48, height=24, timing='realistic')
+    stored = []
+    two = threading.Event()
+
+    def on_frame(frame):
+        stored.append((frame.arrived_ns, host_clock.steady_ns()))
+        if len(stored) == 2:
+            two.set()
+
+    cam.register_frame_callback(on_frame)
+    cam.open_and_start()
+    try:
+        assert two.wait(5.0), f'only {len(stored)} frames were stored'
+    finally:
+        cam.stop_grabbing()
+
+    carried_s = [(at_store - arrived) / 1e9 for arrived, at_store in stored]
+    assert all(s >= transfer_s for s in carried_s), carried_s
 
 
 def test_each_frame_carries_its_counter_and_its_exposure_start_on_the_cameras_clock():

@@ -801,9 +801,10 @@ class SimulatedCamera(Camera):
         that falls behind (generation slower than the interval) delivers
         the next frame at once and re-anchors, never bursting to catch up.
 
-        Each frame goes through the image handler's ``_store_frame``, which
-        counts it, buffers it with its depth and fires the per-frame
-        callbacks.
+        Each frame is numbered as it leaves the pipeline, before its image
+        is made and carried, then goes through the image handler's
+        ``_store_frame``, which counts it, buffers it with its depth and
+        fires the per-frame callbacks.
 
         A frame is exposed under the settings in force when it starts
         (``SensorExposure``), and the sensor has ``SENSOR_PIPELINE_FRAMES``
@@ -854,6 +855,14 @@ class SimulatedCamera(Camera):
                     in_flight[-1] = dataclasses.replace(in_flight[-1], z_end_um=started.z_um)
                 in_flight.append(started)
                 exposure = in_flight.popleft()
+                # The frame is numbered and timed as it leaves the pipeline,
+                # as a camera hands a frame over on its own time, before the
+                # host makes and carries it. A write waits on this lock while
+                # the image is made and can land in the transfer, so a frame
+                # numbered after them would be placed after a change it
+                # predates, and the count a change needs would grow with the
+                # host's image time.
+                handed_over = handler.hand_over()
                 image = self._generate_image(exposure)
                 # The depth is the format the frame was made under, as a real
                 # camera's comes from its grab result; never a read of the
@@ -868,22 +877,22 @@ class SimulatedCamera(Camera):
                 next_exposure_us = in_flight[0].exposure_us
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
-            # the frame being made and the host having it.
+            # the frame being numbered and made and the host storing it.
             if self._grab_delay > 0:
                 time.sleep(self._grab_delay)
             # A stall that began while this frame was being made holds it
             # too: it had not reached the host, and nothing reaches the host
             # during a stall. Without this, the one frame in the making when
             # a stall is set arrives after it, so a stall set just before a
-            # single grab sometimes delivers that grab a frame.
+            # single grab sometimes delivers that grab a frame. Its number
+            # is left unused, as a dropped frame's is.
             held = self._held_window
             if held is not None and held[0] <= time.monotonic() < held[1]:
                 continue
-            # The host has the frame here: it is numbered and timed now, as
-            # a real driver's SDK callback does, and stored once the backlog
+            # The host has the frame here: it is stored once the backlog
             # behind it is handed over; with none it goes at once, and a
             # backlog taken back releases every frame it held.
-            on_the_way.append((handler.hand_over(), image, bits, chunks, exposure))
+            on_the_way.append((handed_over, image, bits, chunks, exposure))
             while len(on_the_way) > self._backlog_frames:
                 self._deliver(handler, *on_the_way.popleft())
             # The next frame's own exposure is the inter-frame interval,
