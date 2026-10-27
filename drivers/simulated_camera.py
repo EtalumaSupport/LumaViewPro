@@ -227,12 +227,18 @@ class SimulatedCamera(Camera):
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
 
     # How many frames the sensor has started, and not yet delivered, when a
-    # setting is written: they come out under the settings they started
-    # with. The simulated camera's own constant, never the gate's skip count
-    # or the timing record (b) runs on: coupled to either, a test of the gate
-    # passes by construction. Two is the depth of a frame exposing and a
-    # frame reading out; frames held between the hand-over and the store
-    # are the simulated backlog's.
+    # setting is written at the delivery ceiling's period: they come out
+    # under the settings they started with. The simulated camera's own
+    # constant, never the gate's skip count or the timing record (b) runs
+    # on: coupled to either, a test of the gate passes by construction. Two
+    # is the depth of a frame exposing and a frame reading out; frames held
+    # between the hand-over and the store are the simulated backlog's.
+    #
+    # A frame leaves the pipeline its own period after it starts, plus the
+    # rest of the pipeline at the ceiling's period: the LS850T hands a frame
+    # over at its start, plus its period, plus one minimum period, whatever
+    # the exposure. So at a longer exposure fewer frames are in flight at a
+    # write, one or two at this depth.
     SENSOR_PIPELINE_FRAMES = 2
 
     # How long after a change the sensor's exposures show it: a register
@@ -792,21 +798,24 @@ class SimulatedCamera(Camera):
         """Store one new frame per frame interval while grabbing.
 
         The interval is the exposure, never shorter than the delivery
-        ceiling's period (``_MAX_DELIVERY_FPS``). Frames are due on a
+        ceiling's period (``_MAX_DELIVERY_FPS``). Frames start on a
         fixed schedule, so the host time spent generating and delivering
         a frame comes out of the interval rather than adding to it -- a
         real camera's frame period does not include host work. A loop
-        that falls behind (generation slower than the interval) delivers
+        that falls behind (generation slower than the interval) starts
         the next frame at once and re-anchors, never bursting to catch up.
 
-        Each frame is numbered as it leaves the pipeline, before its image
-        is made and carried, then goes through the image handler's
-        ``_store_frame``, which counts it, buffers it with its depth and
-        fires the per-frame callbacks.
+        A frame leaves the pipeline its own frame interval after it starts,
+        plus ``SENSOR_PIPELINE_FRAMES - 1`` of the ceiling's periods, as the
+        camera hands a frame over on its own time. It is numbered as it
+        leaves, before its image is made and carried, then goes through the
+        image handler's ``_store_frame``, which counts it, buffers it with
+        its depth and fires the per-frame callbacks.
 
         A frame is exposed under the settings in force when it starts
-        (``SensorExposure``), and the sensor has ``SENSOR_PIPELINE_FRAMES``
-        frames started when a setting is written; those come out under the
+        (``SensorExposure``), and the frames started and not yet out of the
+        pipeline when a setting is written (``SENSOR_PIPELINE_FRAMES`` at
+        the ceiling's period, fewer at a longer exposure) come out under the
         old settings, timed and rendered by them, and the new ones reach the
         output after them. Each frame carries the chunks a Basler body
         stamps: its counter and its exposure start on the camera's clock
@@ -819,11 +828,10 @@ class SimulatedCamera(Camera):
         # Frames handed over and on their way to the store, oldest first
         # (delay_delivery).
         on_the_way: collections.deque = collections.deque()
-        # The frames started and not yet delivered, oldest first.
-        with self._lock:
-            in_flight = collections.deque(
-                self._start_exposure() for _ in range(self.SENSOR_PIPELINE_FRAMES)
-            )
+        # The frames started and not yet out of the pipeline, oldest first,
+        # each with the time it leaves.
+        in_flight: collections.deque = collections.deque()
+        readout_s = (self.SENSOR_PIPELINE_FRAMES - 1) / self._MAX_DELIVERY_FPS
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
             # A camera off the bus delivers nothing, as a removed one does.
@@ -846,13 +854,31 @@ class SimulatedCamera(Camera):
             if stalled:
                 stalled = False
                 logger.info('[CAM Sim   ] simulated stall: frames resumed')
+            # A start due is taken before a frame leaving: a frame leaves
+            # after its successor starts, which ends its exposure.
+            if now >= next_due:
+                with self._lock:
+                    started = self._start_exposure()
+                    # The newest frame's exposure ends as this one starts.
+                    if in_flight:
+                        newest, leaves_at = in_flight[-1]
+                        in_flight[-1] = (
+                            dataclasses.replace(newest, z_end_um=started.z_um),
+                            leaves_at,
+                        )
+                    # The frame's own exposure is the inter-frame interval,
+                    # bounded below by the delivery ceiling.
+                    interval_s = self._frame_interval_s(started.exposure_us)
+                    in_flight.append((started, now + interval_s + readout_s))
+                next_due = max(next_due + interval_s, time.monotonic())
+                continue
+            if not in_flight or in_flight[0][1] > now:
+                wake_at = next_due if not in_flight else min(next_due, in_flight[0][1])
+                if self._acquisition_stop.wait(wake_at - now):
+                    return
+                continue
             with self._lock:
-                started = self._start_exposure()
-                # The newest frame's exposure ends as this one starts.
-                if in_flight:
-                    in_flight[-1] = dataclasses.replace(in_flight[-1], z_end_um=started.z_um)
-                in_flight.append(started)
-                exposure = in_flight.popleft()
+                exposure, _ = in_flight.popleft()
                 # The frame is numbered and timed as it leaves the pipeline,
                 # as a camera hands a frame over on its own time, before the
                 # host makes and carries it. A write waits on this lock while
@@ -872,7 +898,6 @@ class SimulatedCamera(Camera):
                     'ExposureTime': self._exposure_us,
                     'Gain': self._gain,
                 }
-                next_exposure_us = in_flight[0].exposure_us
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
             # the frame being numbered and made and the host storing it.
@@ -893,11 +918,6 @@ class SimulatedCamera(Camera):
             on_the_way.append((handed_over, image, bits, chunks, exposure))
             while len(on_the_way) > self._backlog_frames:
                 self._deliver(handler, *on_the_way.popleft())
-            # The next frame's own exposure is the inter-frame interval,
-            # bounded below by the delivery ceiling.
-            next_due = max(next_due + self._frame_interval_s(next_exposure_us), time.monotonic())
-            if self._acquisition_stop.wait(next_due - time.monotonic()):
-                return
 
     # ------------------------------------------------------------------
     # Frame size

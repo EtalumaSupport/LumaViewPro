@@ -130,6 +130,38 @@ def test_a_frame_is_numbered_as_it_leaves_the_pipeline_before_its_transfer():
     assert all(s >= transfer_s for s in carried_s), carried_s
 
 
+def test_a_frame_leaves_the_pipeline_its_own_period_and_one_ceiling_period_after_it_starts():
+    """A frame is handed over its own period after it starts, plus one period at the delivery ceiling.
+
+    The LS850T hands a frame over at its start, plus its own period, plus
+    one minimum period, at a short exposure and a long one alike. A
+    simulator that holds a frame for two of its own periods holds a long
+    exposure for a second exposure, and every capture after an exposure
+    change waits that much longer than on the camera.
+    """
+    exposure_ms = 134.0  # S1's long exposure on the LS850T
+    period_s = exposure_ms / 1000.0
+    ceiling_s = 1.0 / SimulatedCamera._MAX_DELIVERY_FPS
+    expected_s = period_s + (SimulatedCamera.SENSOR_PIPELINE_FRAMES - 1) * ceiling_s
+    cam = SimulatedCamera(width=48, height=24)
+    cam.exposure_t(exposure_ms)
+    cam.open_and_start()
+    try:
+        grab_a_frame_made_after_now(cam)
+        frames = _collect_after(cam, lambda: None, 3)
+        clock_offset_ns = cam.camera_clock_ticks() - host_clock.steady_ns()
+        made_under = [cam.exposed_under(f.chunks['FrameID']).exposure_us for f in frames]
+    finally:
+        cam.stop_grabbing()
+
+    assert made_under == [exposure_ms * 1000.0] * 3, f'precondition: {made_under}'
+    lags_s = [(f.arrived_ns - (f.chunks['Timestamp'] - clock_offset_ns)) / 1e9 for f in frames]
+    # Late by the loop's wake-up at most, and never a second exposure late.
+    assert all(expected_s - 0.001 <= lag < expected_s + period_s / 2 for lag in lags_s), (
+        f'start to hand-over {lags_s} s; the camera takes {expected_s} s'
+    )
+
+
 def test_each_frame_carries_its_counter_and_its_exposure_start_on_the_cameras_clock():
     cam = SimulatedCamera(width=48, height=24)
     cam.exposure_t(1.0)
