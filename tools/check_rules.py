@@ -1095,7 +1095,7 @@ def _check_daily_log_frozen(path: str, added: set[int] | None) -> list[Violation
 _HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
 _HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
 # Mirrors the H2 lines of the handover block in the handover-close skill's
-# references/templates.md; a rename lands in both or every next close WARNs.
+# Templates section; a rename lands in both or every next close WARNs.
 _HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings')
 # Rulings holds only a ruling the next session must obey that has no other
 # home yet, so most closes have none and the section is absent (Eric,
