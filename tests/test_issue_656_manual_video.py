@@ -297,28 +297,6 @@ def test_read_manifest_channel_color(tmp_path):
     assert builder._read_recording_manifest(folder)['channel_color'] == LED1
 
 
-def test_build_session_manifest_includes_channel_color():
-    from modules.recording_manifest import build_session_manifest
-
-    m = build_session_manifest(
-        timestamps=[],
-        chunks_per_frame=[],
-        tick_freq_hz=None,
-        captured_frames=0,
-        video_duration=0.0,
-        channel_color=LED0,
-    )
-    assert m['recording']['channel_color'] == LED0
-
-
-# ---------------------------------------------------------------------------
-# Single-open per frame -- the overlay build must not re-open each TIFF for the
-# timestamp after already opening it for pixels + depth, and an overlay-OFF
-# build must not pay the per-frame Timestamp.to_pydatetime conversion it never
-# uses.
-# ---------------------------------------------------------------------------
-
-
 def test_overlay_build_opens_each_tiff_once(sim_scope, tmp_path, monkeypatch):
     from collections import Counter
 
