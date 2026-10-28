@@ -1,10 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Shared frame-edge helpers for video recording write lanes.
 
-Every recording controller (manual today, protocol video steps next)
-writes engine-delivered frames through the same physical edge: rebase
-camera hardware ticks onto the host epoch, orient the raw camera array,
-fit it to the recording geometry, and stamp per-frame TIFF metadata.
+Every recording controller (the manual recording and the protocol video
+step) writes engine-delivered frames through the same physical edge: rebase
+camera hardware ticks onto the host epoch, build each frame's record as it
+arrives, orient the raw camera array, fit it to the recording geometry, and
+write it with its record through the still's builder and writer.
 One home for that logic so the capture paths cannot drift on frame
 identity or geometry.
 """
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from drivers.camera import Frame
     from modules.coord_transformations import PlatePosition
     from modules.labware import Labware
+    from modules.layer_record import ChannelColors
     from modules.lumascope_api import Lumascope
 
 # --- Frame filename contract ------------------------------------------------
@@ -201,35 +203,6 @@ def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
     return image
 
 
-def resolve_recording_pixel_size(scope: 'Lumascope') -> float | None:
-    """Effective um/pixel for a recording about to start, or None if unknown.
-
-    Both recording legs call this once at start so their frames agree on scale
-    and cannot drift from each other. Returns None when the scope cannot report
-    its optics; the writer then omits the scale claim rather than inventing one,
-    because a guessed scale is measured off the file forever and cannot be told
-    from a real one.
-
-    Args:
-        scope: The Lumascope instance the recording is running against.
-
-    Raises:
-        ObjectiveUnknownError: No one can say which objective is in the light
-            path. A recording is refused there as a capture is: a file with
-            no objective would carry no scale while the scope went on with
-            one the person had not confirmed.
-    """
-    _, objective = scope.runtime_state.resolve_current_objective()
-    pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective.focal_length_mm,
-        binning_size=scope.camera.binning,
-        capabilities=scope.capabilities,
-    )
-    if pixel_size_um is None:
-        return None
-    return round(pixel_size_um, common_utils.max_decimal_precision('pixel_size'))
-
-
 class FrameFact(NamedTuple):
     """What was true of the scope when one recorded frame arrived.
 
@@ -387,85 +360,60 @@ def arrival(
     )
 
 
-def tiff_frame_metadata(
-    timestamp_s: float,
+def write_frame(
+    scope: 'Lumascope',
+    image: np.ndarray,
+    file_loc: pathlib.Path,
+    arrived: Arrival,
+    *,
     frame_number: int,
-    chunks: Mapping[str, int | float] | None,
-    tick_freq_hz: float | None,
-    pixel_size_um: float | None,
-    fact: FrameFact,
-    light: common_utils.Light,
-) -> tuple[dict, str]:
-    """Per-frame TIFF metadata plus a path-safe timestamp string.
-
-    The timestamp travels in metadata, not pixels -- Create Video draws
-    it at build time when the overlay is enabled. Camera chunk identity
-    (hardware ticks, FrameID) is recorded when the frame carried it. The
-    frame's own fact -- where it was taken, whether the stage was moving --
-    is recorded with the still capture's position keys, and what lit it
-    with every lit layer's current, so the file says what it is with or
-    without a hyperstack.
+    objective_id: str,
+    labware: 'Labware',
+    fallback_focus: str | None,
+    false_color_on: bool,
+    channel_colors: 'ChannelColors',
+    save_encoding: str,
+) -> None:
+    """Write one recorded frame through the still's builder and writer
+    (``image_save.write_recorded_frame``), stating what it arrived with.
 
     Args:
-        timestamp_s: Frame time, epoch seconds.
-        frame_number: Ordinal within the recording.
-        chunks: Camera chunk data, or None when the frame carried none.
-        tick_freq_hz: Camera tick frequency, or None when unknown.
-        pixel_size_um: Image scale measured once at recording start, or
-            None when the scope cannot report its optics. Required rather
-            than defaulted: this builder is the only scale source the
-            recording legs have, so a caller that omits it would write
-            unmeasurable files, and a default would hide that at the one
-            place it must be visible.
-        fact: What was true when the frame arrived (``frame_fact``).
-            Required for the same reason, and refused as None: a frame
-            file with no fact would claim nothing about where it was
-            taken, silently.
-        light: What lit the frame, read with its fact (``arrival_facts``).
-
-    Returns:
-        ``(metadata, ts_filename)`` -- the metadata dict for the TIFF
-        writer, and a colon-free millisecond-precision timestamp string
-        safe for Windows filenames.
-
-    Raises:
-        ValueError: If ``fact`` is None.
+        scope: The scope the recording runs against.
+        image: The frame, oriented and fitted (``orient_and_fit``).
+        file_loc: Output .tiff path.
+        arrived: What the frame states, read as it arrived (``arrival``).
+        frame_number: Its ordinal within the recording.
+        objective_id: The objective the recording started with.
+        labware: The plate its positions are stated on, which names its well.
+        fallback_focus: Why the step's autofocus did not focus, for a video
+            step recorded at its fallback focus; None otherwise.
+        false_color_on: Whether the channel's false-color toggle was on.
+        channel_colors: Every layer's colour as the recording began.
+        save_encoding: The resolved image-mode save encoding.
     """
-    if fact is None:
-        raise ValueError('a recorded frame needs its fact; none was given')
-    ts = datetime.datetime.fromtimestamp(timestamp_s)
-    ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
-    metadata = {
-        'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
-        'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
-        'timestamp_iso': ts.isoformat(timespec='microseconds'),
-        'frame_num': frame_number,
-        'channel': light.channel,
-        **(
-            {
-                'illumination_by_channel_ma': {
-                    key: round(ma, common_utils.max_decimal_precision('illumination'))
-                    for key, ma in light.illumination_by_channel_ma.items()
-                }
-            }
-            if light.illumination_by_channel_ma
-            else {}
-        ),
-        'stage_moving': fact.moving,
-        **image_save.position_metadata_fields(fact.plate_x_mm, fact.plate_y_mm, fact.z_um),
-        # The writer reads this as a required key. A real value makes the file
-        # declare its scale; None makes it declare no absolute unit rather than
-        # inherit tifffile's 1/1 default under a centimetre unit, which reads as
-        # 1 px/cm -- a concrete and wildly wrong measurement.
-        'pixel_size_um': pixel_size_um,
-    }
-    if chunks is not None:
-        ts_ticks = chunks.get('Timestamp')
-        if ts_ticks is not None:
-            metadata['timestamp_camera_ticks'] = int(ts_ticks)
-        if tick_freq_hz is not None:
-            metadata['timestamp_camera_tick_hz'] = int(tick_freq_hz)
-        frame_id = chunks.get('FrameID')
-        if frame_id is not None:
-            metadata['frame_id'] = int(frame_id)
-    return metadata, ts_filename
+    fact, light, record = arrived
+    image_save.write_recorded_frame(
+        scope,
+        image,
+        file_loc,
+        channel=light.channel,
+        plate_x_mm=fact.plate_x_mm,
+        plate_y_mm=fact.plate_y_mm,
+        stage_z_um=fact.z_um,
+        stage_moving=fact.moving,
+        frame_number=frame_number,
+        objective_id=objective_id,
+        frame_record=record,
+        labware=labware,
+        well_label=fact.well_label(labware),
+        fallback_focus=fallback_focus,
+        false_color_on=false_color_on,
+        channel_colors=channel_colors,
+        save_encoding=save_encoding,
+    )
+
+
+def filename_time(arrived: Arrival) -> str:
+    """The frame's time for a file name: colon-free, to the millisecond,
+    safe on Windows."""
+    return arrived.record.captured_at.at.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]

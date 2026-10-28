@@ -20,16 +20,11 @@ import pandas as pd
 import tifffile as tf
 
 import modules.image_utils as image_utils
-import modules.recording_frames as recording_frames
+from modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from modules.video_builder import VideoBuilder
-from modules.common_utils import Light
-from modules.recording_frames import FrameFact
-from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1, LED2
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
-_LIGHT = Light('BF', {})
 
 
 def _ts(frame_num: int) -> datetime.datetime:
@@ -66,45 +61,48 @@ def _first_frame(video_path):
     return frame
 
 
-def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
-    """Write one frame the way the manual recording path does."""
+def _write_manual_frame(scope, folder, frame_num, *, value=20000):
+    """Write one frame the way the manual recording path does: through the
+    one recorded-frame writer, its time the host's arrival."""
     ts = _ts(frame_num)
-    img = np.full((64, 64), value, dtype=np.uint16)
-    # Source the dict from the production builder both recording legs use, so
-    # this helper cannot drift from the shape it claims to reproduce.
-    metadata, ts_filename = recording_frames.tiff_frame_metadata(
-        timestamp_s=ts.timestamp(),
-        frame_number=frame_num,
-        chunks=None,
-        tick_freq_hz=None,
-        pixel_size_um=None,
-        fact=_FACT,
-        light=_LIGHT,
+    record = recorded_record(
+        captured_at=FrameTime(at=ts, source=TimestampSource.HOST_ARRIVAL),
+        frame_significant_bits=16,
     )
-    if not include_iso:
-        # Older recordings predate the ISO timestamp; drop it to exercise the
-        # fallback that reads the frame time from the filename instead.
-        del metadata['timestamp_iso']
-    file_loc = folder / f'ManualVideo_Frame_{frame_num:04}_{ts_filename}.tiff'
-    image_utils.write_tiff(
-        data=img,
-        file_loc=file_loc,
-        metadata=metadata,
-        ome=False,
-        color=release_color('BF'),
-        video_frame=True,
-        significant_bits=16,
+    stamp = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+    file_loc = folder / f'ManualVideo_Frame_{frame_num:04}_{stamp}.tiff'
+    write_recorded(
+        scope,
+        np.full((64, 64), value, dtype=np.uint16),
+        file_loc,
         save_encoding='right_aligned',
-        white_bits=None,
+        record=record,
+        frame_number=frame_num,
     )
     return file_loc, ts
 
 
-def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True, channel_color=None):
+def _write_legacy_protocol_frame(folder, frame_num, *, value=20000):
+    """A protocol video-step frame as written before frames shared the still's
+    writer: its description a flat JSON dict with 'timestamp' and 'datetime'
+    and no ISO key. Recordings already on disk keep this shape."""
+    ts = _ts(frame_num)
+    file_loc = folder / f'clip_video_Frame_{frame_num:04}.tiff'
+    description = {
+        'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
+        'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
+        'frame_num': frame_num,
+    }
+    # The old write handed the dict to tifffile as shaped metadata.
+    tf.imwrite(str(file_loc), np.full((64, 64), value, dtype=np.uint16), metadata=description)
+    return file_loc, ts
+
+
+def _make_manual_folder(scope, tmp_path, n_frames=3, include_hyperstack=True, channel_color=None):
     folder = tmp_path / 'MyRecording'
     folder.mkdir(parents=True)
     for i in range(n_frames):
-        _write_manual_frame(folder, i)
+        _write_manual_frame(scope, folder, i)
     if include_hyperstack:
         # A multi-page OME stack container that build_from_folder must NOT
         # treat as a frame.
@@ -122,14 +120,15 @@ def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True, channel_c
 # ---------------------------------------------------------------------------
 
 
-def test_read_frame_timestamp_manual_iso(tmp_path):
-    file_loc, ts = _write_manual_frame(tmp_path, 0, include_iso=True)
+def test_read_frame_timestamp_manual_iso(sim_scope, tmp_path):
+    file_loc, ts = _write_manual_frame(sim_scope, tmp_path, 0)
     assert image_utils.read_frame_timestamp(file_loc) == ts
 
 
 def test_read_frame_timestamp_protocol_video_no_iso(tmp_path):
-    # Protocol video-step frames carry 'timestamp' / 'datetime' but no iso key.
-    file_loc, ts = _write_manual_frame(tmp_path, 7, include_iso=False)
+    # Protocol video-step frames written before the shared writer carry
+    # 'timestamp' / 'datetime' but no iso key.
+    file_loc, ts = _write_legacy_protocol_frame(tmp_path, 7)
     recovered = image_utils.read_frame_timestamp(file_loc)
     # 'timestamp' is microsecond precision; the recovered value matches exactly.
     assert recovered == ts
@@ -146,8 +145,8 @@ def test_read_frame_timestamp_no_metadata_returns_none(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
-    folder = _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True)
+def test_build_from_folder_manual_creates_video_excluding_hyperstack(sim_scope, tmp_path):
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=3, include_hyperstack=True)
 
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
@@ -211,9 +210,13 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-def test_timestamp_overlay_toggle_changes_output(tmp_path):
-    off_folder = _make_manual_folder(tmp_path / 'off', n_frames=2, include_hyperstack=False)
-    on_folder = _make_manual_folder(tmp_path / 'on', n_frames=2, include_hyperstack=False)
+def test_timestamp_overlay_toggle_changes_output(sim_scope, tmp_path):
+    off_folder = _make_manual_folder(
+        sim_scope, tmp_path / 'off', n_frames=2, include_hyperstack=False
+    )
+    on_folder = _make_manual_folder(
+        sim_scope, tmp_path / 'on', n_frames=2, include_hyperstack=False
+    )
 
     builder = VideoBuilder(has_turret=False)
     builder.build_from_folder(
@@ -250,8 +253,10 @@ def _channel_means_bgr(frame):
     return frame[:, :, 0].mean(), frame[:, :, 1].mean(), frame[:, :, 2].mean()
 
 
-def test_manual_video_renders_channel_color_from_manifest(tmp_path):
-    folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=LED2)
+def test_manual_video_renders_channel_color_from_manifest(sim_scope, tmp_path):
+    folder = _make_manual_folder(
+        sim_scope, tmp_path, n_frames=2, include_hyperstack=False, channel_color=LED2
+    )
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
         folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
@@ -262,9 +267,11 @@ def test_manual_video_renders_channel_color_from_manifest(tmp_path):
     assert r > g + 10 and r > b + 10, f'expected red-dominant frame, got B={b} G={g} R={r}'
 
 
-def test_manual_video_grayscale_without_channel_color(tmp_path):
+def test_manual_video_grayscale_without_channel_color(sim_scope, tmp_path):
     # No channel_color in the manifest (old recording / brightfield) -> gray.
-    folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=None)
+    folder = _make_manual_folder(
+        sim_scope, tmp_path, n_frames=2, include_hyperstack=False, channel_color=None
+    )
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
         folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
@@ -312,10 +319,10 @@ def test_build_session_manifest_includes_channel_color():
 # ---------------------------------------------------------------------------
 
 
-def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
+def test_overlay_build_opens_each_tiff_once(sim_scope, tmp_path, monkeypatch):
     from collections import Counter
 
-    folder = _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=False)
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=3, include_hyperstack=False)
 
     opens = []
     real_tifffile = image_utils.tf.TiffFile

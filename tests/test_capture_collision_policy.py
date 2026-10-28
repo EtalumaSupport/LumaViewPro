@@ -31,6 +31,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from tests.frame_records import plate
 from tests.protocol_drives import lent_run_claim
 from modules import post_derivation
 from modules.common_utils import PostFunction
@@ -526,6 +527,8 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
         to_plate=None,
+        labware=plate(),
+        fallback_focus=None,
         channel_colors=release_colors(),
     )
 

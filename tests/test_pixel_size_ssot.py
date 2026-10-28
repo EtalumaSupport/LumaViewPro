@@ -22,14 +22,9 @@ from modules.scope_capabilities import (
     _resolve_lens_focal_length_mm,
     _resolve_pixel_size_um,
 )
-from modules.common_utils import Light
-from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
-from modules.layer_record import release_colors
+from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
-_LIGHT = Light('BF', {})
 
 
 def _camera_with_pixel_size(pixel_size_um):
@@ -122,253 +117,45 @@ class TestEffectivePixelSize:
         )
 
 
-class TestVideoFrameScaleClaim:
-    """A video frame carries no scale, so it must not claim one.
-
-    The video-frame arm of generate_tiff_data returned before pixel_size_um was
-    ever read and hardcoded ResolutionUnit CENTIMETER with no resolution value,
-    so tifffile's default 1/1 made every frame of every recording assert
-    1 px/cm = 10,000 um/px against a true ~2 um/px.
+class TestARecordedFrameCarriesItsScale:
+    """A recorded frame's scale is the still's: the objective the recording
+    started with and the binning its record carries, through the one
+    metadata builder (``generate_image_metadata``). The hyperstack reads it
+    back from each frame with ``read_pixel_size_um``.
     """
 
-    def test_video_frame_makes_no_absolute_unit_scale_claim(self, tmp_path):
-        # Through the real path: the production metadata builder both recording
-        # legs share, then the single canonical frame-save edge.
-        import tifffile as tf
-
-        from modules.image_save import write_video_frame
-        from modules.recording_frames import tiff_frame_metadata
-
-        metadata, _ts_filename = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-        path = tmp_path / 'ManualVideo_Frame_0000.tiff'
-
-        write_video_frame(
-            frame=np.zeros((32, 32), dtype=np.uint16),
-            file_loc=path,
-            metadata=metadata,
-            channel='BF',
-            false_color_on=False,
-            save_encoding='right_aligned',
-            capture_depth=12,
-            channel_colors=release_colors(),
+    @staticmethod
+    def _expected(scope, objective_id, binning):
+        return round(
+            common_utils.get_pixel_size(
+                focal_length=scope.objectives[objective_id].focal_length_mm,
+                binning_size=binning,
+                capabilities=scope.capabilities,
+            ),
+            common_utils.max_decimal_precision('pixel_size'),
         )
 
-        with tf.TiffFile(path) as t:
-            resunit = t.pages[0].tags['ResolutionUnit'].value
-        # NONE is the TIFF convention for "ratio only, no absolute unit", which
-        # is what an unknown scale means. Do NOT assert XResolution is absent:
-        # tifffile emits it as 1/1 regardless, and under NONE that reads as
-        # square aspect with no absolute dimensions, not as a measurement.
-        assert int(resunit) == int(tf.RESUNIT.NONE)
-
-    def test_tiff_frame_metadata_carries_the_pixel_size_key(self):
-        # The key is always present so a scale-less frame is expressible only as
-        # an explicit None. The writer reads it as a hard key, so a builder that
-        # forgot it fails loudly at the write instead of silently claiming 1/1.
-        from modules.recording_frames import tiff_frame_metadata
-
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-
-        assert 'pixel_size_um' in metadata
-        assert metadata['pixel_size_um'] is None
-
-
-class TestVideoFrameCarriesScale:
-    """A video frame carries the scale measured at recording start.
-
-    The two recording legs build metadata through one builder that had no scale
-    input at all, so recordings were the only capture path writing files no one
-    could measure. The value is snapshotted once per recording, not per frame:
-    changing the objective mid-recording is not supported, and a per-frame
-    resolve would let one stack hold frames that disagree.
-    """
-
-    def test_tiff_frame_metadata_requires_a_scale_argument(self):
-        # Required, not defaulted: a default would let a future third builder
-        # silently omit scale, which is the whole defect being closed here.
-        from modules.recording_frames import tiff_frame_metadata
-
-        with pytest.raises(TypeError):
-            tiff_frame_metadata(
-                timestamp_s=1755000000.0,
-                frame_number=0,
-                chunks=None,
-                tick_freq_hz=None,
-                fact=_FACT,
-                light=_LIGHT,
+    def test_a_recorded_frame_states_the_scale_of_its_objective_and_binning(
+        self, sim_scope, tmp_path
+    ):
+        written = {}
+        for binning in (1, 2):
+            path = tmp_path / f'ManualVideo_Frame_{binning:04d}.tiff'
+            write_recorded(
+                sim_scope,
+                np.zeros((32, 32), dtype=np.uint16),
+                path,
+                save_encoding='right_aligned',
+                objective_id='10x Oly',
+                record=recorded_record(binning_size=binning, frame_significant_bits=12),
             )
+            written[binning] = image_utils.read_pixel_size_um(path)
 
-    def test_tiff_frame_metadata_carries_the_measured_scale(self):
-        from modules.recording_frames import tiff_frame_metadata
-
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=2.2,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-
-        assert metadata['pixel_size_um'] == 2.2
-
-    def test_video_frame_written_with_a_scale_claims_it(self, tmp_path):
-        import tifffile as tf
-
-        from modules.image_save import write_video_frame
-        from modules.recording_frames import tiff_frame_metadata
-
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=2.2,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-        path = tmp_path / 'ManualVideo_Frame_0000.tiff'
-        write_video_frame(
-            frame=np.zeros((32, 32), dtype=np.uint16),
-            file_loc=path,
-            metadata=metadata,
-            channel='BF',
-            false_color_on=False,
-            save_encoding='right_aligned',
-            capture_depth=12,
-            channel_colors=release_colors(),
-        )
-
-        with tf.TiffFile(path) as t:
-            tags = t.pages[0].tags
-            assert int(tags['ResolutionUnit'].value) == int(tf.RESUNIT.CENTIMETER)
-            num, den = tags['XResolution'].value
-        # The tag is pixels-per-centimetre, so inverting it recovers um/px.
-        assert 1e4 / (num / den) == pytest.approx(2.2)
-
-    def test_scale_less_video_frame_still_declares_none(self, tmp_path):
-        # The honest-omission contract must survive the plumbing.
-        import tifffile as tf
-
-        from modules.image_save import write_video_frame
-        from modules.recording_frames import tiff_frame_metadata
-
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-        path = tmp_path / 'ManualVideo_Frame_0001.tiff'
-        write_video_frame(
-            frame=np.zeros((32, 32), dtype=np.uint16),
-            file_loc=path,
-            metadata=metadata,
-            channel='BF',
-            false_color_on=False,
-            save_encoding='right_aligned',
-            capture_depth=12,
-            channel_colors=release_colors(),
-        )
-
-        with tf.TiffFile(path) as t:
-            assert int(t.pages[0].tags['ResolutionUnit'].value) == int(tf.RESUNIT.NONE)
-
-
-class TestReadPixelSizeUm:
-    """One narrow reader for the one fact the hyperstack builder needs.
-
-    StackBuilder used the full acquisition-context reader for a single field,
-    and that reader returns None for any file with no OME Plane block -- which
-    is every video frame. Reading the scale is its own question.
-    """
-
-    def _video_frame(self, tmp_path, pixel_size_um):
-        from modules.image_save import write_video_frame
-        from modules.recording_frames import tiff_frame_metadata
-
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=pixel_size_um,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-        path = tmp_path / f'ManualVideo_Frame_{pixel_size_um}.tiff'
-        write_video_frame(
-            frame=np.zeros((32, 32), dtype=np.uint16),
-            file_loc=path,
-            metadata=metadata,
-            channel='BF',
-            false_color_on=False,
-            save_encoding='right_aligned',
-            capture_depth=12,
-            channel_colors=release_colors(),
-        )
-        return path
-
-    def test_recovers_scale_from_a_video_frame(self, tmp_path):
-        path = self._video_frame(tmp_path, 2.2)
-
-        assert image_utils.read_pixel_size_um(path) == pytest.approx(2.2)
-
-    def test_returns_none_for_a_scale_less_video_frame(self, tmp_path):
-        path = self._video_frame(tmp_path, None)
-
-        assert image_utils.read_pixel_size_um(path) is None
-
-    def test_recovers_scale_from_a_still(self, tmp_path):
-        metadata = {
-            'pixel_size_um': 0.41423,
-            'channel': LED1,
-            'significant_bits': 8,
-            'objective': '20x',
-            'exposure_time_ms': 50.0,
-            'gain_db': 0.0,
-            'illumination_ma': 100.0,
-            'z_pos_um': 1000.0,
-            'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-            'datetime': '2026:03:16 12:00:00',
-            'camera_make': 'Test',
-            'microscope': 'TestScope',
-            'well_label': 'A1',
-            'well_site': '1',
+        assert written == {
+            binning: pytest.approx(self._expected(sim_scope, '10x Oly', binning))
+            for binning in (1, 2)
         }
-        path = tmp_path / 'still.tif'
-        image_utils.write_tiff(
-            data=np.zeros((32, 32), dtype=np.uint8),
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=release_color(LED1),
-            significant_bits=8,
-            save_encoding='8bit',
-            white_bits=None,
-        )
-
-        assert image_utils.read_pixel_size_um(path) == pytest.approx(0.41423)
+        assert written[2] == pytest.approx(2 * written[1])
 
 
 class TestSaveWithoutScale:

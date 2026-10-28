@@ -12,6 +12,7 @@ grouping (T = scan), and a well holding both stills and video steps
 yields both artifact families.
 """
 
+import datetime
 import pathlib
 import re
 
@@ -20,17 +21,12 @@ import pandas as pd
 import tifffile as tf
 
 from modules import post_derivation
-from modules import image_utils
 from modules import recording_frames
+from modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from modules.stack_builder import StackBuilder
-from modules.common_utils import Light
-from modules.recording_frames import FrameFact
-from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1, LED2
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
-_LIGHT = Light('BF', {})
 
 
 def _frame_path(well, color, scan, n):
@@ -173,7 +169,7 @@ class TestVideoWellStackBuild:
             'T axis must follow frame order within the recording'
         )
 
-    def test_video_stack_planes_carry_delta_t_from_frame_timestamps(self, tmp_path):
+    def test_video_stack_planes_carry_delta_t_from_frame_timestamps(self, sim_scope, tmp_path):
         # PR-6 timing honesty: the recording's real per-frame capture
         # times land as per-plane DeltaT (seconds from the earliest
         # plane), so a variable-rate recording reads back with true
@@ -186,25 +182,18 @@ class TestVideoWellStackBuild:
             rows.append((path, 0, 'BF', 0))
             loc = tmp_path / path
             loc.parent.mkdir(parents=True, exist_ok=True)
-            metadata, _ = recording_frames.tiff_frame_metadata(
-                timestamp_s=base_s + n * 0.5,
+            write_recorded(
+                sim_scope,
+                np.full((4, 4), n, dtype=np.uint8),
+                loc,
+                record=recorded_record(
+                    captured_at=FrameTime(
+                        at=datetime.datetime.fromtimestamp(base_s + n * 0.5),
+                        source=TimestampSource.HOST_ARRIVAL,
+                    ),
+                    frame_significant_bits=8,
+                ),
                 frame_number=n,
-                chunks=None,
-                tick_freq_hz=None,
-                pixel_size_um=None,
-                fact=_FACT,
-                light=_LIGHT,
-            )
-            image_utils.write_tiff(
-                data=np.full((4, 4), n, dtype=np.uint8),
-                file_loc=loc,
-                metadata=metadata,
-                ome=False,
-                color=release_color('BF'),
-                significant_bits=8,
-                save_encoding='8bit',
-                video_frame=True,
-                white_bits=None,
             )
         df = _stack_df(rows)
 

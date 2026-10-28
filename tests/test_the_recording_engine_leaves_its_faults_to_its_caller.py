@@ -179,10 +179,10 @@ def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch, 
     reported = _record_reports(monkeypatch, manual_recording_module)
     killer = _LaneKiller('scripted writer death')
 
-    def _dying_write(**kwargs):
+    def _dying_write(*args, **kwargs):
         raise killer
 
-    monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _dying_write)
+    monkeypatch.setattr(manual_recording_module, 'write_frame', _dying_write)
     controller.start()
     feed_frames(scope, clock, 5, fps=10.0)
     controller.stop()

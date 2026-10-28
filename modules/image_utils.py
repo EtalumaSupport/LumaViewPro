@@ -985,6 +985,10 @@ def _plane_facts(plane: dict) -> dict:
         facts['camera_held_channel'] = plane['CameraHeldChannel']
     if 'FallbackFocus' in plane:
         facts['fallback_focus'] = plane['FallbackFocus']
+    if 'RecordingFrame' in plane:
+        facts['recording_frame'] = plane['RecordingFrame']
+    if 'StageMoving' in plane:
+        facts['stage_moving'] = plane['StageMoving']
     return facts
 
 
@@ -1355,6 +1359,8 @@ def build_postproc_output_metadata(
             'camera_held_a_channel',
             'camera_held_channel',
             'fallback_focus',
+            'recording_frame',
+            'stage_moving',
         ):
             metadata.pop(per_capture_field, None)
 
@@ -2263,7 +2269,6 @@ def write_tiff(
     significant_bits: int,
     save_encoding: str,
     white_bits: int | None,
-    video_frame: bool = False,
     extratags: list | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
@@ -2325,13 +2330,12 @@ def write_tiff(
             'ome': True,
             'bigtiff': use_bigtiff,
         }
-    elif not video_frame:
-        if is_color_image(data):
-            # For now, prevent 16-bit color images from being converted to ImageJ type
-            # such as composite (or bullseye). Could allow this once proper support is added.
-            pass
-        elif data.dtype == np.uint16:
-            kwargs['imagej'] = True
+    elif is_color_image(data):
+        # For now, prevent 16-bit color images from being converted to ImageJ type
+        # such as composite (or bullseye). Could allow this once proper support is added.
+        pass
+    elif data.dtype == np.uint16:
+        kwargs['imagej'] = True
 
     def _validate_type() -> str:
         type_count = 0
@@ -2345,12 +2349,8 @@ def write_tiff(
             type_count += 1
             image_type = 'imagej'
 
-        if video_frame:
-            type_count += 1
-            image_type = 'video_frame'
-
         if type_count > 1:
-            raise ValueError('Tiff must only be one type at most (OME, ImageJ, or Video Frame)')
+            raise ValueError('Tiff must only be one type at most (OME or ImageJ)')
 
         return image_type
 
@@ -2361,18 +2361,7 @@ def write_tiff(
     )
 
     with _written_whole(file_loc) as tmp_loc, tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
-        if image_type == 'video_frame':
-            tif.write(
-                data,
-                resolution=support_data['resolution'],
-                metadata=support_data['metadata'],
-                datetime=metadata['datetime'],
-                software=f'LumaViewPro {version}',
-                extratags=support_data['extratags'],
-                **support_data['options'],
-            )
-
-        elif (image_type is None) and is_color_image(image=data):
+        if (image_type is None) and is_color_image(image=data):
             # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
             tif.write(
                 data,
@@ -2446,36 +2435,6 @@ def generate_tiff_data(
     # A hard key, not a .get default -- a metadata dict with no scale must fail
     # loudly here rather than silently resolve to a fabricated size.
     pixel_size_um = metadata['pixel_size_um']
-
-    # Video frames pass through metadata as-is with no structured fields
-    if image_type == 'video_frame':
-        # maxworkers=0 mirrors the imagej + default/ome paths below for
-        # the same Windows kernel-handle-leak reason -- tifffile's per-
-        # write ThreadPoolExecutor holds an Event handle that outlives
-        # cleanup. No production workflow saturates this path today;
-        # added for adjacent-symmetry with the other two save paths.
-        options = {
-            'photometric': photometric,
-            'compression': 'lzw',
-            # Same conditional as the other two arms: tifffile always emits an
-            # XResolution, defaulting to 1/1, so CENTIMETER on a scale-less
-            # frame asserts 1 px/cm -- a concrete and wildly wrong claim. NONE
-            # is the TIFF convention for "ratio only, no absolute unit".
-            'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
-            'maxworkers': 0,
-        }
-        return {
-            'metadata': metadata,
-            # Carry the payload depth in the private tag here too. Video-frame
-            # metadata is otherwise passed through untouched, so this tag is the
-            # only depth carrier these files get; without it a right-aligned
-            # narrow frame reads back as full container width (~16x dark).
-            'extratags': _depth_extratags(metadata['significant_bits'], white_bits),
-            'options': options,
-            'resolution': (
-                resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
-            ),
-        }
 
     # The micron token is container-dependent: OME-XML (UTF-8) requires
     # the schema's micro-sign form, while tifffile encodes the ImageJ /
@@ -2582,6 +2541,13 @@ def generate_tiff_data(
     # Taken where a failed autofocus left the stage, and why it failed.
     if 'fallback_focus' in metadata:
         plane['FallbackFocus'] = metadata['fallback_focus']
+    # A recorded frame's number in its recording, and whether an axis was
+    # moving or homing as it arrived: delivery follows the exposure, so this
+    # is the state at delivery.
+    if 'recording_frame' in metadata:
+        plane['RecordingFrame'] = metadata['recording_frame']
+    if 'stage_moving' in metadata:
+        plane['StageMoving'] = metadata['stage_moving']
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes

@@ -25,14 +25,10 @@ import pytest
 
 from modules import image_utils
 from modules.exceptions import FrameDepthError
-from modules.common_utils import Light
-from modules.recording_frames import FrameFact
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from modules.layer_record import release_color
+from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1
-
-_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False)
-_LIGHT = Light('BF', {})
 
 
 def _configure_sim(scope, pixel_format, pattern='White'):
@@ -512,50 +508,31 @@ class TestConverterCollapse:
 
 
 class TestVideoFrameCarriesDepth:
-    """A video-frame TIFF carries its payload depth in the private tag. Video
-    metadata is otherwise passed through untouched, so without this tag a
-    right-aligned narrow frame reads back as full container width (~16x dark)."""
+    """A recorded frame's TIFF carries the depth it was delivered at, from its
+    record: without it a right-aligned narrow frame reads back as full
+    container width (~16x dark)."""
 
-    def _write_video_frame(self, tmp_path, value, significant_bits):
-        from modules import image_utils
-        from modules.recording_frames import tiff_frame_metadata
-
-        arr = np.full((8, 8), value, dtype=np.uint16)
+    def _write_video_frame(self, scope, tmp_path, value, significant_bits):
         path = tmp_path / 'frame.tif'
-        # The production builder both recording legs share, so this helper
-        # cannot drift from the metadata shape the writer actually receives.
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1781956800.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=_FACT,
-            light=_LIGHT,
-        )
-        image_utils.write_tiff(
-            data=arr,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=release_color('BF'),
-            significant_bits=significant_bits,
+        write_recorded(
+            scope,
+            np.full((8, 8), value, dtype=np.uint16),
+            path,
             save_encoding='right_aligned',
-            video_frame=True,
-            white_bits=None,
+            record=recorded_record(frame_significant_bits=significant_bits),
         )
         return path
 
-    def test_12bit_video_frame_records_true_depth(self, tmp_path):
+    def test_12bit_video_frame_records_true_depth(self, sim_scope, tmp_path):
         from modules import image_utils
 
-        path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
+        path = self._write_video_frame(sim_scope, tmp_path, 4095, significant_bits=12)
         assert image_utils.read_tiff_significant_bits(path) == 12
 
-    def test_video_frame_roundtrips_through_load_pixels(self, tmp_path):
+    def test_video_frame_roundtrips_through_load_pixels(self, sim_scope, tmp_path):
         from modules import image_utils
 
-        path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
+        path = self._write_video_frame(sim_scope, tmp_path, 4095, significant_bits=12)
         _, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
 

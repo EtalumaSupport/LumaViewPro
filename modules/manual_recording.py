@@ -48,6 +48,7 @@ from modules.common_utils import (
     read_light,
 )
 from modules.coord_transformations import PlatePosition
+from modules.labware import Labware
 from modules.axes import StageAxis
 from modules.config_helpers import (
     get_image_capture_config_from_settings,
@@ -77,9 +78,9 @@ from modules.recording_frames import (
     arrival,
     manual_frame_filename_template,
     orient_and_fit,
+    filename_time,
     recording_camera,
-    resolve_recording_pixel_size,
-    tiff_frame_metadata,
+    write_frame,
 )
 from modules.recording_manifest import gather_host_provenance
 from modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
@@ -487,7 +488,12 @@ class ManualRecordingController:
             # asked for (CameraReadFailedError when the camera does not answer).
             frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
             claimed['frame_size'] = frame_size
-            claimed['pixel_size_um'] = resolve_recording_pixel_size(scope)
+            # The objective cannot change while a recording runs; an unknown
+            # one refuses the start, as it refuses a capture: a file with no
+            # objective would carry no scale while the scope went on with one
+            # the person had not confirmed.
+            claimed['objective_id'], _ = scope.runtime_state.resolve_current_objective()
+            claimed['labware'] = scope.runtime_state.get_labware() if video_as_frames else None
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
             claimed['camera'] = recording_camera(scope) if video_as_frames else None
             claimed['config'] = RecordingConfig(
@@ -554,7 +560,8 @@ class ManualRecordingController:
                 capture_depth=capture_config.capture_depth,
                 camera=claimed['camera'],
                 hyperstack=hyperstack,
-                pixel_size_um=claimed['pixel_size_um'],
+                objective_id=claimed['objective_id'],
+                labware=claimed['labware'],
                 to_plate=claimed['to_plate'],
             )
             if video_as_frames:
@@ -843,30 +850,21 @@ class ManualRecordingController:
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
-        metadata, ts_filename = tiff_frame_metadata(
-            timestamp_s,
-            frame_number,
-            chunks,
-            plan.camera.camera_tick_hz,
-            plan.pixel_size_um,
-            fact,
-            light,
-        )
         file_loc = config.output_dir / config.filename_template.format(
-            n=frame_number, ts=ts_filename
+            n=frame_number, ts=filename_time(facts)
         )
-
-        image_save.write_video_frame(
-            frame=image,
-            file_loc=file_loc,
-            metadata=metadata,
-            # Rendered as the channel that lit THIS frame, so the file never
-            # states one channel and is coloured as another.
-            channel=light.channel,
+        write_frame(
+            self._scope,
+            image,
+            file_loc,
+            facts,
+            frame_number=frame_number,
+            objective_id=plan.objective_id,
+            labware=plan.labware,
+            fallback_focus=None,
             false_color_on=plan.false_color_on,
             channel_colors=plan.channel_colors,
             save_encoding=plan.save_encoding,
-            capture_depth=plan.capture_depth,
         )
 
         if self._hyperstack_rows is not None:
@@ -878,6 +876,10 @@ class ManualRecordingController:
             # the stage and the LEDs are open to other callers while a
             # manual recording runs, so a start-time snapshot would be a
             # claim about frames it never saw.
+            # The position as the frame's file states it, to its precision.
+            position = image_save.position_metadata_fields(
+                fact.plate_x_mm, fact.plate_y_mm, fact.z_um
+            )
             self._hyperstack_rows.append(
                 {
                     'Filepath': file_loc.name,
@@ -887,9 +889,9 @@ class ManualRecordingController:
                     # is recorded on every frame regardless of rendering.
                     'Color': light.channel,
                     'Z-Slice': 0,
-                    'X': fact.plate_x_mm,
-                    'Y': fact.plate_y_mm,
-                    'Z': fact.z_um,
+                    'X': position.get('x_pos'),
+                    'Y': position.get('y_pos'),
+                    'Z': position.get('z_pos_um'),
                 }
             )
         return file_loc
@@ -1132,7 +1134,10 @@ class _RecordingPlan:
     # Resolved once at start(), not per frame: the objective cannot change
     # mid-recording, and a per-frame resolve would let one stack hold frames
     # that disagree about their own scale.
-    pixel_size_um: float | None
+    objective_id: str
+    # The plate the frames' positions are stated on, read at start(); None
+    # when the recording saves no frame files.
+    labware: Labware | None
     # The plate transform bound at start(), so every frame is stated in the
     # frame of reference the recording began in; None when the recording
     # saves no frame files, and frames record no plate position.

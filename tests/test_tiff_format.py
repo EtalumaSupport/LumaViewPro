@@ -942,22 +942,6 @@ class TestTiffStripsAndPaletteScale:
                 'ramp reads ~0.4% brightness in compliant readers.'
             )
 
-    def test_8bit_video_frame_uses_strips(self, img_8bit, metadata, tmp_tiff):
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_8bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=release_color('BF'),
-            significant_bits=8,
-            save_encoding='8bit',
-            video_frame=True,
-            white_bits=None,
-        )
-        with tf.TiffFile(str(path)) as f:
-            assert not f.pages[0].is_tiled, 'video-frame output must use strips'
-
 
 class TestGetImagejLut:
     def test_green_lut_shape(self):

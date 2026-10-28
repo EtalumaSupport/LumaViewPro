@@ -34,6 +34,7 @@ from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRec
 from tests.camera_fakes import delivered_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.layer_record import release_colors
+from tests.frame_records import plate
 from tests.objective_records import objective
 from tests.post_processing_lane import a_post_processing_api
 from tests.stock_channels import LED0, LED1, LED2
@@ -173,7 +174,7 @@ class _FakeIllumination:
 
 
 class _FakeRuntimeState:
-    """The objective store the scale resolver reads at recording start.
+    """The objective and plate a recording reads at its start.
 
     Without an app context these tests resolve to no scale, which is the
     honest-degradation path; the attribute still has to exist because the
@@ -182,6 +183,9 @@ class _FakeRuntimeState:
 
     def __init__(self, focal_length=9.0):
         self._objective = objective(focal_length_mm=focal_length)
+
+    def get_labware(self):
+        return plate()
 
     def get_current_objective(self):
         return self._objective
@@ -205,6 +209,15 @@ class _FakeScope:
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
+        # What a frame's file reads of the scope that does not change while it
+        # waits to be written: the objective's catalogue entry, and the motor
+        # board's identity, which this scope does not report.
+        self.objective_helper = SimpleNamespace(
+            get_objective_info=lambda objective_id: self.runtime_state.get_current_objective()
+        )
+        self.diagnostics = SimpleNamespace(
+            get_motor_info=lambda: SimpleNamespace(serial_number=None)
+        )
         # Every layer a stock model carries: the recording's start asks the
         # scope has the layer it is named for, and these tests name the
         # LS850's layers and Lumi.
@@ -893,16 +906,16 @@ class TestLossIsNotified:
         controller, scope, clock = make_controller(tmp_path)
         recorder = NotifyRecorder(centre_posts)
 
-        real_write = manual_recording_module.image_save.write_video_frame
+        real_write = manual_recording_module.write_frame
         calls = {'n': 0}
 
-        def _flaky_write(**kwargs):
+        def _flaky_write(*args, **kwargs):
             calls['n'] += 1
             if calls['n'] == 2:
                 raise OSError('scripted write failure')
-            return real_write(**kwargs)
+            return real_write(*args, **kwargs)
 
-        monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _flaky_write)
+        monkeypatch.setattr(manual_recording_module, 'write_frame', _flaky_write)
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
@@ -1424,14 +1437,11 @@ class TestEachFrameRecordsItsOwnMoment:
 
     @staticmethod
     def _described_frames(tmp_path):
-        import tifffile as tf
+        from modules.image_utils import read_postproc_input_metadata
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
-        described = []
-        for path in folder.glob('*.tiff'):
-            with tf.TiffFile(path) as t:
-                described.append(json.loads(t.pages[0].tags['ImageDescription'].value))
-        return sorted(described, key=lambda d: d['frame_num'])
+        described = [read_postproc_input_metadata(path) for path in folder.glob('*.tiff')]
+        return sorted(described, key=lambda d: d['recording_frame'])
 
     def test_a_stage_move_between_frames_is_in_each_frames_file(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')

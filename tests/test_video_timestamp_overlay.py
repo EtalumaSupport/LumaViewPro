@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.frame_records import plate
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 from modules.protocol_recording import ProtocolVideoStep
@@ -106,6 +107,8 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
         record_dropped_capture=MagicMock(),
         run_claim=lent_run_claim(),
         to_plate=None,
+        labware=plate(),
+        fallback_focus=None,
         channel_colors=release_colors(),
     )
     outcome = recorder.run_blocking()

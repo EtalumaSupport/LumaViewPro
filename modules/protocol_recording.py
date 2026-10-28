@@ -44,10 +44,10 @@ from modules.common_utils import (
     check_disk_space_ok,
     estimate_step_write_mb,
 )
-import modules.image_save as image_save
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from modules.coord_transformations import PlatePosition
+from modules.labware import Labware
 from modules.exceptions import (
     CaptureFailedError,
     FrameListenerNotRegisteredError,
@@ -66,8 +66,7 @@ from modules.recording_frames import (
     orient_and_fit,
     protocol_frame_filename_template,
     recording_camera,
-    resolve_recording_pixel_size,
-    tiff_frame_metadata,
+    write_frame,
 )
 from modules.recording_manifest import gather_host_provenance
 from modules.video_cadence import (
@@ -166,6 +165,8 @@ class ProtocolVideoStep:
         record_dropped_capture: Callable[..., None],
         run_claim: BorrowedClaim,
         to_plate: Callable[[float, float], PlatePosition] | None,
+        labware: Labware,
+        fallback_focus: str | None,
         clock: Callable[[], float] = time.time,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):
@@ -191,6 +192,11 @@ class ProtocolVideoStep:
         self._record_dropped_capture = record_dropped_capture
         self._run_claim = run_claim
         self._to_plate = to_plate
+        # The plate the run's positions are stated on, and why the step's
+        # autofocus did not focus when it records at its fallback focus: each
+        # frame's file says both, as a still's does.
+        self._labware = labware
+        self._fallback_focus = fallback_focus
         self._clock = clock
         self._elapsed_clock = elapsed_clock
 
@@ -292,9 +298,11 @@ class ProtocolVideoStep:
         # asked for (CameraReadFailedError when the camera does not answer).
         frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
         self._tick_freq_hz = camera.camera_timestamp_tick_hz
-        # One scale snapshot per step, alongside the other start-of-recording
-        # camera facts: the objective cannot change while a step records.
-        self._pixel_size_um = resolve_recording_pixel_size(scope)
+        # The objective, read once per step alongside the other
+        # start-of-recording camera facts: it cannot change while a step
+        # records. An unknown one refuses the step (ObjectiveUnknownError): a
+        # file with no objective would carry no scale.
+        self._objective_id, _ = scope.runtime_state.resolve_current_objective()
         self._camera = recording_camera(scope) if self._video_as_frames else None
         self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
         self._start_dt = datetime.datetime.now()
@@ -591,30 +599,21 @@ class ProtocolVideoStep:
 
         step = self._step
         if self._video_as_frames:
-            fact, light, _record = facts
             if config.bit_depth == 8 and image.dtype != np.uint8:
                 image = image_utils.convert_to_8bit(image, config.bit_depth)
-            metadata, _ts_filename = tiff_frame_metadata(
-                timestamp_s,
-                frame_number,
-                chunks,
-                self._tick_freq_hz,
-                self._pixel_size_um,
-                fact,
-                light,
-            )
             file_loc = config.output_dir / config.filename_template.format(n=frame_number)
-            image_save.write_video_frame(
-                frame=image,
-                file_loc=file_loc,
-                metadata=metadata,
-                # Rendered as the channel that lit THIS frame, so the file
-                # never states one channel and is coloured as another.
-                channel=light.channel,
+            write_frame(
+                self._scope,
+                image,
+                file_loc,
+                facts,
+                frame_number=frame_number,
+                objective_id=self._objective_id,
+                labware=self._labware,
+                fallback_focus=self._fallback_focus,
                 false_color_on=bool(step['False_Color']),
                 channel_colors=self._channel_colors,
                 save_encoding=self._capture_config.save_encoding,
-                capture_depth=self._capture_config.capture_depth,
             )
             return file_loc
 

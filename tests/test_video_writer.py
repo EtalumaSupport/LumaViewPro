@@ -19,6 +19,7 @@ from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.camera_fakes import delivered_frame
 from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
+from tests.frame_records import plate
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
 from tests.stock_channels import LED0, LED2
@@ -319,12 +320,12 @@ class TestProtocolVideoDropNotification:
         written = []
         self.written = written
 
-        def _write_frame(**kwargs):
-            written.append(kwargs)
+        def _write_frame(scope, image, file_loc, arrived, **kwargs):
+            written.append(arrived)
             if write_fails:
                 raise OSError('disk said no')
 
-        monkeypatch.setattr(protocol_recording.image_save, 'write_video_frame', _write_frame)
+        monkeypatch.setattr(protocol_recording, 'write_frame', _write_frame)
 
         listeners = {}
         scope = MagicMock()
@@ -372,6 +373,8 @@ class TestProtocolVideoDropNotification:
             clock=lambda: clock['t'],
             run_claim=lent_run_claim(),
             to_plate=None,
+            labware=plate(),
+            fallback_focus=None,
             channel_colors=release_colors(),
         )
         worker = threading.Thread(target=recorder.run_blocking)
@@ -399,20 +402,21 @@ class TestProtocolVideoDropNotification:
         fired = self._posted(centre_posts)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
 
-    def test_each_frame_carries_its_own_fact_and_is_rendered_as_its_channel(
-        self, tmp_path, monkeypatch
-    ):
+    def test_each_frame_carries_its_own_fact_and_channel(self, tmp_path, monkeypatch):
         # The protocol leg reads the scope's tracked state when the frame
         # arrives, like the manual leg: with no LED reported lit the channel
         # is the step's, the stage is not moving, and with no plate transform
-        # the frame states no plate position rather than a number.
+        # the frame states no plate position rather than a number. The write
+        # names and renders the frame by that one channel.
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
-        (kwargs,) = self.written
-        metadata = kwargs['metadata']
-        assert metadata['channel'] == LED0
-        assert metadata['stage_moving'] is False
-        assert 'plate_pos_mm' not in metadata and 'z_pos_um' not in metadata
-        assert kwargs['channel'] == LED0, 'rendered as the channel the frame records'
+        (arrived,) = self.written
+        assert arrived.light.channel == LED0
+        assert arrived.fact.moving is False
+        assert (arrived.fact.plate_x_mm, arrived.fact.plate_y_mm, arrived.fact.z_um) == (
+            None,
+            None,
+            None,
+        )
 
 
 class TestVideoBuilderDropAccounting:

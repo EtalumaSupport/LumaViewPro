@@ -38,6 +38,7 @@ import pathlib
 import threading
 from unittest.mock import MagicMock
 
+from tests.frame_records import plate
 from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
@@ -339,6 +340,8 @@ def _video_session_autogain_call(autogain_settings):
         record_dropped_capture=MagicMock(),
         run_claim=lent_run_claim(),
         to_plate=None,
+        labware=plate(),
+        fallback_focus=None,
         channel_colors=release_colors(),
     )
     from unittest.mock import patch

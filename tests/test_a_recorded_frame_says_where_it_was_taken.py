@@ -12,15 +12,12 @@ fields, and the plate transform a recording binds at start.
 
 import copy
 import datetime
-import json
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import tifffile as tf
 
 from modules.coord_transformations import PlatePosition, StageOffset
-from modules.image_save import write_video_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.common_utils import Light
@@ -30,17 +27,18 @@ from modules.lumascope_api.frame_record import (
     SettingSource,
     TimestampSource,
 )
+from modules.image_utils import read_postproc_input_metadata
 from modules.recording_frames import (
     CameraTickRebaser,
     FrameFact,
     RecordingCamera,
     arrival,
     frame_fact,
-    tiff_frame_metadata,
+    write_frame,
 )
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.camera_fakes import delivered_frame
-from tests.frame_records import frame_record
+from tests.frame_records import frame_record, plate
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1
@@ -245,113 +243,99 @@ class TestTheFramesTime:
         )
 
 
+def _written(scope, tmp_path, arrived, *, frame_number=0):
+    """Write ``arrived``'s frame through the production edge and read its
+    file back as the readers do."""
+    path = tmp_path / f'frame_{frame_number}.tiff'
+    write_frame(
+        scope,
+        np.zeros((8, 8), dtype=np.uint8),
+        path,
+        arrived,
+        frame_number=frame_number,
+        objective_id='10x Oly',
+        labware=plate(),
+        fallback_focus=None,
+        false_color_on=False,
+        channel_colors=release_colors(),
+        save_encoding='8bit',
+    )
+    return read_postproc_input_metadata(path)
+
+
 class TestTheLight:
     """What lit a recorded frame is one read of the scope's LEDs, named and measured from it."""
 
-    def _metadata(self, scope):
-        fact, light, _record = _arrival(scope)
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=fact,
-            light=light,
-        )
-        return metadata
-
-    def test_a_frame_two_leds_lit_states_both_and_is_named_for_the_first(self, sim_scope):
+    def test_a_frame_two_leds_lit_states_both_and_is_named_for_the_first(self, sim_scope, tmp_path):
         sim_scope.illumination.led_on(LED0, 100.0)
         sim_scope.illumination.led_on(LED1, 50.0)
 
-        metadata = self._metadata(sim_scope)
+        written = _written(sim_scope, tmp_path, _arrival(sim_scope))
 
-        assert metadata['channel'] == LED0
-        assert metadata['illumination_by_channel_ma'] == {LED0: 100.0, LED1: 50.0}
+        assert written['channel'] == LED0
+        assert written['illumination_by_channel_ma'] == {LED0: 100.0, LED1: 50.0}
+        assert written['illumination_timing'] == 'on_arrival'
 
-    def test_an_led_left_on_at_0_ma_neither_names_the_frame_nor_is_recorded(self, sim_scope):
+    def test_an_led_left_on_at_0_ma_neither_names_the_frame_nor_is_recorded(
+        self, sim_scope, tmp_path
+    ):
         sim_scope.illumination.led_on(LED0, 0.0)
         sim_scope.illumination.led_on(LED1, 100.0)
 
-        metadata = self._metadata(sim_scope)
+        written = _written(sim_scope, tmp_path, _arrival(sim_scope))
 
-        assert metadata['channel'] == LED1
-        assert metadata['illumination_by_channel_ma'] == {LED1: 100.0}
+        assert written['channel'] == LED1
+        assert written['illumination_by_channel_ma'] == {LED1: 100.0}
 
 
 class TestTheFrameFile:
-    def test_the_metadata_carries_the_fact_under_the_stills_keys(self):
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=4,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=A_FACT,
-            light=A_LIGHT,
-        )
-        assert metadata['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
-        assert metadata['x_pos'] == 1.5 and metadata['y_pos'] == 2.5
-        assert metadata['z_pos_um'] == 3.0
-        assert metadata['channel'] == LED1
-        assert metadata['illumination_by_channel_ma'] == {LED1: 100.0}
-        assert metadata['stage_moving'] is False
+    """A recorded frame's file states what a still's does, from its own
+    record, and the two facts only a recorded frame has."""
 
-    def test_an_unknown_position_states_none(self):
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=FrameFact(None, None, None, True),
-            light=Light('BF', {}),
-        )
-        assert 'plate_pos_mm' not in metadata and 'x_pos' not in metadata
-        assert 'z_pos_um' not in metadata
-        assert metadata['stage_moving'] is True
-        assert 'illumination_by_channel_ma' not in metadata, 'a frame no LED lit has no current'
+    def test_the_file_carries_the_fact_under_the_stills_keys(self, sim_scope, tmp_path):
+        arrived = _arrival(sim_scope)._replace(fact=A_FACT)
 
-    def test_a_frame_without_a_fact_is_refused(self):
-        with pytest.raises(ValueError):
-            tiff_frame_metadata(
-                timestamp_s=1755000000.0,
-                frame_number=0,
-                chunks=None,
-                tick_freq_hz=None,
-                pixel_size_um=None,
-                fact=None,
-                light=Light('BF', {}),
-            )
+        written = _written(sim_scope, tmp_path, arrived, frame_number=4)
 
-    def test_the_written_file_reads_back_its_fact(self, tmp_path):
-        metadata, _ = tiff_frame_metadata(
-            timestamp_s=1755000000.0,
-            frame_number=0,
-            chunks=None,
-            tick_freq_hz=None,
-            pixel_size_um=None,
-            fact=A_FACT,
-            light=A_LIGHT,
-        )
-        path = tmp_path / 'frame.tiff'
-        write_video_frame(
-            frame=np.zeros((8, 8), dtype=np.uint8),
-            file_loc=path,
-            metadata=metadata,
-            channel=LED1,
-            false_color_on=False,
-            save_encoding='8bit',
-            capture_depth=8,
-            channel_colors=release_colors(),
-        )
-        with tf.TiffFile(path) as t:
-            described = json.loads(t.pages[0].tags['ImageDescription'].value)
-        assert described['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
-        assert described['channel'] == LED1
-        assert described['illumination_by_channel_ma'] == {LED1: 100.0}
-        assert described['stage_moving'] is False
+        assert written['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+        assert written['z_pos_um'] == 3.0
+        assert written['stage_moving'] is False
+        assert written['recording_frame'] == 4
+
+    def test_an_unknown_position_states_none(self, sim_scope, tmp_path):
+        arrived = _arrival(sim_scope)._replace(fact=FrameFact(None, None, None, True))
+
+        written = _written(sim_scope, tmp_path, arrived)
+
+        assert 'plate_pos_mm' not in written
+        assert 'z_pos_um' not in written
+        assert written['stage_moving'] is True
+        assert 'illumination_by_channel_ma' not in written, 'a frame no LED lit has no current'
+
+    def test_the_file_states_the_frames_own_record(self, sim_scope, tmp_path):
+        """The exposure and gain its chunks carried, its binning, the
+        objective the recording started with, its plate, and its time with
+        the clock it came from; no black level and no judgments."""
+        chunks = {'ExposureTime': 25000.0, 'Gain': 6.0, 'Timestamp': 123456789, 'FrameID': 41}
+        arrived = _arrival(sim_scope, chunks=chunks)
+
+        written = _written(sim_scope, tmp_path, arrived)
+
+        assert (written['exposure_time_ms'], written['gain_db']) == (25.0, 6.0)
+        assert written['binning_size'] == A_CAMERA.binning_size
+        assert written['objective'] == sim_scope.objectives['10x Oly'].catalogue_entry()
+        assert written['plate']['name'] == plate().name
+        assert written['timestamp_iso'] == A_TIME.at.isoformat(timespec='microseconds')
+        assert written['timestamp_source'] == 'host_arrival'
+        assert (written['timestamp_camera_ticks'], written['frame_id']) == (123456789, 41)
+        assert 'black_level' not in written
+        assert 'frame_validity' not in written
+
+    def test_a_frame_without_chunks_states_no_exposure_or_gain(self, sim_scope, tmp_path):
+        written = _written(sim_scope, tmp_path, _arrival(sim_scope, chunks=None))
+
+        assert 'exposure_time_ms' not in written
+        assert 'gain_db' not in written
 
 
 class TestTheBoundPlateTransform:
@@ -420,3 +404,67 @@ def _config(out_dir):
         timestamp_overlay=False,
         manifest_extra={},
     )
+
+
+class TestARecordingOnTheSimulator:
+    """A frames recording on the simulated scope writes every frame through
+    the still's builder: its own exposure and gain, the objective and plate
+    it was taken under, its time with the clock it came from, and nothing
+    the instrument did not report; its hyperstack states the frame's plate
+    position as the frame's file does."""
+
+    def test_each_frame_states_its_record_and_the_hyperstack_its_rounded_position(self, tmp_path):
+        import threading
+
+        from modules.image_utils import read_hyperstack_private_metadata
+        from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+        from modules.scope_session import ScopeSession
+        from tests.scope_fakes import home_sim_scope
+        from tests.settings_fixtures import complete_settings
+
+        settings = complete_settings(live_folder=str(tmp_path), video_as_frames=True)
+        settings['image_output_format']['sequenced'] = 'OME-TIFF Hyperstack'
+        session = ScopeSession.create(settings, simulate=True)
+        delivered = threading.Event()
+        count = {'n': 0}
+
+        def _count(_frame):
+            count['n'] += 1
+            if count['n'] >= 3:
+                delivered.set()
+
+        try:
+            # Homed, so every frame knows where it was taken.
+            home_sim_scope(session.scope)
+            session.scope.illumination.led_on(LED1, 100.0)
+            operation = session.manual_recording.start()
+            session.scope.imaging.add_frame_listener(_count, name='test_count')
+            assert delivered.wait(timeout=20), 'the simulated camera delivered no frames'
+            operation.stop()
+            operation.result(timeout=60)
+            objective = session.scope.objectives[
+                session.scope.runtime_state.resolve_current_objective()[0]
+            ].catalogue_entry()
+            plate_name = session.scope.runtime_state.get_labware().name
+        finally:
+            session.scope.imaging.remove_frame_listener(_count)
+            session.shutdown()
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        frames = sorted(
+            p for p in folder.glob('ManualVideo_Frame_*.tiff') if 'HyperStack' not in p.name
+        )
+        assert frames
+        written = read_postproc_input_metadata(frames[0])
+        assert written['channel'] == LED1
+        assert written['exposure_time_ms'] > 0 and 'gain_db' in written
+        assert written['objective'] == objective
+        assert written['plate']['name'] == plate_name
+        assert written['pixel_size_um'] is not None
+        assert written['timestamp_source'] == 'camera_rebased', 'the simulator stamps ticks'
+        assert written['illumination_timing'] == 'on_arrival'
+        assert 'frame_validity' not in written and 'black_level' not in written
+
+        stack = read_hyperstack_private_metadata(folder / MANUAL_HYPERSTACK_FILENAME)
+        ys = stack['Plane']['PositionY']
+        assert ys[0] == written['plate_pos_mm']['y'], "the stack states the frame file's Y"

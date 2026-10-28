@@ -47,40 +47,58 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
-def write_video_frame(
+def write_recorded_frame(
+    scope: Lumascope,
     frame: np.ndarray,
     file_loc: pathlib.Path,
-    metadata: dict,
+    *,
     channel: str,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
+    stage_moving: bool,
+    frame_number: int,
+    objective_id: str,
+    frame_record: FrameRecord,
+    labware: Labware,
+    well_label: str | None,
+    fallback_focus: str | None,
     false_color_on: bool,
     channel_colors: layer_record.ChannelColors,
     save_encoding: str,
-    capture_depth: int,
 ) -> None:
-    """Save one captured video frame to TIFF through the single canonical path.
+    """Save one recorded frame to TIFF with the still's builder and writer.
 
-    Shared by the manual-record and protocol-video Frames branches so both
-    honor the image mode identically:
-
-      - a false-color-off layer (and any transmitted BF/PC/DF) saves mono, even
-        under the RGB encoding -- the mode never colorizes a colorless choice;
-      - a 12-bit frame carries significant_bits so msb_aligned left-justifies
-        and right_aligned marks the file at its true depth;
-      - 8-bit fluorescence false color is baked to RGB here, because the
-        video_frame TIFF write emits no palette colormap (unlike the still
-        8-bit path).
+    The file states what a still's states, from the frame's own record
+    (``generate_image_metadata``), and two facts only a recorded frame has:
+    its number in the recording and whether the stage was moving when it
+    arrived. It is written as a still is (``image_utils.write_tiff``): a
+    12-bit frame in the ImageJ container, an 8-bit fluorescence frame with
+    its colour as a palette, never baked into its pixels.
 
     Args:
-        frame: One captured frame -- mono uint8/uint16, or already-colored RGB.
+        scope: As for ``generate_image_metadata``.
+        frame: The frame, oriented and fitted: mono uint8 or uint16.
         file_loc: Output .tiff path.
-        metadata: Per-frame metadata dict (must include 'datetime').
-        channel: Acquiring channel ('Ex405'/'Ex488'/'Ex589'/'Lumi'/'BF'/...).
-        false_color_on: Whether the layer's false-color toggle was on.
+        channel: The channel the frame is named for: the LED that lit it,
+            read as it arrived.
+        plate_x_mm: Plate X in mm where it arrived, or None.
+        plate_y_mm: Plate Y in mm, or None.
+        stage_z_um: Stage Z in um, or None.
+        stage_moving: Whether an axis was moving or homing as it arrived.
+        frame_number: Its ordinal within the recording.
+        objective_id: The objective the recording started with; it cannot
+            change while one runs.
+        frame_record: The frame's record (``delivered_frame_record``).
+        labware: The plate the recording's positions are stated on.
+        well_label: The well it arrived over, or None.
+        fallback_focus: As for ``generate_image_metadata``: why the step's
+            autofocus did not focus, for a video step recorded at its
+            fallback focus.
+        false_color_on: Whether the channel's false-color toggle was on --
+            how the frame is shown, never what it is.
         channel_colors: Every layer's colour as the recording began.
-        save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
-            'msb_aligned'/'rgb').
-        capture_depth: Acquired bit depth (8 or 12); stamps significant_bits for
-            uint16 frames.
+        save_encoding: The resolved image-mode save encoding.
 
     Raises:
         CaptureFailedError: ``'unknown_save_encoding'``, if save_encoding is
@@ -89,33 +107,31 @@ def write_video_frame(
     """
     if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
         raise CaptureFailedError('unknown_save_encoding', encoding=save_encoding)
-    # Rendering value, permanently: it is grey whenever false color is off.
-    # Nothing derived from false_color_on may reach a field describing WHAT
-    # the frame is -- a display setting recorded as identity is a claim about
-    # the specimen that the file cannot walk back. Video frames carry no
-    # channel field today, so nothing structural stops it here; the names are
-    # what keep them apart.
-    render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
-    # State the payload depth so the file is labeled honestly: an 8-bit frame
-    # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
-    # msb_aligned can left-justify and right_aligned marks the true depth; a
-    # summed / full-container 16-bit frame is 16.
-    if frame.dtype == np.uint8:
-        significant_bits = 8
-    elif capture_depth and capture_depth < 16:
-        significant_bits = capture_depth
-    else:
-        significant_bits = 16
-    if frame.dtype == np.uint8:
-        frame = image_utils.add_false_color(array=frame, color=render_color)
+    metadata = generate_image_metadata(
+        scope,
+        channel=channel,
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        stage_z_um=stage_z_um,
+        objective_id=objective_id,
+        frame_record=frame_record,
+        labware=labware,
+        well_label=well_label,
+        fallback_focus=fallback_focus,
+    )
+    metadata['recording_frame'] = frame_number
+    metadata['stage_moving'] = stage_moving
     image_utils.write_tiff(
         data=frame,
         file_loc=file_loc,
         metadata=metadata,
         ome=False,
-        color=render_color,
-        video_frame=True,
-        significant_bits=significant_bits,
+        # Rendering only: grey whenever false colour is off. The channel above
+        # is what the frame is.
+        color=layer_record.shown_color(channel, false_color_on, channel_colors),
+        # The frame's own depth: 8 for a frame rendered to 8 bits, else the
+        # depth it was delivered at.
+        significant_bits=8 if frame.dtype == np.uint8 else frame_record.frame_significant_bits,
         save_encoding=save_encoding,
         # A recorded frame is one frame, never a sum: white is its depth.
         white_bits=None,

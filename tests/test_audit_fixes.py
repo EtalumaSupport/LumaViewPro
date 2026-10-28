@@ -7523,8 +7523,8 @@ class TestImageUtilsMaxWorkersIsZero:
                         offenders.append(f'{rel}:{node.lineno}: maxworkers={shown}')
 
         # A pin that matches nothing cannot fail. Assert it found the sites.
-        assert scanned >= 4, (
-            f'expected at least 4 maxworkers write-options sites, found {scanned} -- '
+        assert scanned >= 3, (
+            f'expected at least 3 maxworkers write-options sites, found {scanned} -- '
             'the pin stopped matching the code it exists to protect'
         )
         assert not offenders, (

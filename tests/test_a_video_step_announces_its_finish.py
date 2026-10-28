@@ -23,6 +23,7 @@ from modules.run_events import RunEvents
 import modules.protocol_recording as protocol_recording
 from modules.activity_claim import ActivityClaim
 from modules.protocol_recording import ProtocolVideoStep
+from tests.frame_records import plate
 from tests.scope_fakes import answer_auto_gain_like_the_api, spec_scope
 from tests.protocol_drives import run_identity
 from tests.camera_fakes import delivered_frame
@@ -56,7 +57,7 @@ def _scope(listeners):
 
 def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
-    monkeypatch.setattr(protocol_recording.image_save, 'write_video_frame', lambda **kw: None)
+    monkeypatch.setattr(protocol_recording, 'write_frame', lambda *a, **kw: None)
 
     heard = []
     step_box = {}
@@ -100,6 +101,8 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
         clock=lambda: clock['t'],
         run_claim=run.lend(),
         to_plate=None,
+        labware=plate(),
+        fallback_focus=None,
         channel_colors=release_colors(),
     )
     step_box['step'] = step

@@ -29,9 +29,8 @@ import numpy as np
 import pytest
 import tifffile as tf
 
-from modules import image_save
-from tests.ast_seams import find_def
-from tests.frame_records import frame_record, plate
+from modules import image_save, image_utils
+from tests.frame_records import frame_record, plate, write_recorded
 from tests.scope_fakes import bind_settings_like_a_session
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1
@@ -431,58 +430,27 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
 
 
 # ---------------------------------------------------------------------------
-# T6 -- the video seam, where nothing structural stops the collapse
+# T6 -- a recorded frame states its channel whatever the toggle
 # ---------------------------------------------------------------------------
 
 
-def test_video_frame_render_colour_cannot_reach_an_identity_field():
-    """Video frames record no channel today, so there is no behaviour to
-    observe here -- the absence of an observable is exactly the risk. The
-    names carry the invariant instead: the acquiring channel arrives as
-    `channel`, and the value collapsed from the toggle is named for the
-    rendering job it does.
+def test_video_frame_render_colour_cannot_reach_an_identity_field(sim_scope, tmp_path):
+    """A recorded frame is named for its channel whatever the false-color
+    toggle: the toggle colours how the frame is shown, and the file states
+    the same channel, display name and modality with it on or off."""
+    stated = {}
+    for false_color_on in (False, True):
+        path = tmp_path / f'frame_{false_color_on}.tiff'
+        write_recorded(
+            sim_scope,
+            np.full((8, 8), 200, dtype=np.uint16),
+            path,
+            channel=LED1,
+            false_color_on=false_color_on,
+            save_encoding='right_aligned',
+        )
+        written = image_utils.read_postproc_input_metadata(path)
+        stated[false_color_on] = (written['channel'], written.get('channel_display'))
 
-    Asserted over the AST rather than the source text, so it survives any
-    reformatting of the seam it guards.
-    """
-    node = find_def('modules/image_save.py', 'write_video_frame')
-    assert node is not None, 'write_video_frame not found'
-
-    params = {a.arg for a in (*node.args.args, *node.args.kwonlyargs)}
-    assert 'channel' in params and 'layer_color' not in params, (
-        'write_video_frame must take `channel`: `layer_color` is the name that '
-        'invites the next author to treat the collapsed render value as an '
-        'identity, and only an unrelated early return stops it reaching one'
-    )
-
-    assigned = {
-        target.id
-        for stmt in ast.walk(node)
-        if isinstance(stmt, ast.Assign)
-        for target in stmt.targets
-        if isinstance(target, ast.Name)
-    }
-    assert 'save_color' not in assigned, (
-        'save_color reads like the value a save records; the collapsed value '
-        'must be named for the rendering job it does'
-    )
-    assert 'render_color' in assigned, (
-        'the value collapsed from false_color_on must carry its role in its name'
-    )
-
-    collapse = next(
-        stmt
-        for stmt in ast.walk(node)
-        if isinstance(stmt, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == 'render_color' for t in stmt.targets)
-    )
-    call = collapse.value
-    assert (
-        isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == 'shown_color'
-    ), 'render_color must still be the toggle-conditional collapse (layer_record.shown_color)'
-    assert [a.id for a in call.args if isinstance(a, ast.Name)][:2] == [
-        'channel',
-        'false_color_on',
-    ], 'render_color is the acquiring channel shown under false_color_on'
+    assert stated[True] == stated[False]
+    assert stated[True][0] == LED1

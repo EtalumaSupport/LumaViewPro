@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.frame_records import plate
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 from modules.exceptions import CaptureFailedError
@@ -61,6 +62,8 @@ def _make_recorder(tmp_path, clock, active=True):
         elapsed_clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
         to_plate=None,
+        labware=plate(),
+        fallback_focus=None,
         channel_colors=release_colors(),
     )
 

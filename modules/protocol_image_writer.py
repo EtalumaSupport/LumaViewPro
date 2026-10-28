@@ -1459,6 +1459,8 @@ class ProtocolImageWriter:
                         ),
                         run_claim=self._run_claim,
                         to_plate=self._to_plate,
+                        labware=self._labware,
+                        fallback_focus=self._fallback_focus(scan_count, curr_step),
                     )
                     self._video_steps.append(recorder)
                     try:

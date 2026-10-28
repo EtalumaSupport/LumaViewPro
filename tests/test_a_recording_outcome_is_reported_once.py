@@ -182,16 +182,16 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(
 def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
     controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
-    real_write = manual_recording_module.image_save.write_video_frame
+    real_write = manual_recording_module.write_frame
     calls = {'n': 0}
 
-    def _flaky_write(**kwargs):
+    def _flaky_write(*args, **kwargs):
         calls['n'] += 1
         if calls['n'] == 2:
             raise OSError('scripted write failure')
-        return real_write(**kwargs)
+        return real_write(*args, **kwargs)
 
-    monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _flaky_write)
+    monkeypatch.setattr(manual_recording_module, 'write_frame', _flaky_write)
     controller.start()
     feed_frames(scope, clock, 5, fps=10.0)
     controller.stop()

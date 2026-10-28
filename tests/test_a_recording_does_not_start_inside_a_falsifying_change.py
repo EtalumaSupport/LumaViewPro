@@ -24,7 +24,6 @@ from modules import settings_init
 from modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
 from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
-from modules.recording_frames import resolve_recording_pixel_size
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -244,12 +243,15 @@ class TestAnUnknownObjective:
     def test_it_refuses_a_recording_as_it_refuses_a_capture(self, turret_session):
         turret_session.scope.motion.move_turret(2)
         with pytest.raises(ObjectiveUnknownError) as unknown:
-            resolve_recording_pixel_size(turret_session.scope)
+            turret_session.manual_recording.start()
         assert unknown.value.reason == 'slot_unassigned'
+        assert not turret_session.manual_recording.is_recording
 
-    def test_a_known_objective_gives_the_scale(self, turret_session):
+    def test_a_known_objective_lets_it_start(self, turret_session):
         turret_session.scope.motion.move_turret(1)
-        assert resolve_recording_pixel_size(turret_session.scope) > 0
+        operation = turret_session.manual_recording.start()
+        assert turret_session.manual_recording.is_recording
+        operation.stop()
 
 
 class TestTheObjectiveQuestionDuringAHold:
