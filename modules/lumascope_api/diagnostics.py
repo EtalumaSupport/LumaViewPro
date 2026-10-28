@@ -1304,13 +1304,23 @@ class DiagnosticsAPI:
 
         Returns:
             MotorBoardInfo: Each field None when unknown, all of them with
-                no board.
+                no board connected -- none installed, or one lost since
+                connect, whose cached identity no longer describes a board
+                that is there.
 
         Raises:
             Nothing.
         """
+        if not self._scope.motor_connected:
+            return MotorBoardInfo(
+                model=None,
+                serial_number=None,
+                firmware_version=None,
+                firmware_date=None,
+                command_set=None,
+            )
         driver = self._scope._motion_driver
-        speaks_text = self._scope.motor_connected and hasattr(driver, 'exchange_multiline')
+        speaks_text = hasattr(driver, 'exchange_multiline')
         return MotorBoardInfo(
             model=driver.get_microscope_model(),
             serial_number=driver.get_serial_number(),

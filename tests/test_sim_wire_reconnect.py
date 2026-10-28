@@ -4,7 +4,8 @@ against the real firmware.
 
 A cable pulled mid-move: the axis must not stay MOVING forever, which
 would wedge autofocus and a protocol run with no word to the user. The API
-faults it to UNKNOWN after its disconnect deadline and says so once.
+faults it to UNKNOWN after its disconnect deadline and says so once. A board
+lost while every axis is idle reads as lost from the exchange that finds it.
 
 When a command fails on the wire the driver closes its port, and its next
 command reconnects without the disconnect path. After a cable pull that is
@@ -26,7 +27,9 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import HardwareCommandRefusedError, HomingFailedError, MissingPart
+from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
+from modules.lumascope_api.diagnostics import MotorBoardInfo
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -110,9 +113,44 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
             assert time.monotonic() - pulled < motion._DISCONNECT_FAULT_S + 2.0, 'X stayed MOVING'
             time.sleep(0.05)
         assert time.monotonic() - pulled >= motion._DISCONNECT_FAULT_S
-        assert motion.axes_without_position() == {'X': 'unknown'}
+        # The board is lost, so no axis knows its position, not only the one moving.
+        assert motion.axes_without_position() == dict.fromkeys(('X', 'Y', 'Z', 'T'), 'unknown')
         errors = [(n.category, n.title) for n in centre_posts if n.severity == Severity.ERROR]
         assert errors == [('Motion', 'Motor Board Disconnected')]
+    finally:
+        session.shutdown()
+
+
+@pytest.mark.parametrize('model', ('LS850T', 'LS720'))
+def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
+    """Once an exchange finds the board gone, every read of the axes says so:
+    every axis unknown with no position, the turret unknown with no slot, the
+    interlocks refused as a command is, the board's identity unknown."""
+    session = ScopeSession.create(
+        complete_settings(simulator_tier='firmware', microscope=model), simulate=True
+    )
+    try:
+        scope = session.scope
+        motion = scope.motion
+        motion.home()
+        scope.simulation.unplug('motor')
+        with pytest.raises(HardwareCommandRefusedError):
+            motion.move_z(100.0)  # the exchange that finds the board gone
+        assert scope.motor_connected is False
+
+        unknown = AxisPosition(AxisState.UNKNOWN, None)
+        assert motion.axis_positions() == dict.fromkeys(('X', 'Y', 'Z'), unknown)
+        assert session.status.axes == dict.fromkeys(('X', 'Y', 'Z'), unknown)
+        turret = TurretStatus(AxisState.UNKNOWN, None) if 'T' in scope.capabilities.axes else None
+        assert (motion.turret_status(), session.status.turret) == (turret, turret)
+        assert not motion.has_homed()
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            motion.interlocks()
+        assert (refused.value.reason, refused.value.missing) == (
+            'not_connected',
+            MissingPart.MOTOR_CONTROLLER,
+        )
+        assert scope.diagnostics.get_motor_info() == MotorBoardInfo(None, None, None, None, None)
     finally:
         session.shutdown()
 

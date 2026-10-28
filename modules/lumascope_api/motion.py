@@ -566,14 +566,13 @@ class MotionAPI:
 
         Returns:
             bool: True when *axis* is IDLE or MOVING; False when it is
-            UNKNOWN or HOMING, or an axis this scope does not have.
+            UNKNOWN or HOMING, an axis this scope does not have, or the
+            motor board is lost.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, *axis* is no axis name.
         """
-        with self._axis_state_lock:
-            state = self._axis_state.get(axis)
-        return self._position_known(state)
+        return self._position_known(self._read_axis_states().get(axis))
 
     def _fail_drive(self, axis: str, move: _Move, cause: Exception) -> NoReturn:
         """A commanded move failed at the driver: the axis is UNKNOWN, and raise.
@@ -666,6 +665,24 @@ class MotionAPI:
         with self._axis_state_lock:
             return {axis: self._axis_state.get(axis) for axis in axes}
 
+    def _board_lost(self) -> bool:
+        """Whether the reads answer every axis UNKNOWN: no motor board is connected.
+
+        The board's one presence record (``Lumascope.motor_connected``),
+        asked when a read is made, so a board lost while every axis is idle
+        reads as lost from the first exchange that finds it, with nothing
+        written into the axis store. Until an exchange finds the loss the
+        reads answer what was last known: no read polls the board.
+        """
+        return not self._scope.motor_connected
+
+    def _read_axis_states(self) -> dict[str, str]:
+        """Every axis's state as the reads answer it: each UNKNOWN while the board is lost."""
+        lost = self._board_lost()
+        with self._axis_state_lock:
+            states = dict(self._axis_state)
+        return dict.fromkeys(states, AxisState.UNKNOWN) if lost else states
+
     @contextlib.contextmanager
     def _driving_home(
         self,
@@ -739,6 +756,9 @@ class MotionAPI:
             frozenset[Interlock]: The open interlocks.
 
         Raises:
+            HardwareCommandRefusedError: ``'scope_disconnected'`` after
+                ``disconnect()``; ``'not_connected'``, naming the motor
+                controller. Nothing was asked.
             BoardNoReplyError: ``'board_no_reply'``, the board did not answer
                 the read; the stage's state is unknown, which is not the same
                 answer as none open.
@@ -749,6 +769,7 @@ class MotionAPI:
             BoardReportedError: ``'board_reported_error'``, the board refused
                 the read; the state is unknown.
         """
+        self.refuse_controller_not_connected('interlocks')
         # The driver keeps its own words; the API names them by the set.
         return frozenset(Interlock(name) for name in self._driver.interlocks())
 
@@ -1397,17 +1418,21 @@ class MotionAPI:
 
         The slot is ``get_turret_slot``'s; the state is the turret's
         ``AxisState``, which says what the slot alone cannot: whether it is
-        homing, moving, or lost. No serial I/O.
+        homing, moving, or lost. With the motor board lost it is UNKNOWN
+        with no slot. No serial I/O.
 
         Raises:
             Nothing.
         """
         # The state store holds the present axes from bring-up on, before
         # the scope's capabilities exist; a home at bring-up tells this.
+        lost = self._board_lost()
         with self._axis_state_lock:
             state = self._axis_state.get('T')
             slot = self._last_turret_position
-        return None if state is None else TurretStatus(state, slot)
+        if state is None:
+            return None
+        return TurretStatus(AxisState.UNKNOWN, None) if lost else TurretStatus(state, slot)
 
     def _record_turret_slot(self, slot: int | None) -> None:
         """Record the slot in the light path, and tell the turret listeners when it changed."""
@@ -1996,13 +2021,13 @@ class MotionAPI:
         Returns:
             bool: True if every non-turret axis the board has knows its
                 position. False on a board with no such axes, which is
-                what the driver latch reported for the no-motor case.
+                what the driver latch reported for the no-motor case, and
+                with the board lost.
 
         Raises:
             Nothing.
         """
-        with self._axis_state_lock:
-            stage_states = [state for axis, state in self._axis_state.items() if axis != 'T']
+        stage_states = [state for axis, state in self._read_axis_states().items() if axis != 'T']
         if not stage_states:
             return False
         return all(self._position_known(state) for state in stage_states)
@@ -2026,17 +2051,17 @@ class MotionAPI:
             dict[Axis, AxisState]: Axis to its state (``AxisState.UNKNOWN``
                 or ``AxisState.HOMING``) for every axis whose position is
                 not known, in the scope's axis order. Empty when every
-                axis knows its position.
+                axis knows its position. Every axis, UNKNOWN, with the
+                motor board lost.
 
         Raises:
             Nothing.
         """
-        with self._axis_state_lock:
-            return {
-                axis: state
-                for axis, state in self._axis_state.items()
-                if not self._position_known(state)
-            }
+        return {
+            axis: state
+            for axis, state in self._read_axis_states().items()
+            if not self._position_known(state)
+        }
 
     @api(reads=True)
     def axis_positions(self) -> dict[StageAxis, AxisPosition]:
@@ -2049,6 +2074,7 @@ class MotionAPI:
         answer None whatever the cache holds, because the cache keeps the
         last number an axis reported after its reference is lost. X, Y and
         Z, in um; the turret has a slot, not a position (``turret_status``).
+        With the motor board lost every axis is UNKNOWN, with no position.
         No serial I/O.
 
         The state lock is taken first and the cache lock inside it. No
@@ -2061,10 +2087,13 @@ class MotionAPI:
         Raises:
             Nothing.
         """
+        lost = self._board_lost()
         with self._axis_state_lock:
             states = dict(self._axis_state)
             with self._pos_cache_lock:
                 cache = dict(self._pos_cache)
+        if lost:
+            states = dict.fromkeys(states, AxisState.UNKNOWN)
         return {
             StageAxis(ax): AxisPosition(
                 state, cache.get(ax) if self._position_known(state) else None

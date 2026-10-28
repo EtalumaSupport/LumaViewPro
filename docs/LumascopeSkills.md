@@ -1752,7 +1752,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 
 # Position queries, in um for X, Y and Z (the turret answers a slot, below). Read cache, no serial I/O.
 scope.motion.positions_to_keep(('Z',), then='start the sweep')  # {axis: um} for the axes asked, in ONE snapshot -- the read for a caller keeping a position (a sweep's centre, a position written into a file); refused axis_moving while one moves, position_unknown while one homes or is unknown, axis_absent for one the scope has no motor for
-scope.motion.axis_positions()                    # {axis: AxisPosition(state, position_um)} for X, Y and Z in ONE snapshot; position_um is None unless the axis is IDLE or MOVING -- where each axis is and in what state, a moving one included
+scope.motion.axis_positions()                    # {axis: AxisPosition(state, position_um)} for X, Y and Z in ONE snapshot; position_um is None unless the axis is IDLE or MOVING -- where each axis is and in what state, a moving one included; every axis UNKNOWN with no position once an exchange has found the motor board lost
 scope.runtime_state.plate_transform()            # (x_um, y_um) -> PlatePosition, BOUND to the plate and offset of this call. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference
 scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault); 0.0, read by nothing, for an axis UNKNOWN because its bring-up read failed
 scope.motion.get_target_positions()              # {axis: target} for every stage axis the scope has a position for
@@ -1861,7 +1861,7 @@ scope.motion.start_move_z_by(100).result()
 # it stopped, its position known; interlocks() says why.
 # stop_motion works with the lid open. A board with no interlocks (every
 # EL-0940 scope) never raises these.
-scope.motion.interlocks()                        # frozenset of open Interlock members (LID_OPEN 'lid_open', STAGE_UNPOWERED 'stage_unpowered'); empty when none
+scope.motion.interlocks()                        # frozenset of open Interlock members (LID_OPEN 'lid_open', STAGE_UNPOWERED 'stage_unpowered'); empty when none; refused not_connected, as a motion command is, with the motor board lost
 
 # Jog step under the active objective (z_coarse / z_fine for Z, xy_coarse / xy_fine for X, Y);
 # ObjectiveUnknownError when the objective is unknown -- no step is guessed
@@ -2496,7 +2496,7 @@ scope.diagnostics.get_motor_info()         # MotorBoardInfo, as the board report
                                            #   the original firmware), firmware_date, command_set, a MotorCommandSet: 'text' (the
                                            #   EL-0940's INFO, FULLINFO, ACTUAL_R, ...) or None (no text commands,
                                            #   e.g. the LS720's TMCM-6110). Each field None when unknown, all of
-                                           #   them with no board.
+                                           #   them with no board connected (one lost since connect included).
 scope.capabilities.model                   # the model the scope runs as: the board's, else the selection
 scope.diagnostics.get_led_info()           # LedBoardInfo: firmware_version, firmware_date, command_set, a LedCommandSet:
                                            #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
@@ -2755,7 +2755,7 @@ The Session is the root: its member `m` is `/api/v1/m`, and a sub-object is a pa
 - The answer to a finished call is `200` with its encoded return value as the whole body, `null` for `None`.
 - Arguments are checked before the member runs: a key the member does not take, a value that is not of the parameter's type (in a body, a string where a number goes), a number that is not finite, a missing required one, or a query string on a route that takes none (a property, a `PUT` or a `POST`) is refused `422` (`invalid_request`, its `errors` naming each argument and why: each its `loc`, `msg` and `type`). Every refusal the server answers itself carries `errors`, null when no argument is named. A read asked with `POST`, a setting with `POST`, or a call with `GET`, is `405`.
 - A read is answered like any call: one that outlives its wait is a `202` job (below). No read hands out a running call or a live object, so a read is safe to repeat; a camera's fresh read (`read_gain_db`) asks the camera and keeps what it answered as the held value, and changes nothing on the camera.
-- Units are the API's: positions in um (the turret's in slots), exposure in ms, illumination in mA. A duration is a float of seconds, its name ending `_s`, and a `datetime` crosses as ISO 8601 with its offset; no member hands out or takes a `timedelta`. An axis's state and position (`AxisPosition`) cross as `{"position_um": ..., "state": ...}`. `state` is one of `unknown` (not homed, or its reference lost), `idle`, `moving` or `homing`, and `position_um` is `null` unless the state is `idle` or `moving`. `axis_positions` and `Status.axes` are an object keyed by stage axis (`"X"`, `"Y"`, `"Z"`), holding only the ones this scope has; the turret's slot is `turret_status` / `Status.turret`. A `position` event carries one stage axis, `{"axis": "X", "at": {"position_um": ..., "state": ...}}`. `get_axis_limits` answers `{"min_um": ..., "max_um": ...}`, or `null` for an axis with no travel limits (the turret).
+- Units are the API's: positions in um (the turret's in slots), exposure in ms, illumination in mA. A duration is a float of seconds, its name ending `_s`, and a `datetime` crosses as ISO 8601 with its offset; no member hands out or takes a `timedelta`. An axis's state and position (`AxisPosition`) cross as `{"position_um": ..., "state": ...}`. `state` is one of `unknown` (not homed, its reference lost, or the motor board lost), `idle`, `moving` or `homing`, and `position_um` is `null` unless the state is `idle` or `moving`. `axis_positions` and `Status.axes` are an object keyed by stage axis (`"X"`, `"Y"`, `"Z"`), holding only the ones this scope has; the turret's slot is `turret_status` / `Status.turret`. A `position` event carries one stage axis, `{"axis": "X", "at": {"position_um": ..., "state": ...}}`. `get_axis_limits` answers `{"min_um": ..., "max_um": ...}`, or `null` for an axis with no travel limits (the turret).
 - A path, sent or answered, is a name in the live folder, `/`-separated (`"ProtocolData/run1"`). A path parameter takes that name; a name that leaves the live folder is refused (`outside_live_folder`). An answered path is `{"name": ..., "host_path": ...}`, `name` null when it is outside the live folder. The live folder itself is `"."`: `GET /api/v1/live_folder_listing`, or with `?name=.`, lists its top level, `{"output_dir": "."}` writes a support report into it, and an answered path naming it has `name` `"."`. An empty name, and one that starts with `/` or a drive, is refused (`outside_live_folder`).
 
 ### Live objects: handles
