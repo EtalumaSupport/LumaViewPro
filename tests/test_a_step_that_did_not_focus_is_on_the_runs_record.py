@@ -92,6 +92,32 @@ def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
     assert 'fallback_focus' not in _saved('C1')
 
 
+def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
+    """A video step's frames go through the still's writer, so each frame's
+    file of a step recorded at its fallback focus states why autofocus did
+    not focus, and a frame of a step with no autofocus states nothing."""
+    settings = headless_settings(tmp_path)
+    settings['video_as_frames'] = True
+    steps = [
+        _step('V0', 0, x=20.0, gain=1.0, autofocus=True),
+        _step('V1', 1, x=30.0, gain=1.0),
+    ]
+    for step in steps:
+        step['Acquire'] = 'video'
+        step['Video Config'] = {'duration': 0.4, 'fps': 5}
+    runs = tmp_path / 'runs'
+    with open_composite_session(settings) as (_session, runner):
+        _run(runner, runs, steps)
+
+    def _frames(name):
+        frames = [p for p in runs.rglob('*_Frame_*.tiff') if name in p.parent.name]
+        assert frames, f'step {name} wrote no frame files'
+        return [read_postproc_input_metadata(path) for path in frames]
+
+    assert {written.get('fallback_focus') for written in _frames('V0')} == {FLAT}
+    assert all('fallback_focus' not in written for written in _frames('V1'))
+
+
 def test_every_settle_path_carries_the_focus_failures():
     from modules.run_outcome import FocusFailure
 
