@@ -217,11 +217,17 @@ class TestDrainDeadline:
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run'
         assert record.dark is True
 
-    def test_healthy_capture_records_telemetry(self, live_scope):
-        """The per-capture evidence a support bundle reads: present on
-        every completed capture."""
-        out = live_scope.imaging.capture_and_wait(timeout_s=1.0)
-        assert out is not None
-        info = live_scope.imaging.last_capture_info
-        for key in ('hold_ms', 'drained', 'rechecks', 'deadline_s', 'n_entry', 'active_s'):
-            assert key in info, f'missing capture-evidence key {key!r}'
+    def test_healthy_capture_records_how_it_waited_and_nothing_of_its_frame(self, live_scope):
+        """The per-capture evidence a support bundle reads, on every
+        completed capture, and only that: the frame's own facts are the
+        record handed back with it, so the slot holds no second copy a
+        later capture would replace under its reader."""
+        assert live_scope.imaging.capture_and_wait(timeout_s=1.0) is not None
+        assert set(live_scope.imaging.last_capture_info) == {
+            'hold_ms',
+            'drained',
+            'rechecks',
+            'deadline_s',
+            'n_entry',
+            'active_s',
+        }

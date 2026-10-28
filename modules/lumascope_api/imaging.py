@@ -381,9 +381,10 @@ class ImagingAPI:
         # self._state_lock. Per the Sentinel-return contract: None
         # means "no result yet."
 
-        # Evidence about the most recent capture_and_wait (hold duration,
-        # drained frame count, chunk-verified exposure / gain). Read via
-        # last_capture_info by callers that log per-capture provenance.
+        # Evidence about the most recent capture past its call (hold
+        # duration, drained frame count, rechecks, deadline): what a capture
+        # leaves frame or not. A frame's own facts are its record's, handed
+        # back with it. Read via last_capture_info.
         self._last_capture_info = None
         # (frames summed, each frame's delivered depth) of the frame the last
         # capture produced, set by the reducer that summed it, or None before
@@ -959,7 +960,7 @@ class ImagingAPI:
             _clock['last'] = now
             return _clock['active'] > deadline_s
 
-        def _record_capture_info(**extra) -> None:
+        def _record_capture_info() -> None:
             with self._state_lock:
                 self._last_capture_info = {
                     'hold_ms': (time.monotonic() - hold_start) * 1000.0,
@@ -968,7 +969,6 @@ class ImagingAPI:
                     'deadline_s': deadline_s,
                     'n_entry': n_entry,
                     'active_s': _clock['active'],
-                    **extra,
                 }
 
         def _deadline_expired_error(where: str) -> CaptureFailedError:
@@ -1136,17 +1136,10 @@ class ImagingAPI:
                 continue
             break
 
-        # Record per-capture evidence for the caller's log line (protocol
-        # captures log brightness + the chunk-verified settings per frame so
-        # a support bundle shows what each saved frame was exposed with).
         # The chunks are the returned frame's own; a capture that got no
         # frame has none.
         chunks = dict(grabbed.frame.chunks or {}) if isinstance(grabbed, _Grabbed) else {}
-        extra: dict[str, object] = {}
-        if lock is not None and lock.state is not None:
-            extra['auto_gain'] = lock.state.value
-            extra['auto_gain_exposure_ms'] = lock.exposure_ms
-            extra['auto_gain_gain_db'] = lock.gain_db
+        record: FrameRecord | None = None
         failed = grabbed if isinstance(grabbed, _NoFrame) else None
         if failed is not None:
             logger.warning(
@@ -1169,7 +1162,7 @@ class ImagingAPI:
                 # the one its cycle took before the drain.
                 judgments = self.frame_validity.judgments(grabbed.earliest, mapping)
                 try:
-                    extra['frame_record'] = self._build_frame_record(
+                    record = self._build_frame_record(
                         chunks=chunks,
                         lit=lit,
                         captured_at=grabbed_at,
@@ -1189,18 +1182,14 @@ class ImagingAPI:
                     removed = True
                     raise _camera_not_connected(member) from unread
             if failed is None:
-                _api_log.info(_capture_line(grabbed, extra['frame_record']))
-            _record_capture_info(
-                chunk_exposure_us=chunks.get('ExposureTime'),
-                chunk_gain_db=chunks.get('Gain'),
-                **extra,
-            )
+                _api_log.info(_capture_line(grabbed, record))
+            _record_capture_info()
         finally:
             if lock is not None and not removed:
                 self._camera._resume_auto_gain_impl(lock)
         if failed is not None:
             raise failed.error(member)
-        return CapturedStill(image=grabbed.image, record=extra['frame_record'])
+        return CapturedStill(image=grabbed.image, record=record)
 
     def _capture_holding_layer_impl(
         self, layer: str, request: LayerCameraRequest, member: str, **capture
@@ -2364,30 +2353,24 @@ class ImagingAPI:
     @api(in_process=True, engineering=True)
     @property
     def last_capture_info(self) -> dict | None:
-        """Evidence about the most recent capture_and_wait on this scope.
+        """How the most recent capture on this scope waited, frame or not.
 
-        Consumed by the protocol file writer and by L2 callers that need
-        the auto-gain outcome of a capture.
+        What a capture leaves whether or not it returned a frame: the
+        protocol file writer's log line, the manual still's retake bound
+        and the engineering plugin's measure of the hold and drain read it.
+        What a frame is -- its exposure and gain and where each came from,
+        its auto-gain outcome, its judgments -- is its ``FrameRecord``,
+        handed back with it (``capture_still``), never this slot.
 
         Returns:
-            dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
-                'chunk_gain_db'}`` for the latest capture past its call,
-                whether it returned a frame or raised why it got none; None
-                before the first. A capture refused at its call (no camera,
-                or one not streaming) records nothing, so read this only
-                after a capture that returned or raised
+            dict | None: ``{'hold_ms', 'drained', 'rechecks', 'deadline_s',
+                'n_entry', 'active_s'}`` for the latest capture past its
+                call, whether it returned a frame or raised why it got none;
+                None before the first. A capture refused at its call (no
+                camera, or one not streaming) records nothing, so read this
+                only after a capture that returned or raised
                 ``CaptureFailedError``. Why a capture got no frame is what it
-                raised, never this record. Chunk values are None on cameras
-                without chunk support. When the capture locked a standing
-                auto-gain arm it also carries ``'auto_gain'`` (one of
-                ``AutoGainConvergence``'s values: CONVERGED / MAXED /
-                AT_MINIMUM / FAILED), ``'auto_gain_exposure_ms'`` and
-                ``'auto_gain_gain_db'`` (the locked values, None on
-                FAILED). A capture that
-                returned a frame carries ``'frame_record'``, the
-                ``FrameRecord`` taken with it: read it on the thread that
-                captured, before capturing again, and hand it on with the
-                frame -- the next capture replaces it.
+                raised, never this record. The next capture replaces it.
 
         Raises:
             Nothing.

@@ -325,7 +325,7 @@ def generate_image_metadata(
             objective -- read then, the file would claim the wrong scale or
             none. The caller reads it when it takes the frame.
         frame_record: What the instrument reported about the frame, taken
-            by the capture with it (``last_capture_info['frame_record']``).
+            by the capture with it (``CapturedStill.record``).
             Required: the write runs later, on the file writer, when the
             camera, the LED and the clock have moved on -- read then, the file
             records the scope at the write, not the frame.
@@ -571,7 +571,7 @@ def prepare_image_for_saving(
         objective_id: The objective in the light path when the frame was
             taken, for the same reason (see ``generate_image_metadata``).
         frame_record: What the instrument reported about the frame, taken
-            by the capture with it (``last_capture_info['frame_record']``).
+            by the capture with it (``CapturedStill.record``).
             Required: the write runs later, on the file writer, when the
             camera, the LED and the clock have moved on -- read then, the file
             records the scope at the write, not the frame.
@@ -688,7 +688,7 @@ def save_image(
             taken; recorded as the file's scale. Required: read by the
             caller when it takes the frame, never at save time.
         frame_record: What the instrument reported about the frame, taken
-            by the capture with it (``last_capture_info['frame_record']``).
+            by the capture with it (``CapturedStill.record``).
             Required: the write runs later, on the file writer, when the
             camera, the LED and the clock have moved on -- read then, the file
             records the scope at the write, not the frame.

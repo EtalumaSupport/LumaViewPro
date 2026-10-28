@@ -680,7 +680,7 @@ image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 # A dark frame is never refused. With a channel lit (strictly positive
 # current), a frame with no lit pixel is retried until timeout_s in case a
 # lit one is coming, then RETURNED, its record saying so:
-# last_capture_info['frame_record'].dark is True. Read that to tell a dark
+# session.capture_still().record.dark is True. Read that to tell a dark
 # capture from a lit one; do not re-measure pixels. With nothing
 # commanded -- or a channel at 0 mA -- a dark frame is by design and is
 # not measured at all (.dark is None). accept_dark=True skips the
@@ -713,7 +713,7 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # before it, a move's by frames that arrived after its stop.
 # A capture judges the frame it returns (a sum's first frame) against each
 # source's last change; the answers ride its record
-# (last_capture_info['frame_record'].judgments), its saved file
+# (capture_still's record.judgments), its saved file
 # ('frame_validity' in the metadata) and one line in api.log. A Judgment
 # carries counts, frames_after (frames handed over after the change, up to
 # and including this one: an upper bound on the frames stored after it),
@@ -727,7 +727,7 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # latch's bracket), None on a camera without a latch
 # (capabilities.camera_has_clock_latch: Basler yes, IDS and the FX2 no).
 # mapping.camera_ticks_at(host_ns) is the camera's clock at a host time.
-mapping = session.scope.imaging.last_capture_info['frame_record'].clock_mapping
+mapping = session.capture_still().record.clock_mapping
 for judgment in session.scope.imaging.judge_frame(frame, mapping):   # frame: from a listener
     print(judgment.change.source, judgment.change.rule.rule, judgment.counts)
 ```
@@ -1585,6 +1585,7 @@ still states the major version.
 | level 42 | The Session's `camera`, `wellplate_loader` and `objective_helper` are gone: each was a second name for the scope's member of that name. The camera is `session.scope.camera`; the labware and objective catalogues are the scope's `wellplate_loader` and `objective_helper`. |
 | level 43 | Every outcome class declares its reasons in `causes`, whatever its kind: a refusal's, a quiet outcome's and a raised notice's map each reason to its `RefusalCause`, a fault's and a reported notice's to None. A bare `cause` or `reason` in the class body is refused where the class is defined, and so is a class that carries a string another outcome class carries with another kind or cause, or without naming that class in `same_fact_as`; a subclass carries its parent's reasons as the same fact, and one that restates a parent's reason with another cause is refused. An outcome class is of one kind: a class under two kinds is refused, as is a class on the root that is no kind, and a subject below the umbrella carries no reasons. `RefusalCause` has a third value, `RESTART` (`'restart'`): no retry cures it until the server restarts (503 with no `Retry-After`). An outcome built with a reason its class does not declare raises `TypeError`, for every class. |
 | level 44 | A position to keep is read by `scope.motion.positions_to_keep(axes, then=...)`: X, Y and Z in um from one snapshot of state and number, refused `axis_moving` while an asked axis moves, `position_unknown` while one homes or has lost its reference, and `axis_absent` for an axis the scope has no motor for, never answered 0.0. A plugin or script that keeps a position (a sweep's centre, a reference in a result, the Z it returns to) reads it here, never through `get_current_position`. `scope.protocols.focus_z_um` reads Z through it, and a bookmark and the session's `get_current_plate_position` read through it too. |
+| level 45 | A capture's record comes back with its frame and nowhere else: `session.capture_still` (the scope's `imaging.capture_still` beneath it) returns a `CapturedStill`, its `record` the frame's `FrameRecord`, whose `exposure_source` / `gain_source` say whether each is the frame's own or read beside the grab and whose `auto_gain` is a locked arm's outcome. `imaging.last_capture_info` keeps only how the latest capture waited, frame or not (`hold_ms`, `drained`, `rechecks`, `deadline_s`, `n_entry`, `active_s`): its `frame_record`, `chunk_exposure_us`, `chunk_gain_db` and `auto_gain*` keys are gone. |
 
 ### Configuration queries
 
@@ -2127,7 +2128,7 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # any capture with nothing commanded. With a channel lit, a frame with
 # essentially no lit pixel is retried until timeout_s -- which heals a
 # stale pre-LED frame when a lit one is on its way -- and then RETURNED,
-# its record's .dark True (last_capture_info['frame_record']), and its
+# its record's .dark True (the record capture_still hands back), and its
 # saved file's metadata 'dark' True. It is never refused:
 # pixel content cannot distinguish an LED that failed from a genuinely
 # dark sample, so darkness is reported, not acted on. accept_dark=True
