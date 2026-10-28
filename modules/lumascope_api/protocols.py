@@ -48,7 +48,7 @@ from modules.lumascope_api.camera import camera_range_words
 from modules.axes import StageAxis
 from modules.zstack_config import ZStackReference
 from modules.lumascope_api.runtime_state import slots_holding
-from modules.api_surface import api, api_fields
+from modules.api_surface import api_fields
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -60,7 +60,6 @@ if TYPE_CHECKING:
 _api_log = logging.getLogger('LVP.api')
 
 
-@api_fields('turret_slot', 'x_um', 'y_um', 'z_um')
 @dataclasses.dataclass(frozen=True)
 class StepTargets:
     """Where a protocol step puts the scope, in the frames the motors take.
@@ -81,12 +80,12 @@ class StepTargets:
 class TurretSlotQuestion:
     """Which turret slot some steps of a protocol mean: what to ask the person.
 
-    Returned by ``ProtocolsAPI.turret_slot_questions``, one per objective
+    Returned by ``ScopeSession.turret_slot_questions``, one per objective
     whose steps cannot say which slot they mean: the objective is in two
     or more slots and the steps recorded none (a protocol from before steps
     recorded their slot), or the slot a step recorded now holds another
     objective. The answer goes back through
-    ``ProtocolsAPI.point_steps_at_turret_slot``; until then a run and going
+    ``ScopeSession.point_steps_at_turret_slot``; until then a run and going
     to one of these steps are refused.
 
     Attributes:
@@ -125,7 +124,6 @@ class ProtocolsAPI:
         """
         return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
 
-    @api(reads=True)
     def tiling_config(self) -> TilingConfig:
         """The tiling grids this installation offers: the scope's copy, read at bring-up.
 
@@ -547,7 +545,6 @@ class ProtocolsAPI:
         self._report_invalid_steps(protocol, solicited=True)
         return protocol.step_row(step_index=step_index)['Name']
 
-    @api(reads=True)
     def focus_z_um(self, *, then: str) -> float:
         """The live Z, as a focus to save into a layer or a step.
 
@@ -804,7 +801,6 @@ class ProtocolsAPI:
             x, y = stage.x_um, stage.y_um
         return x, y, (z if 'Z' in axes else None)
 
-    @api(reads=True)
     def step_targets(
         self, protocol: Protocol, step_index: int, *, stage_offset: StageOffset | None = None
     ) -> StepTargets:
@@ -1450,7 +1446,6 @@ class ProtocolsAPI:
         for slot, indices in by_slot.items():
             protocol.set_turret_slot(indices, slot)
 
-    @api(reads=True)
     def turret_slot_questions(self, protocol: Protocol) -> list[TurretSlotQuestion]:
         """What to ask about ``protocol``'s turret slots: one question per objective, or none.
 

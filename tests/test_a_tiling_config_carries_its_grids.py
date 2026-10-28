@@ -110,10 +110,10 @@ def test_the_grids_a_session_offers_are_the_ones_its_scope_read_at_bring_up(tmp_
     data = _installation(tmp_path)
     session = ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
     try:
-        offered = session.scope.protocols.tiling_config().available
+        offered = session.tiling_config().available
         _write(data, {'data': {'13x17': {'m': 13, 'n': 17}}, 'metadata': {'default': '13x17'}})
 
-        assert session.scope.protocols.tiling_config().available == offered
+        assert session.tiling_config().available == offered
     finally:
         session.shutdown()
 

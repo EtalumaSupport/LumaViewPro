@@ -175,13 +175,14 @@ if TYPE_CHECKING:
     from modules.lumascope_api.simulation import SimulatedModelAnswer
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_image_writer import RunWriteBatch
-    from modules.lumascope_api.protocols import StepTargets
+    from modules.lumascope_api.protocols import StepTargets, TurretSlotQuestion
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
     from modules.plugins import PluginHealth
     from modules.post_processing_api import PostProcessingAPI
     from modules.settings_init import SettingValue
     from modules.tech_support_report import SupportReportSaved
+    from modules.tiling_config import TilingConfig
 
 
 def simulated_stuck_write(seconds: float) -> None:
@@ -3194,6 +3195,23 @@ class ScopeSession:
         else:
             protocol.modify_autofocus(step_index=step_index, enabled=enabled)
 
+    @api(reads=True)
+    def turret_slot_questions(self, protocol: 'Protocol') -> list['TurretSlotQuestion']:
+        """What to ask about ``protocol``'s turret slots: one question per objective, or none.
+
+        A step that cannot say which slot it means is one whose objective is
+        in two or more slots and that recorded none, or whose recorded slot
+        now holds another objective. Each is refused by a run and by going
+        to it until ``point_steps_at_turret_slot`` answers its question.
+        LumaViewPro asks when a protocol is opened. Empty on a scope with no
+        turret, and for steps whose objective no slot holds, which a load
+        and a run refuse as ``turret_objectives_unassigned``.
+
+        Raises:
+            Nothing.
+        """
+        return self.scope.protocols.turret_slot_questions(protocol)
+
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def point_steps_at_turret_slot(
@@ -3201,8 +3219,8 @@ class ScopeSession:
     ) -> tuple[int, ...]:
         """Answer ``objective_id``'s turret slot question: its steps now record ``slot``.
 
-        Points exactly the steps ``scope.protocols.turret_slot_questions``
-        names for ``objective_id``; every other step keeps its slot. Returns
+        Points exactly the steps ``turret_slot_questions`` names for
+        ``objective_id``; every other step keeps its slot. Returns
         the indexes of the steps pointed, which are empty when no question names it.
 
         Raises:
@@ -3211,6 +3229,22 @@ class ScopeSession:
                 that do). Nothing is changed.
         """
         return self.scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)
+
+    @api(reads=True)
+    def tiling_config(self) -> 'TilingConfig':
+        """The tiling grids this installation offers: the scope's copy, read at bring-up.
+
+        What a caller needs to choose a grid: ``available`` lists the
+        labels ``new_protocol`` and ``apply_tiling`` accept, and
+        ``default`` is the one to preselect; ``Protocol.tiling()`` names
+        the grid a protocol's steps already carry. Read once with the
+        installation's other catalogues, so a tiling.json edited while the
+        program runs is seen at the next start.
+
+        Raises:
+            Nothing.
+        """
+        return self.scope.protocols.tiling_config()
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write

@@ -17,7 +17,7 @@ import math
 import pathlib
 
 from modules.api_surface import api_fields
-from modules.lumascope_api.protocols import StepTargets
+from modules.lumascope_api.protocols import TurretSlotQuestion
 from modules.operation import Operation
 from tests.stock_channels import LED0
 
@@ -73,6 +73,13 @@ def test_a_record_answers_plain_data_keeping_the_live_objects():
 
 
 def test_a_published_record_answers_its_fields():
-    targets = StepTargets(turret_slot=2, x_um=1000.0, y_um=None, z_um=5000.0)
+    question = TurretSlotQuestion(
+        objective_id='10x Oly', step_indexes=(0, 1), reassigned_step_indexes=(), choices=(1, 2)
+    )
 
-    assert targets.to_dict() == {'turret_slot': 2, 'x_um': 1000.0, 'y_um': None, 'z_um': 5000.0}
+    assert question.to_dict() == {
+        'objective_id': '10x Oly',
+        'step_indexes': [0, 1],
+        'reassigned_step_indexes': [],
+        'choices': [1, 2],
+    }

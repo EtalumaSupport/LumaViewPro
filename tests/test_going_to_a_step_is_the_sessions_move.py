@@ -272,11 +272,11 @@ class TestTheRefusals:
 
         assert moves == []
 
-    def test_a_slot_cleared_after_the_protocol_loaded_refuses_its_steps_targets(
+    def test_a_slot_cleared_after_the_protocol_loaded_refuses_going_to_its_step(
         self, turret_session
     ):
-        """The targets are a public read: a step whose objective lost its slot
-        is refused as the run and the navigation refuse it, over the wire too."""
+        """A step whose objective lost its slot after its protocol loaded is
+        refused at the door, in-process and over the wire alike."""
         from fastapi.testclient import TestClient
 
         from rest.app import build_app
@@ -289,15 +289,12 @@ class TestTheRefusals:
         with TestClient(build_app(turret_session)) as client:
             loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
             asked = {'protocol': loaded['handle'], 'step_index': 0}
-            assert (
-                client.get('/api/v1/scope/protocols/step_targets', params=asked).status_code == 200
-            )
 
             turret_session.clear_turret_objective(int(slot))
 
             with pytest.raises(ProtocolRunRefusedError) as refused:
-                turret_session.scope.protocols.step_targets(protocol, 0)
-            answer = client.get('/api/v1/scope/protocols/step_targets', params=asked)
+                turret_session.go_to_step(protocol, 0)
+            answer = client.post('/api/v1/go_to_step', json=asked)
         assert refused.value.reason == 'turret_objectives_unassigned'
         assert (answer.status_code, answer.json()['reason']) == (409, refused.value.reason)
 

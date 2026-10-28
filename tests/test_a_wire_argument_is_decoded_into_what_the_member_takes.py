@@ -148,7 +148,8 @@ def test_every_session_parameter_has_an_inbound_form(classes, aliases):
             if member.segment is not None:
                 queue.append(member.segment)
 
-    # Twelve live objects, the Session's sub-objects among them (the camera,
-    # scope.camera, the twelfth).
-    assert len(seen) == 12
+    # Eleven live objects, the Session's sub-objects among them (scope.camera
+    # is one; scope.protocols is not, since a protocol is read and edited
+    # through the Session).
+    assert len(seen) == 11
     assert parameters > 100

@@ -225,12 +225,12 @@ class ProtocolSettings(FloatLayout):
 
     @property
     def tiling_config(self):
-        """The installation's tiling grids, asked of the scope at each use.
+        """The installation's tiling grids, asked of the session at each use.
 
         The panel is built before the session exists, so it cannot hold its
         own copy from construction; it never reads tiling.json itself.
         """
-        return _app_ctx.ctx.session.scope.protocols.tiling_config()
+        return _app_ctx.ctx.session.tiling_config()
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
@@ -768,8 +768,7 @@ class ProtocolSettings(FloatLayout):
         """
         from ui.notification_popup import show_choice_popup
 
-        protocols = _app_ctx.ctx.session.scope.protocols
-        questions = list(protocols.turret_slot_questions(protocol))
+        questions = list(_app_ctx.ctx.session.turret_slot_questions(protocol))
 
         def ask_next():
             if not questions:

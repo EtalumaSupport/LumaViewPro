@@ -53,7 +53,6 @@ from modules.exceptions import (
     PostProcessingRefusedError,
 )
 from modules.cell_count_method import CellCountMethod
-from modules.protocol import StepNotFoundError
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.problems import answered_by_member
@@ -95,8 +94,7 @@ ENROLLED = (
     'MotionAPI.wait_until_finished_moving',
     'CameraAPI.frame_at_binning',
     'CameraAPI.apply',
-    'ProtocolsAPI.step_targets',
-    'ProtocolsAPI.tiling_config',
+    'ScopeSession.tiling_config',
 )
 
 
@@ -556,26 +554,11 @@ def _valid_rows() -> list[Valid]:
             lambda s, _: None if s.session.scope.motion.has_homed() else 'not homed',
         ),
         Valid(
-            'step_targets of the first step',
-            'ProtocolsAPI.step_targets',
-            lambda s: s.session.scope.protocols.step_targets(s.protocol, 0),
-            lambda s, targets: (
-                None
-                if targets.z_um == s.protocol.step_row(step_index=0)['Z']
-                and targets.turret_slot is None
-                else f'{targets}'
-            ),
-            (
-                '/api/v1/scope/protocols/step_targets',
-                lambda s: {'protocol': s.handle, 'step_index': 0},
-            ),
-        ),
-        Valid(
             'tiling_config',
-            'ProtocolsAPI.tiling_config',
-            lambda s: s.session.scope.protocols.tiling_config(),
+            'ScopeSession.tiling_config',
+            lambda s: s.session.tiling_config(),
             lambda s, grids: None if grids.default in grids.available else f'{grids}',
-            ('/api/v1/scope/protocols/tiling_config', lambda s: {}),
+            ('/api/v1/tiling_config', lambda s: {}),
         ),
     ]
 
@@ -587,17 +570,6 @@ def pp(s: Scope):
 def _bad_rows() -> list[Bad]:
     method = CellCountMethod()
     rows = [
-        Bad(
-            'step_targets of a step the protocol lacks',
-            'ProtocolsAPI.step_targets',
-            lambda s: s.session.scope.protocols.step_targets(s.protocol, 99),
-            StepNotFoundError,
-            'no_such_step',
-            (
-                '/api/v1/scope/protocols/step_targets',
-                lambda s: {'protocol': s.handle, 'step_index': 99},
-            ),
-        ),
         Bad(
             'frame_at_binning 0',
             'CameraAPI.frame_at_binning',

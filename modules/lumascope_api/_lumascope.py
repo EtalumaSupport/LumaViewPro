@@ -292,7 +292,6 @@ def _board_status(part: Part, board, fallback) -> 'PartStatus':
     'illumination',
     'imaging',
     'motion',
-    'protocols',
     'runtime_state',
 )
 class Lumascope:
@@ -321,12 +320,14 @@ class Lumascope:
     illumination: 'IlluminationAPI'
     imaging: 'ImagingAPI'
     motion: 'MotionAPI'
-    protocols: 'ProtocolsAPI'
     runtime_state: 'RuntimeState'
     # The catalogues' readers: the scope's own, not published. A caller reads
     # the records, ``labware`` and ``objectives``.
     objective_helper: 'ObjectiveLoader'
     wellplate_loader: 'WellPlateLoader'
+    # The protocol engine's seams, not published: a caller reads and edits
+    # a protocol through the Session.
+    protocols: 'ProtocolsAPI'
 
     def _read_camera_timing(self) -> dict | None:
         """The camera's measured timing record, read once at bring-up and checked.

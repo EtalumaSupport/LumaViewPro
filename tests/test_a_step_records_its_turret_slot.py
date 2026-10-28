@@ -143,7 +143,7 @@ class TestEachStepKeepsItsOwnSlot:
         loaded = session.scope.protocols.load_protocol(path)
 
         assert _slots(loaded) == [1, 2]
-        assert session.scope.protocols.turret_slot_questions(loaded) == []
+        assert session.turret_slot_questions(loaded) == []
 
 
 class TestOldProtocols:
@@ -158,7 +158,7 @@ class TestOldProtocols:
         loaded = session.scope.protocols.load_protocol(_as_an_old_file(session, protocol, tmp_path))
 
         assert _slots(loaded) == [3]
-        assert session.scope.protocols.turret_slot_questions(loaded) == []
+        assert session.turret_slot_questions(loaded) == []
 
     def test_steps_whose_objective_is_in_two_slots_are_asked_about_and_refused_until_answered(
         self, session, tmp_path
@@ -168,7 +168,7 @@ class TestOldProtocols:
         loaded = session.scope.protocols.load_protocol(old)
 
         assert _slots(loaded) == [-1, -1]
-        (question,) = session.scope.protocols.turret_slot_questions(loaded)
+        (question,) = session.turret_slot_questions(loaded)
         assert (
             question.objective_id,
             question.step_indexes,
@@ -190,7 +190,31 @@ class TestOldProtocols:
         assert session.point_steps_at_turret_slot(loaded, DOUBLED, 2) == (0, 1)
 
         assert _targets(session, loaded) == [2, 2]
-        assert session.scope.protocols.turret_slot_questions(loaded) == []
+        assert session.turret_slot_questions(loaded) == []
+
+    def test_a_rest_client_is_asked_the_same_question(self, session, tmp_path):
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        _as_an_old_file(session, _a_step_at_each_slot(session), tmp_path)
+        with TestClient(build_app(session)) as client:
+            loaded = client.post('/api/v1/load_protocol', json={'file_path': 'old.tsv'}).json()
+            answer = client.get(
+                '/api/v1/turret_slot_questions', params={'protocol': loaded['handle']}
+            )
+
+        assert (answer.status_code, answer.json()) == (
+            200,
+            [
+                {
+                    'objective_id': DOUBLED,
+                    'step_indexes': [0, 1],
+                    'reassigned_step_indexes': [],
+                    'choices': [1, 2],
+                }
+            ],
+        )
 
     def test_an_answer_naming_a_slot_without_the_objective_is_refused_and_changes_nothing(
         self, session, tmp_path
@@ -220,7 +244,7 @@ class TestAReassignedSlot:
 
         loaded = session.scope.protocols.load_protocol(path)
 
-        (question,) = session.scope.protocols.turret_slot_questions(loaded)
+        (question,) = session.turret_slot_questions(loaded)
         assert (question.step_indexes, question.reassigned_step_indexes, question.choices) == (
             (1,),
             (1,),

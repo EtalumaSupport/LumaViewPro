@@ -107,13 +107,6 @@ RENAMED = [
         'scope/camera/black_level',
         {'level': 4.0},
     ),
-    (
-        'GET',
-        'scope/protocols/focus_z',
-        {'then': 'save the focus'},
-        'scope/protocols/focus_z_um',
-        {'then': 'save the focus'},
-    ),
     ('POST', 'show_channel', {'layer': LED0}, 'show_channel', {'channel': LED0}),
     (
         'POST',
