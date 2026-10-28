@@ -1459,6 +1459,20 @@ def build_composite_output_metadata(
     return metadata
 
 
+def _stated(**fields) -> dict:
+    """The fields that hold a value: a fact the catalogue or the instrument
+    did not give is absent, never a stand-in. ``''`` is a catalogue's empty
+    entry and states nothing either; a stand-in written into a file reads
+    downstream as the instrument's own report."""
+    return {key: value for key, value in fields.items() if value is not None and value != ''}
+
+
+def _stated_blocks(**blocks: dict) -> dict:
+    """The sub-blocks that state anything: an empty one would claim a part
+    the file says nothing about."""
+    return {key: block for key, block in blocks.items() if block}
+
+
 def build_hyperstack_output_metadata(
     reference_input_path: pathlib.Path,
     *,
@@ -1581,34 +1595,32 @@ def build_hyperstack_output_metadata(
     instrument = inflat.get('instrument') or {}
     plate = inflat.get('plate') or {}
     if instrument:
-        metadata['Instrument'] = {
-            'Microscope': {
-                'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
-                'Model': instrument.get('model') or '',
-                'SerialNumber': instrument.get('serial_number') or '',
-            },
-            'Objective': {
-                'Model': objective_dict.get('model') or '',
-                'Manufacturer': objective_dict.get('manufacturer') or '',
-                'Magnification': objective_dict.get('magnification'),
-                'LensNA': objective_dict.get('aperture'),
-                'WorkingDistance': objective_dict.get('working_distance'),
-                'Immersion': objective_dict.get('immersion') or 'Air',
-            },
-            'Detector': {
-                'Model': instrument.get('camera_model') or '',
-                'Type': 'CMOS',
-            },
-        }
+        instrument_blocks = _stated_blocks(
+            Microscope=_stated(
+                Manufacturer=instrument.get('manufacturer'),
+                Model=instrument.get('model'),
+                SerialNumber=instrument.get('serial_number'),
+            ),
+            Objective=_stated(
+                Model=objective_dict.get('model'),
+                Manufacturer=objective_dict.get('manufacturer'),
+                Magnification=objective_dict.get('magnification'),
+                LensNA=objective_dict.get('aperture'),
+                WorkingDistance=objective_dict.get('working_distance'),
+                Immersion=objective_dict.get('immersion'),
+            ),
+            Detector=_stated(Model=instrument.get('camera_model')),
+        )
+        if instrument_blocks:
+            metadata['Instrument'] = instrument_blocks
     if plate.get('rows') and plate.get('columns'):
-        metadata['Plate'] = {
-            'Name': plate.get('name') or '',
-            'Rows': plate.get('rows'),
-            'Columns': plate.get('columns'),
-            'WellLabel': inflat.get('well_label', ''),
-        }
-        if plate.get('standard'):
-            metadata['Plate']['Standard'] = plate['standard']
+        metadata['Plate'] = _stated(
+            Name=plate.get('name'),
+            Rows=plate.get('rows'),
+            Columns=plate.get('columns'),
+            WellLabel=inflat.get('well_label'),
+            Standard=plate.get('standard'),
+        )
 
     return metadata
 
@@ -2637,34 +2649,32 @@ def generate_tiff_data(
     instrument = metadata.get('instrument') or {}
     plate = metadata.get('plate') or {}
     if instrument:
-        tiff_metadata['Instrument'] = {
-            'Microscope': {
-                'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
-                'Model': instrument.get('model') or '',
-                'SerialNumber': instrument.get('serial_number') or '',
-            },
-            'Objective': {
-                'Model': objective_dict.get('model') or '',
-                'Manufacturer': objective_dict.get('manufacturer') or '',
-                'Magnification': objective_dict.get('magnification'),
-                'LensNA': objective_dict.get('aperture'),
-                'WorkingDistance': objective_dict.get('working_distance'),
-                'Immersion': objective_dict.get('immersion') or 'Air',
-            },
-            'Detector': {
-                'Model': instrument.get('camera_model') or '',
-                'Type': 'CMOS',
-            },
-        }
+        instrument_blocks = _stated_blocks(
+            Microscope=_stated(
+                Manufacturer=instrument.get('manufacturer'),
+                Model=instrument.get('model'),
+                SerialNumber=instrument.get('serial_number'),
+            ),
+            Objective=_stated(
+                Model=objective_dict.get('model'),
+                Manufacturer=objective_dict.get('manufacturer'),
+                Magnification=objective_dict.get('magnification'),
+                LensNA=objective_dict.get('aperture'),
+                WorkingDistance=objective_dict.get('working_distance'),
+                Immersion=objective_dict.get('immersion'),
+            ),
+            Detector=_stated(Model=instrument.get('camera_model')),
+        )
+        if instrument_blocks:
+            tiff_metadata['Instrument'] = instrument_blocks
     if plate.get('rows') and plate.get('columns'):
-        tiff_metadata['Plate'] = {
-            'Name': plate.get('name') or '',
-            'Rows': plate.get('rows'),
-            'Columns': plate.get('columns'),
-            'WellLabel': metadata.get('well_label', ''),
-        }
-        if plate.get('standard'):
-            tiff_metadata['Plate']['Standard'] = plate['standard']
+        tiff_metadata['Plate'] = _stated(
+            Name=plate.get('name'),
+            Rows=plate.get('rows'),
+            Columns=plate.get('columns'),
+            WellLabel=metadata.get('well_label'),
+            Standard=plate.get('standard'),
+        )
 
     # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
@@ -2698,18 +2708,17 @@ def generate_tiff_data(
         else:
             raise ValueError(f'Unexpected channel ({identity_channel}) for tiff modality')
         tiff_metadata['Channel']['Modality'] = [modality]
-        tiff_metadata['Document'] = {
-            'Manufacturer': metadata.get('camera_make', ''),
-            'Device': metadata.get('microscope', ''),
-            'Model': metadata.get('microscope_model', '') or '',
-            'SerialNumber': instrument.get('serial_number') or '',
-            'CameraModel': instrument.get('camera_model') or '',
-            'PlateName': plate.get('name') or '',
-            'PlateRows': plate.get('rows') or '',
-            'PlateColumns': plate.get('columns') or '',
-            'WellLabel': metadata.get('well_label', ''),
-            'WellSite': metadata.get('well_site', ''),
-        }
+        tiff_metadata['Document'] = _stated(
+            Manufacturer=metadata.get('camera_make'),
+            Device=metadata.get('microscope'),
+            Model=metadata.get('microscope_model'),
+            SerialNumber=instrument.get('serial_number'),
+            CameraModel=instrument.get('camera_model'),
+            PlateName=plate.get('name'),
+            PlateRows=plate.get('rows'),
+            PlateColumns=plate.get('columns'),
+            WellLabel=metadata.get('well_label'),
+        )
         # Embed color LUT in ImageJ metadata (not TIFF tag 320).
         # Windows Preview ignores ImageJ metadata -> sees MINISBLACK -> works.
         # ImageJ reads its own metadata -> auto-applies color LUT -> shows color.

@@ -115,10 +115,92 @@ def test_ome_path_has_instrument_objective_block():
 
 
 def test_ome_path_has_instrument_detector_block():
+    """The detector states the model the camera reported and no type: no
+    camera reports one, so a type would be a stand-in."""
     result = _gen(image_type='ome', dtype=np.uint8)
     det = result['metadata']['Instrument']['Detector']
     assert det['Model'] == 'Basler a2A3536-31umBAS'
-    assert det['Type'] == 'CMOS'
+    assert 'Type' not in det
+
+
+def _unreported(md: dict) -> dict:
+    """``md`` from a scope that reported no serial, an objective whose catalogue
+    entry names no model, manufacturer or immersion, and a frame in no well."""
+    md['instrument'] = {**md['instrument'], 'serial_number': None}
+    md['objective'] = {
+        key: value
+        for key, value in md['objective'].items()
+        if key not in ('model', 'manufacturer', 'immersion')
+    }
+    del md['well_label']
+    return md
+
+
+def test_no_writer_states_an_instrument_fact_the_scope_did_not_report(tmp_path):
+    """A fact the catalogue or the instrument did not give is absent from the
+    file: no ``Air`` immersion, ``CMOS`` detector, empty model, manufacturer,
+    serial or well label, in a still's OME or ImageJ container or a
+    hyperstack built from it."""
+    data = np.zeros((128, 128), dtype=np.uint16)
+    written = {}
+    for image_type in ('ome', 'imagej'):
+        written[image_type] = image_utils.generate_tiff_data(
+            data=data,
+            metadata=_unreported(_build_metadata()),
+            image_type=image_type,
+            color=release_color('BF'),
+            white_bits=None,
+        )['metadata']
+    reference = tmp_path / 'still.tiff'
+    image_utils.write_tiff(
+        data=data,
+        file_loc=reference,
+        metadata=_unreported(_build_metadata()),
+        ome=False,
+        color=release_color('BF'),
+        significant_bits=12,
+        save_encoding='right_aligned',
+        white_bits=None,
+    )
+    written['hyperstack'] = image_utils.build_hyperstack_output_metadata(
+        reference,
+        channel_names=['BF'],
+        channel_colors=[release_color('BF')],
+        plane_positions={
+            'PositionX': [12.5],
+            'PositionY': [30.0],
+            'PositionZ': [1500.0],
+            'DeltaT': [0.0],
+        },
+        significant_bits=12,
+        pixel_size_um=None,
+    )
+
+    stated = {}
+    for container, tm in written.items():
+        instrument = tm['Instrument']
+        stated[container] = {
+            'microscope': sorted(instrument['Microscope']),
+            'objective': sorted(instrument['Objective']),
+            'detector': sorted(instrument['Detector']),
+            'plate': sorted(tm['Plate']),
+        }
+    expected = {
+        'microscope': ['Manufacturer', 'Model'],
+        'objective': ['LensNA', 'Magnification', 'WorkingDistance'],
+        'detector': ['Model'],
+        'plate': ['Columns', 'Name', 'Rows', 'Standard'],
+    }
+    assert stated == dict.fromkeys(written, expected)
+    assert sorted(written['imagej']['Document']) == [
+        'CameraModel',
+        'Device',
+        'Manufacturer',
+        'Model',
+        'PlateColumns',
+        'PlateName',
+        'PlateRows',
+    ]
 
 
 def test_ome_path_has_plate_block():
