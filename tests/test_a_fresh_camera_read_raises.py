@@ -3,8 +3,9 @@
 
 ``scope.camera.read_*`` reads the setting from the camera now. A read the
 camera did not answer raises ``CameraReadFailedError`` naming the setting;
-it never answers the last value as if it were new. None means only that
-there is no camera, or that this camera has no such setting. A saved frame
+it never answers the last value as if it were new. With no camera it is
+refused naming the camera, as a write is; None means only that this camera
+has no such setting. A saved frame
 says what the instrument did, so a capture whose gain or exposure cannot be
 read from its frame or from the camera fails (``CaptureFailedError``,
 ``'record_read_failed'``, chained from the read), and saves nothing.
@@ -21,7 +22,7 @@ import os
 import pytest
 
 from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CaptureFailedError
+from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
 from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -74,9 +75,15 @@ def test_every_fresh_read_raises_naming_its_setting_when_the_camera_does_not_ans
     assert unraised == [], '\n'.join(unraised)
 
 
-def test_with_no_camera_every_fresh_read_answers_none(diagnostic_scope):
-    answered = {read: getattr(diagnostic_scope.camera, read)() for read, _node in _READS}
-    assert answered == dict.fromkeys(answered)
+def test_with_no_camera_every_fresh_read_is_refused_naming_it(diagnostic_scope):
+    answered = {}
+    for read, _node in _READS:
+        try:
+            answered[read] = getattr(diagnostic_scope.camera, read)()
+        except HardwareCommandRefusedError as refusal:
+            if (refusal.reason, refusal.missing) != ('not_connected', MissingPart.CAMERA):
+                answered[read] = refusal
+    assert answered == {}
 
 
 def test_a_chunkless_still_whose_exposure_read_fails_saves_nothing(session, monkeypatch, tmp_path):

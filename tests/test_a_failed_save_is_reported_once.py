@@ -98,6 +98,9 @@ SDK_SETTERS = [
 class _FailingCamera:
     active = True
 
+    def is_connected(self):
+        return True
+
     def __init__(self, method):
         def fail(**kwargs):
             raise CameraWriteFailedError(f'{method} failed: RuntimeException: node write timed out')
@@ -113,12 +116,14 @@ def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(
     from tests.scope_fakes import (
         give_camera_and_imaging,
         give_capabilities_of_a_camera_without_auto_modes,
+        give_stub_lanes,
     )
 
     camera = _FailingCamera(method)
     scope = Lumascope.__new__(Lumascope)
     scope.runtime_state = RuntimeState(scope)
     scope._camera_driver = camera
+    give_stub_lanes(scope)
     give_capabilities_of_a_camera_without_auto_modes(scope)
     give_camera_and_imaging(scope)
     imaging = scope.imaging

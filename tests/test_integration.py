@@ -841,12 +841,14 @@ class TestRestAPIPrep:
         assert 'Mono8' in formats
 
     def test_pixel_format_inactive_camera(self):
-        """With no camera the format reads None and a format write is refused."""
+        """With no camera the format read and a format write are refused."""
         from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
-        assert session.scope.camera.read_pixel_format() is None
+        with pytest.raises(HardwareCommandRefusedError) as read:
+            session.scope.camera.read_pixel_format()
+        assert read.value.missing == MissingPart.CAMERA
         with pytest.raises(HardwareCommandRefusedError) as exc:
             session.scope.camera.set_image_mode('8bit')
         assert exc.value.missing == MissingPart.CAMERA

@@ -73,7 +73,6 @@ _DECIDED_IN_BODY = object()
 # the scope disconnects, so no read describes a camera that has left. Every
 # value is None, unknown, until the camera reports it or takes a write.
 _NO_CAMERA_CACHE = {
-    'active': False,
     'gain_db': None,
     'exposure_ms': None,
     'frame_size': None,
@@ -685,9 +684,7 @@ class CameraAPI:
         camera's limits are not here: they are ``capabilities.camera_limits``,
         read once at connect.
         """
-        if not self._driver or not self._driver.active:
-            with self._camera_cache_lock:
-                self._camera_cache['active'] = False
+        if not self._scope.camera_connected:
             return
         for key in _LIVE_SETTING_READS:
             self._refresh_held(key)
@@ -695,8 +692,6 @@ class CameraAPI:
             self.read_black_level()
         except CameraReadFailedError as failed:
             logger.warning(f'[SCOPE API ] {failed}; the black level held stays unknown')
-        with self._camera_cache_lock:
-            self._camera_cache['active'] = True
         logger.info('[SCOPE API ] Camera cache populated')
 
     def _refresh_cache_from_hardware_after_auto(self) -> None:
@@ -743,7 +738,7 @@ class CameraAPI:
     def _invalidate_camera_cache(self) -> None:
         """Return the camera cache to the no-camera state, on disconnect.
 
-        Every key, not only ``'active'``: a cached read that went on
+        Every key: a cached read that went on
         describing the departed camera once decided a write -- a frame edit
         at the old size compared equal to the stale cache, skipped the
         camera and was stored with no camera behind it. Committed as an
@@ -2600,17 +2595,19 @@ class CameraAPI:
         offset it makes in DN is measured, not derived from it.
 
         Returns:
-            float | None: The black level; None when no camera is active or
-                the camera reports none.
+            float | None: The black level; None when the camera reports none.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        if not self._driver or not self._driver.active:
-            return None
         return self._hold_read(
             'black_level',
-            lambda: self._read_unheld('black level', lambda driver: driver.get_black_level()),
+            lambda: self._read_unheld(
+                'read_black_level', 'black level', lambda driver: driver.get_black_level()
+            ),
         )
 
     @api(reads=True)
@@ -2625,19 +2622,20 @@ class CameraAPI:
         Read live, never held: the range follows the pixel format.
 
         Returns:
-            tuple[float, float] | None: ``(minimum, maximum)``; None when no
-                camera is active or the camera has no black level setting.
-                A camera holding its black level automatically still answers
-                its range; ``set_black_level`` is then refused by the camera.
+            tuple[float, float] | None: ``(minimum, maximum)``; None when the
+                camera has no black level setting. A camera holding its black
+                level automatically still answers its range;
+                ``set_black_level`` is then refused by the camera.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: ``'camera_read_failed'``, the camera has a
                 black level setting and the read failed.
         """
-        driver = self._driver
-        if not driver or not driver.active:
-            return None
-        return driver.get_black_level_range()
+        self.refuse_camera_not_connected('get_black_level_range')
+        return self._driver.get_black_level_range()
 
     @api(reads=True)
     def read_frame_rate_fps(self) -> float | None:
@@ -2650,13 +2648,18 @@ class CameraAPI:
         reaches the host; what reaches the host is ``get_delivered_rate``.
 
         Returns:
-            float | None: Frames per second; None when no camera is active or
-                the camera reports none.
+            float | None: Frames per second; None when the camera reports
+                none.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_unheld('frame rate', lambda driver: driver.get_resulting_frame_rate())
+        return self._read_unheld(
+            'read_frame_rate_fps', 'frame rate', lambda driver: driver.get_resulting_frame_rate()
+        )
 
     @api(sets='black_level', admitted_by=(Admission.LANE_CALL,))
     def set_black_level(self, level: float) -> float | None:
@@ -2732,18 +2735,21 @@ class CameraAPI:
         """Read ``key`` from the camera now, and hold what it answered.
 
         The one fresh read of a held camera setting (``_LIVE_SETTING_READS``),
-        held through ``_hold_read``.
+        held through ``_hold_read``, refused as ``read_<key>``.
 
         Returns:
-            The coerced value; None when no camera is active.
+            The coerced value; None when a write that left it unknown landed
+            while the read was in flight.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The read raised, or answered the driver's
                 failed-read value; the value held is left as it was.
         """
+        self.refuse_camera_not_connected(f'read_{key}')
         driver = self._driver
-        if not driver or not driver.active:
-            return None
         if key in ('auto_gain', 'auto_exposure') and not self._camera_has_auto_mode(key):
             # Such a camera runs no such loop, and its driver is never asked.
             return self._hold_read(key, lambda: CameraAutoMode.OFF)
@@ -2796,19 +2802,22 @@ class CameraAPI:
         except CameraReadFailedError as failed:
             logger.warning(f'[SCOPE API ] {failed}; the value held is left as it was')
 
-    def _read_unheld(self, noun: str, reader: Callable[[Camera], object]) -> object | None:
+    def _read_unheld(
+        self, member: str, noun: str, reader: Callable[[Camera], object]
+    ) -> object | None:
         """Read a setting the camera holds no copy of here, from the camera now.
 
         Returns:
-            The driver's answer; None when no camera is active or the camera
-            reports none.
+            The driver's answer; None when the camera reports none.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected (``member`` refused);
+                ``'scope_disconnected'`` after ``disconnect()``.
             CameraReadFailedError: The read raised.
         """
+        self.refuse_camera_not_connected(member)
         driver = self._driver
-        if not driver or not driver.active:
-            return None
         try:
             return reader(driver)
         except Exception as ex:
@@ -2831,9 +2840,12 @@ class CameraAPI:
         """Read the camera's gain from the camera, in dB.
 
         Returns:
-            float | None: The gain; None when no camera is active.
+            float | None: The gain; None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('gain_db')
@@ -2843,9 +2855,12 @@ class CameraAPI:
         """Read the camera's exposure time from the camera, in milliseconds.
 
         Returns:
-            float | None: The exposure; None when no camera is active.
+            float | None: The exposure; None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('exposure_ms')
@@ -2857,9 +2872,12 @@ class CameraAPI:
         A camera without hardware auto-gain answers ``OFF`` unasked.
 
         Returns:
-            CameraAutoMode | None: The mode; None when no camera is active.
+            CameraAutoMode | None: The mode; None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('auto_gain')
@@ -2871,9 +2889,12 @@ class CameraAPI:
         A camera without hardware auto-exposure answers ``OFF`` unasked.
 
         Returns:
-            CameraAutoMode | None: The mode; None when no camera is active.
+            CameraAutoMode | None: The mode; None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('auto_exposure')
@@ -2888,22 +2909,30 @@ class CameraAPI:
         floor; every other driver answers the floor it read at connect.
 
         Returns:
-            float | None: The floor; None when no camera is active or the
-                camera declares none.
+            float | None: The floor; None when the camera declares
+                none.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_unheld('minimum exposure', lambda driver: driver.get_min_exposure())
+        return self._read_unheld(
+            'read_exposure_min_ms', 'minimum exposure', lambda driver: driver.get_min_exposure()
+        )
 
     @api(reads=True)
     def read_binning(self) -> int | None:
         """Read the camera's binning factor from the camera.
 
         Returns:
-            int | None: The factor, 1 or more; None when no camera is active.
+            int | None: The factor, 1 or more; None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('binning')
@@ -2914,9 +2943,12 @@ class CameraAPI:
 
         Returns:
             FrameSize | None: The delivered size, in pixels after binning;
-                None when no camera is active.
+                None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         size = self._read_fresh('frame_size')
@@ -2929,9 +2961,12 @@ class CameraAPI:
         The format follows ``set_image_mode``, which chooses it.
 
         Returns:
-            str | None: The format; None when no camera is active.
+            str | None: The format; None when unknown.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('pixel_format')
@@ -2958,22 +2993,32 @@ class CameraAPI:
     # Each answers what the camera last reported (a fresh read, the populate
     # at connect) or took (a write it accepted), with no camera read, and
     # None whenever that is unknown: before the camera's first report, with
-    # no camera, after an auto cycle whose read-back failed.
+    # no camera connected, after an auto cycle whose read-back failed.
 
     def _held(self, key: str) -> Any:
-        """The camera cache's value for ``key``."""
+        """The camera cache's value for ``key``; None while no camera is connected.
+
+        Asks the camera's one presence record (``Lumascope.camera_connected``)
+        when read, so a camera removed mid-session reads as gone from the
+        moment its driver marks it, with nothing written into the cache.
+        """
+        if not self._scope.camera_connected:
+            return None
         with self._camera_cache_lock:
             return self._camera_cache[key]
 
     @api
     @property
     def active(self) -> bool:
-        """Whether the camera is connected and active, as last found; no camera read.
+        """Whether the camera is connected and active; no camera read.
+
+        ``Lumascope.camera_connected``, so a removed camera reads False at
+        once, as one that never came up does.
 
         Raises:
             Nothing.
         """
-        return bool(self._held('active'))
+        return self._scope.camera_connected
 
     @api
     @property
@@ -3321,13 +3366,16 @@ class CameraAPI:
         """One fresh read of a restorable camera setting, from a camera that must answer.
 
         Raises:
-            CameraReadFailedError: The read failed, or no camera is active.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
+            CameraReadFailedError: The read failed, or a write left the
+                setting unknown while it was read.
         """
         value = self._read_fresh(key)
         if value is None:
             noun = _LIVE_SETTING_READS[key][0]
             raise CameraReadFailedError(
-                f"The camera's {noun} could not be read: no camera is active"
+                f"The camera's {noun} could not be read: a write left it unknown"
             )
         return value
 

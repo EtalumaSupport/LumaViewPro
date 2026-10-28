@@ -34,7 +34,7 @@ GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0)
 def _imaging(chunk_reads=None):
     """An imaging API and its camera API, with just what building a frame's record touches.
 
-    The camera's fresh reads answer ``LIVE_EXPOSURE_MS`` and ``LIVE_GAIN_DB``.
+    The camera's fresh reads answer ``LIVE_EXPOSURE_MS`` and ``LIVE_GAIN_DB``, and no black level.
     chunk_reads: optional list that records each read of the camera's chunks.
     """
 
@@ -43,15 +43,18 @@ def _imaging(chunk_reads=None):
             chunk_reads.append(1)
         return None
 
+    # A frame missing its chunks, read back from the camera, is the
+    # simulator's gap: the simulated camera always stamps them.
+    # a stand-in by design: a chunkless frame the simulator cannot make.
     scope = SimpleNamespace(
         capabilities=SimpleNamespace(
             camera_model='simcam',
             camera_timestamp_tick_hz=1_000_000_000,
             camera_has_clock_latch=False,
         ),
+        camera_connected=True,
         _camera_driver=SimpleNamespace(
             active=True,
-            get_black_level=lambda: None,
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
         ),
     )
@@ -64,6 +67,7 @@ def _imaging(chunk_reads=None):
     camera._held_layer = None
     camera.read_exposure_ms = lambda: LIVE_EXPOSURE_MS
     camera.read_gain_db = lambda: LIVE_GAIN_DB
+    camera.read_black_level = lambda: None
     imaging = object.__new__(ImagingAPI)
     imaging._scope = scope
     imaging._camera = camera

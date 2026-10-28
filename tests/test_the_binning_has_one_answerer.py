@@ -52,12 +52,11 @@ def test_a_refused_binning_leaves_the_answer_as_it_was(session):
     assert session.scope.camera.binning == before
 
 
-def test_with_no_camera_nothing_is_binned_and_nothing_is_stored(session, monkeypatch):
-    before = session.scope.camera.binning
+def test_with_no_camera_nothing_is_binned_and_the_binning_reads_unknown(session, monkeypatch):
     monkeypatch.setattr(type(session.scope), 'camera_connected', property(lambda self: False))
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
         session.scope.camera.set_binning(1)
     assert exc.value.missing == MissingPart.CAMERA
 
-    assert session.scope.camera.binning == before
+    assert session.scope.camera.binning is None

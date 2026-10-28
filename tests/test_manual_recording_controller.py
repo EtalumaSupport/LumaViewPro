@@ -88,6 +88,12 @@ class _FakeCamera:
     def frame_size(self):
         return self._frame_size
 
+    def refuse_camera_not_connected(self, member):
+        # a stand-in by design: this camera is always connected; a start with
+        # none is refused on the simulated scope
+        # (test_a_camera_command_with_no_camera_is_refused.py).
+        return None
+
 
 class _FakeImaging:
     def __init__(self):
@@ -285,13 +291,6 @@ def finish(controller, timeout=15.0):
 
 
 class TestStartRefusals:
-    def test_inactive_camera_refused(self, tmp_path):
-        controller, scope, _ = make_controller(tmp_path)
-        scope.camera.active = False
-        with pytest.raises(RecordingRefusedError) as e:
-            controller.start()
-        assert e.value.reason == 'camera_inactive'
-
     def test_unknown_exposure_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
         scope.camera.exposure_ms = 0.0
@@ -310,9 +309,10 @@ class TestStartRefusals:
 
     def test_refusal_commits_nothing(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.camera.active = False
-        with pytest.raises(RecordingRefusedError):
+        scope.camera.exposure_ms = 0.0
+        with pytest.raises(RecordingRefusedError) as e:
             controller.start()
+        assert e.value.reason == 'camera_exposure_unknown'
         assert scope.imaging.listener is None
         assert not controller.is_recording and not controller.is_draining
 

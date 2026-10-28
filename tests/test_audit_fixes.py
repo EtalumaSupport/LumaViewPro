@@ -3783,6 +3783,7 @@ class TestDeviceLinkThroughputLimitSetter:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
@@ -3817,6 +3818,9 @@ class TestDeviceLinkThroughputLimitSetter:
         class _NoSetter:
             active = True
 
+            def is_connected(self):
+                return True
+
         scope = self._make_scope_with_fake_camera(_NoSetter())
         assert scope.imaging._set_device_link_throughput_limit('Off') is False
 
@@ -3825,6 +3829,9 @@ class TestDeviceLinkThroughputLimitSetter:
 
         class _Fake:
             active = True
+
+            def is_connected(self):
+                return True
 
             def set_device_link_throughput_limit(self, mode, value_bps=None):
                 called_with['mode'] = mode
@@ -3840,6 +3847,9 @@ class TestDeviceLinkThroughputLimitSetter:
 
         class _Fake:
             active = True
+
+            def is_connected(self):
+                return True
 
             def set_device_link_throughput_limit(self, mode, value_bps=None):
                 called_with['mode'] = mode
@@ -5918,6 +5928,7 @@ class TestAcquisitionStopModeSetter:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
@@ -5952,6 +5963,9 @@ class TestAcquisitionStopModeSetter:
         class _NoSetter:
             active = True
 
+            def is_connected(self):
+                return True
+
         scope = self._make_scope_with_fake_camera(_NoSetter())
         assert scope.imaging._set_acquisition_stop_mode('Complete') is False
 
@@ -5960,6 +5974,9 @@ class TestAcquisitionStopModeSetter:
 
         class _Fake:
             active = True
+
+            def is_connected(self):
+                return True
 
             def set_acquisition_stop_mode(self, mode):
                 called_with['mode'] = mode
@@ -6055,6 +6072,7 @@ class TestGigeSetters:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
@@ -6109,6 +6127,9 @@ class TestGigeSetters:
         class _Fake:
             active = True
 
+            def is_connected(self):
+                return True
+
             def set_bandwidth_reserve_mode(self, mode):
                 called_with['mode'] = mode
                 return True
@@ -6123,6 +6144,9 @@ class TestGigeSetters:
         class _Fake:
             active = True
 
+            def is_connected(self):
+                return True
+
             def set_gev_packet_size(self, size_bytes):
                 called_with['size_bytes'] = size_bytes
                 return True
@@ -6136,6 +6160,9 @@ class TestGigeSetters:
 
         class _Fake:
             active = True
+
+            def is_connected(self):
+                return True
 
             def set_gev_inter_packet_delay(self, delay_ticks):
                 called_with['delay_ticks'] = delay_ticks
@@ -6288,6 +6315,7 @@ class TestStreamGrabberSetters:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
@@ -6329,6 +6357,9 @@ class TestStreamGrabberSetters:
         class _NoSetter:
             active = True
 
+            def is_connected(self):
+                return True
+
         scope = self._make_scope_with_fake_camera(_NoSetter())
         assert scope.imaging._set_max_transfer_size(262144) is False
         assert scope.imaging._set_num_max_queued_urbs(64) is False
@@ -6338,6 +6369,9 @@ class TestStreamGrabberSetters:
 
         class _Fake:
             active = True
+
+            def is_connected(self):
+                return True
 
             def set_max_transfer_size(self, value_bytes):
                 called_with['value_bytes'] = value_bytes
@@ -6352,6 +6386,9 @@ class TestStreamGrabberSetters:
 
         class _Fake:
             active = True
+
+            def is_connected(self):
+                return True
 
             def set_num_max_queued_urbs(self, value):
                 called_with['value'] = value

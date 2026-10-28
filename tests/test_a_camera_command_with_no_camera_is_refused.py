@@ -12,8 +12,10 @@ size was compared against it, skipped, and stored with no camera behind it.
 
 Every camera command now asks for the camera on the camera lane, after the
 lane admits it: with none it is refused ``not_connected``, naming the
-camera, unless it is an off whose end state already holds. The value reads
-answer None, ``disconnect()`` returns the cache to the no-camera state,
+camera, unless it is an off whose end state already holds. The held reads
+answer None and the fresh reads are refused as the commands are, whether the
+camera never came up or was removed mid-session; ``disconnect()`` returns the
+cache to the no-camera state,
 bring-up reports the absence once, Go To Step is refused before anything
 moves, and the GUI sends no camera apply from a layer.
 """
@@ -29,7 +31,6 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
-    RecordingRefusedError,
 )
 from modules.lumascope_api import _lumascope
 from modules.scope_session import ScopeSession
@@ -42,6 +43,10 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
 )
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 from tests.stock_channels import LED1
+
+# Well under the stall bound's 5 s floor, so a recording ended by the stall
+# watch instead of the removal fails the wait rather than passing late.
+_RECORDING_WAIT_S = 4.0
 
 MODELS = ('LS850', 'LS850T', 'LS820', 'Lumi', 'LS620', 'LS560')
 FX2_MODELS = ('LS620', 'LS560')
@@ -265,19 +270,15 @@ def test_with_no_camera_a_frame_listener_is_refused(make_session, monkeypatch):
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
-def test_with_no_camera_the_value_reads_answer_none(make_session, monkeypatch, model):
+def test_with_no_camera_a_fresh_read_is_refused_and_a_held_one_answers_none(
+    make_session, monkeypatch, model
+):
     scope = _camera_less(make_session, monkeypatch, model).scope
     camera = scope.camera
 
-    assert (
-        camera.read_gain_db(),
-        camera.read_exposure_ms(),
-        camera.read_frame_size(),
-    ) == (
-        None,
-        None,
-        None,
-    )
+    for read in (camera.read_gain_db, camera.read_exposure_ms, camera.read_frame_size):
+        _assert_names_the_camera(_refused(read))
+    assert (camera.active, camera.gain_db, camera.frame_size) == (False, None, None)
     assert scope.diagnostics.get_camera_temperatures_degc() is None
     assert scope.diagnostics.get_camera_link_info() is None
 
@@ -344,8 +345,7 @@ def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_st
     assert run.value.reason == 'not_connected'
     with pytest.raises(ProtocolRunRefusedError):
         runner.start_autofocus(channel='BF')
-    with pytest.raises(RecordingRefusedError):
-        session.manual_recording.start()
+    _assert_names_the_camera(_refused(session.manual_recording.start))
 
 
 # --- After disconnect() ----------------------------------------------------------
@@ -375,15 +375,8 @@ def test_after_disconnect_no_read_describes_the_camera_that_left(make_session, m
     scope = _disconnected(make_session, model).scope
     camera = scope.camera
 
-    assert (
-        camera.read_gain_db(),
-        camera.read_exposure_ms(),
-        camera.read_frame_size(),
-    ) == (
-        None,
-        None,
-        None,
-    )
+    for read in (camera.read_gain_db, camera.read_exposure_ms, camera.read_frame_size):
+        assert _refused(read).reason == 'scope_disconnected'
     assert camera.frame_size is None
     assert camera.gain_db is None
     assert scope.diagnostics.get_camera_temperatures_degc() is None
@@ -434,6 +427,44 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
     )
 
     assert _wait(run) == ('failed', 'hardware_disconnected')
+
+
+# --- A camera removed mid-session -----------------------------------------------
+
+
+def test_a_removed_camera_reads_as_gone(make_session):
+    """From the removal on, the camera is not active, its held settings are
+    unknown and a fresh read is refused naming it, as a write is."""
+    session = make_session('LS850')
+    camera = session.scope.camera
+    camera.set_gain_db(3.0)
+
+    session.scope.simulation.remove_camera()
+
+    assert (camera.active, camera.gain_db, camera.frame_size) == (False, None, None)
+    _assert_names_the_camera(_refused(camera.read_gain_db))
+
+
+def test_a_recording_on_a_camera_removed_under_it_ends_camera_disconnected(make_session):
+    """The loss is named as the camera's leaving, not as a feed that stalled."""
+    session = make_session('LS850')
+    recording = session.manual_recording.start()
+
+    session.scope.simulation.remove_camera()
+
+    assert recording.result(timeout=_RECORDING_WAIT_S) == 'camera_disconnected'
+
+
+def test_a_recording_asked_to_start_on_a_removed_camera_is_refused_before_it_makes_anything(
+    make_session, tmp_path
+):
+    """Refused as a camera command is, before the save location is touched."""
+    session = make_session('LS850')
+    session.scope.simulation.remove_camera()
+    before = sorted(tmp_path.rglob('*'))
+
+    _assert_names_the_camera(_refused(session.manual_recording.start))
+    assert sorted(tmp_path.rglob('*')) == before
 
 
 # --- A camera removed during its write -------------------------------------------
@@ -493,16 +524,16 @@ def test_an_off_is_satisfied_when_the_camera_leaves_during_it(make_session):
     assert answers == {'set_auto_gain_off': True, 'set_auto_exposure_off': True}
 
 
-def test_a_write_the_camera_left_during_records_nothing(make_session):
+def test_a_write_the_camera_left_during_leaves_no_value_to_read(make_session):
     session = make_session('LS850')
     camera = session.scope.camera
     camera.set_gain_db(3.0)
-    before = (camera.gain_db, camera.frame_validity.target('gain'))
+    target = camera.frame_validity.target('gain')
     session.scope.simulation.refuse_camera_write('gain', 'removed')
 
     _refused(lambda: camera.set_gain_db(9.0))
 
-    assert (camera.gain_db, camera.frame_validity.target('gain')) == before
+    assert (camera.gain_db, camera.frame_validity.target('gain')) == (None, target)
 
 
 def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(

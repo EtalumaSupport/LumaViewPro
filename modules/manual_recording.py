@@ -320,13 +320,16 @@ class ManualRecordingController:
                 ``'exclusive_activity_running'``, another exclusive activity
                 is running; ``'post_processing_running'``, a build is on
                 the post-processing lane; ``'falsifying_change_in_flight'``, a
-                turret or frame change is under way; ``'camera_inactive'``, the
-                camera is not streaming; ``'camera_exposure_unknown'``, it has
-                no known exposure; ``'capture_location_unusable'``, the save
+                turret or frame change is under way;
+                ``'camera_exposure_unknown'``, the camera has no known
+                exposure; ``'capture_location_unusable'``, the save
                 location cannot be used; ``'names_exhausted'``, the recording's
                 name and every numbered variant are taken there;
                 ``'insufficient_disk'``, free disk is
                 below the floor.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``. Nothing is committed.
             ControlSessionRefusedError: ``'control_session_held'``, someone
                 else holds the control session. Nothing is committed.
             ObjectiveUnknownError: No one can say which objective is in the
@@ -361,12 +364,7 @@ class ManualRecordingController:
         settings = self._settings
         scope = self._scope
 
-        if not scope.camera.active:
-            raise RecordingRefusedError(
-                reason='camera_inactive',
-                message='The camera is not streaming, so there is nothing to record. '
-                'Check the camera connection and try again.',
-            )
+        scope.camera.refuse_camera_not_connected('start')
 
         exposure = scope.camera.exposure_ms
         # A camera whose exposure is unknown (never reported, or lost to a

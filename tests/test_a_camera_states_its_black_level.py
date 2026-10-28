@@ -19,6 +19,8 @@ from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
+    HardwareCommandRefusedError,
+    MissingPart,
 )
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
@@ -101,9 +103,13 @@ def test_a_failed_range_read_raises(sim_scope):
         sim_scope.camera.get_black_level_range()
 
 
-def test_no_active_camera_has_no_range(sim_scope):
-    with patch.object(sim_scope._camera_driver, '_active', None):
-        assert sim_scope.camera.get_black_level_range() is None
+def test_with_no_active_camera_the_range_read_is_refused_naming_it(sim_scope):
+    with (
+        patch.object(sim_scope._camera_driver, '_active', None),
+        pytest.raises(HardwareCommandRefusedError) as exc,
+    ):
+        sim_scope.camera.get_black_level_range()
+    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart.CAMERA)
 
 
 @pytest.fixture(scope='module')

@@ -42,7 +42,7 @@ from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
-from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities
+from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
@@ -167,6 +167,7 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    give_stub_lanes(scope)
     give_camera_capabilities(scope, cam)
     camera = give_camera_and_imaging(scope)
 

@@ -643,8 +643,10 @@ class SimulatedCamera(Camera):
 
     def leave_bus(self) -> None:
         """The camera leaves the bus, as a real one is marked when its
-        device is removed; its own reconnect brings it back."""
+        device is removed, and is torn down as a real one is
+        (``_schedule_async_teardown``); its own reconnect brings it back."""
         self._mark_disconnected()
+        self._schedule_async_teardown()
 
     @classmethod
     def answers_for(cls, node: str) -> tuple[str, ...]:

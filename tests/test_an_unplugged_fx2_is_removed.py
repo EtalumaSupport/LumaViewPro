@@ -107,7 +107,7 @@ def test_a_silent_device_still_on_the_bus_loses_its_camera_at_the_ceiling_and_ke
     assert scope.led_connected is True
 
 
-def test_a_gain_written_after_the_removal_is_not_recorded(session):
+def test_a_gain_written_after_the_removal_is_refused_and_reads_unknown(session):
     scope = session.scope
     before = scope.camera.gain_db
 
@@ -117,7 +117,7 @@ def test_a_gain_written_after_the_removal_is_not_recorded(session):
         scope.camera.set_gain_db(before + 6.0)
 
     assert exc.value.missing == MissingPart.CAMERA
-    assert scope.camera.gain_db == before
+    assert scope.camera.gain_db is None
 
 
 def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_connected():
@@ -141,7 +141,7 @@ def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_co
         assert refused.value.missing == MissingPart.CAMERA
         assert scope.camera_connected is False
         assert scope.led_connected is False
-        assert scope.camera.gain_db == before
+        assert scope.camera.gain_db is None
     finally:
         session.shutdown()
 
@@ -293,10 +293,11 @@ def test_an_led_write_refused_with_the_device_still_present_keeps_its_fault(sess
     assert scope.led_connected is True
 
 
-def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
+def test_a_gain_written_before_the_teardown_ends_is_refused_and_reads_unknown(session):
     # Between the camera marking itself removed and its teardown releasing
     # it, the camera is still active, but it no longer answers connected:
-    # the camera lane refuses the write before it reaches gain().
+    # the camera lane refuses the write before it reaches gain(), and the
+    # held gain reads unknown from the mark on.
     scope = session.scope
     before = scope.camera.gain_db
     scope._camera_driver._mark_disconnected()
@@ -305,7 +306,7 @@ def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
         scope.camera.set_gain_db(before + 6.0)
 
     assert exc.value.missing == MissingPart.CAMERA
-    assert scope.camera.gain_db == before
+    assert scope.camera.gain_db is None
 
 
 def test_the_settings_are_saved_after_the_scope_is_unplugged(tmp_path):

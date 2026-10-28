@@ -2037,7 +2037,6 @@ class RecordingRefusedError(Refusal, CaptureError):
         'recording_active': ProtocolRunRefusedError._TITLES['recording_active'],
         'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
         'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
-        'camera_inactive': 'Camera Not Active',
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
         'names_exhausted': 'Cannot Save Recording',

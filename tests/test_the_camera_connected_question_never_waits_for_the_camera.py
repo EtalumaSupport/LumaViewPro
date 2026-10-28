@@ -127,7 +127,6 @@ class TestTheOneToOneScale:
         give_stub_lanes(scope)
         give_camera_capabilities(scope, cam)
         give_camera_and_imaging(scope)
-        scope.camera._camera_cache['active'] = True
         scope.camera._camera_cache['frame_size'] = frame_size
         hold()
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope))

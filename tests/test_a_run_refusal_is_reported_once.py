@@ -74,7 +74,7 @@ def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre_posts, ca
 
 def test_a_refusals_words_are_its_sentence():
     run = ProtocolRunRefusedError(reason='already_running', message='Stop it first.')
-    recording = RecordingRefusedError(reason='camera_inactive', message='No camera.')
+    recording = RecordingRefusedError(reason='camera_exposure_unknown', message='No exposure.')
     for refusal in (run, recording):
         assert isinstance(refusal, Refusal)
         assert str(refusal) == refusal.message, 'str() must be the sentence, not reason: message'

@@ -13,6 +13,7 @@ floor. It replaced ``get_camera_profile_info``'s ``exposure_min_ms``.
 import pytest
 
 from drivers.exceptions import CameraReadFailedError
+from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
 
 def test_a_connected_camera_answers_its_floor(sim_scope):
@@ -20,9 +21,11 @@ def test_a_connected_camera_answers_its_floor(sim_scope):
     assert sim_scope.camera.read_exposure_min_ms() == pytest.approx(0.014)
 
 
-def test_no_camera_answers_none(sim_scope):
+def test_with_no_camera_the_read_is_refused_naming_it(sim_scope):
     sim_scope._camera_driver.active = False
-    assert sim_scope.camera.read_exposure_min_ms() is None
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        sim_scope.camera.read_exposure_min_ms()
+    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart.CAMERA)
 
 
 def test_a_failed_read_raises(sim_scope):
