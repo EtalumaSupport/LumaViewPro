@@ -131,7 +131,7 @@ def _camera_posts(posts) -> list:
 
 def _assert_names_the_camera(refusal: HardwareCommandRefusedError) -> None:
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.CAMERA)
-    assert str(refusal) == 'The camera is not connected.'
+    assert str(refusal) == MissingPart.CAMERA.sentence
 
 
 def _camera_store(session) -> dict:
@@ -185,7 +185,7 @@ def _not_named_as_the_camera(commands: dict, target) -> dict:
             answer = command(target)
         except HardwareCommandRefusedError as refusal:
             words = (refusal.reason, refusal.missing, str(refusal))
-            if words != ('not_connected', MissingPart.CAMERA, 'The camera is not connected.'):
+            if words != ('not_connected', MissingPart.CAMERA, MissingPart.CAMERA.sentence):
                 wrong[name] = words
         else:
             wrong[name] = f'answered {answer!r}'
@@ -642,7 +642,7 @@ def test_a_camera_removed_during_bring_up_is_reported_once_and_the_scope_comes_u
     session = make_session('LS850')
 
     assert session.scope.camera.camera_removed
-    assert [n.message for n in _camera_posts(centre_posts)] == ['The camera is not connected.']
+    assert [n.message for n in _camera_posts(centre_posts)] == [MissingPart.CAMERA.sentence]
 
 
 @pytest.mark.parametrize('connected', (True, False))

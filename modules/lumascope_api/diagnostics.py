@@ -979,9 +979,9 @@ class DiagnosticsAPI:
                 driver's default.
 
         Returns:
-            str: Response from the board, ``'Board not connected'`` if the
-                target board is None/inactive, or ``'Error: <msg>'`` if the
-                exchange raised.
+            str: Response from the board, ``'Board not connected'`` with no
+                board connected (``_board_connected``), or ``'Error: <msg>'``
+                if the exchange raised.
 
         Raises:
             ValueError: A motor command that moves, stops or repositions a
@@ -1004,7 +1004,7 @@ class DiagnosticsAPI:
             logger.warning(f'[SCOPE API ] send_diagnostic_command: {e}')
             return f'{ERROR_PREFIX}{e}'
 
-        if board is None or not getattr(board, 'found', False):
+        if not self._board_connected(board):
             return NOT_CONNECTED
 
         logger.debug(
@@ -1081,7 +1081,7 @@ class DiagnosticsAPI:
             logger.warning(f'[SCOPE API ] send_diagnostic_command_multiline: {e}')
             return f'{ERROR_PREFIX}{e}'
 
-        if board is None or not getattr(board, 'found', False):
+        if not self._board_connected(board):
             return NOT_CONNECTED
 
         if end_markers is None:
@@ -1464,6 +1464,17 @@ class DiagnosticsAPI:
         if isinstance(value, (int, float)) and value > 0:
             return f'dltl{round(value / 1_000_000)}M'
         return 'dltlunknown'
+
+    @staticmethod
+    def _board_connected(board) -> bool:
+        """Whether a diagnostic may reach ``board``: found at bring-up, and not lost since.
+
+        A board lost mid-session stays lost until LumaViewPro restarts, as
+        every other command treats it; an exchange sent to it would reach
+        the serial layer's reopen and bring it back under the API, its axes
+        answering positions held from before the loss.
+        """
+        return board is not None and getattr(board, 'found', False) and board.is_connected()
 
     def _diagnostic_target_board(self, target: str):
         """Resolve a diagnostic-target string ('led' | 'motor') to a driver board.

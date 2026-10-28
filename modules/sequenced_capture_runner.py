@@ -1108,7 +1108,7 @@ class SequencedCaptureRunner:
                 reason='not_connected',
                 message=(
                     f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
-                    'not connected. Check connections and try again.'
+                    'not connected. Check the connections, then restart LumaViewPro.'
                 ),
             )
         return None

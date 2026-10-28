@@ -27,11 +27,14 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
+from fastapi.testclient import TestClient
+from lib.lumascope_error import RefusalCause
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError, MissingPart
 from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
 from modules.lumascope_api.diagnostics import MotorBoardInfo
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
+from rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
@@ -151,6 +154,47 @@ def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
             MissingPart.MOTOR_CONTROLLER,
         )
         assert scope.diagnostics.get_motor_info() == MotorBoardInfo(None, None, None, None, None)
+    finally:
+        session.shutdown()
+
+
+# What finds each board's loss, and whether the scope says it is connected.
+_LOSS = {
+    'motor': (lambda scope: scope.motion.move_z(100.0), lambda scope: scope.motor_connected),
+    'led': (lambda scope: scope.illumination.led_on('BF', 10.0), lambda scope: scope.led_connected),
+}
+
+
+@pytest.mark.parametrize('board', ('led', 'motor'))
+def test_a_lost_board_stays_lost_through_a_replug_and_a_diagnostic(scope, board):
+    """Nothing reconnects a board during a session, a diagnostic included: a
+    diagnostic sent to it reached the serial layer's reopen, which brought the
+    board back under the API with every position held from before the loss."""
+    finds_it, connected = _LOSS[board]
+    scope.simulation.unplug(board)
+    with pytest.raises(HardwareCommandRefusedError):
+        finds_it(scope)
+    scope.simulation.replug(board)
+
+    assert scope.diagnostics.send_diagnostic_command(board, 'INFO') == 'Board not connected'
+    assert connected(scope) is False
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        finds_it(scope)
+    assert (refused.value.reason, refused.value.cause) == ('not_connected', RefusalCause.RESTART)
+
+
+def test_over_the_wire_a_lost_board_is_a_restart_refusal():
+    session = ScopeSession.create(
+        complete_settings(simulator_tier='firmware', microscope='LS850T'), simulate=True
+    )
+    try:
+        session.scope.motion.home()
+        session.scope.simulation.unplug('motor')
+        with pytest.raises(HardwareCommandRefusedError):
+            session.scope.motion.move_z(100.0)  # the exchange that finds the board gone
+        with TestClient(build_app(session)) as client:
+            answer = client.get('/api/v1/scope/motion/get_actual_position', params={'axis': 'Z'})
+        assert (answer.status_code, answer.json()['reason']) == (503, 'not_connected')
     finally:
         session.shutdown()
 

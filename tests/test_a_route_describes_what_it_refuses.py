@@ -56,7 +56,7 @@ def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(de
         assert reason in refusals[status]['HardwareCommandRefusedError'], (reason, status)
     assert {_status(HardwareCommandRefusedError, r) for r in ('axis_absent', 'not_connected')} == {
         '422',
-        '409',
+        '503',
     }
     assert refusals['500']['MoveFaultError'] == [
         'driver_failed',

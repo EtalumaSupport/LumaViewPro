@@ -1828,7 +1828,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'files_writing_stalled': RefusalCause.STATE,
         'post_processing_running': RefusalCause.STATE,
         'autofocus_running': RefusalCause.STATE,
-        'not_connected': RefusalCause.STATE,
+        'not_connected': RefusalCause.RESTART,
         'camera_not_streaming': RefusalCause.STATE,
         'position_unknown': RefusalCause.STATE,
         'lid_open_before_motion': RefusalCause.STATE,
@@ -3236,7 +3236,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
     # A part the scope does not have is never found by asking again, and a
     # task made under a taking that has ended is never sent under it. A
     # scope whose lanes are shut, or whose motion monitor has ended, takes
-    # no command again until the application restarts.
+    # no command again until the application restarts, and nor does a part
+    # that is not connected: nothing reconnects one during a session.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'exclusive_activity_running': RefusalCause.STATE,
         'capture_in_flight': RefusalCause.STATE,
@@ -3247,7 +3248,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'position_unread': RefusalCause.STATE,
         'lid_open_before_motion': RefusalCause.STATE,
         'stage_unpowered_before_motion': RefusalCause.STATE,
-        'not_connected': RefusalCause.STATE,
+        'not_connected': RefusalCause.RESTART,
         'camera_not_streaming': RefusalCause.STATE,
         'axis_absent': RefusalCause.REQUEST,
         'not_on_this_scope': RefusalCause.REQUEST,
@@ -3385,11 +3386,14 @@ class MissingPart:
         )
 
 
+# A part that is not connected stays so until LumaViewPro restarts: nothing
+# reconnects a board or a camera during a session, so each sentence names the
+# restart, as the bring-up words for the same parts do.
 MissingPart.MOTOR_CONTROLLER = MissingPart(
     'motor controller',
     'not_connected',
     'The motor controller is not connected. Check the USB cable and that '
-    'no other program is holding the port.',
+    'no other program is holding the port, then restart LumaViewPro.',
 )
 MissingPart.MOTORS = MissingPart('motors', 'axis_absent', 'This microscope has no motors.')
 MissingPart.X = MissingPart('X', 'axis_absent', 'This microscope has no X motor.')
@@ -3403,9 +3407,16 @@ MissingPart.XY_STAGE = MissingPart(
     'between: its plate is Center Plate.',
 )
 MissingPart.LED_CONTROLLER = MissingPart(
-    'LED controller', 'not_connected', 'The LED controller is not connected.'
+    'LED controller',
+    'not_connected',
+    'The LED controller is not connected. Check the USB cable and 24V power, '
+    'then restart LumaViewPro.',
 )
-MissingPart.CAMERA = MissingPart('camera', 'not_connected', 'The camera is not connected.')
+MissingPart.CAMERA = MissingPart(
+    'camera',
+    'not_connected',
+    'The camera is not connected. Check its cable, then restart LumaViewPro.',
+)
 MissingPart.FAN_CONTROL = MissingPart(
     'fan control',
     'not_on_this_scope',

@@ -200,7 +200,7 @@ def test_without_its_board_a_light_is_refused_and_an_off_is_satisfied(
     ):
         refusal = _refused(light)
         assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.LED_CONTROLLER)
-        assert str(refusal) == 'The LED controller is not connected.'
+        assert str(refusal) == MissingPart.LED_CONTROLLER.sentence
     illumination.led_off('BF')
     illumination.leds_off()
     illumination.apply_transition(LedTransition.MANUAL_STEP, _preview(False))
