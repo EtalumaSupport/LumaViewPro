@@ -27,6 +27,7 @@ from modules.run_events import RunEvents
 
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def _drive_capture(monkeypatch, debug_enabled):
@@ -57,11 +58,13 @@ def _drive_capture(monkeypatch, debug_enabled):
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-    # A capture hands on its frame's record; a stub's would answer every fact
-    # it carries (blown, dark) with a truthy stand-in. A run's capture
+    # A capture hands back its frame's record; a stub's would answer every
+    # fact it carries (blown, dark) with a truthy stand-in. A run's capture
     # always measures the frame's saturation.
-    scope.imaging.last_capture_info = {'frame_record': frame_record(saturated_fraction=0.0)}
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+    )
+    scope.imaging.last_capture_info = {}
 
     def quiet(*args, **kwargs):
         return None

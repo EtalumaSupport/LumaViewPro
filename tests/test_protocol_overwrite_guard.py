@@ -37,6 +37,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
 from tests.scope_fakes import stock_unit
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
@@ -107,10 +108,8 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         scan_count=0,
         enable_image_saving=True,
         captured_image=CapturedFrame(
-            image=np.zeros((4, 4), dtype=np.uint8),
-            significant_bits=8,
+            still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
             objective_id='4x Oly',
-            record=frame_record(),
             position=unpositioned(),
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},

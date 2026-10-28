@@ -73,7 +73,7 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
     assert refused.value.reason == 'capture_location_unusable'
     assert str(gone) in str(refused.value)
     assert not gone.exists()
-    capture_ctx.scope.imaging._capture_and_wait_impl.assert_not_called()
+    capture_ctx.scope.imaging._capture_holding_layer_impl.assert_not_called()
 
 
 def test_a_recording_into_a_missing_folder_is_refused_before_the_disk_probe(

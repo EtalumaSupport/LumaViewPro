@@ -34,6 +34,8 @@ from modules.sequential_io_executor import (
     SequentialIOExecutor,
 )
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+from modules.lumascope_api.frame_record import CapturedStill
+from tests.frame_records import frame_record
 
 
 @pytest.fixture
@@ -116,8 +118,9 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-    scope.imaging.capture_frame_depth.return_value = 8
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+    )
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
 
@@ -214,8 +217,9 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-    scope.imaging.capture_frame_depth.return_value = 8
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+    )
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
 

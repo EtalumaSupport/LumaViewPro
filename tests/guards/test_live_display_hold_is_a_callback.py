@@ -39,6 +39,7 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
 
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def _writer(events):
@@ -69,13 +70,14 @@ def _writer(events):
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
-    # Read-only, as capture_and_wait returns every image.
+    # Read-only, as capture_still returns every image.
     captured = np.zeros((4, 4), dtype=np.uint8)
     captured.flags.writeable = False
-    scope.imaging.capture_and_wait.return_value = captured
-    scope.imaging.capture_frame_depth.return_value = 8
     # A run's capture always measures the frame's saturation.
-    scope.imaging.last_capture_info = {'frame_record': frame_record(saturated_fraction=0.0)}
+    scope.imaging.capture_still.return_value = CapturedStill(
+        image=captured, record=frame_record(saturated_fraction=0.0)
+    )
+    scope.imaging.last_capture_info = {}
     return writer
 
 
@@ -135,7 +137,7 @@ class TestFrameCapturedCarriesTheSavedFrame:
 
     def test_the_handler_holds_the_captures_own_read_only_frame(self, no_context):
         """The handler holds the array the file is written from: the
-        capture's own image, read-only (capture_and_wait makes every image
+        capture's own image, read-only (capture_still makes every image
         it returns read-only), never a writeable copy a handler could
         change."""
         seen = []
@@ -144,7 +146,7 @@ class TestFrameCapturedCarriesTheSavedFrame:
         _capture_one_still(writer)
 
         (image,) = seen
-        assert image is writer._scope.imaging.capture_and_wait.return_value
+        assert image is writer._scope.imaging.capture_still.return_value.image
         with pytest.raises(ValueError):
             image[0, 0] = 1
 
@@ -302,13 +304,10 @@ class TestTheHoldShowsASumAsItIsShown:
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display=display))
         writer = _writer(RunEvents(frame_captured=show_captured_frame))
         imaging = writer._scope.imaging
-        imaging.capture_and_wait.return_value = np.full((4, 4), 255, dtype=np.uint16)
-        imaging.capture_frame_depth.return_value = 10
-        imaging.last_capture_info = {
-            'frame_record': frame_record(
-                frames_summed=3, frame_significant_bits=8, saturated_fraction=0.0
-            )
-        }
+        imaging.capture_still.return_value = CapturedStill(
+            image=np.full((4, 4), 255, dtype=np.uint16),
+            record=frame_record(frames_summed=3, frame_significant_bits=8, saturated_fraction=0.0),
+        )
 
         _capture_one_still(writer)
 

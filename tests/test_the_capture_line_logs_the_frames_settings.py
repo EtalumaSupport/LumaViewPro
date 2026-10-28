@@ -18,6 +18,7 @@ import pytest
 from modules.lumascope_api.frame_record import FrameRecord, SettingSource
 from modules.protocol_image_writer import _capture_evidence
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 @pytest.fixture
@@ -34,14 +35,12 @@ def live_scope():
 def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_scope):
     applied_exp = live_scope.camera.set_exposure_ms(50.0)
     applied_gain = live_scope.camera.set_gain_db(6.0)
-    image = live_scope.imaging._capture_and_wait_impl(
-        accept_dark=True, all_ones_check=True, timeout_s=1.0
-    )
-    assert image is not None
-    info = live_scope.imaging.last_capture_info
-    assert info['chunk_exposure_us'] is None, 'the FX2 stamps no chunks'
+    still = live_scope.imaging.capture_still(accept_dark=True, all_ones_check=True, timeout_s=1.0)
+    # The FX2 stamps no chunks, so the record states the settings read beside the grab.
+    assert still.record.exposure_source == SettingSource.READ
+    assert still.record.gain_source == SettingSource.READ
 
-    evidence = _capture_evidence(image, info)
+    evidence = _capture_evidence(still, live_scope.imaging.last_capture_info)
 
     assert f'exp_ms={applied_exp:.2f}(applied)' in evidence
     assert f'gain_db={applied_gain:.2f}(applied)' in evidence
@@ -75,9 +74,9 @@ def _record(**fields):
 
 
 def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
-    info = {'chunk_exposure_us': 62003.0, 'chunk_gain_db': 3.5, 'frame_record': _record()}
+    still = CapturedStill(image=np.zeros((8, 8), dtype=np.uint8), record=_record())
 
-    evidence = _capture_evidence(np.zeros((8, 8), dtype=np.uint8), info)
+    evidence = _capture_evidence(still, {})
 
     assert 'exp_ms=62.00 ' in evidence
     assert 'gain_db=3.50' in evidence
@@ -87,8 +86,10 @@ def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
 def test_the_line_states_the_frames_saturation_and_the_images_mean():
     """The saturation is the frame record's, measured by the capture at each
     frame's own depth; the mean is the still's statistics."""
-    info = {'frame_record': _record(saturated_fraction=0.25)}
+    still = CapturedStill(
+        image=np.full((8, 8), 4095, dtype=np.uint16), record=_record(saturated_fraction=0.25)
+    )
 
-    evidence = _capture_evidence(np.full((8, 8), 4095, dtype=np.uint16), info)
+    evidence = _capture_evidence(still, {})
 
     assert evidence.startswith('mean=4095.0 sat=25.0% ')

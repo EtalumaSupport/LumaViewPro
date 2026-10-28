@@ -64,6 +64,7 @@ FILES_WAIT_S = 60
 
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def _make_step(color='BF'):
@@ -315,10 +316,11 @@ class TestOneRunOneEncoding:
             scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint16),
-                significant_bits=12,
+                still=CapturedStill(
+                    image=np.zeros((4, 4), dtype=np.uint16),
+                    record=frame_record(frame_significant_bits=12),
+                ),
                 objective_id='4x Oly',
-                record=frame_record(),
                 position=unpositioned(),
             ),
             step=step,

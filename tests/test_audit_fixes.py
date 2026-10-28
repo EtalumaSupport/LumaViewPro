@@ -2019,6 +2019,8 @@ def _bare_protocol_writer(**overrides):
     """ProtocolImageWriter on stub collaborators; kwargs override any slot."""
     from unittest.mock import MagicMock
 
+    import numpy as np
+
     from modules.image_mode import ImageCaptureConfig
     from modules.protocol_image_writer import ProtocolImageWriter
     from modules.run_events import RunEvents
@@ -2053,12 +2055,13 @@ def _bare_protocol_writer(**overrides):
         writer._scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         # A brought-up scope's camera is present; a failed capture asks.
         writer._scope.camera.camera_removed = False
-        # A capture hands on its frame's record; a stub's would answer every
-        # fact it carries (blown, dark) with a truthy stand-in. A run's
+        # A capture hands back its frame's record; a stub's would answer
+        # every fact it carries (blown, dark) with a truthy stand-in. A run's
         # capture always measures the frame's saturation.
-        writer._scope.imaging.last_capture_info = {
-            'frame_record': frame_record(saturated_fraction=0.0)
-        }
+        writer._scope.imaging.capture_still.return_value = CapturedStill(
+            image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+        )
+        writer._scope.imaging.last_capture_info = {}
     return writer
 
 
@@ -2238,10 +2241,8 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8),
-                significant_bits=8,
+                still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
                 objective_id='4x Oly',
-                record=frame_record(),
                 position=unpositioned(),
             ),
             step=_protocol_step(),
@@ -2466,10 +2467,8 @@ class TestPIW2_DisksUsageDeduped:
             scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8),
-                significant_bits=8,
+                still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
                 objective_id='4x Oly',
-                record=frame_record(),
                 position=unpositioned(),
             ),
             step=_protocol_step(),
@@ -2884,6 +2883,7 @@ from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -8499,15 +8499,12 @@ class TestAutoGainArmedInScanIterate:
     def _drive_capture(auto_gain):
         from unittest.mock import MagicMock
 
-        import numpy as np
-
         writer = _bare_protocol_writer()
         scope = writer._scope
         # The objective the frame is taken with, read at capture.
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
-        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
@@ -10474,7 +10471,7 @@ class TestCaptureFailureAbortNotificationOrdering:
         scope.led_connected = False
         scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
-        scope.imaging.capture_and_wait.side_effect = CaptureFailedError('no_frame')
+        scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
 

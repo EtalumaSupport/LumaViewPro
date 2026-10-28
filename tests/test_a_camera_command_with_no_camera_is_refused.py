@@ -415,14 +415,14 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
     session = make_session('LS850')
     scope = session.scope
     driver = scope._camera_driver
-    real_capture = scope.imaging._capture_and_wait_impl
+    real_capture = scope.imaging._capture_still_impl
 
     def removed_after_this(*args, **kwargs):
         image = real_capture(*args, **kwargs)
         driver._mark_disconnected()
         return image
 
-    monkeypatch.setattr(scope.imaging, '_capture_and_wait_impl', removed_after_this)
+    monkeypatch.setattr(scope.imaging, '_capture_still_impl', removed_after_this)
     first = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
     second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'X': 12.0}
     runner = session.create_protocol_runner()

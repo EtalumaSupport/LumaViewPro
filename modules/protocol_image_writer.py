@@ -18,7 +18,6 @@ import threading
 import time
 from typing import TYPE_CHECKING, NamedTuple
 
-import numpy as np
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -26,6 +25,7 @@ import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
 from modules.acquire_mode import AcquireMode
+from modules.lumascope_api.frame_record import CapturedStill, SettingSource
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
@@ -557,15 +557,14 @@ class CapturedFrame(NamedTuple):
     turret move may already have changed the objective in the light path.
     Coupling them to the frame at capture makes handing over a frame
     without them unrepresentable. The same holds for everything else the
-    file records: the instrument's own account of the frame (``record``),
-    and where the stage was when it was taken (``position``) -- after an
-    autofocus sweep the focus it found, not the step's planned Z.
+    file records: the pixels with the instrument's own account of them and
+    the depth that account gives (``still``), and where the stage was when
+    it was taken (``position``) -- after an autofocus sweep the focus it
+    found, not the step's planned Z.
     """
 
-    image: np.ndarray
-    significant_bits: int
+    still: CapturedStill
     objective_id: str
-    record: FrameRecord
     position: FrameFact
 
 
@@ -578,7 +577,7 @@ def _recorded_name(step, file_name, separate_folder_per_channel: bool):
     return file_name
 
 
-def _capture_evidence(image: np.ndarray, capture_info: dict) -> str:
+def _capture_evidence(still: CapturedStill, capture_info: dict) -> str:
     """One-line provenance for a captured frame: its brightness and saturation,
     the frame's exposure / gain and capture-hold timing.
 
@@ -592,15 +591,16 @@ def _capture_evidence(image: np.ndarray, capture_info: dict) -> str:
     and gain are the frame record's, the values the saved file carries: the
     frame's own chunk values where the camera stamps them, otherwise the
     applied settings read beside the grab, marked ``(applied)`` so a reader
-    never takes them for a measurement of the frame.
+    never takes them for a measurement of the frame. The hold and the drain
+    are the capture's evidence (``last_capture_info``).
     """
-    record = capture_info['frame_record']
+    record = still.record
     parts = [
-        f'mean={image_utils.image_statistics(image).mean:.1f}',
+        f'mean={image_utils.image_statistics(still.image).mean:.1f}',
         f'sat={record.saturated_fraction * 100.0:.1f}%',
     ]
-    exp_mark = '' if capture_info.get('chunk_exposure_us') is not None else '(applied)'
-    gain_mark = '' if capture_info.get('chunk_gain_db') is not None else '(applied)'
+    exp_mark = '' if record.exposure_source == SettingSource.FRAME else '(applied)'
+    gain_mark = '' if record.gain_source == SettingSource.FRAME else '(applied)'
     exp_ms, gain_db = record.exposure_ms, record.gain_db
     parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
     parts.append(f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na')
@@ -608,8 +608,8 @@ def _capture_evidence(image: np.ndarray, capture_info: dict) -> str:
         parts.append(f'hold_ms={capture_info["hold_ms"]:.0f}')
     if capture_info.get('drained') is not None:
         parts.append(f'drained={capture_info["drained"]}')
-    if capture_info.get('auto_gain') is not None:
-        parts.append(f'auto_gain={capture_info["auto_gain"]}')
+    if record.auto_gain is not None:
+        parts.append(f'auto_gain={record.auto_gain}')
     if record.dark:
         # The frame was delivered and saved with no pixel above the
         # dark floor while illumination was commanded on. Stated on
@@ -1534,8 +1534,12 @@ class ProtocolImageWriter:
                     # own reason. A camera that is gone is refused, and the
                     # refusal leaves this step: the run loop ends the run
                     # on it, as for any hardware that left.
+                    # The camera as the step set it (``camera.apply`` above):
+                    # no layer is held, so the step's own gain and exposure
+                    # are what the frame is taken at.
                     try:
-                        captured_image = self._scope.imaging.capture_and_wait(
+                        still = self._scope.imaging.capture_still(
+                            None,
                             force_to_8bit=capture_depth == 8,
                             all_ones_check=True,
                             timeout_s=1.0,
@@ -1569,34 +1573,22 @@ class ProtocolImageWriter:
                     # not the step's planned Z, and an axis the scope lacks
                     # or has lost its reference on states no position.
                     frame_position = frame_fact(self._scope, to_plate=self._to_plate)
-                    # The instrument's account of this frame, taken with it on
-                    # the camera lane; read here, on the thread that captured,
-                    # before anything can capture again.
-                    capture_info = self._scope.imaging.last_capture_info or {}
-                    frame_record = capture_info.get('frame_record')
-                    if frame_record is None:
-                        raise RuntimeError(
-                            'the capture returned a frame without its record; the file '
-                            'would record the scope at write time, not the frame'
-                        )
+                    # The instrument's account of this frame came back with
+                    # it from the camera lane, and its depth with that
+                    # account (a sum: the bits it can reach), so the
+                    # asynchronous save never re-derives either.
+                    frame_record = still.record
                     if not frame_record.dark:
                         self._consecutive_capture_failures = 0
                     self._note_captured(
                         step=step, curr_step=curr_step, scan_count=scan_count, record=frame_record
                     )
-
-                    # Depth travels with the frame so the eventual file save
-                    # scales against the real range (a sum: the bits it can
-                    # reach). Resolved here at capture time -- the async save
-                    # must not re-derive it later, when the camera may be at
-                    # a different format or unreadable.
-                    frame_significant_bits = self._scope.imaging.capture_frame_depth(captured_image)
                     logger.info(
                         f'Protocol Image Captured: {name} '
-                        f'{_capture_evidence(captured_image, capture_info)}'
+                        f'{_capture_evidence(still, self._scope.imaging.last_capture_info or {})}'
                     )
 
-                    # The capture's image is read-only (capture_and_wait), and
+                    # The capture's image is read-only (capture_still), and
                     # the write job and frame_captured's handler hold this one
                     # array, so no handler can change the file's pixels.
                     _success_capture_time = datetime.datetime.now()
@@ -1605,10 +1597,8 @@ class ProtocolImageWriter:
                             'save_folder': save_folder,
                             'output_format': output_format,
                             'captured_image': CapturedFrame(
-                                image=captured_image,
-                                significant_bits=frame_significant_bits,
+                                still=still,
                                 objective_id=frame_objective_id,
-                                record=frame_record,
                                 position=frame_position,
                             ),
                             'enable_image_saving': enable_image_saving,
@@ -1630,7 +1620,7 @@ class ProtocolImageWriter:
                     deliver_here(
                         self._events.frame_captured,
                         'frame_captured',
-                        captured_image,
+                        still.image,
                         frame_record.frames_summed,
                         frame_record.frame_significant_bits,
                     )
@@ -1709,8 +1699,8 @@ class ProtocolImageWriter:
         write continuously on the recording engine's own writer thread.
 
         Args:
-            captured_image: ``CapturedFrame`` (frame + the payload depth it
-                was captured at), or None to record a capture_failed row.
+            captured_image: ``CapturedFrame`` (the still, with the depth its
+                record gives), or None to record a capture_failed row.
                 The depth travels with the frame because this save is
                 asynchronous -- deriving depth here would read the camera's
                 state at save time, when the format may have changed or the
@@ -1776,7 +1766,7 @@ class ProtocolImageWriter:
             try:
                 capture_result = save_image(
                     self._scope,
-                    array=captured_image.image,
+                    array=captured_image.still.image,
                     save_folder=save_folder,
                     file_root=None,
                     append=name,
@@ -1798,10 +1788,10 @@ class ProtocolImageWriter:
                     plate_y_mm=captured_image.position.plate_y_mm,
                     stage_z_um=captured_image.position.z_um,
                     save_encoding=self._config.save_encoding,
-                    significant_bits=captured_image.significant_bits,
-                    white_bits=captured_image.record.frame_significant_bits,
+                    significant_bits=captured_image.still.significant_bits,
+                    white_bits=captured_image.still.record.frame_significant_bits,
                     objective_id=captured_image.objective_id,
-                    frame_record=captured_image.record,
+                    frame_record=captured_image.still.record,
                     labware=self._labware,
                     # The well at the position the file records, on the
                     # plate the run moves against: not the step's Well

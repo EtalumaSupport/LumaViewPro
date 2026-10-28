@@ -63,6 +63,7 @@ from tests.scope_fakes import (
     give_stub_lanes,
 )
 from modules.layer_record import release_colors
+from modules.lumascope_api.frame_record import CapturedStill
 
 
 class ScriptedCameraDriver:
@@ -346,10 +347,11 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         scan_count=0,
         enable_image_saving=True,
         captured_image=CapturedFrame(
-            image=np.zeros((4, 4), dtype=np.uint16),
-            significant_bits=12,
+            still=CapturedStill(
+                image=np.zeros((4, 4), dtype=np.uint16),
+                record=frame_record(frame_significant_bits=12),
+            ),
             objective_id='4x Oly',
-            record=frame_record(),
             position=unpositioned(),
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},

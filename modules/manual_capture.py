@@ -32,7 +32,7 @@ from modules.image_save import save_image
 from modules.image_utils import ImageStatistics
 from modules.layer_record import ChannelColors
 from modules.lumascope_api.camera import LayerCameraRequest
-from modules.lumascope_api.frame_record import FrameRecord
+from modules.lumascope_api.frame_record import CapturedStill, FrameRecord
 from modules.recording_frames import frame_fact
 from modules.api_surface import api, api_fields
 from modules.operation import Operation
@@ -257,8 +257,8 @@ class ManualCaptureController:
         finally:
             self._in_flight.release()
 
-    def _grab_named(self, scope, capture_config) -> tuple[str, Any]:
-        """The frame and the channel it was taken under.
+    def _grab_named(self, scope, capture_config) -> tuple[str, CapturedStill]:
+        """The still and the channel it was taken under.
 
         The channel is the light -- the lit LED, else the shown layer -- the
         rule a manual recording uses too, read on the lane, and the camera
@@ -302,7 +302,7 @@ class ManualCaptureController:
                 first_capture = scope.imaging.last_capture_info
             light = common_utils.read_light(scope.illumination, self._shown_layer()).channel
             if light == channel:
-                return channel, still.image
+                return channel, still
             if time.monotonic() - started > first_capture['deadline_s']:
                 raise CaptureFailedError('deadline_expired')
             logger.info(
@@ -329,15 +329,15 @@ class ManualCaptureController:
         # Read beside the grab: the file records the objective the frame was
         # taken with, and an unknown one refuses before anything is captured.
         objective_id, _ = scope.runtime_state.resolve_current_objective()
-        channel, array = self._grab_named(scope, capture_config)
+        channel, still = self._grab_named(scope, capture_config)
+        array = still.image
         save_folder = manual_folder
         if settings['separate_folder_per_channel']:
             save_folder = manual_folder / channel
             _make_folder(settings, save_folder)
 
-        # The instrument's account of this frame, taken with it; read before
-        # anything on this lane can capture again.
-        frame_record = scope.imaging.last_capture_info['frame_record']
+        # The instrument's account of this frame, handed back with it.
+        frame_record = still.record
         # A blown or dark still is kept and saved, and told here, once: the
         # capture records it and leaves the telling to whoever took it.
         if frame_record.blown:
@@ -353,9 +353,8 @@ class ManualCaptureController:
             )
         labware = scope.runtime_state.get_labware()
         # The frame's own depth (8 for uint8, a sum's the bits it can reach,
-        # else the per-frame delivery stamp), taken now, before any later grab
-        # can change what the camera reports.
-        significant_bits = scope.imaging.capture_frame_depth(array)
+        # else the per-frame delivery stamp), from its record.
+        significant_bits = still.significant_bits
         # Where the stage was, read beside the grab with the reader a
         # recording uses for every frame: an axis without its reference
         # answers no position, and the file then states none for it.
@@ -442,7 +441,8 @@ class ManualCaptureController:
             # Named after the unmarked file it copies, so the pair sorts
             # together and cannot be mismatched.
             raw_stem = raw_path.name[: len(raw_path.name) - len(''.join(raw_path.suffixes))]
-            overlay_bits = scope.imaging.capture_frame_depth(overlay)
+            # The 8-bit rendering's depth, whatever the frame's.
+            overlay_bits = 8
             overlay_path = save_image(
                 scope,
                 overlay,

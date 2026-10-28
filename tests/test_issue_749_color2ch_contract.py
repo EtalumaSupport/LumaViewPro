@@ -36,6 +36,8 @@ from modules import common_utils
 from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope
 from tests.stock_channels import LED0
+from modules.lumascope_api.frame_record import CapturedStill
+from tests.frame_records import frame_record
 
 
 class _FourColourRecordingBoard:
@@ -185,8 +187,10 @@ class TestDarkFloorKeysOnLedDrivability:
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
-        # A capture returns its frame's pixels.
-        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+        # A capture returns its frame's pixels with their record.
+        scope.imaging.capture_still.return_value = CapturedStill(
+            image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
+        )
         if writer_setup is not None:
             writer_setup(writer, scope)
         protocol = MagicMock()
@@ -200,7 +204,7 @@ class TestDarkFloorKeysOnLedDrivability:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
+        return scope.imaging.capture_still.call_args.kwargs, scope, writer
 
     def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
         # The capture path derives dark-by-design from commanded state (a
@@ -255,7 +259,7 @@ class TestCaptureAbortWording:
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging.capture_and_wait.side_effect = CaptureFailedError('no_frame')
+        scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
