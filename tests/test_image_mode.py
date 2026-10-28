@@ -721,6 +721,7 @@ def test_save_image_requires_save_encoding():
             array=np.zeros((4, 4), dtype=np.uint8),
             channel_colors=release_colors(),
             white_bits=None,
+            fallback_focus=None,
         )
 
 

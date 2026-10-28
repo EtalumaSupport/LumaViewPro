@@ -78,6 +78,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
         frame_record=_record({bf_address: 40.0}),
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label='A1',
+        fallback_focus=None,
     )
 
     assert metadata['exposure_time_ms'] == 12.5
@@ -113,6 +114,7 @@ def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
         frame_record=record,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label=None,
+        fallback_focus=None,
     )
 
     assert 'illumination_ma' not in metadata

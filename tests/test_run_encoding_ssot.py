@@ -322,6 +322,7 @@ class TestOneRunOneEncoding:
                 ),
                 objective_id='4x Oly',
                 position=unpositioned(),
+                fallback_focus=None,
             ),
             step=step,
             name='A1_BF',

@@ -2192,7 +2192,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         monkeypatch.setattr(
             image_save,
             'generate_image_metadata',
-            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label: {},
+            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label, fallback_focus: {},
         )
         image_save.save_image(
             SimpleNamespace(imaging=SimpleNamespace()),
@@ -2211,6 +2211,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             well_label=None,
             channel_colors=release_colors(),
             white_bits=None,
+            fallback_focus=None,
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '
@@ -2242,6 +2243,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
                 still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
                 objective_id='4x Oly',
                 position=unpositioned(),
+                fallback_focus=None,
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -2468,6 +2470,7 @@ class TestPIW2_DisksUsageDeduped:
                 still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
                 objective_id='4x Oly',
                 position=unpositioned(),
+                fallback_focus=None,
             ),
             step=_protocol_step(),
             name='stepA_BF',

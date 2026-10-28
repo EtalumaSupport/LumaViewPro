@@ -66,6 +66,7 @@ class TestAFactorySessionIsConfigured:
             well_label=None,
             channel_colors=release_colors(),
             white_bits=None,
+            fallback_focus=None,
         )
         assert path is not None
 

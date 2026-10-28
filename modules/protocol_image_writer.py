@@ -558,14 +558,18 @@ class CapturedFrame(NamedTuple):
     Coupling them to the frame at capture makes handing over a frame
     without them unrepresentable. The same holds for everything else the
     file records: the pixels with the instrument's own account of them and
-    the depth that account gives (``still``), and where the stage was when
+    the depth that account gives (``still``), where the stage was when
     it was taken (``position``) -- after an autofocus sweep the focus it
-    found, not the step's planned Z.
+    found, not the step's planned Z -- and, when the sweep found none, why
+    (``fallback_focus``).
     """
 
     still: CapturedStill
     objective_id: str
     position: FrameFact
+    # Why the step's autofocus did not focus, when the frame was taken at its
+    # fallback focus; None when it focused or was never asked to.
+    fallback_focus: str | None
 
 
 def _recorded_name(step, file_name, separate_folder_per_channel: bool):
@@ -990,6 +994,13 @@ class ProtocolImageWriter:
         )
         with self._capture_slots_lock:
             self._focus_slots[(scan_count, curr_step)] = slot
+
+    def _fallback_focus(self, scan_count: int, curr_step: int) -> str | None:
+        """Why this step's autofocus did not focus in this scan, or None
+        when it focused or was never asked to."""
+        with self._capture_slots_lock:
+            failure = self._focus_slots.get((scan_count, curr_step))
+        return failure.cause if failure is not None else None
 
     def _note_captured(self, *, step, curr_step, scan_count, record: FrameRecord | None) -> None:
         """Record the capture in its slot, and tell the first blown and the
@@ -1599,6 +1610,7 @@ class ProtocolImageWriter:
                                 still=still,
                                 objective_id=frame_objective_id,
                                 position=frame_position,
+                                fallback_focus=self._fallback_focus(scan_count, curr_step),
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -1800,6 +1812,7 @@ class ProtocolImageWriter:
                     # on a moved one, nor its planned X/Y, which a scope
                     # with no XY stage never reaches.
                     well_label=captured_image.position.well_label(self._labware),
+                    fallback_focus=captured_image.fallback_focus,
                 )
             except Exception:
                 self._record_dropped_capture(

@@ -21,6 +21,7 @@ def test_the_plate_block_names_the_plate(sim_scope):
         frame_record=frame_record(),
         labware=plate('384 well microplate'),
         well_label='A1',
+        fallback_focus=None,
     )
 
     assert metadata['plate'] == {

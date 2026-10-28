@@ -15,6 +15,7 @@ import pytest
 
 import modules.autofocus_functions as autofocus_functions
 from modules.exceptions import AutofocusFailedError
+from modules.image_utils import read_postproc_input_metadata
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_a_late_write_records_its_frame import _step
@@ -69,6 +70,26 @@ def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
     assert [(f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
         (0, 'C0', FLAT)
     ]
+
+
+def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
+    """The run's outcome names the step, but a file travels without it: the
+    file of a step captured at its fallback focus states why autofocus did
+    not focus, and a file of a step with no autofocus states nothing."""
+    runs = tmp_path / 'runs'
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        _run(
+            runner,
+            runs,
+            [_step('C0', 0, x=20.0, gain=1.0, autofocus=True), _step('C1', 1, x=30.0, gain=1.0)],
+        )
+
+    def _saved(name):
+        [path] = [p for p in runs.rglob('*.tiff') if name in p.name]
+        return read_postproc_input_metadata(path)
+
+    assert _saved('C0')['fallback_focus'] == FLAT
+    assert 'fallback_focus' not in _saved('C1')
 
 
 def test_every_settle_path_carries_the_focus_failures():

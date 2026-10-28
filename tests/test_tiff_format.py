@@ -1389,6 +1389,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
         'frame_record': record,
         'labware': plate(),
         'well_label': 'A1',
+        'fallback_focus': None,
     }
     recorded = image_save.generate_image_metadata(sim_scope, 'BF', **where, **common)
     path = image_save.save_image(

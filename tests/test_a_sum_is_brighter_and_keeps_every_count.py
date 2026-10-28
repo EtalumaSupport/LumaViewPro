@@ -575,6 +575,7 @@ def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
         labware=plate(),
         well_label=None,
         channel_colors=release_colors(),
+        fallback_focus=None,
     )
     jpg = cv2.imdecode(np.frombuffer(pathlib.Path(path).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
     assert int(jpg.min()) >= 250

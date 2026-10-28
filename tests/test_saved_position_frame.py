@@ -64,6 +64,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['plate_pos_mm']['x'] == pytest.approx(PLATE_X_MM), (
@@ -87,6 +88,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['z_pos_um'] == pytest.approx(STAGE_Z_UM)
@@ -105,6 +107,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
         far = image_save.generate_image_metadata(
             positioned_scope,
@@ -116,6 +119,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         delta = far['plate_pos_mm']['x'] - near['plate_pos_mm']['x']
@@ -134,6 +138,7 @@ class TestThePlatePositionSurvivesTheSave:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['x_pos'] == metadata['plate_pos_mm']['x']
@@ -167,6 +172,7 @@ class TestTheWholeSaveChainCarriesOneFrame:
             well_label=None,
             channel_colors=release_colors(),
             white_bits=None,
+            fallback_focus=None,
         )
 
         plane = _read_plane(path)

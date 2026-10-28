@@ -93,6 +93,7 @@ class TestTheRunningScopeHasOneModel:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
         assert metadata['microscope'] == 'LS620'
         assert metadata['microscope_model'] == 'LS620'

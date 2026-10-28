@@ -67,4 +67,5 @@ def test_save_image_rejects_missing_depth():
             false_color_on=False,
             objective_id='4x Oly',
             white_bits=None,
+            fallback_focus=None,
         )

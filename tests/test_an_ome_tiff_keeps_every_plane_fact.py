@@ -66,6 +66,7 @@ def _every_plane_field() -> dict:
         'dark': False,
         'camera_held_a_channel': True,
         'camera_held_channel': LED1,
+        'fallback_focus': 'Autofocus found no focus: the focus curve is flat.',
     }
 
 

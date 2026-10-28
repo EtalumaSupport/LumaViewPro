@@ -67,6 +67,7 @@ def _save(scope, folder, **position) -> str:
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        fallback_focus=None,
         channel_colors=release_colors(),
     )
 
@@ -85,6 +86,7 @@ class TestNoPositionMeansNoPositionKeys:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         present = [k for k in POSITION_KEYS if k in metadata]
@@ -106,6 +108,7 @@ class TestNoPositionMeansNoPositionKeys:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['channel'] == 'BF'
@@ -126,6 +129,7 @@ class TestNoPositionMeansNoPositionKeys:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['z_pos_um'] == pytest.approx(4950.0)

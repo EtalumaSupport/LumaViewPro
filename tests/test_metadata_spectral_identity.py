@@ -58,6 +58,7 @@ def _metadata(scope, channel, lit=None):
         frame_record=frame_record(illumination_ma=lit or {}),
         labware=scope.runtime_state.get_labware(),
         well_label=None,
+        fallback_focus=None,
     )
 
 

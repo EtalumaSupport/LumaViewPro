@@ -96,6 +96,7 @@ def test_metadata_accepts_an_added_layer(added_layer_release, sim_scope):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        fallback_focus=None,
     )
     assert metadata['channel'] == 'Ex780'
 

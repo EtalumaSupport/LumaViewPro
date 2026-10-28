@@ -111,6 +111,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
             still=CapturedStill(image=np.zeros((4, 4), dtype=np.uint8), record=frame_record()),
             objective_id='4x Oly',
             position=unpositioned(),
+            fallback_focus=None,
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',

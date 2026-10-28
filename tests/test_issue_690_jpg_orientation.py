@@ -71,7 +71,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
     monkeypatch.setattr(
         image_save,
         'generate_image_metadata',
-        lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label: (
+        lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label, fallback_focus: (
             dict(stub_metadata)
         ),
     )
@@ -96,6 +96,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         well_label=None,
         channel_colors=release_colors(),
         white_bits=None,
+        fallback_focus=None,
     )
     jpg_path = image_save.save_image(
         scope,
@@ -116,6 +117,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         well_label=None,
         channel_colors=release_colors(),
         white_bits=None,
+        fallback_focus=None,
     )
     tiff_px = tifffile.imread(tiff_path)
     jpg_px = cv2.imdecode(

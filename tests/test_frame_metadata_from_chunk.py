@@ -141,6 +141,7 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):
         frame_record=frame_record(exposure_ms=None, gain_db=None),
         labware=plate(),
         well_label=None,
+        fallback_focus=None,
     )
     metadata['significant_bits'] = 8  # write_tiff supplies this in production
     data = np.zeros((4, 4), dtype=np.uint8)

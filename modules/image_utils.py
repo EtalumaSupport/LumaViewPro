@@ -979,6 +979,8 @@ def _plane_facts(plane: dict) -> dict:
         facts['camera_held_a_channel'] = plane['CameraHeldAChannel']
     if 'CameraHeldChannel' in plane:
         facts['camera_held_channel'] = plane['CameraHeldChannel']
+    if 'FallbackFocus' in plane:
+        facts['fallback_focus'] = plane['FallbackFocus']
     return facts
 
 
@@ -1347,6 +1349,7 @@ def build_postproc_output_metadata(
             'dark',
             'camera_held_a_channel',
             'camera_held_channel',
+            'fallback_focus',
         ):
             metadata.pop(per_capture_field, None)
 
@@ -2552,6 +2555,9 @@ def generate_tiff_data(
         plane['CameraHeldAChannel'] = metadata['camera_held_a_channel']
     if 'camera_held_channel' in metadata:
         plane['CameraHeldChannel'] = metadata['camera_held_channel']
+    # Taken where a failed autofocus left the stage, and why it failed.
+    if 'fallback_focus' in metadata:
+        plane['FallbackFocus'] = metadata['fallback_focus']
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes

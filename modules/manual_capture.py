@@ -431,6 +431,9 @@ class ManualCaptureController:
             frame_record=frame_record,
             labware=labware,
             well_label=well_label,
+            # A manual still is taken where the stage stands; no autofocus
+            # chose its focus.
+            fallback_focus=None,
         )
 
         def saved(path: pathlib.Path, written: Any, bits: int) -> SavedStill:
@@ -489,6 +492,7 @@ class ManualCaptureController:
                 frame_record=frame_record,
                 labware=labware,
                 well_label=well_label,
+                fallback_focus=None,
             )
             stills.append(saved(overlay_path, overlay, overlay_bits))
 

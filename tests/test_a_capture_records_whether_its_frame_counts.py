@@ -311,6 +311,7 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
         frame_record=record,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label='A1',
+        fallback_focus=None,
     )
     path = tmp_path / 'judged.tif'
     image_utils.write_tiff(
@@ -348,6 +349,7 @@ def test_a_full_depth_file_carries_the_judgments_as_plain_words(sim_scope, tmp_p
         frame_record=record,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label='A1',
+        fallback_focus=None,
     )
     path = tmp_path / 'judged_full_depth.tif'
     image_utils.write_tiff(

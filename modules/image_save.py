@@ -295,6 +295,7 @@ def generate_image_metadata(
     frame_record: FrameRecord,
     labware: Labware | None,
     well_label: str | None,
+    fallback_focus: str | None,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
@@ -335,6 +336,10 @@ def generate_image_metadata(
         well_label: The well the frame was taken in, named by the caller at
             capture; None or empty when there is none (a plate with no wells,
             an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
 
     Returns:
         dict: Metadata including channel, positions, exposure, gain, pixel size.
@@ -503,6 +508,10 @@ def generate_image_metadata(
     # which: a frame taken after a script's raw gain or exposure write says
     # it held none, rather than leaving the reader to guess.
     metadata['camera_held_a_channel'] = frame_record.held_channel is not None
+    # A frame taken where a failed autofocus left the stage says so: the
+    # run's outcome names the step, but the file travels without it.
+    if fallback_focus is not None:
+        metadata['fallback_focus'] = fallback_focus
     if frame_record.held_channel is not None:
         metadata['camera_held_channel'] = frame_record.held_channel
 
@@ -539,6 +548,7 @@ def prepare_image_for_saving(
     frame_record: FrameRecord,
     labware: Labware | None,
     well_label: str | None,
+    fallback_focus: str | None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
@@ -581,6 +591,10 @@ def prepare_image_for_saving(
         well_label: The well the frame was taken in, named by the caller at
             capture; None or empty when there is none (a plate with no wells,
             an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
@@ -595,6 +609,7 @@ def prepare_image_for_saving(
         frame_record=frame_record,
         labware=labware,
         well_label=well_label,
+        fallback_focus=fallback_focus,
     )
 
     metadata['significant_bits'] = significant_bits
@@ -643,6 +658,7 @@ def save_image(
     frame_record: FrameRecord,
     labware: Labware | None,
     well_label: str | None,
+    fallback_focus: str | None,
 ) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.
 
@@ -698,6 +714,10 @@ def save_image(
         well_label: The well the frame was taken in, named by the caller at
             capture; None or empty when there is none (a plate with no wells,
             an unknown position), and the file then names none.
+        fallback_focus: Why the step's autofocus did not focus, in its
+            failure's words, when the frame was taken at the step's fallback
+            focus; None when it was focused or never asked to focus. Required:
+            only the caller knows how the frame's focus was reached.
 
     Returns:
         pathlib.Path: Path to the saved file.
@@ -755,6 +775,7 @@ def save_image(
             frame_record=frame_record,
             labware=labware,
             well_label=well_label,
+            fallback_focus=fallback_focus,
         )
         image = image_data['image']
         metadata = image_data['metadata']

@@ -42,6 +42,7 @@ try:
             labware=plate(),
             well_label=None,
             white_bits=None,
+            fallback_focus=None,
         )
         outs[fc] = hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()[:16]
         import tifffile

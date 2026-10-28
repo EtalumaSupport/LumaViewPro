@@ -69,6 +69,7 @@ class TestAHeadlessImageCarriesItsScale:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            fallback_focus=None,
         )
 
         assert metadata['pixel_size_um'] == pytest.approx(expected, abs=1e-4), metadata.get(
