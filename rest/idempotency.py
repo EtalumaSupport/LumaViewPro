@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 
 import fastapi
 
+from modules.exceptions import ServerRefusedError
 from rest import problems
 
 KEY_LIMIT = 10_000
@@ -101,7 +102,7 @@ class IdempotencyKeys:
         held = self._held.get(key)
         if held is not None:
             if held.digest != asked:
-                raise problems.ServerRefusedError(
+                raise ServerRefusedError(
                     'idempotency_key_reused',
                     f'Idempotency-Key {key!r} was sent with another request: '
                     'a key names one request, sent again only to retry it.',

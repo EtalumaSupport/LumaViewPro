@@ -10,7 +10,7 @@ import pathlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 from lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
 from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
@@ -1111,6 +1111,83 @@ class RestServerNotStartedError(Fault, Exception):
             'without it; if another program uses that port, set rest_api.port to a free one.'
         )
         self.port = port
+
+
+@api_fields('loc', 'msg', 'type')
+class UnfitArgument(NamedTuple):
+    """One argument of a request that does not fit its member, as the request reader found it."""
+
+    # Where the argument is: ``body``, ``query`` or ``path``, then its name
+    # and, inside it, the key or index.
+    loc: tuple[str | int, ...]
+    # Why it does not fit, in the reader's words.
+    msg: str
+    # The reader's code for why.
+    type: str
+
+
+@api_fields('errors')
+class ServerRefusedError(Refusal, Exception):
+    """A request the REST server itself answers: it never reached a member.
+
+    Raised by ``rest/`` for a request it answers itself: from its request
+    reader, its handle and job stores, its idempotency keys, its live view
+    and its close. What the refusal is lives here; how it is sent -- each
+    reason's status, the ``Retry-After`` header -- is ``rest.problems``'s,
+    read from this record.
+
+    Attributes:
+        reason: The machine-readable code.
+        title: The heading, the reason's.
+        errors: For ``'invalid_request'`` from the request reader, each
+            argument that does not fit; None otherwise.
+        retry_after_s: Seconds to wait before asking again, for a refusal
+            that waiting may lift (``'overloaded'``, ``'no_frame_yet'``);
+            None when no wait helps.
+    """
+
+    errors: tuple[UnfitArgument, ...] | None
+    retry_after_s: float | None
+
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'not_found': RefusalCause.REQUEST,
+        'invalid_request': RefusalCause.REQUEST,
+        'method_not_allowed': RefusalCause.REQUEST,
+        'unsupported_media_type': RefusalCause.REQUEST,
+        'handle_shared': RefusalCause.REQUEST,
+        'overloaded': RefusalCause.STATE,
+        'server_closing': RefusalCause.RESTART,
+        'no_frame_yet': RefusalCause.STATE,
+        'not_cancellable': RefusalCause.STATE,
+        'idempotency_key_reused': RefusalCause.REQUEST,
+    }
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'not_found': 'Not Found',
+        'invalid_request': 'Invalid Request',
+        'method_not_allowed': 'Method Not Allowed',
+        'unsupported_media_type': 'Unsupported Media Type',
+        'handle_shared': 'Handle Shared',
+        'overloaded': 'Overloaded',
+        'server_closing': 'Server Closing',
+        'no_frame_yet': 'No Frame Yet',
+        'not_cancellable': 'Not Cancellable',
+        'idempotency_key_reused': 'Idempotency Key Reused',
+    }
+
+    def __init__(
+        self,
+        reason: str,
+        detail: str,
+        *,
+        errors: tuple[UnfitArgument, ...] | None = None,
+        retry_after_s: float | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.reason = reason
+        self.title = self._TITLES[reason]
+        self.errors = errors
+        self.retry_after_s = retry_after_s
 
 
 class CameraDriverRepairedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error

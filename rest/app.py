@@ -39,6 +39,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import image_utils, wire_encoding
 from modules.api_surface import api
+from modules.exceptions import ServerRefusedError, UnfitArgument
 from modules.operation import Operation
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
@@ -50,7 +51,7 @@ from rest.events import EventStream
 from rest.handles import HandleRegistry
 from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
-from rest.problems import Answer, ServerRefusedError
+from rest.problems import Answer
 from rest.routes import ANSWER_CONFIG, Handle, Job, PathAnswer, Route, routes, sent_of_query
 
 # The REST log: a child of lvp_logger's logger, whose REST handler keeps
@@ -647,9 +648,7 @@ async def _body_does_not_fit(
     the reader took is no JSON, so the answer would fail where the refusal
     is due.
     """
-    errors = tuple(
-        problems.UnfitArgument(tuple(e['loc']), e['msg'], e['type']) for e in error.errors()
-    )
+    errors = tuple(UnfitArgument(tuple(e['loc']), e['msg'], e['type']) for e in error.errors())
     words = '; '.join(f'{"/".join(str(p) for p in e.loc)}: {e.msg}' for e in errors)
     return problems.refused_by_server(
         problems.invalid_request(words, errors=errors), request.state.request_id

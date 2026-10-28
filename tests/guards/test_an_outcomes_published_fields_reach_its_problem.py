@@ -19,7 +19,7 @@ from rest import problems
 # The members every problem has, which no published field may replace: a
 # problem's keys, less the fields its type publishes.
 PROBLEM_MEMBERS = frozenset(problems.refused_by_server(problems.not_found(''), 'id').body) - set(
-    fields_of(problems.ServerRefusedError)
+    fields_of(modules.exceptions.ServerRefusedError)
 )
 
 

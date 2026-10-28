@@ -4587,6 +4587,12 @@ Reached through returned by `scope.simulation.exposed_under`.
 - `z_end_um`
 - `z_um`
 
+### ServerRefusedError
+
+Reached through a REST problem, whose members carry it.
+
+- `errors`
+
 ### SettingRefusedError
 
 Reached through a REST problem, whose members carry it.
@@ -4785,6 +4791,14 @@ Reached through built by a GUI host and passed to `ScopeSession.set_ui_dispatche
 
 - `schedule`
 - `thread`
+
+### UnfitArgument
+
+Reached through `ServerRefusedError.errors`.
+
+- `loc`
+- `msg`
+- `type`
 
 ### UsbDeviceBinding
 

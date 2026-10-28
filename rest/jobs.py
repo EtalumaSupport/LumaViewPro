@@ -31,6 +31,7 @@ import weakref
 from collections.abc import Callable
 
 from modules.caller import Caller, calling
+from modules.exceptions import ServerRefusedError
 from modules.operation import Operation
 from rest import problems
 from rest.problems import Answer
@@ -388,7 +389,7 @@ class JobRegistry:
                 self._jobs.pop(job_id, None)
             return None
         if job.operation is None:
-            raise problems.ServerRefusedError(
+            raise ServerRefusedError(
                 'not_cancellable',
                 f'Job {job_id} is a call held as a job when it outlived its wait: it '
                 'holds no operation to stop, and is forgotten once it has ended.',

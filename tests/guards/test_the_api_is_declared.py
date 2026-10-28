@@ -611,6 +611,7 @@ _SOURCE = 'the module or function a post came from'
 _CATEGORY = "composed from the GUI's label and the executor's action, the dedup identity"
 _KEY = "an outcome's operation key, the caller's"
 _HEADER = "the protocol file format's header line"
+_READER = "the REST request reader's own word: where it found an argument, or its code for why"
 
 OPEN_STRINGS: dict[str, str] = {
     'ArgumentRefusedError.argument field': _MEMBER,
@@ -864,6 +865,9 @@ OPEN_STRINGS: dict[str, str] = {
     'TilingConfig.default field': _TILING,
     'TilingConfig.default_config return': _TILING,
     'TurretSlotQuestion.objective_id field': _OBJECTIVE,
+    'UnfitArgument.loc field': _READER,
+    'UnfitArgument.msg field': _PROSE,
+    'UnfitArgument.type field': _READER,
     'UsbDeviceBinding.date field': _OS,
     'UsbDeviceBinding.inf field': _OS,
     'UsbDeviceBinding.instance_id field': _OS,

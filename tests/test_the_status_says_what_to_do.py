@@ -19,6 +19,7 @@ from modules.exceptions import (
     ControlSessionRefusedError,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
+    ServerRefusedError,
     SessionClosingError,
 )
 from rest import problems
@@ -37,9 +38,9 @@ def test_each_reason_answers_the_status_its_cause_says():
         'session_closing': (SessionClosingError('run'), 503),
     }
     server = {
-        'handle_shared': (problems.ServerRefusedError('handle_shared', 'x'), 422),
+        'handle_shared': (ServerRefusedError('handle_shared', 'x'), 422),
         'server_closing': (problems.server_closing(), 503),
-        'not_cancellable': (problems.ServerRefusedError('not_cancellable', 'x'), 409),
+        'not_cancellable': (ServerRefusedError('not_cancellable', 'x'), 409),
     }
 
     answered = {}

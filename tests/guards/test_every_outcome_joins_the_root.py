@@ -367,8 +367,8 @@ def test_no_production_call_passes_a_title_to_an_outcome():
 
 
 _REASON_TABLES = MemberNames(
-    ('modules/exceptions.py', 'drivers/exceptions.py', 'rest/problems.py'),
-    {'_TITLES', '_WORDS', '_STATUSES', '_SENTENCES', '_ADVICE', '_WHY'},
+    ('modules/exceptions.py', 'drivers/exceptions.py'),
+    {'_TITLES', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
 )
 
 

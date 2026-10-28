@@ -75,6 +75,20 @@ def test_the_ranges_stay_for_what_no_section_declares(described):
     assert {'4XX', '5XX'} <= set(responses)
 
 
+def test_a_server_refusal_is_described_under_the_status_the_server_answers():
+    """The server's own refusal answers its reason's status, not its cause's: ``not_found`` is 404, not 422."""
+    doc = (
+        "Forget a handle.\n\nRaises:\n    ServerRefusedError: ``'not_found'``; ``'overloaded'``.\n"
+    )
+
+    described = problems.declared(doc, problems.outcome_classes())
+
+    assert {status: d['x-refusals'] for status, d in described.items()} == {
+        404: {'ServerRefusedError': ['not_found']},
+        503: {'ServerRefusedError': ['overloaded']},
+    }
+
+
 def test_two_outcome_classes_of_one_name_fail_the_build():
     """A ``Raises:`` entry names its class by name, so a second class of that name is refused."""
 

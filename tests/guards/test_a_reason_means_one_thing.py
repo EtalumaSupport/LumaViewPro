@@ -48,7 +48,7 @@ from modules.lumascope_api.bring_up import CAUSE_PHRASES
 from modules.path_utils import CaptureLocationError
 from modules.plugins import PluginRegistrationError
 from modules.run_outcome import ENDINGS, EndingKind
-from rest.problems import ServerRefusedError, outcome_classes
+from rest.problems import outcome_classes
 from tests.case_walk import failing_cases
 from tests.guards.test_every_outcome_joins_the_root import RAISABLE
 
@@ -282,16 +282,12 @@ def test_a_class_with_one_reason_answers_it_from_the_class_itself():
         MoveStoppedError.reason  # noqa: B018 -- the read is the test
 
 
-def test_only_the_server_s_own_refusal_answers_a_status_per_reason():
-    """A member's refusal answers the status its cause says; a status chosen per
-    reason belongs to the refusals HTTP defines (``ServerRefusedError``)."""
-    assert ServerRefusedError in RAISABLE
-    own = [
-        cls.__qualname__
-        for cls in RAISABLE
-        if cls is not ServerRefusedError and {'_STATUSES', 'status'} & set(vars(cls))
-    ]
-    assert own == [], f'a status per reason outside ServerRefusedError: {own}'
+def test_no_outcome_class_carries_a_status():
+    """An outcome is what happened; how HTTP sends it is ``rest.problems``'s. A
+    member's refusal answers the status its cause says, and the server's own
+    refusals the status ``rest.problems`` gives each reason."""
+    own = [cls.__qualname__ for cls in RAISABLE if {'_STATUSES', 'status'} & set(vars(cls))]
+    assert own == [], f'an outcome class carrying a status: {own}'
 
 
 # The kinds that may carry a record's string, by what the record says it is.

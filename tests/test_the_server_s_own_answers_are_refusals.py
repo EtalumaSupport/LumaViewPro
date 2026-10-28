@@ -10,7 +10,7 @@ the server keeps answering each with its own status.
 
 import pytest
 
-from modules.exceptions import RefusalCause
+from modules.exceptions import RefusalCause, ServerRefusedError
 from modules.notification_center import OutcomeKind, outcome_of
 from rest import problems
 
@@ -28,7 +28,7 @@ REQUEST, STATE, RESTART = RefusalCause.REQUEST, RefusalCause.STATE, RefusalCause
         (problems.server_closing(), 503, RESTART),
         (problems.no_frame_yet(1), 503, STATE),
     ],
-    ids=lambda v: v.reason if isinstance(v, problems.ServerRefusedError) else None,
+    ids=lambda v: v.reason if isinstance(v, ServerRefusedError) else None,
 )
 def test_each_answer_is_a_refusal_with_its_cause_and_keeps_its_status(refusal, status, cause):
     outcome = outcome_of(refusal)
@@ -37,7 +37,11 @@ def test_each_answer_is_a_refusal_with_its_cause_and_keeps_its_status(refusal, s
 
 
 def test_each_reason_s_status_and_title_are_the_type_s():
-    """A raise names the reason; its status and heading are the class's, one per reason."""
+    """A raise names the reason; its heading is the record's and its status the server's, one per reason.
+
+    Every reason the record can carry is answered, so a reason given a cause
+    and no status is red here, not a 500 when a client is refused with it.
+    """
     expected = {
         'not_found': (404, 'Not Found'),
         'invalid_request': (422, 'Invalid Request'),
@@ -50,14 +54,24 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'not_cancellable': (409, 'Not Cancellable'),
         'idempotency_key_reused': (422, 'Idempotency Key Reused'),
     }
-    assert set(expected) == set(problems.ServerRefusedError.causes)
+    assert set(expected) == set(ServerRefusedError.causes)
     answered = {}
     for reason in expected:
-        refusal = problems.ServerRefusedError(reason, 'detail')
+        refusal = ServerRefusedError(reason, 'detail')
         answered[reason] = (problems.refused_by_server(refusal, 'id').status, refusal.title)
     assert answered == expected
 
 
 def test_a_reason_with_no_declared_cause_fails_where_it_is_raised():
     with pytest.raises(TypeError, match='no_such_reason'):
-        problems.ServerRefusedError('no_such_reason', 'detail')
+        ServerRefusedError('no_such_reason', 'detail')
+
+
+def test_a_wait_travels_on_the_refusal_and_is_sent_as_retry_after():
+    """The record says how long to wait; the answer sends it in whole seconds, rounded up, and none when no wait helps."""
+    waited = problems.overloaded('x', 0.2)
+    assert waited.retry_after_s == 0.2
+    assert problems.refused_by_server(waited, 'id').headers == {'Retry-After': '1'}
+    closing = problems.server_closing()
+    assert closing.retry_after_s is None
+    assert problems.refused_by_server(closing, 'id').headers == {}

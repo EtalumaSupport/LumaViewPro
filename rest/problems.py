@@ -31,14 +31,14 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-from typing import ClassVar, NamedTuple
+import math
 
 from fastapi.responses import JSONResponse
 
 from modules import notification_center, wire_encoding
 from lib.lumascope_error import Fault, LumascopeError, defined_classes
-from modules.api_surface import api_fields, raises_of
-from modules.exceptions import Refusal, RefusalCause
+from modules.api_surface import raises_of
+from modules.exceptions import RefusalCause, ServerRefusedError, UnfitArgument
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
 
@@ -88,6 +88,21 @@ _CAUSE_STATUS = {
 }
 # What a fault answers.
 _FAULT_STATUS = 500
+# What each of the server's own refusals answers: its own status rather than
+# its cause's, since a server too busy says 503 and when to ask again where a
+# member's refusal for the scope's state says 409.
+_SERVER_STATUS = {
+    'not_found': 404,
+    'invalid_request': 422,
+    'method_not_allowed': 405,
+    'unsupported_media_type': 415,
+    'handle_shared': 422,
+    'overloaded': 503,
+    'server_closing': 503,
+    'no_frame_yet': 503,
+    'not_cancellable': 409,
+    'idempotency_key_reused': 422,
+}
 
 
 def outcome_classes() -> dict[str, type[LumascopeError]]:
@@ -142,7 +157,9 @@ def _reasons_of(cls: type) -> tuple[str, ...]:
 
 
 def _status_of(cls: type, reason: str) -> int:
-    """What *cls* raised with *reason* answers, as ``answered_by_member`` decides it."""
+    """What *cls* raised with *reason* answers, as ``refused_by_server`` or ``answered_by_member`` decides it."""
+    if issubclass(cls, ServerRefusedError):
+        return _SERVER_STATUS[reason]
     if issubclass(cls, Fault):
         return _FAULT_STATUS
     return _CAUSE_STATUS[getattr(cls, 'causes', {}).get(reason)]
@@ -192,92 +209,6 @@ def result(value: object) -> Answer:
     return Answer(200, value)
 
 
-@api_fields('loc', 'msg', 'type')
-class UnfitArgument(NamedTuple):
-    """One argument of a request that does not fit its member, as the request reader found it."""
-
-    # Where the argument is: ``body``, ``query`` or ``path``, then its name
-    # and, inside it, the key or index.
-    loc: tuple[str | int, ...]
-    # Why it does not fit, in the reader's words.
-    msg: str
-    # The reader's code for why.
-    type: str
-
-
-@api_fields('errors')
-class ServerRefusedError(Refusal, Exception):
-    """A request the server itself answers: it never reached a member.
-
-    A refusal, answered with its own status rather than its cause's: a
-    server too busy says 503 and when to ask again, where a member's refusal
-    for the scope's state says 409. The status and the headers are how the
-    answer is sent, so they are this module's to read, not the problem's.
-
-    Attributes:
-        reason: The machine-readable code.
-        title: The heading, the reason's.
-        errors: For ``'invalid_request'`` from the request reader, each
-            argument that does not fit; None otherwise.
-    """
-
-    errors: tuple[UnfitArgument, ...] | None
-
-    causes: ClassVar[dict[str, RefusalCause]] = {
-        'not_found': RefusalCause.REQUEST,
-        'invalid_request': RefusalCause.REQUEST,
-        'method_not_allowed': RefusalCause.REQUEST,
-        'unsupported_media_type': RefusalCause.REQUEST,
-        'handle_shared': RefusalCause.REQUEST,
-        'overloaded': RefusalCause.STATE,
-        'server_closing': RefusalCause.RESTART,
-        'no_frame_yet': RefusalCause.STATE,
-        'not_cancellable': RefusalCause.STATE,
-        'idempotency_key_reused': RefusalCause.REQUEST,
-    }
-
-    _STATUSES: ClassVar[dict[str, int]] = {
-        'not_found': 404,
-        'invalid_request': 422,
-        'method_not_allowed': 405,
-        'unsupported_media_type': 415,
-        'handle_shared': 422,
-        'overloaded': 503,
-        'server_closing': 503,
-        'no_frame_yet': 503,
-        'not_cancellable': 409,
-        'idempotency_key_reused': 422,
-    }
-
-    _TITLES: ClassVar[dict[str, str]] = {
-        'not_found': 'Not Found',
-        'invalid_request': 'Invalid Request',
-        'method_not_allowed': 'Method Not Allowed',
-        'unsupported_media_type': 'Unsupported Media Type',
-        'handle_shared': 'Handle Shared',
-        'overloaded': 'Overloaded',
-        'server_closing': 'Server Closing',
-        'no_frame_yet': 'No Frame Yet',
-        'not_cancellable': 'Not Cancellable',
-        'idempotency_key_reused': 'Idempotency Key Reused',
-    }
-
-    def __init__(
-        self,
-        reason: str,
-        detail: str,
-        *,
-        headers: dict[str, str] | None = None,
-        errors: tuple[UnfitArgument, ...] | None = None,
-    ) -> None:
-        super().__init__(detail)
-        self.reason = reason
-        self.title = self._TITLES[reason]
-        self.errors = errors
-        self._status = self._STATUSES[reason]
-        self._headers = headers or {}
-
-
 def not_found(detail: str) -> ServerRefusedError:
     """A route, a handle or a job that is not there."""
     return ServerRefusedError('not_found', detail)
@@ -300,9 +231,9 @@ def unsupported_media_type(detail: str) -> ServerRefusedError:
     return ServerRefusedError('unsupported_media_type', detail)
 
 
-def overloaded(detail: str, retry_after_s: int) -> ServerRefusedError:
+def overloaded(detail: str, retry_after_s: float) -> ServerRefusedError:
     """More is held than the server keeps; asking again later may succeed."""
-    return ServerRefusedError('overloaded', detail, headers={'Retry-After': str(retry_after_s)})
+    return ServerRefusedError('overloaded', detail, retry_after_s=retry_after_s)
 
 
 def server_closing() -> ServerRefusedError:
@@ -313,24 +244,32 @@ def server_closing() -> ServerRefusedError:
     )
 
 
-def no_frame_yet(retry_after_s: int) -> ServerRefusedError:
+def no_frame_yet(retry_after_s: float) -> ServerRefusedError:
     """A live view with no frame to show: the camera sent none in time; asking again later may succeed."""
     return ServerRefusedError(
         'no_frame_yet',
         'The camera has sent no frame to show yet; it may not be streaming.',
-        headers={'Retry-After': str(retry_after_s)},
+        retry_after_s=retry_after_s,
     )
 
 
 def refused_by_server(refusal: ServerRefusedError, request_id: str) -> Answer:
-    """The problem for a request the server answered itself."""
+    """The problem for a request the server answered itself.
+
+    Its wait, when it has one, is sent as ``Retry-After`` in whole seconds
+    (RFC 9110's form), rounded up so a client never asks before it.
+    """
+    status = _SERVER_STATUS[refusal.reason]
     body = {
         'type': TYPE_PREFIX + refusal.reason,
         **wire_encoding.outcome_fields(refusal, wire_form),
-        'status': refusal._status,
+        'status': status,
         'instance': f'urn:uuid:{request_id}',
     }
-    return Answer(refusal._status, body, dict(refusal._headers))
+    headers = {}
+    if refusal.retry_after_s is not None:
+        headers['Retry-After'] = str(math.ceil(refusal.retry_after_s))
+    return Answer(status, body, headers)
 
 
 def answered_by_member(exception: Exception, request_id: str) -> Answer:
