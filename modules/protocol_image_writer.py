@@ -1620,7 +1620,7 @@ class ProtocolImageWriter:
                         scan_count=scan_count,
                         # The row states the frame's own instant, the one its
                         # file states, not a second clock read after the grab.
-                        capture_time=frame_record.captured_at,
+                        capture_time=frame_record.captured_at.at,
                         name=name,
                     ):
                         _proto_outcome = 'write_aborted'

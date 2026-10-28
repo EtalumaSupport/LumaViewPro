@@ -947,6 +947,8 @@ def _plane_facts(plane: dict) -> dict:
         facts['illumination_ma'] = plane['Illumination']
     if 'IlluminationByChannel' in plane:
         facts['illumination_by_channel_ma'] = plane['IlluminationByChannel']
+    if 'IlluminationTiming' in plane:
+        facts['illumination_timing'] = plane['IlluminationTiming']
     if 'ExposureTime' in plane:
         facts['exposure_time_ms'] = plane['ExposureTime']
     if 'Gain' in plane:
@@ -963,6 +965,8 @@ def _plane_facts(plane: dict) -> dict:
     # for derived outputs strips them before passing to write_tiff.
     if 'Timestamp' in plane:
         facts['timestamp_iso'] = plane['Timestamp']
+    if 'TimestampSource' in plane:
+        facts['timestamp_source'] = plane['TimestampSource']
     if 'TimestampCameraTicks' in plane:
         facts['timestamp_camera_ticks'] = plane['TimestampCameraTicks']
     if 'TimestampCameraTickHz' in plane:
@@ -1341,6 +1345,7 @@ def build_postproc_output_metadata(
     else:
         for per_capture_field in (
             'timestamp_iso',
+            'timestamp_source',
             'timestamp_camera_ticks',
             'timestamp_camera_tick_hz',
             'frame_id',
@@ -2513,6 +2518,9 @@ def generate_tiff_data(
     if 'illumination_by_channel_ma' in metadata:
         plane['IlluminationByChannel'] = metadata['illumination_by_channel_ma']
         plane['IlluminationByChannelUnit'] = 'mA'
+    # When those currents were read (frame_record.LightTiming).
+    if 'illumination_timing' in metadata:
+        plane['IlluminationTiming'] = metadata['illumination_timing']
     if 'exposure_time_ms' in metadata:
         plane['ExposureTime'] = metadata['exposure_time_ms']
         plane['ExposureTimeUnit'] = 'ms'
@@ -2533,16 +2541,20 @@ def generate_tiff_data(
         plane['Binning'] = metadata['binning_size']
 
     # Per-frame timestamps. Each is optional -- callers that don't capture
-    # them (older static metadata builders, Stage 2-pending paths) simply
-    # omit the keys and the corresponding TIFF fields don't appear.
-    # timestamp_iso is host wall-clock when the frame was grabbed;
+    # them (older static metadata builders) simply omit the keys and the
+    # corresponding TIFF fields don't appear.
+    # timestamp_iso is the frame's time, and timestamp_source what that time
+    # is (frame_record.TimestampSource): a time is written only with its
+    # source, which the producer states -- a still and a recorded frame take
+    # their time from different clocks, and a defaulted source would name the
+    # wrong one;
     # timestamp_camera_ticks is the camera-side ChunkTimestamp value;
     # timestamp_camera_tick_hz is the camera tick frequency for converting
     # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
     # GigE). frame_id is the ChunkFrameID/Framecounter integer.
     if 'timestamp_iso' in metadata:
         plane['Timestamp'] = metadata['timestamp_iso']
-        plane['TimestampSource'] = 'host_wallclock'
+        plane['TimestampSource'] = metadata['timestamp_source']
     if 'timestamp_camera_ticks' in metadata:
         plane['TimestampCameraTicks'] = metadata['timestamp_camera_ticks']
     if 'timestamp_camera_tick_hz' in metadata:

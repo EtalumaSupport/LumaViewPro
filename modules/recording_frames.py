@@ -22,8 +22,15 @@ import modules.common_utils as common_utils
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.lumascope_api._constants import AxisState
+from modules.lumascope_api.frame_record import (
+    FrameRecord,
+    FrameTime,
+    TimestampSource,
+    delivered_frame_record,
+)
 
 if TYPE_CHECKING:
+    from drivers.camera import Frame
     from modules.coord_transformations import PlatePosition
     from modules.labware import Labware
     from modules.lumascope_api import Lumascope
@@ -150,8 +157,13 @@ class CameraTickRebaser:
         self._clock = clock
         self._offset: float | None = None
 
-    def frame_time_s(self, timestamp, chunks) -> float:
-        """Host-epoch seconds for one frame delivered by the SDK callback."""
+    def frame_time_s(
+        self,
+        timestamp: datetime.datetime | float | None,
+        chunks: Mapping[str, int | float] | None,
+    ) -> tuple[float, TimestampSource]:
+        """Host-epoch seconds for one frame delivered by the SDK callback, and
+        what they are: the camera's ticks rebased, or the host's arrival time."""
         if isinstance(timestamp, datetime.datetime):
             host_s = timestamp.timestamp()
         elif timestamp is not None:
@@ -162,8 +174,8 @@ class CameraTickRebaser:
         if self._freq and ticks is not None:
             if self._offset is None:
                 self._offset = host_s - ticks / self._freq
-            return self._offset + ticks / self._freq
-        return host_s
+            return self._offset + ticks / self._freq, TimestampSource.CAMERA_REBASED
+        return host_s, TimestampSource.HOST_ARRIVAL
 
 
 def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -297,27 +309,81 @@ def frame_fact(
     )
 
 
-def arrival_facts(
+class RecordingCamera(NamedTuple):
+    """The camera facts every frame of one recording shares, read as it
+    starts: the binning cannot change while a recording runs."""
+
+    binning_size: int
+    camera_model: str | None
+    camera_tick_hz: int | None
+
+
+def recording_camera(scope: 'Lumascope') -> RecordingCamera:
+    """The camera facts a recording's frames share, read at its start.
+
+    Raises:
+        CameraReadFailedError: The binning is unknown and the camera does
+            not answer its read.
+    """
+    camera = scope.capabilities
+    return RecordingCamera(
+        binning_size=scope.camera.binning or scope.camera.read_binning(),
+        camera_model=camera.camera_model,
+        camera_tick_hz=camera.camera_timestamp_tick_hz,
+    )
+
+
+class Arrival(NamedTuple):
+    """What a recorded frame states, read as it arrived: where it was taken
+    (``fact``), the channel it is named for (``light``), and the
+    instrument's record of it (``record``)."""
+
+    fact: FrameFact
+    light: common_utils.Light
+    record: FrameRecord
+
+
+def arrival(
     scope: 'Lumascope',
+    frame: 'Frame',
     *,
+    frame_time: FrameTime,
     channel_tiebreak: str,
     to_plate: Callable[[float, float], 'PlatePosition'] | None,
-) -> tuple[FrameFact, common_utils.Light]:
-    """What a recorded frame states, read as it arrives: where it was taken, and what lit it.
+    camera: RecordingCamera,
+) -> Arrival:
+    """What a recorded frame states, read as it arrives.
 
     The light is one read of the LEDs, so the channel a frame is named for
-    and the currents it records cannot disagree. Called on the camera
-    callback, under ``frame_fact``'s rule that nothing here raises.
+    and the currents its record states cannot disagree. Called on the camera
+    callback, under ``frame_fact``'s rule that nothing here raises: the LED
+    states and the held layer are memory reads.
 
     Args:
         scope: The scope the recording runs against.
+        frame: The frame as the camera delivered it.
+        frame_time: Its time, with what that time is.
         channel_tiebreak: The channel to record when no LED is lit -- the
             one the recording started on -- so luminescence frames are named.
         to_plate: As for ``frame_fact``.
+        camera: The recording's camera facts (``recording_camera``).
     """
-    return (
-        frame_fact(scope, to_plate=to_plate),
-        common_utils.read_light(scope.illumination, channel_tiebreak),
+    from modules.lumascope_api.illumination import snapshot_lit_pairs
+
+    readings = scope.illumination.get_led_states()
+    return Arrival(
+        fact=frame_fact(scope, to_plate=to_plate),
+        light=common_utils.light_of(readings, channel_tiebreak),
+        record=delivered_frame_record(
+            captured_at=frame_time,
+            chunks=frame.chunks,
+            frame_significant_bits=frame.significant_bits,
+            lit=dict(snapshot_lit_pairs(readings)),
+            held_channel=scope.camera.get_held_layer(),
+            binning_size=camera.binning_size,
+            camera_model=camera.camera_model,
+            camera_tick_hz=camera.camera_tick_hz,
+        ),
     )
 
 

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from modules.layer_record import Modality
 
-    from modules.lumascope_api.illumination import IlluminationAPI
+    from modules.lumascope_api.illumination import IlluminationAPI, LedReading
     from modules.scope_capabilities import FieldOfView, ScopeCapabilities
 
 
@@ -563,9 +563,14 @@ def read_light(illumination: 'IlluminationAPI', shown_layer: str) -> Light:
     recorded frame (``recording_frames.arrival_facts``) read it, so no two
     outputs can disagree about what one frame is.
     """
+    return light_of(illumination.get_led_states(), shown_layer)
+
+
+def light_of(readings: 'tuple[LedReading, ...] | None', shown_layer: str) -> Light:
+    """``read_light``'s answer from readings already taken, for a caller that
+    states the same read's currents by address too (a recorded frame)."""
     from modules.lumascope_api.illumination import snapshot_lit_pairs
 
-    readings = illumination.get_led_states()
     lit = {address for address, _ma in snapshot_lit_pairs(readings)}
     named = [r for r in readings or () if r.address in lit and r.name is not None]
     return Light(

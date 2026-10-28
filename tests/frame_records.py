@@ -9,20 +9,30 @@ description here, so a field added to the record is added once.
 import datetime
 
 from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.frame_record import FrameRecord, SettingSource
+from modules.lumascope_api.frame_record import (
+    FrameRecord,
+    FrameTime,
+    LightTiming,
+    SettingSource,
+    TimestampSource,
+)
 from modules.recording_frames import FrameFact
 
 
 def frame_record(**overrides) -> FrameRecord:
-    """A plausible single-frame record with no LED lit; override any field by name."""
+    """A plausible single-frame still's record with no LED lit; override any
+    field by name. A ``captured_at`` given as a datetime is a still's time."""
     fields = {
-        'captured_at': datetime.datetime(2026, 9, 29, 12, 0, 0),
+        'captured_at': FrameTime(
+            at=datetime.datetime(2026, 9, 29, 12, 0, 0), source=TimestampSource.HOST_WALLCLOCK
+        ),
         'exposure_ms': 10.0,
         'exposure_source': SettingSource.FRAME,
         'gain_db': 1.0,
         'gain_source': SettingSource.FRAME,
         'black_level': None,
         'illumination_ma': {},
+        'illumination_timing': LightTiming.BEFORE_GRAB,
         'frames_summed': 1,
         'frame_significant_bits': 8,
         'camera_timestamp_ticks': None,
@@ -38,6 +48,10 @@ def frame_record(**overrides) -> FrameRecord:
         'auto_gain': None,
     }
     fields.update(overrides)
+    if isinstance(fields['captured_at'], datetime.datetime):
+        fields['captured_at'] = FrameTime(
+            at=fields['captured_at'], source=TimestampSource.HOST_WALLCLOCK
+        )
     return FrameRecord(**fields)
 
 

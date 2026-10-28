@@ -50,7 +50,7 @@ from modules.lumascope_api.frame_record import (
     CapturedStill,
     ClockMapping,
     FrameRecord,
-    SettingSource,
+    grab_record,
 )
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
@@ -1235,37 +1235,21 @@ class ImagingAPI:
         level read does, rather than saving a frame whose exposure or gain
         is unknown. The record says which each is (``SettingSource``).
         """
-        exposure_us = chunks.get('ExposureTime')
-        if exposure_us is not None:
-            exposure_ms, exposure_source = exposure_us / 1000.0, SettingSource.FRAME
-        else:
-            exposure_ms, exposure_source = self._camera.read_exposure_ms(), SettingSource.READ
-        gain_db = chunks.get('Gain')
-        if gain_db is not None:
-            gain_source = SettingSource.FRAME
-        else:
-            gain_db, gain_source = self._camera.read_gain_db(), SettingSource.READ
-
-        ticks = chunks.get('Timestamp')
-        frame_id = chunks.get('FrameID')
         camera = self._scope.capabilities
         with self._state_lock:
             frames_summed, frame_significant_bits = self._last_frame_summing
-        return FrameRecord(
+        return grab_record(
             captured_at=captured_at,
-            exposure_ms=exposure_ms,
-            exposure_source=exposure_source,
-            gain_db=gain_db,
-            gain_source=gain_source,
+            chunks=chunks,
+            read_exposure_ms=self._camera.read_exposure_ms,
+            read_gain_db=self._camera.read_gain_db,
             black_level=self._black_level_for_record(),
-            illumination_ma=dict(lit),
+            lit=dict(lit),
             frames_summed=frames_summed,
             frame_significant_bits=frame_significant_bits,
-            camera_timestamp_ticks=int(ticks) if ticks is not None else None,
-            camera_tick_hz=camera.camera_timestamp_tick_hz,
-            frame_id=int(frame_id) if frame_id is not None else None,
             binning_size=self._camera._held_or_read('binning'),
             camera_model=camera.camera_model,
+            camera_tick_hz=camera.camera_timestamp_tick_hz,
             clock_mapping=clock_mapping,
             judgments=judgments,
             saturated_fraction=saturated_fraction,

@@ -88,6 +88,11 @@ class _FakeCamera:
     def frame_size(self):
         return self._frame_size
 
+    def get_held_layer(self):
+        # Read as each recorded frame arrives; this fake holds no layer's
+        # settings.
+        return None
+
     def refuse_camera_not_connected(self, member):
         # a stand-in by design: this camera is always connected; a start with
         # none is refused on the simulated scope

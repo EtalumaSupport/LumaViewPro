@@ -1585,6 +1585,7 @@ still states the major version.
 | level 44 | A position to keep is read by `scope.motion.positions_to_keep(axes, then=...)`: X, Y and Z in um from one snapshot of state and number, refused `axis_moving` while an asked axis moves, `position_unknown` while one homes or has lost its reference, and `axis_absent` for an axis the scope has no motor for, never answered 0.0. A plugin or script that keeps a position (a sweep's centre, a reference in a result, the Z it returns to) reads it here, never through `get_current_position`. `scope.protocols.focus_z_um` reads Z through it, and a bookmark and the session's `get_current_plate_position` read through it too. |
 | level 45 | A capture's record comes back with its frame and nowhere else: `session.capture_still` (the scope's `imaging.capture_still` beneath it) returns a `CapturedStill`, its `record` the frame's `FrameRecord`, whose `exposure_source` / `gain_source` say whether each is the frame's own or read beside the grab and whose `auto_gain` is a locked arm's outcome. `imaging.last_capture_info` keeps only how the latest capture waited, frame or not (`hold_ms`, `drained`, `rechecks`, `deadline_s`, `n_entry`, `active_s`): its `frame_record`, `chunk_exposure_us`, `chunk_gain_db` and `auto_gain*` keys are gone. |
 | level 46 | The turret's slot is read through `scope.motion.turret_status()` alone: `get_turret_slot`, `is_moving` and `is_current_slot_objective_set` are gone, and `get_axis_state` is no longer declared. On a scope with a turret (`capabilities.has_turret`) whose motor board is lost or never came up, `turret_status()` answers `TurretStatus('unknown', None)`, never None; None means the scope has no turret. `get_current_position` and `get_current_positions` read X, Y and Z only: `'T'` is refused `not_offered`, and the turret is left out of the positions. |
+| level 47 | A record's time says what it is: `FrameRecord.captured_at` is a `FrameTime`, its `at` the time and its `source` the clock it came from (`TimestampSource`: `host_wallclock` for a still, read after the grab returned; `host_arrival` or `camera_rebased` for a recorded frame), so a time is never read without its source. `FrameRecord.illumination_timing` (`LightTiming`) says whether its `illumination_ma` was read before the grab or as the frame arrived. A record states an exposure or a gain only with its source (`exposure_source`, `gain_source` None exactly when the value is), and `judgments` is None for a frame that was never judged. A saved file's `Plane` names its `TimestampSource` and `IlluminationTiming`. |
 
 ### Configuration queries
 
@@ -4155,6 +4156,7 @@ Reached through each `SavedStill`'s `frame`, from `session.manual_capture.captur
 - `gain_source`
 - `held_channel`
 - `illumination_ma`
+- `illumination_timing`
 - `judgments`
 - `saturated_fraction`
 
@@ -4173,6 +4175,13 @@ Reached through `CameraLimits.frame_min` and `CameraLimits.frame_max`.
 
 - `height`
 - `width`
+
+### FrameTime
+
+Reached through a `FrameRecord`'s `captured_at`.
+
+- `at`
+- `source`
 
 ### GraphOptions
 

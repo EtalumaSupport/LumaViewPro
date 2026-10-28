@@ -704,8 +704,11 @@ class TestTimestampMetadata:
     embedded in every saved frame.
     """
 
-    def test_timestamp_iso_emitted_when_provided(self, img_8bit, metadata):
+    def test_timestamp_iso_emitted_with_the_source_its_producer_states(self, img_8bit, metadata):
+        """The file names the clock the producer says its time came from: a
+        still's and a recorded frame's come from different clocks."""
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_source'] = 'camera_rebased'
         result = image_utils.generate_tiff_data(
             data=img_8bit,
             metadata=metadata,
@@ -715,10 +718,24 @@ class TestTimestampMetadata:
         )
         plane = result['metadata']['Plane']
         assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
-        assert plane['TimestampSource'] == 'host_wallclock'
+        assert plane['TimestampSource'] == 'camera_rebased'
+
+    def test_a_time_without_its_source_is_refused(self, img_8bit, metadata):
+        """No source is assumed: a defaulted one would name the wrong clock
+        for every producer that forgot to state its own."""
+        metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        with pytest.raises(KeyError, match='timestamp_source'):
+            image_utils.generate_tiff_data(
+                data=img_8bit,
+                metadata=metadata,
+                image_type='imagej',
+                color=release_color('BF'),
+                white_bits=None,
+            )
 
     def test_camera_ticks_emitted_when_provided(self, img_8bit, metadata):
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_source'] = 'host_wallclock'
         metadata['timestamp_camera_ticks'] = 1234567890123
         metadata['timestamp_camera_tick_hz'] = 1_000_000_000
         result = image_utils.generate_tiff_data(
@@ -765,6 +782,7 @@ class TestTimestampMetadata:
         # Provide host wall-clock only (camera doesn't support ChunkTimestamp,
         # e.g. IDS today). The host fields appear; the camera fields do not.
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_source'] = 'host_wallclock'
         result = image_utils.generate_tiff_data(
             data=img_8bit,
             metadata=metadata,
@@ -1323,7 +1341,11 @@ class TestPostprocMetadataRoundTrip:
 
     def test_timestamp_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
         # The per-frame timestamp reader shared the same ImageJ blindness.
-        md = {**metadata, 'timestamp_iso': '2026-03-16T12:00:00'}
+        md = {
+            **metadata,
+            'timestamp_iso': '2026-03-16T12:00:00',
+            'timestamp_source': 'host_wallclock',
+        }
         path = tmp_tiff()
         self._write(
             img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'

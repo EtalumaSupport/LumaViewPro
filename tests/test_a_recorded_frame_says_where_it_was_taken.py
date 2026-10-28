@@ -5,11 +5,13 @@ The facts are read when the frame arrives and ride the engine's queue with
 it, because the write runs later, behind the backlog; the frame's TIFF
 carries them under the still capture's position keys, so the file says what
 it is with or without a hyperstack. These tests pin the engine's carry,
-the facts' construction from the scope's tracked state, the metadata
-builder's fields, and the plate transform a recording binds at start.
+the facts' and the record's construction from the frame and the scope's
+tracked state, the frame's time and what it is, the metadata builder's
+fields, and the plate transform a recording binds at start.
 """
 
 import copy
+import datetime
 import json
 from types import SimpleNamespace
 
@@ -20,30 +22,56 @@ import tifffile as tf
 from modules.coord_transformations import PlatePosition, StageOffset
 from modules.image_save import write_video_frame
 from modules.lumascope_api import AxisPosition, AxisState
-from modules.lumascope_api.illumination import LedReading, LedState
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.common_utils import Light
-from modules.recording_frames import FrameFact, arrival_facts, frame_fact, tiff_frame_metadata
+from modules.lumascope_api.frame_record import (
+    FrameTime,
+    LightTiming,
+    SettingSource,
+    TimestampSource,
+)
+from modules.recording_frames import (
+    CameraTickRebaser,
+    FrameFact,
+    RecordingCamera,
+    arrival,
+    frame_fact,
+    tiff_frame_metadata,
+)
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from tests.camera_fakes import delivered_frame
+from tests.frame_records import frame_record
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
 from modules.layer_record import release_colors
-from tests.stock_channels import LED0, LED1, LED2
+from tests.stock_channels import LED0, LED1
 
 A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False)
 A_LIGHT = Light(channel=LED1, illumination_by_channel_ma={LED1: 100.0})
+A_TIME = FrameTime(
+    at=datetime.datetime.fromtimestamp(1755000000.0), source=TimestampSource.HOST_ARRIVAL
+)
+A_CAMERA = RecordingCamera(binning_size=2, camera_model='simulated', camera_tick_hz=1_000_000_000)
 
 
-def _fake_scope(positions, lit=None):
+def _arrival(scope, *, channel_tiebreak='BF', chunks=None, significant_bits=12):
+    frame = delivered_frame(
+        np.zeros((8, 8), dtype=np.uint16), chunks=chunks, significant_bits=significant_bits
+    )
+    return arrival(
+        scope,
+        frame,
+        frame_time=A_TIME,
+        channel_tiebreak=channel_tiebreak,
+        to_plate=None,
+        camera=A_CAMERA,
+    )
+
+
+def _fake_scope(positions):
+    # a stand-in by design: frame_fact reads only the motion API, and a
+    # position the simulator holds cannot be set unhomed or homing at will.
     return SimpleNamespace(
         motion=SimpleNamespace(axis_positions=lambda: positions, turret_status=lambda: None),
-        illumination=SimpleNamespace(
-            get_led_states=lambda: tuple(
-                LedReading(address, name, LedState.LIT, 100.0)
-                if name == lit
-                else LedReading(address, name, LedState.DARK, None)
-                for address, name in enumerate((LED0, LED1, LED2, 'BF'))
-            )
-        ),
     )
 
 
@@ -137,23 +165,91 @@ class TestTheFact:
         fact = frame_fact(scope, to_plate=None)
         assert (fact.plate_x_mm, fact.plate_y_mm, fact.z_um) == (None, None, 3.0)
 
-    def test_no_lit_led_records_the_channel_the_recording_started_on(self):
-        scope = _fake_scope({'Z': AxisPosition(AxisState.IDLE, 3.0)})
-        _fact, light = arrival_facts(scope, channel_tiebreak='Lumi', to_plate=None)
-        assert light == Light('Lumi', {})
+    def test_no_lit_led_records_the_channel_the_recording_started_on(self, sim_scope):
+        arrived = _arrival(sim_scope, channel_tiebreak='Lumi')
+        assert arrived.light == Light('Lumi', {})
+        assert arrived.record.illumination_ma == {}
 
-    def test_the_lit_led_names_the_frame_and_its_current_is_recorded(self):
-        scope = _fake_scope({'Z': AxisPosition(AxisState.IDLE, 3.0)}, lit=LED1)
-        fact, light = arrival_facts(scope, channel_tiebreak='BF', to_plate=None)
-        assert fact.z_um == 3.0
-        assert light == Light(LED1, {LED1: 100.0})
+    def test_the_lit_led_names_the_frame_and_its_current_is_recorded(self, sim_scope):
+        sim_scope.illumination.led_on(LED1, 100.0)
+        arrived = _arrival(sim_scope)
+        address = sim_scope.channel_identity.find(LED1).led_addresses[0]
+        assert arrived.light == Light(LED1, {LED1: 100.0})
+        assert arrived.record.illumination_ma == {address: 100.0}
+
+
+class TestTheRecord:
+    """A recorded frame's record states what the frame carries and what was
+    true as it arrived, and nothing it was not told."""
+
+    def test_a_frame_with_chunks_states_its_own_exposure_gain_and_clock(self, sim_scope):
+        chunks = {'ExposureTime': 25000.0, 'Gain': 6.0, 'Timestamp': 123456789, 'FrameID': 41}
+        record = _arrival(sim_scope, chunks=chunks, significant_bits=12).record
+
+        assert (record.exposure_ms, record.exposure_source) == (25.0, SettingSource.FRAME)
+        assert (record.gain_db, record.gain_source) == (6.0, SettingSource.FRAME)
+        assert (record.camera_timestamp_ticks, record.frame_id) == (123456789, 41)
+        assert record.captured_at == A_TIME
+        assert record.frame_significant_bits == 12
+        assert record.frames_summed == 1
+        assert (record.binning_size, record.camera_model, record.camera_tick_hz) == A_CAMERA
+        assert record.illumination_timing is LightTiming.ON_ARRIVAL
+        assert record.held_channel == sim_scope.camera.get_held_layer()
+
+    def test_a_frame_without_chunks_states_no_exposure_or_gain(self, sim_scope):
+        """A setting can change while a recording runs, so a frame with no
+        value of its own states none rather than a read from another moment."""
+        record = _arrival(sim_scope, chunks=None).record
+
+        assert (record.exposure_ms, record.exposure_source) == (None, None)
+        assert (record.gain_db, record.gain_source) == (None, None)
+        assert record.camera_timestamp_ticks is None
+
+    def test_a_recorded_frame_is_unjudged_and_states_no_black_level(self, sim_scope):
+        record = _arrival(sim_scope, chunks={'ExposureTime': 1000.0, 'Gain': 0.0}).record
+
+        assert record.judgments is None, 'an empty tuple would say no change was recorded'
+        assert record.black_level is None
+        assert (record.clock_mapping, record.saturated_fraction, record.dark) == (None, None, None)
+        assert record.auto_gain is None
+
+    def test_a_setting_without_its_source_is_refused(self):
+        with pytest.raises(ValueError, match='exposure and its source'):
+            frame_record(exposure_source=None)
+        with pytest.raises(ValueError, match='gain and its source'):
+            frame_record(gain_db=None)
+
+
+class TestTheFramesTime:
+    """A recorded frame's time says what it is: the camera's clock rebased
+    onto the host's, or the host's arrival time."""
+
+    def test_a_frame_with_ticks_takes_the_cameras_clock_rebased(self):
+        rebaser = CameraTickRebaser(1_000_000_000, clock=lambda: 0.0)
+        arrived_at = datetime.datetime.fromtimestamp(1755000000.0)
+        first = rebaser.frame_time_s(arrived_at, {'Timestamp': 5_000_000_000})
+        later = rebaser.frame_time_s(
+            arrived_at + datetime.timedelta(seconds=9), {'Timestamp': 5_250_000_000}
+        )
+
+        assert first == (1755000000.0, TimestampSource.CAMERA_REBASED)
+        assert later == (1755000000.25, TimestampSource.CAMERA_REBASED)
+
+    def test_a_frame_without_ticks_takes_its_arrival(self):
+        rebaser = CameraTickRebaser(1_000_000_000, clock=lambda: 0.0)
+        arrived_at = datetime.datetime.fromtimestamp(1755000000.0)
+
+        assert rebaser.frame_time_s(arrived_at, None) == (
+            1755000000.0,
+            TimestampSource.HOST_ARRIVAL,
+        )
 
 
 class TestTheLight:
     """What lit a recorded frame is one read of the scope's LEDs, named and measured from it."""
 
     def _metadata(self, scope):
-        fact, light = arrival_facts(scope, channel_tiebreak='BF', to_plate=None)
+        fact, light, _record = _arrival(scope)
         metadata, _ = tiff_frame_metadata(
             timestamp_s=1755000000.0,
             frame_number=0,

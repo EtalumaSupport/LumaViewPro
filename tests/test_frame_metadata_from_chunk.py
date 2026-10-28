@@ -138,7 +138,9 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):
         plate_y_mm=0,
         stage_z_um=0,
         objective_id='4x Oly',
-        frame_record=frame_record(exposure_ms=None, gain_db=None),
+        frame_record=frame_record(
+            exposure_ms=None, exposure_source=None, gain_db=None, gain_source=None
+        ),
         labware=plate(),
         well_label=None,
         fallback_focus=None,

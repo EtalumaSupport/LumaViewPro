@@ -67,14 +67,17 @@ from modules.exceptions import (
     VideoFramesDroppedError,
     VideoWriterFailedError,
 )
+from modules.lumascope_api.frame_record import FrameTime
 from modules.notification_center import notifications
 from modules.operation import Operation
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
     CameraTickRebaser,
-    arrival_facts,
+    RecordingCamera,
+    arrival,
     manual_frame_filename_template,
     orient_and_fit,
+    recording_camera,
     resolve_recording_pixel_size,
     tiff_frame_metadata,
 )
@@ -486,6 +489,7 @@ class ManualRecordingController:
             claimed['frame_size'] = frame_size
             claimed['pixel_size_um'] = resolve_recording_pixel_size(scope)
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
+            claimed['camera'] = recording_camera(scope) if video_as_frames else None
             claimed['config'] = RecordingConfig(
                 fps=effective_fps,
                 duration_s=duration_s,
@@ -548,7 +552,7 @@ class ManualRecordingController:
                 channel_colors=self._channel_colors(),
                 save_encoding=capture_config.save_encoding,
                 capture_depth=capture_config.capture_depth,
-                tick_freq_hz=camera.camera_timestamp_tick_hz,
+                camera=claimed['camera'],
                 hyperstack=hyperstack,
                 pixel_size_um=claimed['pixel_size_um'],
                 to_plate=claimed['to_plate'],
@@ -800,15 +804,23 @@ class ManualRecordingController:
         if engine is None or not engine.is_recording:
             return
         plan = self._plan
+        chunks = dict(frame.chunks) if frame.chunks is not None else None
+        timestamp_s, source = self._rebaser.frame_time_s(frame.timestamp, chunks)
         facts = (
-            arrival_facts(self._scope, channel_tiebreak=plan.layer, to_plate=plan.to_plate)
+            arrival(
+                self._scope,
+                frame,
+                frame_time=FrameTime(
+                    at=datetime.datetime.fromtimestamp(timestamp_s), source=source
+                ),
+                channel_tiebreak=plan.layer,
+                to_plate=plan.to_plate,
+                camera=plan.camera,
+            )
             if plan.video_as_frames
             else None
         )
-        chunks = dict(frame.chunks) if frame.chunks is not None else None
-        engine.ingest_frame(
-            frame.image, self._rebaser.frame_time_s(frame.timestamp, chunks), chunks, fact=facts
-        )
+        engine.ingest_frame(frame.image, timestamp_s, chunks, fact=facts)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
@@ -827,12 +839,18 @@ class ManualRecordingController:
 
     def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
         plan = self._plan
-        fact, light = facts
+        fact, light, _record = facts
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
         metadata, ts_filename = tiff_frame_metadata(
-            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um, fact, light
+            timestamp_s,
+            frame_number,
+            chunks,
+            plan.camera.camera_tick_hz,
+            plan.pixel_size_um,
+            fact,
+            light,
         )
         file_loc = config.output_dir / config.filename_template.format(
             n=frame_number, ts=ts_filename
@@ -1107,7 +1125,9 @@ class _RecordingPlan:
     channel_colors: layer_record.ChannelColors
     save_encoding: str
     capture_depth: int
-    tick_freq_hz: float | None
+    # The camera facts every frame shares, read at start(); None when the
+    # recording saves no frame files.
+    camera: RecordingCamera | None
     hyperstack: bool
     # Resolved once at start(), not per frame: the objective cannot change
     # mid-recording, and a per-frame resolve would let one stack hold frames

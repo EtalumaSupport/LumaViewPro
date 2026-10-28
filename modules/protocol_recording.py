@@ -58,11 +58,14 @@ from modules.exceptions import (
 )
 from modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
 from modules.notification_center import notifications
+from modules.lumascope_api.frame_record import FrameTime
 from modules.recording_frames import (
     CameraTickRebaser,
-    arrival_facts,
+    RecordingCamera,
+    arrival,
     orient_and_fit,
     protocol_frame_filename_template,
+    recording_camera,
     resolve_recording_pixel_size,
     tiff_frame_metadata,
 )
@@ -195,6 +198,7 @@ class ProtocolVideoStep:
         self._writer: VideoWriter | None = None
         self._rebaser: CameraTickRebaser | None = None
         self._tick_freq_hz: float | None = None
+        self._camera: RecordingCamera | None = None
         self._output_dir: Path | None = None
         self._frames_seen = 0
         self._last_disk_check_ts = 0.0
@@ -291,6 +295,7 @@ class ProtocolVideoStep:
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
         self._pixel_size_um = resolve_recording_pixel_size(scope)
+        self._camera = recording_camera(scope) if self._video_as_frames else None
         self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
         self._start_dt = datetime.datetime.now()
 
@@ -556,17 +561,23 @@ class ProtocolVideoStep:
         if engine is None or not engine.is_recording:
             return
         self._frames_seen += 1
+        chunks = dict(frame.chunks) if frame.chunks is not None else None
+        timestamp_s, source = self._rebaser.frame_time_s(frame.timestamp, chunks)
         facts = (
-            arrival_facts(
-                self._scope, channel_tiebreak=self._step['Color'], to_plate=self._to_plate
+            arrival(
+                self._scope,
+                frame,
+                frame_time=FrameTime(
+                    at=datetime.datetime.fromtimestamp(timestamp_s), source=source
+                ),
+                channel_tiebreak=self._step['Color'],
+                to_plate=self._to_plate,
+                camera=self._camera,
             )
             if self._video_as_frames
             else None
         )
-        chunks = dict(frame.chunks) if frame.chunks is not None else None
-        engine.ingest_frame(
-            frame.image, self._rebaser.frame_time_s(frame.timestamp, chunks), chunks, fact=facts
-        )
+        engine.ingest_frame(frame.image, timestamp_s, chunks, fact=facts)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
@@ -580,7 +591,7 @@ class ProtocolVideoStep:
 
         step = self._step
         if self._video_as_frames:
-            fact, light = facts
+            fact, light, _record = facts
             if config.bit_depth == 8 and image.dtype != np.uint8:
                 image = image_utils.convert_to_8bit(image, config.bit_depth)
             metadata, _ts_filename = tiff_frame_metadata(

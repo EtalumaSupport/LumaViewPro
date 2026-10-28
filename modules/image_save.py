@@ -383,7 +383,7 @@ def generate_image_metadata(
             common_utils.max_decimal_precision('pixel_size'),
         )
 
-    captured_at = frame_record.captured_at
+    captured_at = frame_record.captured_at.at
     # The model this scope runs as, from its identity -- the one the layers
     # and capabilities carry. The board's own report is None on a scope
     # with no motor board (every FX2 model), so it cannot name the scope.
@@ -465,6 +465,9 @@ def generate_image_metadata(
             if illumination_by_channel_ma
             else {}
         ),
+        # When the currents were read: before a still's grab, or as a
+        # recorded frame arrived, after its exposure.
+        'illumination_timing': frame_record.illumination_timing.value,
         'frames_summed': frame_record.frames_summed,
         'binning_size': frame_record.binning_size,
         'pixel_size_um': pixel_size_um,
@@ -473,6 +476,7 @@ def generate_image_metadata(
         # above -- a fake well is measured off the file forever.
         **({'well_label': well_label} if well_label else {}),
         'timestamp_iso': captured_at.isoformat(timespec='microseconds'),
+        'timestamp_source': frame_record.captured_at.source.value,
         'instrument': {
             'manufacturer': 'Etaluma',
             'model': microscope_model,
