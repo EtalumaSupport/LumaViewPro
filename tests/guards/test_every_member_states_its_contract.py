@@ -82,7 +82,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ProtocolRunner.start_zstack', 'ObjectiveUnknownError'),
         ('ProtocolRunner.start_zstack', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_composite', 'ProtocolRunRefusedError'),
-        ('ProtocolsAPI.focus_z_um', 'ProtocolRunRefusedError'),
         ('ProtocolsAPI.step_targets', 'CatalogueNameRefusedError'),
         ('ScopeSession.apply_focus_to_channel_steps', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_tiling', 'ProtocolRunRefusedError'),

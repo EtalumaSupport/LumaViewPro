@@ -555,19 +555,23 @@ class ProtocolsAPI:
             then: What the user does once Z knows its position, ending the
                 refusal (e.g. ``'save the focus'``).
 
+        Each refusal is raised, not reported: the caller's boundary
+        reports it.
+
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
-                has no Z axis, so there is no focus to save; the position
-                cache would answer 0. Logged and notified once.
-            AxisStateUnknownError: Z lost its reference, so the number it
-                answers is the last one it reported. Reported once by the
-                motion API.
+            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this
+                scope has no Z axis, so there is no focus to save.
+            HardwareCommandRefusedError: ``'scope_disconnected'`` or
+                ``'not_connected'``, Z's motor controller is out of reach
+                (as ``MotionAPI.positions_to_keep``).
+            AxisStateUnknownError: ``'position_unknown'``, Z is homing or
+                lost its reference, so the number it answers is the last
+                one it reported.
             AxisMovingError: ``'axis_moving'``, Z is moving, so its number
                 is a place it is passing through.
         """
         self._refuse_no_focus_axis(then)
-        self._scope.motion.refuse_unknown_positions(('Z',), recording=True, then=then)
-        return self._scope.motion.settled_positions(('Z',))['Z']
+        return self._scope.motion.positions_to_keep(('Z',), then=then)['Z']
 
     def check_focus_z(self, z_um: float, *, then: str) -> float:
         """A given Z, as a focus to save into a layer: one this scope's Z can reach.

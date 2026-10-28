@@ -756,6 +756,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ProtocolRunner.start_zstack parameter sequence_name': _SEQUENCE,
     'ProtocolSizeAdvisory.message field': _PROSE,
     'ProtocolsAPI.focus_z_um parameter then': _PROSE,
+    'MotionAPI.positions_to_keep parameter then': _PROSE,
     'Remedy.cancel_text field': _PROSE,
     'Remedy.confirm_text field': _PROSE,
     'RunFiles.not_written_reason field': _REASON,

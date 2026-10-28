@@ -351,14 +351,61 @@ def get_current_plate_position(
     """
     scope.motion.refuse_controller_not_connected('get_current_plate_position')
     labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
+    pos = scope.motion.settled_positions(_plate_axes(scope, axes))
+    return _on_plate(scope, labware_id, pos)
+
+
+def kept_plate_position(
+    scope: 'Lumascope', labware_id: str, axes: 'typing.Iterable[str]', *, then: str
+) -> PlateLocation:
+    """The current plate position, as a position to keep: every axis read at rest and known.
+
+    ``get_current_plate_position`` for a caller that keeps the position
+    itself and has no owner to refuse an unknown axis after the read: the
+    states and the numbers are one snapshot (``positions_to_keep``), so a
+    home that starts between a separate state question and the read cannot
+    pass the number it left behind.
+
+    Args:
+        labware_id: The plate the position is stated on.
+        axes: The stage axes the caller keeps, as ``get_current_plate_position``
+            takes them.
+        then: What the user does once the scope knows its position, ending
+            the refusal (e.g. ``'save the bookmark'``).
+
+    Returns:
+        The position on the plate, as ``get_current_plate_position`` answers.
+
+    Raises:
+        HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
+            model has a motor controller and none is connected.
+        AxisMovingError: ``'axis_moving'``, an axis it reads is moving.
+        AxisStateUnknownError: ``'position_unknown'``, an axis it reads is
+            homing or lost its reference.
+        CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            is not a plate the catalogue has.
+    """
+    # The cable before the reference: with the controller gone every axis
+    # is unknown, and the remedy is the cable, not a home.
+    scope.motion.refuse_controller_not_connected('get_current_plate_position')
+    labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
+    pos = scope.motion.positions_to_keep(_plate_axes(scope, axes), then=then)
+    return _on_plate(scope, labware_id, pos)
+
+
+def _plate_axes(scope: 'Lumascope', axes: 'typing.Iterable[str]') -> tuple[str, ...]:
+    """The axes a plate read reads: those asked that the scope has, X and Y together."""
     wanted = set(axes)
     if wanted & {'X', 'Y'}:
         wanted |= {'X', 'Y'}
     present = scope.capabilities.axes
-    pos = scope.motion.settled_positions(
-        axis for axis in ('X', 'Y', 'Z') if axis in wanted and axis in present
-    )
+    return tuple(axis for axis in ('X', 'Y', 'Z') if axis in wanted and axis in present)
 
+
+def _on_plate(
+    scope: 'Lumascope', labware_id: str, pos: 'typing.Mapping[str, float]'
+) -> PlateLocation:
+    """Stage positions, as a position on the plate ``labware_id`` names; an axis not read is None."""
     x_mm = y_mm = z_um = None
     if 'X' in pos and 'Y' in pos:
         plate = scope.runtime_state.stage_to_plate(pos['X'], pos['Y'], labware_id=labware_id)

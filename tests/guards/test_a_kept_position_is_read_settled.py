@@ -1,13 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every path that keeps the live position takes its number from the settled read.
+"""Every path that keeps the live position takes its number from a settled read.
 
-``MotionAPI.settled_positions`` reads each axis's state and number in one
-snapshot and refuses a moving axis. A keeper that read the bare cache
+``MotionAPI.positions_to_keep`` and ``settled_positions`` read each axis's
+state and number in one snapshot and refuse a moving axis;
+``positions_to_keep`` refuses an unknown or homing one there too. A keeper that read the bare cache
 (``get_current_position(s)``) instead would save a place the axis was
 passing through, and one that asked the state apart from the read would
 let a move that ended in between pass a number taken while it ran: a step
 was recorded at 5990.3 with the scope at 7000 that way. Each keeper below
-reaches the settled read through the one link named beside it, and calls
+reaches a settled read through the one link named beside it, and calls
 no bare cache read of its own.
 """
 
@@ -19,10 +20,11 @@ _RUNNER = 'modules/protocol_runner.py'
 # (file, class or None, keeper, the call that carries its number).
 _KEEPERS = (
     ('modules/config_helpers.py', None, 'get_current_plate_position', 'settled_positions'),
-    ('modules/lumascope_api/protocols.py', 'ProtocolsAPI', 'focus_z_um', 'settled_positions'),
+    ('modules/config_helpers.py', None, 'kept_plate_position', 'positions_to_keep'),
+    ('modules/lumascope_api/protocols.py', 'ProtocolsAPI', 'focus_z_um', 'positions_to_keep'),
     (_SESSION, 'ScopeSession', 'get_sequenced_capture_config', 'settled_positions'),
-    (_SESSION, 'ScopeSession', 'save_bookmark', 'get_current_plate_position'),
-    (_SESSION, 'ScopeSession', 'get_current_plate_position', 'plate_position_on'),
+    (_SESSION, 'ScopeSession', 'save_bookmark', 'kept_plate_position'),
+    (_SESSION, 'ScopeSession', 'get_current_plate_position', 'kept_plate_position'),
     (_SESSION, 'ScopeSession', 'plate_position_on', 'get_current_plate_position'),
     (_SESSION, 'ScopeSession', 'add_step', 'plate_position_on'),
     (_SESSION, 'ScopeSession', 'update_step', 'plate_position_on'),

@@ -2130,8 +2130,8 @@ class ScopeSession:
                 does not know its position (as ``get_current_plate_position``).
             AxisMovingError: ``'axis_moving'``, Z is moving, or, on a scope
                 with no Z motor, an axis the plate read reads.
-            HardwareCommandRefusedError: ``'not_connected'``, a scope with no Z
-                motor whose model's motor controller is not connected.
+            HardwareCommandRefusedError: ``'not_connected'``, the model's
+                motor controller is not connected.
         """
         import modules.config_helpers as config_helpers
 
@@ -2859,9 +2859,10 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'not_offered'``, a name in ``axes`` that
                 is not X, Y or Z. Nothing is written.
-            AxisStateUnknownError: an axis in ``axes`` does not know its
-                position, so the number it reports is not one to save.
-                Nothing is written.
+            AxisStateUnknownError: ``'position_unknown'``, an axis it reads
+                does not know its position, so the number it reports is not
+                one to save: the axes in ``axes``, X and Y together. Nothing
+                is written.
             AxisMovingError: ``'axis_moving'``, an axis it reads is moving, so
                 its number is a place it is passing through: the axes in
                 ``axes``, X and Y together. Nothing is written.
@@ -2875,10 +2876,9 @@ class ScopeSession:
         axes = tuple(axes)
         for axis in axes:
             self.scope.motion.refuse_absent('save_bookmark', axis)
-        self.scope.motion.refuse_unknown_positions(axes, recording=True, then='save the bookmark')
         # Only the axes kept are read, so a Z bookmark is saved while X moves.
-        position = config_helpers.get_current_plate_position(
-            self.scope, self.settings['protocol']['labware'], axes
+        position = config_helpers.kept_plate_position(
+            self.scope, self.settings['protocol']['labware'], axes, then='save the bookmark'
         )
         saved = PlateLocation(
             x_mm=position.x_mm if 'X' in axes else None,
@@ -5346,21 +5346,20 @@ class ScopeSession:
             Where the scope is on the plate: X and Y in mm, Z in um.
 
         Raises:
-            AxisStateUnknownError: an axis the scope has does not know its
-                position (before a home, after a lost reference), so there
-                is no position to convert. Reported once.
+            AxisStateUnknownError: ``'position_unknown'``, an axis the scope
+                has does not know its position (before a home, after a lost
+                reference, while it homes), so there is no position to
+                convert. Raised, not reported.
             AxisMovingError: ``'axis_moving'``, an axis is moving, so its
                 number is a place it is passing through.
             HardwareCommandRefusedError: ``'not_connected'``, the model's
                 motor controller is not connected.
         """
-        # The cable before the reference: with the controller gone every
-        # axis is unknown, and the remedy is the cable, not a home.
-        self.scope.motion.refuse_controller_not_connected('get_current_plate_position')
-        self.scope.motion.refuse_unknown_positions(
-            tuple(StageAxis), recording=True, then='try again'
+        import modules.config_helpers as config_helpers
+
+        return config_helpers.kept_plate_position(
+            self.scope, self.settings['protocol']['labware'], tuple(StageAxis), then='try again'
         )
-        return self.plate_position_on(self.settings['protocol']['labware'])
 
     def plate_position_on(self, labware_id: str) -> PlateLocation:
         """The stage's position in plate coordinates, on the plate ``labware_id`` names.

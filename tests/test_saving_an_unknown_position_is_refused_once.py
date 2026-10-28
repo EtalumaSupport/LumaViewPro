@@ -4,9 +4,9 @@
 Six gestures save the live position: the X, Y and Z bookmarks, Set All
 Bookmarks, Save Focus and Apply Focus to a channel's steps. An axis that
 lost its reference keeps answering the last number it reported, so each
-asks the motion API first, and the API refuses in its own words. The
-refusal raises out of the gesture's call and the boundary shows it once;
-nothing is read and nothing is written.
+reads the position through the motion API's ``positions_to_keep``, which
+refuses it in its own words. The refusal raises out of the gesture's call
+and the boundary shows it once; nothing is written.
 """
 
 from types import SimpleNamespace
@@ -82,12 +82,14 @@ def unknown(monkeypatch, centre_posts):
     """A scope whose axes do not know their positions, and what the person is shown."""
     from tests.scope_fakes import spec_scope
 
-    def _refuse(axes, *, recording, then):
+    def _refuse(axes, *, then):
         raise AxisStateUnknownError(dict.fromkeys(axes, 'unknown'), then=then)
 
     scope = spec_scope()
-    scope.motion.refuse_unknown_positions.side_effect = _refuse
+    scope.capabilities.axes = ('X', 'Y', 'Z', 'T')
+    scope.motion.positions_to_keep.side_effect = _refuse
     settings = {
+        'protocol': {'labware': '96 well microplate'},
         'bookmark': {'x': 1.0, 'y': 2.0, 'z': 3.0},
         **{layer: {'focus': 7000.0} for layer in release_catalogue()},
     }
@@ -139,8 +141,7 @@ def test_the_refusal_is_one_warning_and_nothing_is_saved(unknown, gesture):
 
     assert [(n.title, n.severity) for n in unknown.posts] == [('Scope Not Homed', Severity.WARNING)]
     assert unknown.settings == before, 'a refused save writes nothing'
+    assert unknown.scope.motion.positions_to_keep.called, 'the gesture never read a position'
     assert not unknown.scope.motion.get_current_position.called, (
-        'the position is not even read once the API refused'
+        'the position is read only through the read that refuses it'
     )
-    kwargs = unknown.scope.motion.refuse_unknown_positions.call_args.kwargs
-    assert kwargs['recording'] is True

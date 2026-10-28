@@ -2052,49 +2052,110 @@ class MotionAPI:
             if ax != Axis.T
         }
 
+    @api(reads=True)
+    def positions_to_keep(self, axes: Iterable[StageAxis], *, then: str) -> dict[StageAxis, float]:
+        """The positions of ``axes``, each one an axis at rest whose reference is known.
+
+        The read for a caller that keeps a position: a sweep's centre, a
+        reference written into a result, the Z a measurement returns to.
+        An axis's number is one to keep only while it is IDLE: while it
+        moves, the number is the motion monitor's last poll, a place the
+        axis was passing through; while it is UNKNOWN or HOMING, it is the
+        last number the axis reported before its reference was lost. The
+        states and the numbers come from one snapshot, so a home or a move
+        that starts between a separate state question and the read cannot
+        pass the number it left behind. X, Y and Z, in um. No serial I/O.
+
+        Args:
+            axes: The axes the caller keeps.
+            then: What the caller does once the scope knows the position,
+                ending the refusal (e.g. ``'start the measurement'``).
+
+        Returns:
+            dict[StageAxis, float]: Axis to its position, in the order asked.
+
+        Raises:
+            ArgumentRefusedError: ``'not_offered'``, a name in *axes* is not
+                'X', 'Y' or 'Z'.
+            HardwareCommandRefusedError: ``'scope_disconnected'`` after
+                ``disconnect()``; ``'not_connected'`` or ``'axis_absent'``,
+                an asked axis has no motor behind it (see
+                ``refuse_absent``).
+            AxisMovingError: ``'axis_moving'``, naming every asked axis
+                that is moving.
+            AxisStateUnknownError: ``'position_unknown'``, naming every
+                asked axis that is UNKNOWN or HOMING.
+        """
+        wanted, states, cache = self._snapshot_to_keep('positions_to_keep', StageAxis, axes)
+        unknown = {axis: states[axis] for axis in wanted if not self._position_known(states[axis])}
+        if unknown:
+            raise AxisStateUnknownError(unknown, then=then)
+        return {StageAxis(axis): cache[axis] for axis in wanted}
+
     def settled_positions(self, axes: Iterable[str]) -> dict[Axis, float]:
         """The positions of ``axes`` to keep, refused while any of them moves.
 
-        The one read every path that saves a position takes its number
-        from. While an axis is MOVING its cached number is the motion
-        monitor's last poll, behind the board by up to a poll, so a save
-        then would keep a place the axis was passing through. The states
-        and the numbers come from one snapshot, as ``axis_positions``
-        takes them, so a move that ends between a separate state question
-        and the read cannot pass a number taken while it ran; an IDLE
-        number is true, written only with a read taken after the arrival.
+        The read for an in-process path that states the live position in
+        something whose owner judges an unknown position after the read: a
+        step's ``step_position_unknown``, a run's ``prepare``. While an
+        axis is MOVING its cached number is the motion monitor's last
+        poll, behind the board by up to a poll, so keeping it would keep a
+        place the axis was passing through. The states and the numbers
+        come from one snapshot, as ``positions_to_keep`` takes them; an
+        IDLE number is true, written only with a read taken after the
+        arrival.
 
         Only MOVING is refused. An axis whose position is not known
-        (UNKNOWN, HOMING) answers its cached number, and every caller's
-        owner refuses it in its own words: the save's
-        ``refuse_unknown_positions``, a step's ``step_position_unknown``, a
-        run's ``prepare``. For that reason it is not part of the L2 API
-        surface: alone it would hand a caller the stale number
-        ``axis_positions`` withholds. No serial I/O.
+        (UNKNOWN, HOMING) answers its cached number, which the owner then
+        refuses in its own words; it is asked after the read, so a home
+        that starts between the two is refused, not kept. For that reason
+        it is not part of the L2 API surface: alone it would hand a caller
+        the stale number ``positions_to_keep`` refuses. No serial I/O.
 
         Args:
-            axes: The axes the caller keeps, each one this scope has a
-                position for.
+            axes: The axes the caller keeps.
 
         Returns:
             dict[Axis, float]: Axis to its position, in the order asked.
+                An axis never read since bring-up answers 0.0, which
+                nothing read; it is UNKNOWN, so its owner refuses it.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, a name in *axes* is no
                 axis name.
+            HardwareCommandRefusedError: ``'scope_disconnected'``,
+                ``'not_connected'`` or ``'axis_absent'``, an asked axis has
+                no motor behind it (see ``refuse_absent``).
             AxisMovingError: ``'axis_moving'``, naming every asked axis
                 that is moving. Raised, not reported: the caller's boundary
                 reports it.
         """
-        wanted = [refuse_unless_offered(Axis, axis, 'axes') for axis in axes]
+        wanted, _, cache = self._snapshot_to_keep('settled_positions', Axis, axes)
+        return {axis: cache.get(axis, 0.0) for axis in wanted}
+
+    def _snapshot_to_keep[E: (Axis, StageAxis)](
+        self, member: str, names: type[E], axes: Iterable[str]
+    ) -> tuple[list[E], dict[str, str], dict[str, float]]:
+        """The asked axes, and one snapshot of every state and number, once no asked axis moves.
+
+        An asked axis this scope has no motor for is refused, not answered:
+        its cache holds no number, and a 0.0 in its place would be kept as
+        a place the scope never measured.
+
+        The state lock is taken first and the cache lock inside it, as
+        ``axis_positions`` takes them.
+        """
+        wanted = [refuse_unless_offered(names, axis, 'axes') for axis in axes]
+        for axis in wanted:
+            self.refuse_absent(member, axis)
         with self._axis_state_lock:
             states = dict(self._axis_state)
             with self._pos_cache_lock:
                 cache = dict(self._pos_cache)
-        moving = [axis for axis in wanted if states.get(axis) == AxisState.MOVING]
+        moving = [axis for axis in wanted if states[axis] == AxisState.MOVING]
         if moving:
             raise AxisMovingError(moving)
-        return {axis: cache.get(axis, 0.0) for axis in wanted}
+        return wanted, states, cache
 
     def _raise_unread_axes(self, home: str, homed: tuple | list, read: set[str]) -> None:
         """After a home: raise when a homed axis could not be read.

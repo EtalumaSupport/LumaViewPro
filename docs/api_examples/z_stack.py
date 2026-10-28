@@ -96,8 +96,9 @@ def main():
         # Move Z to target position (um); returns once Z has arrived
         scope.motion.move_z(z_pos_um)
 
-        # Read back the actual position (um, from the push-based cache)
-        actual_z_um = scope.motion.axis_positions()['Z'].position_um
+        # Read back where Z came to rest (um): refused while Z moves or does
+        # not know its position, never a number it was passing through
+        actual_z_um = scope.motion.positions_to_keep(('Z',), then='capture the slice')['Z']
 
         # Capture a frame valid for the current Z + LED + exposure state.
         # No frame raises CaptureFailedError, its reason saying why.
