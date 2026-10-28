@@ -50,24 +50,23 @@ _NO_LED_IDENTITY = identity_with_layers(['Lumi'])
 
 class TestFromSettings:
     def test_default_no_scope_config_preserves_pre_filter_behavior(self):
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS)
         assert config.expects_motion is True
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
         # The stored mode is carried as itself.
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS)
         assert config.image_mode == '8bit'
         # A 12-bit image mode is carried as itself, so initialize() applies a
         # 12-bit native pixel format up front, or says it cannot.
         twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
-        config = ScopeInitConfig.from_settings(twelve, turreted=False)
+        config = ScopeInitConfig.from_settings(twelve)
         assert config.image_mode == '12bit_scientific'
 
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS620_CONFIG,
             channel_identity=_LS620_IDENTITY,
         )
@@ -77,7 +76,6 @@ class TestFromSettings:
     def test_ls820_motor_expected_via_focus(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS820_CONFIG,
             channel_identity=_LS820_IDENTITY,
         )
@@ -87,7 +85,6 @@ class TestFromSettings:
     def test_ls850t_motor_expected_via_xystage_and_turret(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS850T_CONFIG,
             channel_identity=_LS850T_IDENTITY,
         )
@@ -97,7 +94,6 @@ class TestFromSettings:
     def test_no_led_driving_layer_means_no_led_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            turreted=False,
             scope_config=_LS820_CONFIG,
             channel_identity=_NO_LED_IDENTITY,
         )
@@ -114,7 +110,7 @@ class TestAccelerationBound:
 
     def test_an_in_range_value_is_carried(self):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 50}}
-        config = ScopeInitConfig.from_settings(settings, turreted=False)
+        config = ScopeInitConfig.from_settings(settings)
         assert config.acceleration_pct == 50
 
     def test_the_api_refuses_on_the_same_bound(self):

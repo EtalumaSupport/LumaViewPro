@@ -30,7 +30,6 @@ from tests.scope_fakes import (
     bind_settings_like_a_session,
     build_scope,
     home_sim_scope,
-    record_turret_answer,
 )
 from tests.settings_fixtures import complete_settings
 
@@ -38,7 +37,6 @@ from tests.settings_fixtures import complete_settings
 @pytest.fixture(params=['LS720', 'LS850', 'LS850T'])
 def homed(request):
     s = build_scope(simulate=True, sim_model=request.param, source_path='.', register_atexit=False)
-    record_turret_answer(s)
     bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
     s.motion.home()
     s.motion.move_xy(x_um=30_000)

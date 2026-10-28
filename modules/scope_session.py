@@ -4419,7 +4419,7 @@ class ScopeSession:
         Returns:
             ``[('objective_id', stored, shipped)]`` when replaced, else ``[]``.
         """
-        if self.scope_has_turret():
+        if self.scope.capabilities.has_turret:
             return []
         stored = self.settings.get('objective_id')
         try:
@@ -4521,7 +4521,6 @@ class ScopeSession:
             self.settings,
             scope_config=scope_config,
             channel_identity=self.scope.channel_identity,
-            turreted=self.scope_has_turret(),
         )
         self.scope.initialize(config)
         self._date_an_undated_objective_confirmation()
@@ -4934,38 +4933,6 @@ class ScopeSession:
     # The objective: the question, the answer and the plain writers
     # ------------------------------------------------------------------
 
-    def scope_has_turret(self) -> bool:
-        """Does this scope have a turret, as well as it can be known?
-
-        The board when the board is talking; the declared model only when
-        it is not.
-
-        The declaration alone was wrong in the common direction. The
-        shipped template declares LS850, whose catalogue entry has no
-        turret, so a real LS850T running on shipped settings was never
-        asked for the objective at its current slot -- and whatever the
-        stored objective happened to be went on setting the image scale.
-
-        The declaration is still the answer for a motorboard that is not
-        connected, and that case is the reason it was chosen: a dead board
-        reports no axes, so believing it would say "no turret" and let the
-        scope answer with its stored objective instead of the one in the
-        light path. Between a
-        board that cannot speak and a file that can be wrong, the file is
-        the better witness.
-
-        A composition detail, not part of the L2 API surface: it exists so
-        the two startup questions below ask one question once, rather than
-        each reading the declaration and drifting apart.
-        """
-        if self.scope.motor_connected:
-            return bool(self.scope.capabilities.has_turret)
-        import modules.config_helpers as config_helpers
-
-        return config_helpers.model_has_turret(
-            self.scope.scope_models, self.scope.channel_identity.model
-        )
-
     @api(reads=True)
     def objective_question(self) -> 'ObjectiveQuestion | None':
         """Does the objective need confirming? The question, or None.
@@ -4976,12 +4943,12 @@ class ScopeSession:
         for this scope's light path (never on this install -- the settings
         template ships a default that would otherwise set image scale
         silently forever -- or only on a scope that differed in having a
-        turret), or, on a DECLARED turret model, the slot in the light
-        path has no assignment. The declared model, not the live
-        capability: a dead motorboard reports no axes, and that is exactly
-        when a stale objective must not pass unasked. The slot is the live
-        one (``motion.get_turret_slot``), so an answer names the glass that
-        is actually in the light path.
+        turret), or, on a turret scope (``capabilities.has_turret``, the
+        declared model's answer when the board did not come up, so a stale
+        objective does not pass unasked then), the slot in the light path
+        has no assignment. The slot is the live one
+        (``motion.get_turret_slot``), so an answer names the glass that is
+        actually in the light path.
 
         Four conditions withhold an owed question, each leaving one log
         line per call so a bundle can say why nothing was asked: with no
@@ -4997,15 +4964,12 @@ class ScopeSession:
         and a polled read must not log per poll.
 
         Raises:
-            ConfigurationDefectError: ``'scope_not_initialized'``, bring-up has not
-                said whether this scope has a turret (``configure_scope`` has not
-                run).
             ObjectiveUnknownError: ``'slot_unknown'``, the objective is not
                 confirmed for this light path and the turret model's slot is
                 unknown -- there is no slot to answer for until the turret is
                 homed or moved.
         """
-        has_turret = self.scope_has_turret()
+        has_turret = self.scope.capabilities.has_turret
         confirmed = self.settings['objective_confirmed']
         first_run = confirmed != self._objective_topology()
         slots = self.settings['turret_objectives']
@@ -5067,11 +5031,8 @@ class ScopeSession:
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light
                 path is unknown -- the turret is turning or has not been homed.
-            ConfigurationDefectError: ``'scope_not_initialized'``, bring-up has not
-                said whether this scope has a turret (``configure_scope`` has not
-                run).
         """
-        if not self.scope.runtime_state.is_turreted():
+        if not self.scope.capabilities.has_turret:
             return self._objective_question_at(None)
         slot = self.scope.motion.get_turret_slot()
         if slot is None:
@@ -5126,7 +5087,7 @@ class ScopeSession:
             PositionOutOfRangeError: ``slot`` is not a slot
                 number 1-4.
         """
-        if self.scope.runtime_state.is_turreted():
+        if self.scope.capabilities.has_turret:
             if slot is None:
                 raise ArgumentRefusedError('slot_required', argument='slot', value=None)
             before = self.scope.runtime_state.get_current_objective_id()
@@ -5206,7 +5167,7 @@ class ScopeSession:
         if objective_id == self.scope.runtime_state.get_current_objective_id():
             return False
         self._refuse_configuration_change_while_held('select_objective')
-        if self.scope.runtime_state.is_turreted():
+        if self.scope.capabilities.has_turret:
             self.scope.motion.move_turret(self._the_slot_holding(objective_id), restore_z=True)
         else:
             with self.settings_lock:
@@ -5235,7 +5196,7 @@ class ScopeSession:
     def _objective_topology(self) -> str:
         # Which light path a confirmation given now is for.
         turret, turretless = settings_paths.OBJECTIVE_TOPOLOGIES
-        return turret if self.scope.runtime_state.is_turreted() else turretless
+        return turret if self.scope.capabilities.has_turret else turretless
 
     def _date_an_undated_objective_confirmation(self) -> None:
         # A confirmation stored before it recorded its light path is taken as
@@ -5252,7 +5213,7 @@ class ScopeSession:
         # The scope fact is said first, before the slot or the catalogue is
         # judged: a slot write on a turretless scope lay in the settings until
         # a change of model made it a turret's assignment.
-        if not self.scope.runtime_state.is_turreted():
+        if not self.scope.capabilities.has_turret:
             turret = MissingPart.axis('T')
             raise HardwareCommandRefusedError(turret.reason, member, missing=turret)
 

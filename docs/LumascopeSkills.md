@@ -220,7 +220,7 @@ scope.no_hardware                         # True if all-null (no real hardware f
 
 The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. On a scope with a turret, the active objective is the one assigned to the slot in the light path, derived on every read: a turret move changes it, and no copy of it is stored beside the slot map. `session.objective_id` and `get_settings_snapshot()` answer it (None while it is unknown); the stored id is a turretless scope's selection, which a turret scope does not read. Which glass is in which slot is written only by `assign_turret_objective` and `clear_turret_objective`; on a scope with no turret every slot writer, and `confirm_objective` given a `slot`, is refused with `HardwareCommandRefusedError` (`axis_absent`) before the slot or the name is judged. With no turret, the active objective is the selected one, and `select_objective` moves the settings store and the scope's runtime state together. Every writer refuses an id that is not exactly a catalogue key with `CatalogueNameRefusedError` (reason `objective_not_in_catalogue`), and None as an argument of another type (`ArgumentTypeRefusedError`), before any write; a stored None read back is `ObjectiveUnknownError` (`none_selected`). The resolved optics (`[Optics   ] objective=... -> N um/px`) are recorded in the log once each time the active objective changes -- after a selection, an assignment or a turret move -- the next time it is read, so before any capture stamps it.
 
-When no one can say which objective is in the light path, it is unknown, never a stored guess: on a turreted scope, before the turret has been homed or moved since bring-up, when its slot has no assignment, or when the assignment is not in the catalogue; with no turret, before anything was selected. `scope.runtime_state.resolve_current_objective()` then raises `ObjectiveUnknownError` (a `ConfigError`; `.reason` is `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'`, `'none_selected'` or `'turret_undecided'` -- the scope has not yet recorded whether it has a turret, and `.slot` is the slot in the light path or `None`).
+When no one can say which objective is in the light path, it is unknown, never a stored guess: on a turreted scope, before the turret has been homed or moved since bring-up, when its slot has no assignment, or when the assignment is not in the catalogue; with no turret, before anything was selected. `scope.runtime_state.resolve_current_objective()` then raises `ObjectiveUnknownError` (a `ConfigError`; `.reason` is `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, and `.slot` is the slot in the light path or `None`). Whether the scope has a turret is `scope.capabilities.has_turret`: the motor board's answer when it came up, else the declared model's, so a turret scope whose board did not come up has a turret in an unknown slot.
 
 The plate decides every well position the program computes, so the Session owns it on the same terms: `select_labware` moves the settings store and the scope's runtime state together, or moves neither. It refuses -- before either store is written -- a name the labware catalogue cannot resolve with `CatalogueNameRefusedError` (reason `labware_unknown`), and settings with no usable `protocol` block to hold the selection with `ConfigurationDefectError` (`settings_not_prepared`). Plate names that were renamed still resolve, so a protocol saved under an old name is accepted rather than refused.
 
@@ -265,7 +265,6 @@ On a turret scope `confirm_objective` requires `slot` (`ArgumentRefusedError`, `
 Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware). The `scope.runtime_state` sub-API answers them, reading the session's settings, their one store, on every answer; it holds no copy and has no setter. L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. They are changed only through the Session: `session.select_objective`, `session.assign_turret_objective` / `session.clear_turret_objective`, `session.select_labware`, and `session.update_settings('stage_offset.x', ...)`. What a getter returns is a copy: changing it changes no setting.
 
 ```python
-scope.runtime_state.is_turreted()                      # True when the objective is derived from the turret slot
 scope.runtime_state.resolve_current_objective()        # (id, Objective), or raises ObjectiveUnknownError saying why
 scope.runtime_state.get_pixel_size_um()                # µm per pixel at the current objective and the camera's binning; None when unknown
 scope.runtime_state.get_field_of_view()                # FieldOfView(width_um, height_um) the camera's frame covers; None when unknown
@@ -1885,7 +1884,7 @@ scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 c
                                                  # for a switch the scope lacks -- never (0, 0)
 
 # Turret
-scope.capabilities.has_turret                    # turret presence probe
+scope.capabilities.has_turret                    # the board's answer; the declared model's when no board came up
 scope.motion.move_turret(2)                      # turret slot 1-4; any other slot raises
                                                  # PositionOutOfRangeError rather than driving
 scope.motion.get_turret_slot()                   # slot in the light path, or None when not known
@@ -2598,7 +2597,7 @@ caps = scope.capabilities
 caps.axes                       # ('X', 'Y', 'Z', 'T') on LS850T; ()         on LS620
 caps.has_focus                  # True if Z is motorized
 caps.has_xy_stage               # True if X/Y are motorized
-caps.has_turret                 # True if the turret axis is present
+caps.has_turret                 # True if the scope has a turret: 'T' in axes, or the declared model's when no board came up
 caps.model                      # e.g. 'LS850T'; the layer identity's model, '' if none
 
 # LED
@@ -3488,7 +3487,6 @@ Reached through `session.scope.runtime_state`.
 - `get_stage_offset`
 - `get_turret_config` (in-process)
 - `get_well_label`
-- `is_turreted`
 - `plate_to_stage`
 - `plate_transform` (in-process)
 - `resolve_current_objective`

@@ -2960,7 +2960,6 @@ def _sim_backed_imaging():
 
     scope.objective_helper = ObjectiveLoader()
     scope.runtime_state = RuntimeState(scope)
-    scope.runtime_state.set_turreted(False)  # the stub has no turret
     # The capture path derives the dark-floor expectation from commanded
     # LED state; these stubs command nothing, so no readings read as
     # dark-by-design (the same result the retired explicit False gave).

@@ -133,9 +133,8 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
     The caller owns shutdown: `scope.disconnect()` plus `shutdown()` on
     each executor, or the worker threads outlive the test.
     """
-    from tests.scope_fakes import record_turret_answer
 
-    scope = record_turret_answer(build_scope(simulate=True))
+    scope = build_scope(simulate=True)
     if not led:
         from drivers.null_ledboard import NullLEDBoard
 

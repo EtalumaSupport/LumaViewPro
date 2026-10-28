@@ -1,24 +1,21 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Whether a scope has a turret is answered by the board when it can be.
+"""Whether a scope has a turret is one answer: the board's when it came up, else the declared model's.
 
-The startup objective question decided by the DECLARED model -- the
+The startup objective question once decided by the DECLARED model -- the
 settings' `microscope` string looked up in scopes.json. That is right for
-exactly one case, a motorboard that is not talking: it reports no axes,
+exactly one case, a motor board that did not come up: it reports no axes,
 and that is precisely when a stale stored objective must not be adopted
 unasked. It is wrong for every other case, and the shipped template makes
 the wrong case the common one: `data/settings.json` declares LS850, whose
 catalogue entry has no turret, so a real LS850T arriving with shipped
 settings was never asked for the objective at its current slot.
 
-So: the board when the board is connected, the declaration only when it
-is not. One helper answers it, used by the two sites that asked the
-declaration directly.
+So `capabilities.has_turret` is the board's answer when a board came up,
+and the declaration's only when none did; every reader asks it.
 
-This cannot be observed in the simulator -- the simulated board's model
-IS the declared model (`ScopeSession` passes `settings['microscope']` as
-`configured_model`), so live and declared can never disagree there. The
-disagreement is therefore built directly, the way the refusal funnel's
-own test builds one.
+The simulated board's model IS the declared model (`ScopeSession` passes
+`settings['microscope']` as `configured_model`), so a board and a
+declaration that disagree are built at the capabilities' constructor.
 """
 
 from __future__ import annotations
@@ -27,8 +24,16 @@ import dataclasses
 
 import pytest
 
+import modules.lumascope_api._lumascope as lumascope_module
+from drivers.null_ledboard import NullLEDBoard
+from drivers.null_motorboard import NullMotionBoard
+from drivers.simulated_motorboard import SimulatedMotorBoard
+from modules.exceptions import ObjectiveUnknownError
+from modules.layer_record import UNRESOLVED, load_scope_models
+from modules.scope_capabilities import ScopeCapabilities
 from modules.scope_session import ScopeSession
-from tests.settings_fixtures import complete_settings
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
 @pytest.fixture
@@ -38,74 +43,103 @@ def session(tmp_path):
     s.shutdown()
 
 
-def _declare(session, model: str) -> None:
-    session.settings['microscope'] = model
+def _board(session, *, has_turret: bool) -> None:
+    """Set the scope's has-a-turret answer, independent of the declaration.
 
-
-def _board(session, *, connected: bool, has_turret: bool) -> None:
-    """Set what the LIVE hardware reports, independent of the declaration."""
+    A stand-in by design: the simulator cannot build a board whose axes
+    disagree with the declared model.
+    """
     session.scope.capabilities = dataclasses.replace(
         session.scope.capabilities, has_turret=has_turret
     )
-    session.scope.__dict__['_probe_motor_connected'] = connected
+
+
+def _sim_board(model: str) -> SimulatedMotorBoard:
+    return SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
+
+
+def _has_turret(motion, declared: str) -> bool:
+    return ScopeCapabilities.from_drivers(
+        motion=motion,
+        led=NullLEDBoard(),
+        camera=None,
+        channel_identity=dataclasses.replace(UNRESOLVED, model=declared),
+        scope_models=load_scope_models(),
+        timing_record=None,
+    ).has_turret
 
 
 class TestTheTurretFactPrefersTheBoard:
-    def test_a_connected_board_outranks_a_declaration_that_denies_it(self, session, monkeypatch):
+    def test_a_board_outranks_a_declaration_that_denies_it(self):
         """The shipped-template case: LS850 declared, a real turret present."""
-        _declare(session, 'LS850')
-        monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: True))
-        _board(session, connected=True, has_turret=True)
+        assert _has_turret(_sim_board('LS850T'), 'LS850') is True
 
-        assert session.scope_has_turret() is True
+    def test_a_board_outranks_a_declaration_that_invents_one(self):
+        assert _has_turret(_sim_board('LS850'), 'LS850T') is False
 
-    def test_a_connected_board_outranks_a_declaration_that_invents_one(self, session, monkeypatch):
-        _declare(session, 'LS850T')
-        monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: True))
-        _board(session, connected=True, has_turret=False)
-
-        assert session.scope_has_turret() is False
-
-    def test_a_disconnected_board_falls_back_to_the_declaration(self, tmp_path, monkeypatch):
-        """The case the declaration was chosen for, and it still holds.
+    def test_with_no_board_the_declaration_answers(self):
+        """The case the declaration is asked for.
 
         A dead board reports no axes. Believing it would say "no turret",
         and a stale stored objective would then be adopted without anyone
-        being asked -- which is the failure the declared model was there
-        to prevent. The model is declared when the scope is brought up,
-        the one way a declaration reaches a running scope.
+        being asked.
         """
-        session = ScopeSession.create(
-            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+        assert _has_turret(NullMotionBoard(), 'LS850T') is True
+        assert _has_turret(NullMotionBoard(), 'LS850') is False
+
+
+def test_a_turret_scope_whose_board_did_not_come_up_has_a_turret_in_no_known_slot(
+    tmp_path, monkeypatch
+):
+    """Everywhere it is asked: the capability, the objective, the slot question.
+
+    The scope is brought up as a real one whose boards were not found: the
+    registry's fallback is the null board, as it is on hardware. A stand-in
+    by design: the simulator has no scope without a motor board.
+    """
+    for registry, null_board in (
+        (lumascope_module.motor_registry, NullMotionBoard),
+        (lumascope_module.led_registry, NullLEDBoard),
+    ):
+        monkeypatch.setattr(
+            registry,
+            'create_with_fallback',
+            lambda name='auto', null_board=null_board, **kwargs: (null_board(), None),
         )
-        try:
-            monkeypatch.setattr(
-                type(session.scope), 'motor_connected', property(lambda self: False)
-            )
-            _board(session, connected=False, has_turret=False)
-
-            assert session.scope_has_turret() is True
-        finally:
-            session.shutdown()
-
-    def test_a_disconnected_board_on_a_turretless_declaration_says_no(self, session, monkeypatch):
-        _declare(session, 'LS850')
-        monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
-        _board(session, connected=False, has_turret=False)
-
-        assert session.scope_has_turret() is False
+    real_camera_create = lumascope_module.camera_registry.create
+    # No real camera in the suite: the by-name path builds the simulated one.
+    monkeypatch.setattr(
+        lumascope_module.camera_registry,
+        'create',
+        lambda name='auto', **kwargs: real_camera_create('sim', **kwargs),
+    )
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'),
+        source_path=str(installation_of_its_own()),
+        warn_pre_release=False,
+    )
+    try:
+        assert not session.scope.motor_connected
+        assert session.scope.capabilities.axes == ()
+        assert session.scope.capabilities.has_turret is True
+        with pytest.raises(ObjectiveUnknownError) as excinfo:
+            session.scope.runtime_state.resolve_current_objective()
+        assert excinfo.value.reason == 'slot_unknown'
+        with pytest.raises(ObjectiveUnknownError) as excinfo:
+            session.current_slot_objective_question()
+        assert excinfo.value.reason == 'slot_unknown'
+    finally:
+        session.shutdown()
 
 
 class TestTheQuestionUsesIt:
     def test_the_question_asks_for_a_slot_when_the_board_reports_a_turret(
         self, session, monkeypatch
     ):
-        """LS850 declared, real turret: the question must name a position."""
-        _declare(session, 'LS850')
+        """A turret scope with an empty slot: the question must name a position."""
         session.settings['objective_confirmed'] = False
         session.settings['turret_objectives'] = {1: None, 2: None, 3: None, 4: None}
-        monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: True))
-        _board(session, connected=True, has_turret=True)
+        _board(session, has_turret=True)
         # The question names the live slot, the one motion reports.
         monkeypatch.setattr(session.scope.motion, 'get_turret_slot', lambda: 1)
         monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
@@ -119,10 +153,8 @@ class TestTheQuestionUsesIt:
         )
 
     def test_no_slot_is_named_when_the_board_reports_no_turret(self, session, monkeypatch):
-        _declare(session, 'LS850T')
         session.settings['objective_confirmed'] = False
-        monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: True))
-        _board(session, connected=True, has_turret=False)
+        _board(session, has_turret=False)
         monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 
@@ -147,7 +179,7 @@ def _brought_up(tmp_path, model: str, **stored) -> ScopeSession:
         ),
         simulate=True,
     )
-    if session.scope_has_turret():
+    if session.scope.capabilities.has_turret:
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(1)
     return session
@@ -158,7 +190,7 @@ class TestAChangeOfTopologyAsksAgain:
 
     A scope brought up from the same file with the other answer owes the
     question again: the confirmed objective was confirmed for the other
-    light path. Keyed on ``scope_has_turret()``, so a model chosen in the
+    light path. Keyed on ``capabilities.has_turret``, so a model chosen in the
     GUI and a board that reports another model at bring-up are one case.
     """
 
@@ -171,7 +203,9 @@ class TestAChangeOfTopologyAsksAgain:
     ):
         first = _brought_up(tmp_path, confirmed_on, objective_confirmed=None)
         try:
-            first.confirm_objective('10x Oly', slot=1 if first.scope_has_turret() else None)
+            first.confirm_objective(
+                '10x Oly', slot=1 if first.scope.capabilities.has_turret else None
+            )
             stored = first.get_setting('objective_confirmed')
             assert first.objective_question() is None
         finally:
@@ -214,23 +248,3 @@ class TestAChangeOfTopologyAsksAgain:
             assert session.objective_question() is not None
         finally:
             session.shutdown()
-
-
-class TestTheDeclarationIsNoLongerReadDirectly:
-    def test_neither_site_calls_model_has_turret_itself(self):
-        """Two readers, one helper: a third spelling is how they diverge."""
-        import ast
-
-        from tests.ast_seams import find_def
-
-        for name in ('objective_question', 'configure_scope'):
-            fn = find_def('modules/scope_session.py', name)
-            assert fn is not None, f'{name} not found'
-            calls = [
-                node.func.attr
-                for node in ast.walk(fn)
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            ]
-            assert 'model_has_turret' not in calls, (
-                f'{name} reads the declared model directly again; ask scope_has_turret()'
-            )

@@ -29,10 +29,7 @@ from modules.zstack_config import ZStackReference
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
-    from collections.abc import Mapping
-
     from modules.executor_registry import ExecutorBundle
-    from modules.layer_record import ScopeModel
     from modules.lumascope_api._lumascope import Lumascope
     from modules.protocol import Protocol
     from modules.scope_capabilities import CameraLimits, ScopeCapabilities
@@ -296,20 +293,6 @@ def _ag_ae_channel_class(layer: str) -> Modality:
     if layer in common_utils.get_luminescence_layers():
         return Modality.LUMINESCENCE
     return Modality.FLUORESCENCE
-
-
-def model_has_turret(scopes: 'Mapping[str, ScopeModel]', model: str | None) -> bool:
-    """Does the DECLARED microscope model have a turret?
-
-    Declared -- the model the scope runs as, looked up in the scopes
-    catalogue -- rather than live capability, deliberately: a dead
-    motorboard reports no axes, and that is exactly when a stale stored
-    objective must not survive startup adoption. The caller passes the
-    running scope's model, not the stored selection, which may name a
-    model saved for the next start.
-    """
-    entry = scopes.get(model)
-    return entry is not None and entry.has_turret
 
 
 # ---------------------------------------------------------------------------

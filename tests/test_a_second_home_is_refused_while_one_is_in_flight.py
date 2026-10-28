@@ -20,7 +20,7 @@ import pytest
 
 from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
-from tests.scope_fakes import build_scope, record_turret_answer
+from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0
@@ -42,7 +42,7 @@ def scope(request, tmp_path):
         warn_pre_release=False,
     )
     try:
-        yield record_turret_answer(session.scope)
+        yield session.scope
     finally:
         session.shutdown()
 

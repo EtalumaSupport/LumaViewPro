@@ -96,7 +96,7 @@ class TestTheBringUpAdoptsTheReportedModel:
         )
         try:
             assert session.settings['microscope'] == 'LS850T'
-            assert session.scope.runtime_state.is_turreted(), (
+            assert session.scope.capabilities.has_turret, (
                 'the turret decided against the ADOPTED model'
             )
             # Derived from a slot no turret command has named yet, so

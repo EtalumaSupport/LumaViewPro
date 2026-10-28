@@ -291,7 +291,6 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
     from modules.scope_init_config import ScopeInitConfig
 
     return ScopeInitConfig(
-        turreted=False,
         binning_size=binning_size,
         frame_width=frame_width,
         frame_height=frame_height,

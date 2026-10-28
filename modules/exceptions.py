@@ -815,7 +815,6 @@ class ConfigurationDefectError(Fault, ConfigError):
         'labware_not_given': 'Configuration Fault',
         'layers_unresolved': 'Scope Model Not Known',
         'scope_not_composed': 'Configuration Fault',
-        'scope_not_initialized': 'Configuration Fault',
         'zstack_reference_unchecked': 'Configuration Fault',
         'route_shadowed': 'Configuration Fault',
     }
@@ -1327,14 +1326,11 @@ class ObjectiveUnknownError(Refusal, ConfigError):
     wrong scale into every image it names.
 
     On a scope with no turret it is unknown only before any objective was
-    selected. On any scope it is unknown before bring-up has said whether
-    the scope has a turret, since that decides where the objective comes
-    from.
+    selected.
 
     Attributes:
         reason: ``'slot_unknown'``, ``'slot_unassigned'``,
-            ``'not_in_catalogue'``, ``'none_selected'`` or
-            ``'turret_undecided'``.
+            ``'not_in_catalogue'`` or ``'none_selected'``.
         slot: The slot in the light path, or None when that is what is
             unknown.
     """
@@ -1351,10 +1347,6 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             ' -- assign the objective installed there'
         ),
         'none_selected': 'no objective has been selected',
-        'turret_undecided': (
-            'the scope has not been configured, so whether it has a turret is not known'
-            ' -- run initialize() (a ScopeSession does this at bring-up)'
-        ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 

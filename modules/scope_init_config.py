@@ -26,10 +26,6 @@ class ScopeInitConfig:
     their one store, whenever it acts on them.
     """
 
-    # The session's one has-a-turret answer. Required, never defaulted: a
-    # turreted scope treated as turretless would answer with its stored
-    # objective instead of the one in the light path.
-    turreted: bool
     binning_size: int
     frame_width: int
     frame_height: int
@@ -48,16 +44,8 @@ class ScopeInitConfig:
         settings: dict,
         scope_config: dict | None = None,
         channel_identity: object | None = None,
-        *,
-        turreted: bool,
     ) -> 'ScopeInitConfig':
         """Build config from the LVP settings dict.
-
-        turreted: the session's one has-a-turret answer
-        (``ScopeSession.scope_has_turret``). On a turreted scope the stored
-        ``objective_id`` is not required: the objective is the slot's
-        assignment, derived when asked. It is never carried: the scope
-        reads the selected objective from the settings.
 
         scope_config: the active scope's model record (``ScopeModel``),
         None for a model the catalogue does not list. Drives
@@ -82,7 +70,6 @@ class ScopeInitConfig:
         else:
             expects_led = any(layer.led_addresses for layer in channel_identity.channels)
         return cls(
-            turreted=turreted,
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],

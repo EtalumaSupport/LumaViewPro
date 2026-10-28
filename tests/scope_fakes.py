@@ -226,20 +226,26 @@ def give_camera_capabilities(scope, camera):
 
 
 def give_capabilities_of_a_camera_without_auto_modes(scope):
-    """Give a stub over a duck-typed fake driver the one capability its camera API reads.
+    """Give a stub over a duck-typed fake driver the capabilities its camera and capture read.
 
     No ``ScopeCapabilities`` can be built from such a fake (it reports no
     model or profile), and a built scope always has them before its camera
     API, which reads whether the camera has hardware auto-gain and
     auto-exposure as it brings its held modes up. This camera has neither,
-    so the API holds both Off and never asks the fake. Returns the scope.
+    so the API holds both Off and never asks the fake. A capture reads the
+    active objective, which asks whether the scope has a turret (this one
+    has none) and records its optics (unknown here). Returns the scope.
     """
     import types
 
     # a stand-in by design: the fake reports nothing a ScopeCapabilities is
     # built from, and the tests using it are about other members.
     scope.capabilities = types.SimpleNamespace(
-        camera_supports_auto_gain=False, camera_supports_auto_exposure=False
+        camera_supports_auto_gain=False,
+        camera_supports_auto_exposure=False,
+        has_turret=False,
+        pixel_size_um=None,
+        lens_focal_length_mm=None,
     )
     return scope
 
@@ -251,13 +257,16 @@ def give_camera_and_imaging(scope):
     then ``scope.camera`` over it, then ``scope.imaging`` with both. The stub
     needs its camera driver (``_camera_driver``), lanes and capabilities set
     first, since the camera reads its cache from the driver as it is built.
-    Returns the camera.
+    It is given the objective catalogue too, which a capture reads for the
+    active objective's scale. Returns the camera.
     """
     from modules.frame_validity import FrameValidity
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.camera import CameraAPI
     from modules.lumascope_api.imaging import ImagingAPI
+    from modules.objectives_loader import ObjectiveLoader
 
+    scope.objective_helper = ObjectiveLoader()
     scope.frame_validity = FrameValidity(Lumascope._frames_delivered.__get__(scope))
     scope.camera = CameraAPI(scope, scope.frame_validity)
     scope.imaging = ImagingAPI(scope, scope.camera, scope.frame_validity)
@@ -391,18 +400,6 @@ def led_reading(scope, address):
     """
     (reading,) = [r for r in scope.illumination.get_led_states() if r.address == address]
     return reading
-
-
-def record_turret_answer(scope):
-    """Record whether a bare simulated scope has a turret, and return it.
-
-    Bring-up (``Lumascope.initialize``) records the answer; until it does,
-    the scope's objective is unknown and cannot be set. For the fixtures
-    that build a bare scope and skip bring-up, this records the answer
-    bring-up would when the board is talking: the scope's own capability.
-    """
-    scope.runtime_state.set_turreted(scope.capabilities.has_turret)
-    return scope
 
 
 def spec_scope(**attrs):
@@ -557,11 +554,9 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
         ),
         stage_offset={'x': 0.0, 'y': 0.0},
     )
-    # Bring-up also records whether the scope has a turret, and startup homes
-    # every axis: the turret lands in slot 1 -- the active objective is that
+    # Startup homes every axis: the turret lands in slot 1 -- the active objective is that
     # slot's assignment, unknown until the slot is -- and a run's moves need
     # a known stage, since the run moves every step itself.
-    record_turret_answer(scope)
     home_sim_scope(scope)
 
 

@@ -45,8 +45,7 @@ def _refuse(*_a, **_kw):
 def sim_scope():
     from tests.scope_fakes import build_scope
 
-    scope = build_scope(simulate=True)
-    scope.runtime_state.set_turreted(False)
+    scope = build_scope(simulate=True, sim_model='LS850')
     bind_settings_like_a_session(scope, objective_id='4x Oly')
     yield scope
     scope.imaging.disable_streaming()

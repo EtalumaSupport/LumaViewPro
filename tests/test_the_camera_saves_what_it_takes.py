@@ -219,7 +219,6 @@ def _bring_up(prepare=None, **settings):
         prepare(scope)
     scope.initialize(
         ScopeInitConfig(
-            turreted=False,
             binning_size=int(saved['binning']['size'][0]),
             frame_width=saved['frame']['width'],
             frame_height=saved['frame']['height'],

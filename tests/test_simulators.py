@@ -614,9 +614,9 @@ class TestScaleBarObjectiveInit:
     def test_the_selected_objective_is_the_settings(self):
         """With no turret, the objective is the one the settings select."""
 
-        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+        from tests.scope_fakes import bind_settings_like_a_session
 
-        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+        scope = build_scope(simulate=True, sim_model='LS850')
         bind_settings_like_a_session(scope, objective_id='20x Oly')
         assert scope.runtime_state.get_current_objective().magnification == 20
 
@@ -633,9 +633,9 @@ class TestScaleBarObjectiveInit:
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
 
-        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+        from tests.scope_fakes import bind_settings_like_a_session
 
-        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+        scope = build_scope(simulate=True, sim_model='LS850')
         bind_settings_like_a_session(scope, objective_id='20x Oly', scale_bar={'enabled': True})
         assert scope.imaging.scale_bar_config['enabled'] is True
         assert scope.runtime_state.get_current_objective() is not None

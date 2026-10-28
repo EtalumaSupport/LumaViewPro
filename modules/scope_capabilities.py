@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from drivers.exceptions import HardwareError
 from drivers.null_ledboard import NullLEDBoard
+from drivers.null_motorboard import NullMotionBoard
 from lvp_logger import logger
 from modules import common_utils
 from modules.api_surface import api_fields
@@ -83,6 +84,30 @@ def _declared_optics(scope_models: Mapping[str, ScopeModel], model: str) -> dict
         return {}
     declared = {'PixelSize': entry.pixel_size_um, 'LensFocalLength': entry.lens_focal_length_mm}
     return {key: value for key, value in declared.items() if value is not None}
+
+
+def _has_turret(
+    axes: tuple[Axis, ...], motion: object, scope_models: Mapping[str, ScopeModel], model: str
+) -> bool:
+    """Whether this scope has a turret: the board when one came up, else the declared model.
+
+    The declaration alone was wrong in the common direction: the shipped
+    template declares LS850, whose catalogue entry has no turret, so a real
+    LS850T on shipped settings was never asked for the objective at its
+    slot, and the stored objective went on setting the image scale.
+
+    The declaration is still the answer when no board came up, and that
+    case is the reason it is asked: a dead board reports no axes, so
+    believing it would say "no turret" and let the scope answer with its
+    stored objective instead of the one in the light path. Between a board
+    that cannot speak and a file that can be wrong, the file is the better
+    witness. The axes stay the board's: a stage that answers nothing has no
+    axis to read or drive.
+    """
+    if not isinstance(motion, NullMotionBoard):
+        return Axis.T in axes
+    entry = scope_models.get(model) if model else None
+    return entry is not None and entry.has_turret
 
 
 def _declared_max_frame(
@@ -300,7 +325,10 @@ class ScopeCapabilities:
 
     has_focus: bool  # 'Z' in axes
     has_xy_stage: bool  # 'X' and 'Y' in axes
-    has_turret: bool  # 'T' in axes
+    has_turret: bool
+    """Whether this scope has a turret: 'T' in ``axes`` when the motor board
+    came up, else the declared model's catalogue entry. A turret scope whose
+    board did not come up has a turret in an unknown slot."""
 
     model: str
     """The scope model this scope runs as: the one its layer identity
@@ -654,7 +682,7 @@ class ScopeCapabilities:
             axes=axes,
             has_focus='Z' in axes,
             has_xy_stage=('X' in axes and 'Y' in axes),
-            has_turret='T' in axes,
+            has_turret=_has_turret(axes, motion, scope_models, model),
             model=model,
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,

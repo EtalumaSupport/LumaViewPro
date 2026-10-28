@@ -1197,8 +1197,7 @@ class Lumascope:
                 self._bring_up_parts[Part.LED], cause='safety_off_failed', detail=str(e)
             )
         self._report_bring_up(config)
-        self.runtime_state.set_turreted(config.turreted)
-        if config.turreted:
+        if self.capabilities.has_turret:
             # The objective is the one assigned to the slot in the light
             # path, derived on every read. An assignment the catalogue does
             # not hold reads as unknown whenever its slot is in the light

@@ -19,7 +19,7 @@ from modules.exceptions import (
     RunCheckFailedError,
 )
 from modules.lumascope_api import AxisState
-from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motion_moves import axis_move
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
@@ -32,10 +32,8 @@ from tests.test_integration import (  # noqa: F401 -- the fixtures are used by n
 @pytest.fixture
 def scope():
     s = build_scope(simulate=True, sim_model='LS720', source_path='.', register_atexit=False)
-    # Bring-up records that the scope has no turret, asks which objective is
-    # mounted and writes the stage offset; a bare scope skipped all three,
-    # and a run reads each.
-    record_turret_answer(s)
+    # Bring-up asks which objective is mounted and writes the stage offset;
+    # a bare scope skipped both, and a run reads each.
     # The shipped stage offset, which the bench LS720's index positions
     # were measured against.
     bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})

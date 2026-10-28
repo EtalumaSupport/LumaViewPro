@@ -67,12 +67,13 @@ class TestInitializeStaysOnTheCallingThread:
         from modules.scope_init_config import ScopeInitConfig
         from tests.test_composite_run_config import _settings
 
-        scope = build_scope(simulate=True, register_atexit=False)
+        # No turret, so the objective initialize settles is the stored one.
+        scope = build_scope(simulate=True, sim_model='LS850', register_atexit=False)
         try:
             scope.io_lane().protocol_start()
             scope.camera_lane().protocol_start()
             settings = bind_settings_like_a_session(scope, **_settings())
-            config = ScopeInitConfig.from_settings(settings, turreted=False)
+            config = ScopeInitConfig.from_settings(settings)
             started = time.monotonic()
             scope.initialize(config)
             elapsed = time.monotonic() - started
@@ -100,7 +101,7 @@ class TestInitializeStaysOnTheCallingThread:
             monkeypatch.setattr(board, 'leds_off', lambda: calls.append('leds_off'))
             led_changes_before = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
             settings = bind_settings_like_a_session(scope, **_settings())
-            scope.initialize(ScopeInitConfig.from_settings(settings, turreted=False))
+            scope.initialize(ScopeInitConfig.from_settings(settings))
             led_changes = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
             assert led_changes == led_changes_before
             assert calls == []

@@ -646,8 +646,8 @@ def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:
 
     The scope reads it once, from the folder it was started on, before
     anything is started, and everything else reads the scope's copy. With
-    no catalogue the declared model has no entry, `model_has_turret`
-    answers False, and a turret scope whose board is not talking is
+    no catalogue the declared model has no entry, `capabilities.has_turret`
+    answers False, and a turret scope whose board did not come up is
     configured as turretless -- answering with its stored objective
     instead of the one in the light path. So an unusable file or a
     missing section refuses, naming the file. Each model's layer rows are

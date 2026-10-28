@@ -35,10 +35,7 @@ from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
-from modules.exceptions import (
-    ConfigurationDefectError,
-    ObjectiveUnknownError,
-)
+from modules.exceptions import ObjectiveUnknownError
 from modules.api_surface import api
 from modules.scope_capabilities import FieldOfView
 
@@ -64,11 +61,6 @@ class RuntimeState:
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
-        # Set once at bring-up from the session's one has-a-turret answer.
-        # None until then: a scope nobody has configured does not know where
-        # its objective comes from, and a False here would let a turret scope
-        # answer with a stored objective.
-        self._turreted: bool | None = None
         # The objective whose optics were last recorded, so the record is
         # written once per change of the active objective, not per read.
         self._logged_objective_id: str | None = None
@@ -92,43 +84,13 @@ class RuntimeState:
             labware_id=self._scope.read_setting('protocol.labware')
         )
 
-    def set_turreted(self, turreted: bool) -> None:
-        """Record whether this scope has a turret, once, at bring-up.
-
-        This method is not part of the L2 API surface: bring-up sets it from
-        the session's one has-a-turret answer (the board when it is talking,
-        the declared model when it is not), so a turreted scope whose board
-        is dead still derives its objective -- and, with no known slot,
-        answers unknown -- rather than falling back to a stored one.
-        """
-        self._turreted = turreted
-
-    @api(reads=True)
-    def is_turreted(self) -> bool:
-        """Whether this scope derives its objective from the turret slot.
-
-        The answer bring-up recorded; every objective question asks this
-        one, so selection and derivation cannot disagree about the turret.
-
-        Raises:
-            ConfigurationDefectError: ``'scope_not_initialized'``, bring-up has not
-                recorded the answer (``Lumascope.initialize`` has not run).
-        """
-        if self._turreted is None:
-            raise ConfigurationDefectError(
-                'scope_not_initialized',
-                'whether this scope has a turret is not known: the scope has not been '
-                'configured -- run initialize() (a ScopeSession does this at bring-up)',
-            )
-        return self._turreted
-
     @api(reads=True)
     def resolve_current_objective(self) -> tuple[str, Objective]:
         """The active objective's id and record, or why it is unknown.
 
-        On a turreted scope, the objective assigned to the slot in the light
-        path (``motion.get_turret_slot``), read fresh every time; with no
-        turret, the selected one.
+        On a turreted scope (``capabilities.has_turret``), the objective
+        assigned to the slot in the light path (``motion.get_turret_slot``),
+        read fresh every time; with no turret, the selected one.
 
         Returns:
             tuple[str, Objective]: The objective id and its catalogue record.
@@ -138,8 +100,7 @@ class RuntimeState:
                 (``'slot_unknown'``), it has no assignment
                 (``'slot_unassigned'``), or its assignment is not in the
                 catalogue (``'not_in_catalogue'``); with no turret, nothing was
-                selected (``'none_selected'``); on any scope, bring-up has not
-                said whether it has a turret (``'turret_undecided'``).
+                selected (``'none_selected'``).
         """
         objective_id, objective, unknown = self._derive_current_objective()
         if unknown is not None:
@@ -179,9 +140,7 @@ class RuntimeState:
         )
 
     def _derive(self) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
-        if self._turreted is None:
-            return None, None, ObjectiveUnknownError('turret_undecided')
-        if not self._turreted:
+        if not self._scope.capabilities.has_turret:
             # The selected objective, from the settings; bring-up refused a
             # stored id the catalogue does not hold, and the one writer
             # (ScopeSession.select_objective) refuses one too.

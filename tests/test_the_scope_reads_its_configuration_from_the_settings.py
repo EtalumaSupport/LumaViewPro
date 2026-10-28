@@ -57,7 +57,7 @@ class TestAWriteIsWhatTheScopeActsOn:
             session.shutdown()
 
     def test_the_objective_with_no_turret(self, session):
-        assert not session.scope.runtime_state.is_turreted()
+        assert not session.scope.capabilities.has_turret
         objective = next(
             o
             for o in session.scope.objective_helper.get_objectives_list()

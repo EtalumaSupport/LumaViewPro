@@ -260,9 +260,7 @@ class TestSingleFlight:
         catalogue = session.scope.objective_helper.get_objectives_list
 
         def fails():
-            raise ConfigurationDefectError(
-                'scope_not_initialized', 'the scope was never initialized'
-            )
+            raise ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
 
         # A stand-in by design: a fault the simulator cannot yet produce.
         monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', fails)

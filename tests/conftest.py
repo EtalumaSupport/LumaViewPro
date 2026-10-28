@@ -1037,9 +1037,9 @@ def sim_scope():
     own plate or objective with ``bind_settings_like_a_session``.
     """
 
-    from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+    from tests.scope_fakes import bind_settings_like_a_session
 
-    s = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+    s = build_scope(simulate=True, sim_model='LS850')
     bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')

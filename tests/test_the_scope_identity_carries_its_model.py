@@ -128,7 +128,7 @@ class TestAModelSelectionAppliesAtTheNextStart:
         # for the next start.
         ls620_session.select_model('LS850T')
         assert ls620_session.scope.motor_connected is False
-        assert ls620_session.scope_has_turret() is False
+        assert ls620_session.scope.capabilities.has_turret is False
 
 
 class TestNothingReselectsARunningScope:

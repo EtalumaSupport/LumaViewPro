@@ -165,7 +165,7 @@ class TestTheQuestionIsRendered:
         h = _Harness(
             monkeypatch,
             _ScriptedSession(
-                ConfigurationDefectError('scope_not_initialized', 'the scope was never initialized')
+                ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
             ),
         )
         h.prompt()
@@ -175,7 +175,7 @@ class TestTheQuestionIsRendered:
         assert [(n.severity, n.title) for n in centre_posts] == [
             (Severity.ERROR, 'Configuration Fault')
         ]
-        assert 'initialized' not in centre_posts[0].message
+        assert 'bound' not in centre_posts[0].message
         assert h.error_popups == []
 
 
@@ -206,7 +206,7 @@ class TestTheContinuationFollowsTheQuestion:
         h = _Harness(
             monkeypatch,
             _ScriptedSession(
-                ConfigurationDefectError('scope_not_initialized', 'the scope was never initialized')
+                ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
             ),
         )
         runs = self._prompt(h)
