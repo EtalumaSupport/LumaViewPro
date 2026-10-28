@@ -32,10 +32,12 @@ from modules.api_surface import (
     sets_of,
 )
 from modules.coord_transformations import StageOffset
+from modules.exceptions import ConfigurationDefectError
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.notification_center import UNTYPED_FAULT_TITLE
 from modules.operation import Operation
 from modules.scope_session import ScopeSession
+import rest.app
 from rest.app import SERVER_SEGMENTS, build_app
 from rest.routes import routes
 from tests.settings_fixtures import complete_settings
@@ -525,3 +527,13 @@ def test_a_call_that_ends_its_thread_is_answered_as_a_fault(session, monkeypatch
     assert answer.status_code == 500
     assert answer.headers['content-type'] == 'application/problem+json'
     assert (answer.json()['kind'], answer.json()['title']) == ('fault', UNTYPED_FAULT_TITLE)
+
+
+def test_a_session_member_named_as_a_server_route_fails_the_build(session, monkeypatch):
+    """A Session member the server's own route would shadow is a program defect, found when the server is built."""
+    # ScopeSession.app_version is served at /api/v1/app_version.
+    monkeypatch.setattr(rest.app, 'SERVER_SEGMENTS', SERVER_SEGMENTS | {'app_version'})
+    with pytest.raises(ConfigurationDefectError) as refused:
+        build_app(session)
+    assert refused.value.reason == 'route_shadowed'
+    assert "['app_version']" in str(refused.value)

@@ -39,7 +39,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import image_utils, wire_encoding
 from modules.api_surface import api
-from modules.exceptions import ServerRefusedError, UnfitArgument
+from modules.exceptions import ConfigurationDefectError, ServerRefusedError, UnfitArgument
 from modules.operation import Operation
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
@@ -144,6 +144,11 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     interactive reference at ``/docs``. The event stream hears the scope
     while the application is served, from its startup to its shutdown.
     Its close is ``app.state.closing``; its live view ``app.state.live``.
+
+    Raises:
+        ConfigurationDefectError: ``route_shadowed``, a Session member is
+            named as one of the server's own routes, so a client could not
+            reach it.
     """
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
@@ -210,7 +215,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
     if shadowed:
-        raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
+        raise ConfigurationDefectError(
+            'route_shadowed',
+            f"Session members {sorted(shadowed)} are named as the server's own routes",
+        )
     for route in session_routes:
         _add(app, session, registry, jobs, stream, closing, keys, classes, route)
     for cls in sorted(handed_out, key=lambda c: c.__name__):

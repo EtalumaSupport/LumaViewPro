@@ -817,6 +817,7 @@ class ConfigurationDefectError(Fault, ConfigError):
         'scope_not_composed': 'Configuration Fault',
         'scope_not_initialized': 'Configuration Fault',
         'zstack_reference_unchecked': 'Configuration Fault',
+        'route_shadowed': 'Configuration Fault',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
     _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'layers_unresolved'})
