@@ -78,11 +78,14 @@ def capture_ctx(tmp_path):
     )
 
 
-def _run_on_the_calling_thread(impl, name, args=(), *, waiter):
+def _run_on_the_calling_thread(impl, name, args=(), *, waiter, bound_s):
+    # Settled before it returns, so the bound never runs out: the caller's
+    # outcome is the waiter's.
     try:
         waiter.set_result(impl(*args))
     except Exception as exc:
         waiter.set_exception(exc)
+    return waiter
 
 
 def _run_capture(ctx, sum_count=1):

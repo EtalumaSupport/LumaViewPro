@@ -11,6 +11,7 @@ left, and never logged by both.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import threading
 import time
@@ -162,6 +163,42 @@ class TestATimedOutCall:
         records = _outcome_records(caplog)
         assert [(r.levelno, bool(r.exc_info)) for r in records] == [(logging.ERROR, True)]
         assert 'late fault' in records[0].getMessage()
+
+    def test_a_submitted_tasks_fault_after_its_bound_is_logged_not_shown(
+        self, lane, centre_posts, caplog
+    ):
+        """``bounded`` tells its caller the task is still running, as ``call``
+        does, and the fault that comes after is logged once, not shown."""
+        release = threading.Event()
+
+        def _slow_then_fail():
+            release.wait(_WAIT_S)
+            raise RuntimeError('late fault')
+
+        waiter = concurrent.futures.Future()
+        waiter.set_running_or_notify_cancel()
+        with caplog.at_level(logging.DEBUG):
+            lane.submit(IOTask(action=_slow_then_fail), 'still', waiter=waiter)
+            told = lane.bounded(waiter, 'still', 0.05)
+            with pytest.raises(LaneCallStillRunningError) as raised:
+                told.result(timeout=_WAIT_S)
+            release.set()
+            # The fault is logged in the waiter's callback, on the lane, before
+            # the lane takes its next task.
+            _drain(lane)
+
+        assert (raised.value.reason, raised.value.member) == ('call_overran', 'still')
+        assert centre_posts == []
+        records = _outcome_records(caplog)
+        assert [(r.levelno, bool(r.exc_info)) for r in records] == [(logging.ERROR, True)]
+        assert 'late fault' in records[0].getMessage()
+
+    def test_a_submitted_tasks_outcome_within_its_bound_is_the_callers(self, lane):
+        waiter = concurrent.futures.Future()
+        waiter.set_running_or_notify_cancel()
+        lane.submit(IOTask(action=lambda: 7), 'still', waiter=waiter)
+
+        assert lane.bounded(waiter, 'still', _WAIT_S).result(timeout=_WAIT_S) == 7
 
     def test_an_outcome_claimed_before_the_waiter_left_is_the_callers(
         self, lane, centre_posts, caplog, monkeypatch

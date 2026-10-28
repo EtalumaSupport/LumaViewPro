@@ -27,6 +27,7 @@ import modules.image_mode as image_mode
 from modules.exceptions import (
     CaptureFailedError,
     HardwareCommandRefusedError,
+    LaneCallStillRunningError,
 )
 from modules.image_mode import OutputFormat
 from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
@@ -346,6 +347,63 @@ class TestRefusalsAndFailures:
         assert refused.value.reason == 'camera_not_streaming'
         assert not list((tmp_path / 'Manual').glob('*.tiff'))
         assert not session.manual_capture.in_flight
+
+
+def _after_the_lanes_queue(session):
+    """Return once the camera lane has run everything queued before this call:
+    the lane is serial, so a marker put now runs after them."""
+    done = threading.Event()
+    session.camera_executor.put(IOTask(action=done.set))
+    assert done.wait(RESULT_TIMEOUT_S), 'the camera lane never reached the marker'
+
+
+class TestAStillIsWaitedForWithinItsBound:
+    """The still's wait is bounded: past it the caller is told the still is
+    still running, and the still may yet be taken and saved."""
+
+    @pytest.fixture
+    def short_bound(self, monkeypatch):
+        # a stand-in by design: the bound's size is not what these tests pin,
+        # only what the caller is told when it runs out.
+        from modules.manual_capture import ManualCaptureController
+
+        monkeypatch.setattr(ManualCaptureController, '_bound_s', lambda self, request: 0.2)
+
+    def test_a_still_past_its_bound_is_told_still_running_and_is_saved_after(
+        self, still_session, short_bound
+    ):
+        session, tmp_path = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            operation = session.manual_capture.capture(false_color_on=False)
+            with pytest.raises(LaneCallStillRunningError) as overran:
+                operation.result(timeout=RESULT_TIMEOUT_S)
+            assert overran.value.reason == 'call_overran'
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.manual_capture.capture(false_color_on=False)
+            assert refused.value.reason == 'capture_in_flight'
+        finally:
+            blocker.release()
+        _after_the_lanes_queue(session)
+
+        assert not session.manual_capture.in_flight
+        assert len(list((tmp_path / 'Manual').glob('*.tiff'))) == 1
+
+    def test_a_still_past_its_bound_then_dropped_unrun_frees_the_guard(
+        self, still_session, short_bound
+    ):
+        session, _ = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            operation = session.manual_capture.capture(false_color_on=False)
+            with pytest.raises(LaneCallStillRunningError):
+                operation.result(timeout=RESULT_TIMEOUT_S)
+            # The lane settles what it drops, and the guard goes with it.
+            session.camera_executor.clear_pending()
+        finally:
+            blocker.release()
+
+        assert not session.manual_capture.in_flight, 'a dropped still kept the guard'
 
 
 class TestTheRecordIsTheCapturesMoment:

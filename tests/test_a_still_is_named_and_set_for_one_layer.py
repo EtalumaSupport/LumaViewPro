@@ -275,12 +275,16 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
     the scope is taken is refused by the lane, as ``capture`` says.)"""
     controller = session.manual_capture
     taken = []
+    reads = []
     real_shown_layer = controller._shown_layer
 
     def shown_layer_after_the_scope_is_taken():
         # a stand-in by design: the scope is taken at the one point inside the
-        # running still where the timing can be made exact
-        if not taken:
+        # running still where the timing can be made exact. The first read
+        # sizes the caller's bound at the call; the second is the still's own,
+        # on the lane.
+        reads.append(1)
+        if len(reads) == 2:
             taken.append(session.activity_claim.try_claim('diagnostic'))
         return real_shown_layer()
 

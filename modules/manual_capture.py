@@ -36,6 +36,7 @@ from modules.lumascope_api.frame_record import CapturedStill, FrameRecord
 from modules.recording_frames import frame_fact
 from modules.api_surface import api, api_fields
 from modules.operation import Operation
+from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
 logger = logging.getLogger('LVP.modules.manual_capture')
 
@@ -201,8 +202,10 @@ class ManualCaptureController:
             running when it was put on the lane, or when a recording runs and
             the camera would have to change layers for the still (nothing is
             written then, and the recording is unchanged); ``CancelledError`` when the lane dropped it unrun (the
-            scope disconnected). It sets no timeout: its caller bounds its
-            own wait.
+            scope disconnected); ``LaneCallStillRunningError`` when it has
+            not finished within the bound a capture and its write are given:
+            the still may yet be taken and saved, its file logged when it is,
+            and a second still is refused ``'capture_in_flight'`` until then.
 
         Raises:
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
@@ -223,19 +226,39 @@ class ManualCaptureController:
             waiter: concurrent.futures.Future = concurrent.futures.Future()
             # Marked running before the lane holds it, so only the lane
             # settles it and nothing releases the guard a second time
-            # beside the lane.
+            # beside the lane. The guard is let go when the lane settles it,
+            # before the caller is told, and never when the bound runs out:
+            # a still past its bound may still run.
             waiter.set_running_or_notify_cancel()
+            waiter.add_done_callback(lambda _: self._release_if_unrun(request))
             # Submitted on the caller's thread, under the caller's taking: a
             # diagnostic holding the scope takes a still under its own, and
             # a run that takes the scope after this returns finds the still
             # already on the lane.
-            request.scope.camera._submit_camera(
-                self._still_body, _MEMBER, args=(request,), waiter=waiter
+            told = request.scope.camera._submit_camera(
+                self._still_body,
+                _MEMBER,
+                args=(request,),
+                waiter=waiter,
+                bound_s=self._bound_s(request),
             )
         except BaseException:
             self._in_flight.release()
             raise
-        return Operation.following(waiter, first=lambda: self._release_if_unrun(request))
+        return Operation.following(told)
+
+    def _bound_s(self, request: '_StillRequest') -> float:
+        """How long the caller waits for the still: the bound a capture's call
+        has (``ImagingAPI._capture_wait_s``) for the sum of the layer the light
+        names now (``_grab_named``'s rule), the camera's hold of that layer,
+        and the write's own stall bound. A still retaken on another light
+        shares the first capture's budget."""
+        layer = common_utils.read_light(request.scope.illumination, self._shown_layer()).channel
+        layer_config = config_helpers.get_layer_configs(request.settings, [layer])[layer]
+        grab_s = request.scope.imaging._capture_wait_s(
+            (), _CAPTURE_RETRY_BUDGET_S, layer_config['sum'], layer_config['exposure_ms'] / 1000
+        )
+        return grab_s + request.scope.camera._CAMERA_WRITE_TIMEOUT_S + WRITE_STALL_FATAL_S
 
     def _release_if_unrun(self, request: '_StillRequest') -> None:
         # Refused while queued or dropped before the lane ran the body, so

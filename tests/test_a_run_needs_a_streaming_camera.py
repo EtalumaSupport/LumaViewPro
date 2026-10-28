@@ -58,7 +58,7 @@ def test_a_run_asked_for_while_the_grab_restarts_on_the_lane_is_admitted(session
 
     waiter = Future()
     waiter.set_running_or_notify_cancel()
-    session.scope.camera._submit_camera(regrab, 'regrab', waiter=waiter)
+    session.scope.camera._submit_camera(regrab, 'regrab', waiter=waiter, bound_s=5.0)
     assert stopped.wait(5), 'the lane never ran the regrab'
     assert session.scope.imaging.is_streaming() is False
 

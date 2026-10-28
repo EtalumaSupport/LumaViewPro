@@ -1235,13 +1235,18 @@ class CameraAPI:
         )
         return self._scope._camera_executor.call(task, name, timeout_s, override=key)
 
-    def _submit_camera(self, impl, name, args=(), *, waiter):
+    def _submit_camera(self, impl, name, args=(), *, waiter, bound_s):
         """Put one camera command on the camera lane without waiting for it.
 
         The command is admitted or refused on the calling thread, as
         ``_dispatch_camera`` admits it, so a refusal raises here; its outcome
         settles ``waiter``, a Future the caller made and marked running. With
         no camera connected the outcome is the refusal naming the camera.
+
+        Returns:
+            The caller's outcome, bounded by ``bound_s`` as ``_dispatch_camera``
+            bounds a call (``SequentialIOExecutor.bounded``): ``waiter``'s, or
+            ``LaneCallStillRunningError`` once the bound runs out first.
 
         Raises:
             HardwareCommandRefusedError: the lane is closed, or a run, a
@@ -1251,7 +1256,9 @@ class CameraAPI:
         task = IOTask(
             action=self._asking_for_the_camera(impl, name, _REFUSED_WHEN_ABSENT), args=args
         )
-        self._scope._camera_executor.submit(task, name, waiter=waiter)
+        executor = self._scope._camera_executor
+        executor.submit(task, name, waiter=waiter)
+        return executor.bounded(waiter, name, bound_s)
 
     def _asking_for_the_camera(self, impl, member: str, satisfied_when_absent):
         """``impl``, run only once the camera is asked for, on the lane.

@@ -990,6 +990,59 @@ class SequentialIOExecutor:
             raise fut
         return fut
 
+    def bounded(
+        self, waiter: concurrent.futures.Future, member: str, bound_s: float
+    ) -> concurrent.futures.Future:
+        """The caller's outcome of a submitted task: its waiter's, or past ``bound_s``, still running.
+
+        ``call``'s bound for a task submitted without waiting: the returned
+        Future takes ``waiter``'s outcome when the lane settles it within
+        ``bound_s``, and otherwise ``LaneCallStillRunningError`` -- the task
+        is queued or running and may still finish. ``waiter`` itself is
+        settled by the lane on every exit as before, so whatever the
+        submitter hangs on it (a guard released when the task ends) runs
+        when the task ends, not when the bound does. An outcome that comes
+        after the bound has no one waiting for it: a failure is logged and
+        not shown, as ``call``'s late one is, and a result is logged.
+        """
+        told = concurrent.futures.Future()
+        told.set_running_or_notify_cancel()
+        lock = threading.Lock()
+
+        def settle_once(settle: Callable[[], None]) -> bool:
+            with lock:
+                if told.done():
+                    return False
+                settle()
+                return True
+
+        def overran() -> None:
+            settle_once(lambda: told.set_exception(LaneCallStillRunningError(member, bound_s)))
+
+        timer = threading.Timer(bound_s, overran)
+        timer.daemon = True
+
+        def outcome(settled: concurrent.futures.Future) -> None:
+            timer.cancel()
+            exception = settled.exception()
+            if exception is None:
+                result = settled.result()
+                if not settle_once(lambda: told.set_result(result)):
+                    logger.info(f'[{self.executor_name}] {member} finished after its {bound_s:g} s')
+            elif not settle_once(lambda: told.set_exception(exception)):
+                if isinstance(exception, CancelledError):
+                    logger.info(
+                        f'[{self.executor_name}] {member} was dropped unrun after its {bound_s:g} s'
+                    )
+                else:
+                    notifications.report_outcome(
+                        exception, solicited=False, category=f'Task:{member}', log_only=True
+                    )
+
+        timer.start()
+        waiter.add_done_callback(outcome)
+        return told
+
     def _refuse_submit(self, lane: str, cause: str, task: IOTask):
         """Narrate a refused submit at episode granularity; always returns None.
 
