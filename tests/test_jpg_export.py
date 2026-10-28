@@ -139,8 +139,8 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
 
 # --- Default significant-bits rule: one helper, three save paths ---
 #
-# The manual still resolves the payload depth once at capture (via the shared
-# capture_frame_depth rule) and hands it down; a distinctive value (not
+# The manual still takes the payload depth from its frame's record
+# (CapturedStill.significant_bits) and hands it down; a distinctive value (not
 # 8 / 12 / 16) proves the camera's reported depth flows through unchanged into
 # the post-save log line, rather than any hand-written constant.
 _CAMERA_DEPTH = 11
@@ -149,8 +149,6 @@ _CAMERA_DEPTH = 11
 def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
     from types import SimpleNamespace
 
-    from modules.lumascope_api.imaging import ImagingAPI
-
     imaging = SimpleNamespace(
         significant_bits=significant_bits,
         binning=1,
@@ -158,10 +156,6 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
         _state_lock=threading.Lock(),
         _last_frame_summing=None,
     )
-    # The REAL shared depth rule, bound to this stub -- the tests pin that
-    # every save path resolves through one rule, so the stub must not
-    # re-implement it.
-    imaging.capture_frame_depth = lambda array: ImagingAPI.capture_frame_depth(imaging, array)
     return SimpleNamespace(
         imaging=imaging,
         runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),

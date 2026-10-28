@@ -840,15 +840,19 @@ image = session.scope.imaging.capture_and_wait()
 # (the capture calls above always force one). (None, None) when unavailable.
 frame, timestamp = session.scope.imaging.get_image_from_buffer()
 
-# Payload bit depth of a frame this scope just produced (8, 12, or for a sum
-# the bits it can reach) -- needed to interpret or rescale full-depth payloads
-# before saving. The capture knows how many frames it summed; pass only the
-# frame, and ask before the scope captures again.
-session.scope.imaging.capture_frame_depth(image)
-# The value that frame saturates at: one frame's full scale, or N of them for
-# a sum (not the tag's power of two, which a sum of blown frames misses when N
-# is not a power of two).
-session.scope.imaging.capture_frame_full_scale(image)
+# A still with its record: the image, the instrument's account of the frame
+# (FrameRecord), and the depth that account gives. Given a channel, the camera
+# holds that layer's stored exposure, gain and auto-gain for the grab.
+still = session.capture_still('BF', force_to_8bit=False)
+still.image             # the pixels, read-only
+still.record            # exposure, gain and where each came from, LEDs, frames summed...
+# Payload bit depth (8, 12, or for a sum the bits it can reach) -- needed to
+# interpret or rescale full-depth payloads before saving.
+still.significant_bits
+# The value it saturates at: one frame's full scale, or N of them for a sum
+# (not the depth's power of two, which a sum of blown frames misses when N is
+# not a power of two).
+still.full_scale
 ```
 
 **What a saved file holds.** A fluorescence still is saved mono, its layer
@@ -2455,7 +2459,7 @@ scope.imaging.frame_is_valid                       # True if next frame is valid
 scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draining
 ```
 
-For a sum, measure against `capture_frame_full_scale(image)`, the value N blown frames reach, rather than a bit depth: `capture_and_wait(all_ones_check=True)` already checks each summed frame against its own depth before summing.
+For a sum, measure against `capture_still(...).full_scale`, the value N blown frames reach, rather than a bit depth: `capture_and_wait(all_ones_check=True)` already checks each summed frame against its own depth before summing.
 
 A sum carries the bits it can reach: N frames of b bits reach N x (2^b - 1), so four 12-bit frames are a 14-bit sum, up to 16, where its 16-bit container saturates. Summing is for a brighter image, so every 8-bit rendering of a sum -- a JPG, LumaViewPro's display and overlays -- is drawn against one frame's white: four frames look four times brighter, and white wherever the sum passes one frame's full scale. A full-depth file keeps every count.
 
@@ -3424,8 +3428,6 @@ Reached through `session.scope.imaging`.
 
 - `add_frame_listener` (in-process)
 - `capture_and_wait` (in-process)
-- `capture_frame_depth` (in-process)
-- `capture_frame_full_scale` (in-process)
 - `disable_streaming`
 - `enable_streaming`
 - `frame_is_valid`

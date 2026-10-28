@@ -387,8 +387,8 @@ class ImagingAPI:
         self._last_capture_info = None
         # (frames summed, each frame's delivered depth) of the frame the last
         # capture produced, set by the reducer that summed it, or None before
-        # the first. The one account of a capture's sum: its record and
-        # capture_frame_depth both read it, so no caller restates the count.
+        # the first. The one account of a capture's sum, read only by the
+        # record the capture builds, so no caller restates the count.
         self._last_frame_summing: tuple[int, int] | None = None
 
         # Frame validity -- ground-truth for "is this frame ready to score /
@@ -1623,8 +1623,8 @@ class ImagingAPI:
                 frame from an 8-bit camera; uint16 when force_to_8bit=False
                 for 12/16-bit cameras (uint16 container holds the native bit
                 width), and for a sum on every camera (its counts pass one
-                frame's range). ``capture_frame_depth`` gives the depth the
-                frame carries.
+                frame's range). ``capture_still`` hands back the depth the
+                frame carries (``CapturedStill.significant_bits``).
         """
 
         if not self._driver or not self._driver.active:
@@ -2168,7 +2168,7 @@ class ImagingAPI:
         The depth a single captured frame should be scaled / tagged by (12 for a
         Mono12 sensor, 8 for an 8-bit one); it follows ``set_image_mode``. A
         summed frame carries the bits the sum can reach and is not described
-        by this -- ``capture_frame_depth`` answers for it. The deepest the
+        by this -- ``CapturedStill.significant_bits`` answers for it. The deepest the
         camera offers is ``capabilities.camera_max_significant_bits``.
 
         Derived from the HELD pixel format (the one the camera last reported
@@ -2179,7 +2179,7 @@ class ImagingAPI:
         camera report depth 16 here, so a fully blown frame passed the
         saturation evidence check at 0.0% and files were stamped at the
         wrong depth. A frame you are HOLDING carries its own depth
-        (``Frame.significant_bits``; ``capture_frame_depth`` for a capture).
+        (``Frame.significant_bits``; ``CapturedStill.significant_bits`` for a capture).
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the scope has no
@@ -2189,55 +2189,6 @@ class ImagingAPI:
         if driver is None:
             raise _camera_not_connected('significant_bits')
         return driver.significant_bits_for_format(self._camera.pixel_format)
-
-    @api(in_process=True, reads=True)
-    def capture_frame_depth(self, array: np.ndarray | None) -> int:
-        """Payload depth of a frame just produced by a capture call.
-
-        The one depth-classification rule every save / evidence / display
-        consumer shares: an 8-bit array carries 8 significant bits (a single
-        8-bit frame, or a capture already rendered to 8 bits), a sum carries
-        the bits it can reach (``image_utils.summed_significant_bits``), and
-        a single wider frame carries the per-frame delivery stamp. The count
-        and the stamp are the capture's own, recorded by the reducer that
-        made the frame, so no caller restates how many frames it summed. Read
-        it at capture time, before this scope captures again, and hand it
-        DOWN with the frame -- re-deriving depth later reads the camera's
-        state at that later moment, not the frame's.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, a wider frame
-                and no camera to describe it (``significant_bits``).
-        """
-        if array is not None and getattr(array, 'dtype', None) == np.uint8:
-            return 8
-        with self._state_lock:
-            summing = self._last_frame_summing
-        if summing is None:
-            return self.significant_bits
-        return image_utils.summed_significant_bits(*summing)
-
-    @api(in_process=True, reads=True)
-    def capture_frame_full_scale(self, array: np.ndarray | None) -> int:
-        """The value at which a frame just produced by a capture call is saturated.
-
-        The saturation evidence's full scale: 255 for an 8-bit array, and
-        for a wider frame what it can hold -- one frame's full scale, or N
-        of them for a sum (``image_utils.summed_full_scale``), never the
-        tag's power of two, which a sum of blown frames does not reach when N
-        is not a power of two. Read it beside ``capture_frame_depth``.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, a wider frame
-                and no camera to describe it (``significant_bits``).
-        """
-        if array is not None and getattr(array, 'dtype', None) == np.uint8:
-            return 255
-        with self._state_lock:
-            summing = self._last_frame_summing
-        if summing is None:
-            return (1 << self.significant_bits) - 1
-        return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
     @api(admitted_by=(Admission.LANE_CALL,))

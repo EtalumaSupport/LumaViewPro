@@ -2195,9 +2195,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label: {},
         )
         image_save.save_image(
-            SimpleNamespace(
-                imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
-            ),
+            SimpleNamespace(imaging=SimpleNamespace()),
             np.zeros((4, 4), dtype=np.uint8),
             save_folder=str(tmp_path),
             file_root='fc_',

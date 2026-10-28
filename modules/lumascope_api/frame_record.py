@@ -215,7 +215,9 @@ class CapturedStill:
     def significant_bits(self) -> int:
         """The depth of ``image``: 8 for an 8-bit array, else the bits its sum
         can reach (``image_utils.summed_significant_bits``); a single frame
-        is its own depth."""
+        is its own depth. The one depth rule every save, evidence and display
+        consumer shares, from the frame's own record: a depth read later from
+        the camera describes the camera then, not this frame."""
         if self.image.dtype == np.uint8:
             return 8
         return image_utils.summed_significant_bits(

@@ -13,7 +13,7 @@ of a composite) shows them against it too.
 
 Before this, an 8-bit camera's sum was clipped to 255 (the counts lost from
 every file), a 12-bit sum was tagged 16 (rendered at about a quarter of one
-frame's brightness), ``capture_frame_depth(image)`` after a sum answered one
+frame's brightness), a capture's depth after a sum answered one
 frame's depth, a sum z-projection of 12-bit slices was tagged 12 and failed
 its read-back, a hyperstack mixing 8-bit and 16-bit planes was refused, and
 an 8-bit camera was offered only the 8-bit image mode.
@@ -104,11 +104,13 @@ def test_a_value_past_what_the_sum_can_reach_is_still_refused():
 
 def test_an_8bit_cameras_sum_keeps_every_count(sim_camera):
     scope = sim_camera('Mono8')
-    image = scope.imaging.get_image(force_to_8bit=False, sum_count=4)
-    assert image.dtype == np.uint16
-    assert int(image.max()) == 4 * WHITE['Mono8']
-    assert scope.imaging.capture_frame_depth(image) == 10
-    assert scope.imaging.capture_frame_full_scale(image) == 4 * WHITE['Mono8']
+    still = scope.imaging.capture_still(
+        sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    )
+    assert still.image.dtype == np.uint16
+    assert int(still.image.max()) == 4 * WHITE['Mono8']
+    assert still.significant_bits == 10
+    assert still.full_scale == 4 * WHITE['Mono8']
 
 
 def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
@@ -121,20 +123,20 @@ def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
 
 def test_the_depth_of_a_sum_needs_no_count(sim_camera):
     scope = sim_camera('Mono12')
-    image = scope.imaging.get_image(force_to_8bit=False, sum_count=4)
-    assert int(image.max()) == 4 * WHITE['Mono12']
-    assert scope.imaging.capture_frame_depth(image) == 14
+    still = scope.imaging.capture_still(
+        sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    )
+    assert int(still.image.max()) == 4 * WHITE['Mono12']
+    assert still.significant_bits == 14
     # The depth answered is one the frame honours: no value lies past it.
-    assert int(image.max()) <= (1 << scope.imaging.capture_frame_depth(image)) - 1
+    assert int(still.image.max()) <= (1 << still.significant_bits) - 1
 
 
 def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):
     scope = sim_camera('Mono12')
-    image = scope.imaging.capture_and_wait(
-        force_to_8bit=False, sum_count=3, accept_dark=True, timeout_s=2.0
-    )
-    assert image is not None
-    record = scope.imaging.last_capture_info['frame_record']
+    record = scope.imaging.capture_still(
+        sum_count=3, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    ).record
     assert record.frames_summed == 3
     assert record.frame_significant_bits == 12
 
@@ -144,10 +146,9 @@ def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames)
     """Measured per frame at its own depth, so a sum, whose counts run past
     one frame's white, still reads blown."""
     scope = sim_camera(pixel_format)
-    scope.imaging.capture_and_wait(
-        force_to_8bit=False, sum_count=frames, all_ones_check=True, accept_dark=True, timeout_s=2.0
-    )
-    record = scope.imaging.last_capture_info['frame_record']
+    record = scope.imaging.capture_still(
+        sum_count=frames, all_ones_check=True, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    ).record
     assert record.saturated_fraction == 1.0
 
 
@@ -162,13 +163,10 @@ def ls620_session():
 
 def test_an_ls620_sum_is_16bit_and_tagged_by_its_reach(ls620_session):
     imaging = ls620_session.scope.imaging
-    image = imaging.capture_and_wait(
-        force_to_8bit=False, sum_count=4, accept_dark=True, timeout_s=2.0
-    )
-    assert image is not None
-    assert image.dtype == np.uint16
-    assert imaging.capture_frame_depth(image) == 10
-    assert imaging.last_capture_info['frame_record'].frame_significant_bits == 8
+    still = imaging.capture_still(sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    assert still.image.dtype == np.uint16
+    assert still.significant_bits == 10
+    assert still.record.frame_significant_bits == 8
 
 
 def test_every_camera_is_offered_every_mode():
@@ -582,10 +580,10 @@ def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
     assert int(jpg.min()) >= 250
 
 
-def test_the_depth_before_any_capture_is_the_cameras_stamp(sim_camera):
+def test_a_single_frames_depth_is_its_own_stamp(sim_camera):
     scope = sim_camera('Mono12')
-    assert scope.imaging.capture_frame_depth(np.zeros((4, 4), dtype=np.uint16)) == 12
-    assert scope.imaging.capture_frame_full_scale(np.zeros((4, 4), dtype=np.uint16)) == 4095
+    still = scope.imaging.capture_still(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    assert (still.significant_bits, still.full_scale) == (12, 4095)
 
 
 def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path, post_processing):

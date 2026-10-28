@@ -67,7 +67,6 @@ def capture_ctx(tmp_path):
     scope.imaging._capture_holding_layer_impl.return_value = CapturedStill(
         image=np.zeros((4, 4), dtype=np.uint8), record=record
     )
-    scope.imaging.capture_frame_depth.return_value = 8
     scope.imaging.last_capture_info = {'frame_record': record}
     scope.camera._submit_camera.side_effect = _run_on_the_calling_thread
     return types.SimpleNamespace(
@@ -276,7 +275,6 @@ class TestASumsOverlayIsDrawnAsItIsShown:
         capture_ctx.scope.imaging._capture_holding_layer_impl.return_value = CapturedStill(
             image=np.full((4, 4), 255, dtype=np.uint16), record=record
         )
-        capture_ctx.scope.imaging.capture_frame_depth.return_value = 10
         capture_ctx.scope.imaging.last_capture_info = {'frame_record': record}
 
         save_one = _run_capture(capture_ctx, sum_count=3)
