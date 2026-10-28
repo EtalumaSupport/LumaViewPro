@@ -31,6 +31,7 @@ import modules.protocol_image_writer as protocol_image_writer
 from modules.image_utils import read_postproc_input_metadata
 from modules.run_events import RunEvents
 from modules.protocol import Protocol
+from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.recording_frames import FrameFact
 from tests.frame_records import plate
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -184,6 +185,20 @@ class TestALateWriteRecordsItsFrame:
                 f'{name} is stamped {recorded}, after its write started at {write_started} '
                 '-- the timestamp is the write, not the grab'
             )
+
+    def test_the_runs_row_and_its_file_state_one_instant(self, tmp_path, monkeypatch):
+        """A captured step's row in the run record states the instant its
+        file states, the frame record's: one frame has one time, not the
+        grab's in the file and a second clock read, after the capture, in
+        the row post-processing reads a frame's time from."""
+        files = _run_with_every_write_held(
+            tmp_path, monkeypatch, [_step('D1', 0, x=20.0, gain=1.0)]
+        )
+
+        [record_file] = (tmp_path / 'runs').rglob(ProtocolExecutionRecord.DEFAULT_FILENAME)
+        [row] = ProtocolExecutionRecord.from_file(record_file).saved_entries()
+        metadata, _ = files['D1']
+        assert row['Timestamp'] == datetime.datetime.fromisoformat(metadata['timestamp_iso'])
 
     def test_a_summed_file_says_how_many_frames_it_sums(self, tmp_path, monkeypatch):
         """The exposure a summed file records is per frame; the file says how

@@ -1591,7 +1591,6 @@ class ProtocolImageWriter:
                     # The capture's image is read-only (capture_still), and
                     # the write job and frame_captured's handler hold this one
                     # array, so no handler can change the file's pixels.
-                    _success_capture_time = datetime.datetime.now()
                     if not self._submit_write(
                         kwargs={
                             'save_folder': save_folder,
@@ -1607,7 +1606,9 @@ class ProtocolImageWriter:
                         step=step,
                         step_index=curr_step,
                         scan_count=scan_count,
-                        capture_time=_success_capture_time,
+                        # The row states the frame's own instant, the one its
+                        # file states, not a second clock read after the grab.
+                        capture_time=frame_record.captured_at,
                         name=name,
                     ):
                         _proto_outcome = 'write_aborted'
