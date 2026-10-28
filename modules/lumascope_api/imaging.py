@@ -2563,9 +2563,11 @@ class ImagingAPI:
         scheduler, in every host, and reports ``CameraStreamStalledError``
         unsolicited once per stall. A stall is the count standing still
         while the camera is connected and streaming, or its grab is wanted
-        and has stopped on its own (the driver's ``grab_wanted``), for longer
-        than a frame at the current exposure can take
-        (``prologue_stall_threshold_s``). A stop someone asked for -- a
+        and has stopped on its own (the driver's ``grab_wanted``), for ten
+        times the longest exposure the camera may be using
+        (``longest_exposure_ms``, the sensor's maximum while the exposure is
+        unknown) and never less than 5 s (``prologue_stall_threshold_s``).
+        A stop someone asked for -- a
         frame-size, format or binning change restarts it -- starts the watch
         again from the next frame.
 

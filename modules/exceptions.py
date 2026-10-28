@@ -2940,8 +2940,9 @@ class CameraStreamStalledError(Fault, CaptureError):
     A camera's link or grab loop can stall without the device being removed:
     it reports itself connected and grabbing, and no frame arrives. Nothing
     is waiting on the stream when that happens, so the imaging API reports it
-    when its stream check sees the frame count stand still for longer than a
-    frame at the current exposure can take. A pulled cable meets the same
+    when its stream check sees the frame count stand still for ten times the
+    longest exposure the camera may be using (the sensor's maximum while the
+    exposure is unknown), and never less than 5 s. A pulled cable meets the same
     check first when its driver reports the removal later than that (the IDS
     SDK reports it seconds after the pull), so the words never say the camera
     is still connected.
