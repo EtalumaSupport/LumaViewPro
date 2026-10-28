@@ -25,13 +25,12 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_save as image_save
-from modules.tiling_config import TilingConfig
 from tests.ast_seams import parse_module
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 
 @pytest.fixture
@@ -112,7 +111,7 @@ class TestTheTilingChainIsHandedItsScale:
     def test_a_grid_is_laid_out_with_no_context_in_the_process(
         self, scale_capabilities, no_context
     ):
-        tiles = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS).get_tile_centers(
+        tiles = shipped_grids().get_tile_centers(
             config_label='2x2',
             focal_length=9.0,
             frame_size={'width': 1900, 'height': 1900},

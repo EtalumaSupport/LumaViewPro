@@ -4,7 +4,6 @@ Tests for ProtocolTimeEstimator -- protocol imaging time estimation.
 """
 
 import datetime
-import pathlib
 from unittest.mock import patch, MagicMock
 
 import pandas as pd
@@ -24,8 +23,7 @@ from modules.protocol_time_estimator import (
 )
 from tests.objective_records import objective
 from tests.stock_channels import LED0
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+from tests.installation_fixtures import shipped_grids
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +41,7 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None,
     protocol.steps.return_value = df
     protocol.num_steps.return_value = len(df)
     schedule = Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),

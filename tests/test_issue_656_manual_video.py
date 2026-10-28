@@ -25,6 +25,7 @@ from modules.video_builder import VideoBuilder
 from modules.layer_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 def _ts(frame_num: int) -> datetime.datetime:
@@ -151,7 +152,7 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(sim_scope, 
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
         folder,
-        tmp_path / 'tiling.json',
+        shipped_grids(),
         None,
         frame_rate_fps=5,
         enable_timestamp_overlay=False,
@@ -178,9 +179,7 @@ def test_build_from_folder_empty_is_refused(tmp_path):
     # No manual frames -> falls through to load_folder, which refuses a
     # folder holding no protocol data.
     with pytest.raises(PostProcessingRefusedError):
-        builder.build_from_folder(
-            folder, tmp_path / 'tiling.json', None, channel_colors=release_colors()
-        )
+        builder.build_from_folder(folder, shipped_grids(), None, channel_colors=release_colors())
 
 
 def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch):
@@ -194,14 +193,12 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
 
     called = {}
 
-    def fake_load_folder(path, tiling_configs_file_loc, on_progress=None, **kwargs):
+    def fake_load_folder(path, tiling_grids, on_progress=None, **kwargs):
         called['path'] = path
         return {'status': True, 'message': 'Success'}
 
     monkeypatch.setattr(builder, 'load_folder', fake_load_folder)
-    builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, channel_colors=release_colors()
-    )
+    builder.build_from_folder(folder, shipped_grids(), None, channel_colors=release_colors())
     assert called['path'] == folder
 
 
@@ -221,7 +218,7 @@ def test_timestamp_overlay_toggle_changes_output(sim_scope, tmp_path):
     builder = VideoBuilder(has_turret=False)
     builder.build_from_folder(
         off_folder,
-        tmp_path / 'tiling.json',
+        shipped_grids(),
         None,
         frame_rate_fps=5,
         enable_timestamp_overlay=False,
@@ -229,7 +226,7 @@ def test_timestamp_overlay_toggle_changes_output(sim_scope, tmp_path):
     )
     builder.build_from_folder(
         on_folder,
-        tmp_path / 'tiling.json',
+        shipped_grids(),
         None,
         frame_rate_fps=5,
         enable_timestamp_overlay=True,
@@ -259,7 +256,7 @@ def test_manual_video_renders_channel_color_from_manifest(sim_scope, tmp_path):
     )
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
+        folder, shipped_grids(), None, frame_rate_fps=5, channel_colors=release_colors()
     )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
@@ -274,7 +271,7 @@ def test_manual_video_grayscale_without_channel_color(sim_scope, tmp_path):
     )
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
+        folder, shipped_grids(), None, frame_rate_fps=5, channel_colors=release_colors()
     )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
@@ -314,7 +311,7 @@ def test_overlay_build_opens_each_tiff_once(sim_scope, tmp_path, monkeypatch):
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
         folder,
-        tmp_path / 'tiling.json',
+        shipped_grids(),
         None,
         frame_rate_fps=5,
         enable_timestamp_overlay=True,

@@ -22,9 +22,9 @@ from tests.test_issue_524_extra_z_step_on_objective_change import (
 from tests.test_protocol_roundtrip import _build_protocol, _make_step, _save_and_reload
 from modules.coord_transformations import PlateLocation
 from tests.scope_fakes import stock_unit
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
 _WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
@@ -106,9 +106,7 @@ def test_legacy_protocol_flag_recovered_by_compose_and_compare(tmp_path):
         'MyPickedSpot\t0\t0\t0\tFalse\tBF\tFalse\t50.0\t0.0\tFalse\t10.0\t1\t'
         "4x Oly\tB2\t\t-1\tFalse\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t{}\n"
     )
-    proto = Protocol.from_file(
-        file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-    )
+    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
     assert proto is not None
     # Machine-shaped name for its columns -> auto; regeneration may track a
     # future channel change.

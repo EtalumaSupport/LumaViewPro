@@ -27,6 +27,7 @@ from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.stitch_mode import StitchMode
+from modules.tiling_config import TilingGrids
 
 from lvp_logger import logger
 
@@ -343,7 +344,7 @@ class ProtocolPostProcessor(abc.ABC):
     def load_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
         select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
@@ -372,7 +373,7 @@ class ProtocolPostProcessor(abc.ABC):
         """
         return self._load_folder_inner(
             path=path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
             on_progress=on_progress,
             select=select,
             **kwargs,
@@ -450,7 +451,7 @@ class ProtocolPostProcessor(abc.ABC):
     def _load_folder_inner(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
         select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
@@ -462,7 +463,7 @@ class ProtocolPostProcessor(abc.ABC):
         selected_path = pathlib.Path(path)
         results = self._post_processing_helper.load_folder(
             path=selected_path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
         )
 
         if results['status'] is False:

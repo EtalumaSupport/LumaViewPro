@@ -17,7 +17,7 @@ import pytest
 from modules import image_utils
 from modules.exceptions import PostProcessingRefusedError
 from modules.zprojector import ZProjector
-from tests.test_capture_collision_policy import TILING_CONFIGS
+from tests.installation_fixtures import shipped_grids
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from modules.zproject_method import ZProjectMethod
@@ -93,7 +93,7 @@ def _run_folder(tmp_path, *, well='A1', protocol_file='run.tsv'):
 def _project(folder):
     return ZProjector(has_turret=False).load_folder(
         path=folder,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         method=ZProjectMethod.Min,
         channel_colors=release_colors(),
     )

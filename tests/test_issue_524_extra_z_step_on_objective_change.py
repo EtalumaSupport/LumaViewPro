@@ -37,6 +37,7 @@ from __future__ import annotations
 import ast
 import pathlib
 from modules.coord_transformations import PlateLocation
+from tests.installation_fixtures import shipped_grids
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -156,7 +157,7 @@ def _empty_protocol_for_add():
         'tiling': '1x1',
         'custom_step_count': 0,
     }
-    return Protocol(tiling_configs_file_loc=REPO / 'data' / 'tiling.json', config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 def _add_layer_config():

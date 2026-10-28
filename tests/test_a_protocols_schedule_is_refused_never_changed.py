@@ -34,10 +34,10 @@ from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
 from tests.scope_fakes import stock_unit
+from tests.installation_fixtures import shipped_grids
 from modules.protocol import StoredNames
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING = REPO / 'data' / 'tiling.json'
 TEMPLATE = REPO / 'data' / 'settings.json'
 PERIOD = datetime.timedelta(minutes=5)
 DURATION = datetime.timedelta(hours=2)
@@ -63,7 +63,7 @@ def _schedule_s(protocol: Protocol) -> tuple:
 
 def _protocol(period=PERIOD, duration=DURATION) -> Protocol:
     return Protocol(
-        tiling_configs_file_loc=TILING,
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),
@@ -115,7 +115,7 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING, unit=stock_unit())
+            Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
 
         assert str(path) in str(refused.value)
 
@@ -127,7 +127,7 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING, unit=stock_unit())
+            Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
 
         assert str(path) in str(refused.value)
 
@@ -182,7 +182,7 @@ class TestAReaderThatNeverRunsTheProtocol:
         from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 
         loaded = ProtocolPostProcessingHelper().load_folder(
-            self._run_folder(tmp_path), tiling_configs_file_loc=TILING
+            self._run_folder(tmp_path), tiling_grids=shipped_grids()
         )
 
         assert loaded['status'], loaded.get('message')
@@ -191,14 +191,14 @@ class TestAReaderThatNeverRunsTheProtocol:
         with pytest.raises(ProtocolScheduleRefusedError):
             Protocol.from_file(
                 file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
-                tiling_configs_file_loc=TILING,
+                tiling_grids=shipped_grids(),
                 unit=stock_unit(),
             )
 
     def test_a_reader_that_does_not_judge_keeps_the_schedule_as_the_file_has_it(self, tmp_path):
         protocol = Protocol.from_file(
             file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
-            tiling_configs_file_loc=TILING,
+            tiling_grids=shipped_grids(),
             unit=StoredNames.KEPT,
         )
 

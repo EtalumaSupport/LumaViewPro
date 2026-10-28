@@ -24,7 +24,8 @@ from modules import config_helpers
 from modules.protocol import Protocol, StepEditRefusedError, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from tests.installation_fixtures import shipped_grids
 from modules.coord_transformations import PlateLocation
 
 NUM_STEPS = 3
@@ -120,7 +121,7 @@ def test_a_frame_with_its_own_index_is_written_by_position():
         index=[5, 7, 9],
     )
     protocol = Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': frame,

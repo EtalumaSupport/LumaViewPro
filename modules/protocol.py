@@ -39,7 +39,7 @@ from modules.python_values import python_values
 from modules.layer_record import refuse_unknown_layer
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware_loader as labware_loader
-from modules.tiling_config import TilingConfig
+from modules.tiling_config import TilingGrids
 from modules.zstack_config import ZStackConfig, ZStackReference
 from modules.coord_transformations import CoordinateTransformer
 from modules.acquire_mode import AcquireMode
@@ -133,14 +133,14 @@ def _refuse_build(*, reason: str, message: str) -> NoReturn:
     raise ProtocolRunRefusedError(reason=reason, message=message)
 
 
-def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> None:
+def _refuse_unless_tiling_offered(tiling_grids: TilingGrids, tiling: str) -> None:
     """Refuse a tile grid this installation's tiling.json does not offer.
 
     Both builds ask, so a new protocol and a grid over an existing one are
     refused alike; the build from a config used to raise KeyError from the
     grid lookup instead.
     """
-    if tiling not in tiling_config.available_configs():
+    if tiling not in tiling_grids.config.available:
         _refuse_build(
             reason='tiling_unknown',
             message=f'"{tiling}" is not one of the tiling grids this installation offers.',
@@ -266,7 +266,7 @@ def _fill_factor_or_refuse(overlap_percent: object) -> float:
             reason='overlap_out_of_range',
             message=f'The tile overlap must be 0 to 50 percent; {overlap_percent:g} is outside it.',
         )
-    return TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
+    return TilingGrids.fill_factor_from_overlap_percent(overlap_percent)
 
 
 def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
@@ -1317,7 +1317,7 @@ class Protocol:
 
     def __init__(
         self,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         config: dict | None = None,
         *,
         runnable: bool = True,
@@ -1325,6 +1325,9 @@ class Protocol:
         """A protocol over ``config``.
 
         Args:
+            tiling_grids: The installation's tiling grids, the scope's one
+                copy (``ProtocolsAPI.tiling_grids``): the grids this protocol
+                accepts, lays its tiles out on and names its grid from.
             runnable: False only for a reader that never runs or edits the
                 protocol (``from_file``'s, which says when): its period and
                 duration are kept as given and not held to the range, and
@@ -1336,7 +1339,7 @@ class Protocol:
             ProtocolFormatError: a step cell is not of its column's type, and
                 ``runnable`` is True.
         """
-        self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
+        self._tiling_grids = tiling_grids
 
         if config is None:
             self._config = {}
@@ -1430,8 +1433,8 @@ class Protocol:
         """
         tiles = [t for t in self._config['steps']['Tile'] if t not in (None, '')]
         if not tiles:
-            return self._tiling_config.no_tiling_label()
-        return self._tiling_config.determine_tiling_label_from_tiles(tiles)
+            return self._tiling_grids.no_tiling_label()
+        return self._tiling_grids.determine_tiling_label_from_tiles(tiles)
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
@@ -1546,7 +1549,7 @@ class Protocol:
         Copies the config dict, the steps DataFrame (which get mutated by
         autofocus Z updates) and the Layer Settings, so nothing the run
         writes reaches the caller's protocol; shares the read-only dicts in
-        the step cells and the read-only TilingConfig. Much cheaper than
+        the step cells and the read-only TilingGrids. Much cheaper than
         copy.deepcopy() for large protocols with many steps.
         """
         new_config = dict(self._config)  # shallow copy of config dict
@@ -1556,7 +1559,7 @@ class Protocol:
             new_config['layer_settings'] = copy.deepcopy(new_config['layer_settings'])
         new = Protocol.__new__(Protocol)
         new._config = new_config
-        new._tiling_config = self._tiling_config  # shared, read-only
+        new._tiling_grids = self._tiling_grids  # shared, read-only
         new._num_steps_cache = None
         new._runnable = self._runnable
         return new
@@ -2689,12 +2692,12 @@ class Protocol:
 
         # Every refusal comes before anything below touches the steps: a
         # refused build leaves the protocol as it was.
-        _refuse_unless_tiling_offered(self._tiling_config, tiling)
+        _refuse_unless_tiling_offered(self._tiling_grids, tiling)
 
         # Tiled steps are carried over as they are, so a second grid over a
         # tiled protocol would change nothing while reporting success. There is
         # no un-tile path; the untiled protocol has to be reloaded.
-        no_tiling = self._tiling_config.no_tiling_label()
+        no_tiling = self._tiling_grids.no_tiling_label()
         current_tiling = self.tiling()
         if current_tiling != no_tiling:
             grid = f' ({current_tiling})' if current_tiling else ''
@@ -2756,7 +2759,7 @@ class Protocol:
             # is unknown, which no step can tile around) fails the whole build:
             # the steps are only replaced at the end, so the protocol is left
             # as it was rather than silently missing that step.
-            tiles = self._tiling_config.get_tile_centers(
+            tiles = self._tiling_grids.get_tile_centers(
                 config_label=tiling,
                 focal_length=row['focal_length'],
                 frame_size=frame_dimensions,
@@ -3069,7 +3072,7 @@ class Protocol:
     def from_config(
         cls,
         input_config: dict,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         *,
         capabilities: 'ScopeCapabilities',
         objective_helper: 'ObjectiveLoader',
@@ -3262,7 +3265,7 @@ class Protocol:
         config['steps'] = steps_df
 
         protocol = cls(
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
             config=config,
         )
 
@@ -3281,21 +3284,19 @@ class Protocol:
     def create_empty(
         cls,
         config: dict,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         *,
         capabilities: 'ScopeCapabilities',
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> 'Protocol':
-        tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
-
         labware_id = config['labware_id']
         # No steps and one tile: nothing to stamp an objective into, so none
         # is read -- the protocol can be created before the objective is known.
         objective_id = None
         zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
-        tiling = tc.no_tiling_label()
+        tiling = TilingGrids.no_tiling_label()
         layer_configs = {}
         period = config['period']
         duration = config['duration']
@@ -3318,7 +3319,7 @@ class Protocol:
 
         return cls.from_config(
             input_config=input_config,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
             capabilities=capabilities,
             objective_helper=objective_helper,
             wellplate_loader=wellplate_loader,
@@ -3426,7 +3427,7 @@ class Protocol:
     def from_file(
         cls,
         file_path: pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path | None,
+        tiling_grids: TilingGrids,
         *,
         unit: 'ChannelIdentity | StoredNames',
         wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
@@ -3943,7 +3944,7 @@ class Protocol:
 
         try:
             protocol = cls(
-                tiling_configs_file_loc=tiling_configs_file_loc,
+                tiling_grids=tiling_grids,
                 config=config,
                 runnable=runnable,
             )

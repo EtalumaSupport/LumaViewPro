@@ -1,10 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Only the scope builds the labware and objective catalogues.
+"""Only the scope builds the labware and objective catalogues and the tiling grids.
 
 Every module that built its own catalogue read the installation's folder,
 not the folder the session was started on, so one session held several
-catalogues that disagreed about which objectives and plates exist. The scope
-now reads both once, in ``Lumascope._read_catalogues``, and every consumer
+catalogues that disagreed about which objectives and plates exist; every
+protocol re-read tiling.json as it was built, so after an edit the grids a
+session offered and the grids a protocol accepted differed. The scope now
+reads all three once, in ``Lumascope._read_catalogues``, and every consumer
 reads its copy. A construction anywhere else is a second store; this walk
 over every production module, drivers and tools included, refuses it at
 commit rather than in review.
@@ -19,8 +21,8 @@ from tests.ast_seams import MemberNames, iter_package_modules, production_module
 _OWNER_MODULE = 'modules/lumascope_api/_lumascope.py'
 _OWNER_DEF = 'Lumascope._read_catalogues'
 _CATALOGUES = MemberNames(
-    ('modules/labware_loader.py', 'modules/objectives_loader.py'),
-    {'WellPlateLoader', 'ObjectiveLoader'},
+    ('modules/labware_loader.py', 'modules/objectives_loader.py', 'modules/tiling_config.py'),
+    {'WellPlateLoader', 'ObjectiveLoader', 'TilingGrids'},
 )
 
 
@@ -61,7 +63,7 @@ def test_no_module_but_the_scope_builds_a_catalogue():
             found.append(f'{rel_path}:{lineno} {qualname} builds {name}')
     assert found == [], (
         'only Lumascope._read_catalogues may build a labware or objective '
-        f"catalogue; read the scope's copy instead: {found}"
+        f"catalogue or the tiling grids; read the scope's copy instead: {found}"
     )
 
 
@@ -74,4 +76,4 @@ def test_the_guard_sees_the_owner_it_exempts():
         for qualname, _lineno, name in _constructions(trees[_OWNER_MODULE])
         if qualname == _OWNER_DEF
     }
-    assert owned == {'WellPlateLoader', 'ObjectiveLoader'}
+    assert owned == {'WellPlateLoader', 'ObjectiveLoader', 'TilingGrids'}

@@ -26,6 +26,7 @@ from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1
+from tests.installation_fixtures import shipped_grids
 
 
 def _runner(acquiring=('BF',)):
@@ -320,7 +321,6 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
     """
 
     def _protocol_from(self, **overrides):
-        import pathlib
 
         import modules.config_helpers as config_helpers
         from modules.protocol import Protocol
@@ -349,9 +349,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
         try:
             return Protocol.from_config(
                 input_config=config,
-                tiling_configs_file_loc=(
-                    pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-                ),
+                tiling_grids=shipped_grids(),
                 capabilities=scope.capabilities,
                 objective_helper=scope.objective_helper,
                 wellplate_loader=scope.wellplate_loader,

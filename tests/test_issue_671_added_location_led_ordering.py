@@ -62,6 +62,7 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -114,9 +115,6 @@ def _build_tsv_only_protocol():
     import pandas as pd
 
     tiling_configs = pytest.importorskip('modules.tiling_config')  # noqa: F841
-    import pathlib
-
-    tiling_path = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
     rows = []
     idx = 0
@@ -137,7 +135,7 @@ def _build_tsv_only_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=tiling_path, config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 def _add_3rd_location_via_insert_step(protocol):

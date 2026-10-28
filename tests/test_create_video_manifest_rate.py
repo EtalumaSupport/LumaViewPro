@@ -12,7 +12,6 @@ overrides everything (deliberate timelapse speedups stay possible).
 """
 
 import json
-import pathlib
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +19,7 @@ import pytest
 from modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 def _make_manual_folder(tmp_path, n=3):
@@ -39,7 +39,7 @@ def _built_rate(tmp_path, frame_rate_fps):
         builder = VideoBuilder(has_turret=False)
         result = builder.build_from_folder(
             tmp_path,
-            pathlib.Path('unused_tiling.json'),
+            shipped_grids(),
             frame_rate_fps=frame_rate_fps,
             enable_timestamp_overlay=False,
             channel_colors=release_colors(),

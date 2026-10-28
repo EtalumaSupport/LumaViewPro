@@ -16,7 +16,6 @@ scale in the installation's current.json.
 """
 
 import datetime
-import pathlib
 import threading
 import traceback
 
@@ -25,6 +24,7 @@ import pandas as pd
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless_session, report
 
 from modules.lumascope_api.illumination import LedState
+from tests.installation_fixtures import shipped_grids
 
 RUN_TIMEOUT_S = 120.0
 
@@ -83,7 +83,6 @@ def main():
     from modules.protocol import Protocol
     from modules.run_events import RunEvents
 
-    repo = pathlib.Path(__file__).resolve().parents[2]
     session_cm = (
         hardware_session()
         if HARDWARE
@@ -130,7 +129,7 @@ def main():
         figure('step position (plate mm, z um)', position)
         layer = session.settings['BF']
         protocol = Protocol(
-            tiling_configs_file_loc=repo / 'data' / 'tiling.json',
+            tiling_grids=shipped_grids(),
             config={
                 'version': Protocol.CURRENT_VERSION,
                 'steps': pd.DataFrame(

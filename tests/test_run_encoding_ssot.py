@@ -47,10 +47,10 @@ from modules.sequenced_capture_runner import (
 from modules.run_events import RunEvents
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from tests.installation_fixtures import shipped_grids
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 COMPLETION_TIMEOUT = 20  # seconds
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
@@ -105,7 +105,7 @@ def _build_protocol():
     import pandas as pd
 
     return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_make_step()]),

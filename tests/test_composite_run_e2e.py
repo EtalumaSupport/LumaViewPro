@@ -428,14 +428,14 @@ def test_a_composite_runs_merge_is_built_on_the_post_processing_lane(tmp_path, m
 
 
 class TestTheMergeReadsTheSessionsOwnDataRoot:
-    """The merge's tiling config comes from the root the session holds.
+    """The merge lays its tiles out on the grids the session read from its own root.
 
     A session is told where its installation lives, and every file the
-    run reads has to come from there. The merge resolved
+    run reads has to come from there. The merge once resolved
     ``data/tiling.json`` from the process's script root instead, so a
     session pointed at one installation merged against another one's
     tiling geometry -- silently, because both roots hold a readable file.
-    Nothing about the merged artifact shows which one was read, so this
+    Nothing about the merged artifact shows which grids were used, so this
     is asserted at the argument the loader was handed.
     """
 
@@ -471,11 +471,12 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
         )
 
         settings = headless_settings(tmp_path)
-        with open_composite_session(settings, source_path=str(tmp_path)) as (_session, runner):
+        with open_composite_session(settings, source_path=str(tmp_path)) as (session, runner):
             runner.run_composite(sequence_name='data_root', parent_dir=str(tmp_path))
+            grids = session.scope.protocols.tiling_grids()
 
         assert len(loads) == 1, f'expected exactly one merge for one run; got {len(loads)}'
-        assert loads[0]['tiling_configs_file_loc'] == data_dir / 'tiling.json', (
-            'the merge read its tiling config from outside the root the session '
-            f'was built with: {loads[0]["tiling_configs_file_loc"]}'
+        assert loads[0]['tiling_grids'] is grids, (
+            'the merge laid its tiles out on grids other than the ones the '
+            'session read from the root it was built with'
         )

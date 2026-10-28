@@ -1,8 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import dataclasses
 import itertools
 import pathlib
 import re
+import types
 import typing
 from typing import TYPE_CHECKING, ClassVar
 
@@ -10,7 +12,7 @@ from lvp_logger import logger
 
 import modules.common_utils as common_utils
 from modules.exceptions import InstallationFileError, ProtocolRunRefusedError
-from modules.api_surface import api, api_fields
+from modules.api_surface import api_fields
 from modules.path_utils import read_installation_file
 
 if TYPE_CHECKING:
@@ -39,6 +41,26 @@ def _row_label(index: int) -> str:
 OVERLAP_PERCENT_RANGE: typing.Final = (0.0, 50.0)
 
 
+def _refuse_unless_whole(contents: dict, path: pathlib.Path) -> None:
+    """Refuse a tiling.json that is not the shape its readers need."""
+    grids = contents.get('data')
+    if not isinstance(grids, dict):
+        raise InstallationFileError(path, "has no 'data' object of tiling grids")
+    for label, grid in grids.items():
+        if not (
+            isinstance(grid, dict) and all(type(grid.get(field)) is int for field in ('m', 'n'))
+        ):
+            raise InstallationFileError(
+                path, f"has a grid {label!r} without a whole-number 'm' and 'n'"
+            )
+    metadata = contents.get('metadata')
+    default = metadata.get('default') if isinstance(metadata, dict) else None
+    if not isinstance(default, str) or default not in grids:
+        raise InstallationFileError(
+            path, f"names no default grid among its own ('metadata.default' is {default!r})"
+        )
+
+
 def _split_row_col(tile_label: str) -> tuple[str, int]:
     """Split a tile label into its row letters and integer column."""
     letters = ''.join(itertools.takewhile(str.isalpha, tile_label))
@@ -46,8 +68,9 @@ def _split_row_col(tile_label: str) -> tuple[str, int]:
 
 
 @api_fields('available', 'default', record=True)
+@dataclasses.dataclass(frozen=True)
 class TilingConfig:
-    """The tiling grids an installation offers, read from its tiling.json.
+    """The tiling grids an installation offers.
 
     Attributes:
         available: Each grid's label, as ``create_protocol`` and
@@ -57,6 +80,17 @@ class TilingConfig:
 
     available: tuple[str, ...]
     default: str
+
+
+class TilingGrids:
+    """The installation's tiling grids, read from its tiling.json, and the tile layout over them.
+
+    Read once, by the scope at bring-up; every protocol lays its tiles out
+    against that one copy, so the grids a session offers and the grids a
+    protocol accepts are one set. The grids never change after
+    construction: a grid's size is handed out as a new dict each time it is
+    asked.
+    """
 
     DEFAULT_FILL_FACTORS: ClassVar[dict] = {
         'position': 1.0  # No overlap needed for position-based tiling
@@ -74,46 +108,22 @@ class TilingConfig:
                 choose and a run could not lay out, so the file is refused
                 whole, where it is read.
         """
-        self._available_configs = read_installation_file(tiling_configs_file_loc)
-        self._refuse_unless_whole(pathlib.Path(tiling_configs_file_loc))
-        self.available = tuple(self._available_configs['data'].keys())
-        self.default = self._available_configs['metadata']['default']
-
-    def _refuse_unless_whole(self, path: pathlib.Path) -> None:
-        """Refuse a tiling.json that is not the shape its readers need."""
-        cfg = self._available_configs
-        grids = cfg.get('data')
-        if not isinstance(grids, dict):
-            raise InstallationFileError(path, "has no 'data' object of tiling grids")
-        for label, grid in grids.items():
-            if not (
-                isinstance(grid, dict) and all(type(grid.get(field)) is int for field in ('m', 'n'))
-            ):
-                raise InstallationFileError(
-                    path, f"has a grid {label!r} without a whole-number 'm' and 'n'"
-                )
-        metadata = cfg.get('metadata')
-        default = metadata.get('default') if isinstance(metadata, dict) else None
-        if not isinstance(default, str) or default not in grids:
-            raise InstallationFileError(
-                path, f"names no default grid among its own ('metadata.default' is {default!r})"
-            )
-
-    @api(in_process=True, reads=True)
-    def available_configs(self) -> list[str]:
-        """``available``, as a list.
-
-        Raises:
-            Nothing.
-        """
-        return list(self.available)
+        contents = read_installation_file(tiling_configs_file_loc)
+        _refuse_unless_whole(contents, pathlib.Path(tiling_configs_file_loc))
+        self._grids = types.MappingProxyType(
+            {label: (grid['m'], grid['n']) for label, grid in contents['data'].items()}
+        )
+        self.config = TilingConfig(
+            available=tuple(self._grids), default=contents['metadata']['default']
+        )
 
     def get_mxn_size(self, config_label: str) -> dict:
-        return self._available_configs['data'][config_label]
+        m, n = self._grids[config_label]
+        return {'m': m, 'n': n}
 
     def get_label_from_mxn_size(self, m: int, n: int) -> str | None:
-        for config_label, config_data in self._available_configs['data'].items():
-            if (config_data['m'] == m) and (config_data['n'] == n):
+        for config_label, mxn in self._grids.items():
+            if mxn == (m, n):
                 return config_label
 
         return None
@@ -162,15 +172,6 @@ class TilingConfig:
             # raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
 
         return self.get_label_from_mxn_size(m=m, n=n)
-
-    @api(in_process=True, reads=True)
-    def default_config(self) -> str:
-        """``default``.
-
-        Raises:
-            Nothing.
-        """
-        return self.default
 
     @staticmethod
     def no_tiling_label() -> str:
@@ -305,6 +306,6 @@ class TilingConfig:
 
     @staticmethod
     def fill_factor_from_overlap_percent(overlap_percent: float) -> float:
-        overlap_percent = TilingConfig.validate_overlap_percent(overlap_percent)
+        overlap_percent = TilingGrids.validate_overlap_percent(overlap_percent)
         overlap_fraction = overlap_percent / 100.0
         return 1.0 - overlap_fraction

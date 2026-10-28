@@ -30,6 +30,7 @@ from unittest.mock import patch
 from modules.plugins.builtin import stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
 from modules.layer_record import release_colors
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
@@ -124,7 +125,7 @@ def test_processor_returns_processor_result_on_missing_folder(
     lane.start()
     harness_ctx.post_processing = PostProcessingAPI(
         lane=lane,
-        tiling_configs_path=lambda: REPO / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         has_turret=lambda: False,
         settings_snapshot=dict,
         channel_colors=release_colors,

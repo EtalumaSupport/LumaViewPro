@@ -19,7 +19,6 @@ import json
 import logging
 import logging.handlers
 import os
-import pathlib
 import threading
 from unittest.mock import MagicMock
 
@@ -97,9 +96,6 @@ def _make_autogain_settings():
 
 def _make_image_capture_config():
     return ImageCaptureConfig.from_image_mode('8bit')
-
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _make_protocol(steps_config):
@@ -185,7 +181,7 @@ def _make_protocol(steps_config):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
@@ -695,6 +691,7 @@ class TestIntegrationStateAssertions:
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
+from tests.installation_fixtures import shipped_grids
 from modules.protocol_runner import ProtocolRunner
 from modules.layer_record import release_colors
 

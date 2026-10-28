@@ -33,12 +33,12 @@ from modules.stack_builder import StackBuilder
 from modules.stitcher import Stitcher
 from modules.video_builder import VideoBuilder
 from modules.zprojector import ZProjector
-from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1
+from tests.installation_fixtures import shipped_grids
 
 
 def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: int = 256) -> None:
@@ -198,11 +198,11 @@ class TestTheReader:
     ('folder_of', 'bad_frame', 'build'),
     [
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: ZProjector(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjectMethod.Min, channel_colors=release_colors())),
+            path=f, tiling_grids=shipped_grids(), method=ZProjectMethod.Min, channel_colors=release_colors())),
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: StackBuilder(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS, save_encoding='right_aligned', channel_colors=release_colors())),
+            path=f, tiling_grids=shipped_grids(), save_encoding='right_aligned', channel_colors=release_colors())),
         (_tiles, 'A1_BF_T0_0000.tiff', lambda f: Stitcher(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS, channel_colors=release_colors())),
+            path=f, tiling_grids=shipped_grids(), channel_colors=release_colors())),
     ],
     ids=['z-projection', 'hyperstack', 'stitch'],
 )  # fmt: skip
@@ -227,7 +227,7 @@ def test_a_slice_of_another_size_fails_its_group_and_the_others_are_built(tmp_pa
     with pytest.raises(PostProcessingFailedError) as incomplete:
         ZProjector(has_turret=False).load_folder(
             path=folder,
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             method=ZProjectMethod.Min,
             channel_colors=release_colors(),
         )
@@ -253,7 +253,7 @@ def test_a_video_none_of_whose_frames_can_be_read_is_a_failed_group(tmp_path):
     with pytest.raises(PostProcessingFailedError) as incomplete:
         VideoBuilder(has_turret=False).load_folder(
             path=folder,
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             frame_rate_fps=5,
             enable_timestamp_overlay=False,
             channel_colors=release_colors(),
@@ -350,7 +350,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
     with pytest.raises(PostProcessingFailedError) as incomplete:
         CompositeGeneration(has_turret=False).load_folder(
             path=run_dir,
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             output_format='TIFF',
             brightness_thresholds_percent={LED1: 50},
             channel_colors=release_colors(),
@@ -365,7 +365,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
 def _zproject(folder):
     return ZProjector(has_turret=False).load_folder(
         path=folder,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         method=ZProjectMethod.Min,
         channel_colors=release_colors(),
     )
@@ -374,7 +374,7 @@ def _zproject(folder):
 def _hyperstack(folder):
     return StackBuilder(has_turret=False).load_folder(
         path=folder,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         save_encoding='right_aligned',
         channel_colors=release_colors(),
     )

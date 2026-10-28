@@ -65,6 +65,7 @@ from tests.scope_fakes import configure_turret_like_bringup
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 # Plate coordinates in mm for distinct well positions.
@@ -121,9 +122,6 @@ def _build_protocol(step_specs):
     import pandas as pd
 
     pytest.importorskip('modules.tiling_config')
-    import pathlib
-
-    tiling_path = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
     rows = []
     for idx, (well, color, kwargs) in enumerate(step_specs):
@@ -139,7 +137,7 @@ def _build_protocol(step_specs):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=tiling_path, config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 class LedSubstream:

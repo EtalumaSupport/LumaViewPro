@@ -26,6 +26,7 @@ import serial
 import drivers.serialboard as serialboard
 from drivers.serialboard import SerialBoard
 from modules.protocol import Protocol
+from modules.tiling_config import TilingGrids
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +167,7 @@ class TestDurationPrecision:
     def test_save_writes_nonzero_duration(self, tmp_path):
         """Saved protocol file must contain a non-zero duration for short protocols."""
         tiling_file = _make_tiling_configs(tmp_path)
-        protocol = Protocol(tiling_configs_file_loc=tiling_file)
+        protocol = Protocol(tiling_grids=TilingGrids(tiling_file))
 
         # Configure a minimal protocol with 10-second duration
         protocol._config = {

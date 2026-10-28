@@ -38,14 +38,6 @@ def test_the_session_answers_from_the_folder_its_scope_was_started_on(tmp_path):
     assert config.default == '2x2'
 
 
-def _builds_tiling_config(node: ast.AST) -> bool:
-    if not isinstance(node, ast.Call):
-        return False
-    func = node.func
-    name = func.id if isinstance(func, ast.Name) else getattr(func, 'attr', None)
-    return name == 'TilingConfig'
-
-
 def _names_tiling_file(node: ast.AST) -> bool:
     return isinstance(node, ast.Constant) and node.value == 'tiling.json'
 
@@ -55,9 +47,9 @@ def test_nothing_in_ui_reads_the_tiling_file_itself():
         f'{rel_path}:{node.lineno}'
         for rel_path, tree in iter_package_modules(('ui',))
         for node in ast.walk(tree)
-        if _builds_tiling_config(node) or _names_tiling_file(node)
+        if _names_tiling_file(node)
     ]
     assert found == [], (
         'the GUI asks the session for its tiling grids (session.tiling_config()); '
-        f'it never builds a TilingConfig or names tiling.json: {found}'
+        f'it never names tiling.json: {found}'
     )

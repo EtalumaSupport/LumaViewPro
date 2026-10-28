@@ -29,7 +29,7 @@ from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.stitcher import Stitcher
 
-from tests.test_capture_collision_policy import TILING_CONFIGS
+from tests.installation_fixtures import shipped_grids
 
 
 class _FakePostProcessor(ProtocolPostProcessor):
@@ -86,7 +86,7 @@ def _drive(processor, tmp_path, monkeypatch, images_df, popup=None):
             'protocol': None,
         },
     )
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, popup=popup)
+    return processor.load_folder(path=tmp_path, tiling_grids=shipped_grids(), popup=popup)
 
 
 def _mixed_group_df():

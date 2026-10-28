@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import concurrent.futures
-import os
 from collections.abc import Callable
 import pathlib
 
@@ -558,14 +557,3 @@ class StackBuilder(ProtocolPostProcessor):
             channel_colors=channel_colors,
             sort_order=['Scan Count'],
         )
-
-
-if __name__ == '__main__':
-    stack_builder = StackBuilder(has_turret=False)
-    tiling_configs_file_loc = pathlib.Path(os.getenv('SOURCE_ROOT')) / 'data' / 'tiling.json'
-    stack_builder.load_folder(
-        path=os.getenv('SAMPLE_IMAGE_FOLDER'),
-        tiling_configs_file_loc=tiling_configs_file_loc,
-        # The sample folder is a scientific (right-aligned) capture.
-        save_encoding=image_mode.SAVE_ENCODING_RIGHT_ALIGNED,
-    )

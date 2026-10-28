@@ -64,6 +64,7 @@ from modules.scope_session import ScopeSession
 from tests.ast_seams import parse_module
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import complete_settings
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PERIOD = datetime.timedelta(minutes=7)
@@ -74,7 +75,7 @@ STORED = {'period': 20, 'duration': 48, 'filepath': 'plate.tsv'}
 
 def _protocol() -> Protocol:
     return Protocol(
-        tiling_configs_file_loc=REPO / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),

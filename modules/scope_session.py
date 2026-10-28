@@ -612,7 +612,7 @@ class ScopeSession:
 
         self.post_processing = PostProcessingAPI(
             lane=executor_bundle.post_processing_executor,
-            tiling_configs_path=scope.protocols.tiling_configs_path,
+            tiling_grids=scope.protocols.tiling_grids(),
             has_turret=lambda: scope.capabilities.has_turret,
             settings_snapshot=self.get_settings_snapshot,
             channel_colors=self.channel_colors,
@@ -3239,7 +3239,9 @@ class ScopeSession:
         ``default`` is the one to preselect; ``Protocol.tiling()`` names
         the grid a protocol's steps already carry. Read once with the
         installation's other catalogues, so a tiling.json edited while the
-        program runs is seen at the next start.
+        program runs is seen at the next start, and every protocol is built
+        against the same grids. The record is frozen: a caller cannot change
+        the grids a session offers.
 
         Raises:
             Nothing.

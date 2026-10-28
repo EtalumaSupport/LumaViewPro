@@ -11,7 +11,6 @@ into the running scope. A reader that does not know the installation
 """
 
 import logging
-import pathlib
 
 import pytest
 
@@ -23,9 +22,9 @@ from tests.settings_fixtures import complete_settings
 from tests.case_walk import failing_cases
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 CATALOGUE = labware_loader.WellPlateLoader(source_path='.')
 
 # Both spellings the catalogue's own history has retired, and their keys.
@@ -121,7 +120,7 @@ class TestTheReader:
         def check(old_name, key):
             proto = Protocol.from_file(
                 file_path=_protocol_file(tmp_path, old_name),
-                tiling_configs_file_loc=TILING_CONFIGS,
+                tiling_grids=shipped_grids(),
                 unit=stock_unit(),
             )
             assert proto.labware_id() == key
@@ -135,7 +134,7 @@ class TestTheReader:
         with pytest.raises(ProtocolFormatError, match=UNKNOWN_PLATE):
             Protocol.from_file(
                 file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
-                tiling_configs_file_loc=TILING_CONFIGS,
+                tiling_grids=shipped_grids(),
                 wellplate_loader=CATALOGUE,
                 unit=stock_unit(),
             )
@@ -146,7 +145,7 @@ class TestTheReader:
         installation has no standing to refuse for it."""
         proto = Protocol.from_file(
             file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             unit=stock_unit(),
         )
         assert proto.labware_id() == UNKNOWN_PLATE
@@ -154,7 +153,7 @@ class TestTheReader:
     def test_a_reloaded_legacy_file_is_saved_under_the_key(self, tmp_path):
         proto = Protocol.from_file(
             file_path=_protocol_file(tmp_path, 'Center Dish'),
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             unit=stock_unit(),
         )
         saved = tmp_path / 'resaved.tsv'

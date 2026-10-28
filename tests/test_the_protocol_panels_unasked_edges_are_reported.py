@@ -53,6 +53,7 @@ import ui.protocol_settings as ps
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.coord_transformations import PlateLocation
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -72,7 +73,7 @@ LAYER_CONFIG = {
 
 def _protocol(num_steps):
     protocol = Protocol(
-        tiling_configs_file_loc=REPO / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         config={'steps': pd.DataFrame(), 'custom_step_count': 0},
     )
     for i in range(num_steps):

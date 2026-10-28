@@ -7,6 +7,7 @@ A test that builds a session on a folder of its own copies them here, so
 a new installation file is added in one place rather than at every site.
 """
 
+import functools
 import json
 import pathlib
 import shutil
@@ -27,6 +28,19 @@ def copy_installation_files(data: pathlib.Path) -> None:
     """Copy the shipped installation files into ``data``, an existing data folder."""
     for name in INSTALLATION_FILES:
         shutil.copy(SHIPPED_DATA / name, pathlib.Path(data) / name)
+
+
+@functools.cache
+def shipped_grids():
+    """The shipped tiling.json's grids, read as a scope reads them at bring-up.
+
+    For a protocol a test builds without a scope; a scope's own protocols are
+    built on the copy it read (``ProtocolsAPI.tiling_grids``). Read once, since
+    the grids never change after they are read.
+    """
+    from modules.tiling_config import TilingGrids
+
+    return TilingGrids(SHIPPED_DATA / 'tiling.json')
 
 
 def _fluorescence_record(key: str, color: str, step_order: int) -> dict:

@@ -27,6 +27,7 @@ from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingRefusedError
 from modules.image_mode import OutputFormat
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 # pin-justified: kv is declarative source with no headless seam; the kv
 # text is the contract.
@@ -84,7 +85,7 @@ def _make_composite():
 
 
 def _stub_helper(post_processor, df, record=None):
-    def _fake_load_folder(path, tiling_configs_file_loc):
+    def _fake_load_folder(path, tiling_grids):
         return {
             'status': True,
             'images_df': df,
@@ -102,7 +103,7 @@ def test_composite_rejects_jpg_source_with_clear_message():
     # No record stub needed: the JPG guard returns before the record is used.
     _stub_helper(comp, df)
     with pytest.raises(PostProcessingRefusedError) as refused:
-        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        comp.load_folder(path='run', tiling_grids=shipped_grids())
     assert refused.value.reason == 'unsupported_source_format'
     assert 'JPG' in str(refused.value)
     assert 'TIFF' in str(refused.value)
@@ -117,7 +118,7 @@ def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
     _stub_helper(comp, df)
 
     with pytest.raises(PostProcessingRefusedError) as refused:
-        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        comp.load_folder(path='run', tiling_grids=shipped_grids())
 
     assert refused.value.reason == 'unsupported_source_format'
     assert f'A1_{LED2}_0000.jpg' in str(refused.value)
@@ -135,5 +136,5 @@ def test_composite_does_not_trip_guard_for_tiff_source():
     comp._filter_ignored_types = lambda df: df
     comp._get_groups = lambda df: []
     with pytest.raises(PostProcessingRefusedError) as refused:
-        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        comp.load_folder(path='run', tiling_grids=shipped_grids())
     assert refused.value.reason != 'unsupported_source_format'

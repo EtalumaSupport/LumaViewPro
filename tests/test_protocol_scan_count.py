@@ -12,7 +12,6 @@ they stubbed the period as an ``int``. These tests use a real Protocol.
 """
 
 import datetime
-import pathlib
 
 import pandas as pd
 
@@ -20,8 +19,7 @@ from modules.notification_center import Severity
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunMode, SequencedCaptureRunner
 from tests.scope_fakes import stock_unit
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+from tests.installation_fixtures import shipped_grids
 
 
 def _step():
@@ -58,7 +56,7 @@ def _step():
 
 def _protocol(*, period: datetime.timedelta, duration: datetime.timedelta) -> Protocol:
     return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step()]),
@@ -99,9 +97,7 @@ def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path):
     protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(hours=1))
     path = tmp_path / 'period_zero.tsv'
     protocol.to_file(path)
-    reloaded = Protocol.from_file(
-        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-    )
+    reloaded = Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
     assert _scan_count(reloaded) == 1
 
 

@@ -251,8 +251,8 @@ class ProtocolSettings(FloatLayout):
         )
 
         tiling_config = self.tiling_config
-        self.ids['tiling_size_spinner'].values = tiling_config.available_configs()
-        self.ids['tiling_size_spinner'].text = tiling_config.default_config()
+        self.ids['tiling_size_spinner'].values = tiling_config.available
+        self.ids['tiling_size_spinner'].text = tiling_config.default
 
         # The persisted protocol is NOT loaded here. Whether the scope can
         # perform it depends on the turret, and on a turreted scope the

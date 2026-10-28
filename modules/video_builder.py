@@ -16,6 +16,7 @@ from modules.api_surface import ProgressCallback
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.tiling_config import TilingGrids
 from modules.video_writer import VideoWriter
 
 from lvp_logger import logger
@@ -461,7 +462,7 @@ class VideoBuilder(ProtocolPostProcessor):
     def build_from_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
@@ -495,7 +496,7 @@ class VideoBuilder(ProtocolPostProcessor):
             return self._build_manual_recording_video(path, on_progress=on_progress, **kwargs)
         return self.load_folder(
             path=path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
+            tiling_grids=tiling_grids,
             on_progress=on_progress,
             **kwargs,
         )

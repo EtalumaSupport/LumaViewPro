@@ -19,8 +19,8 @@ import modules.protocol_post_processing_helper as helper_module
 import modules.protocol_post_processor as processor_module
 from modules.exceptions import PostProcessingRefusedError
 from modules.notification_center import NotificationCenter
-from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_post_processing_tells_whoever_asked import _Processor
+from tests.installation_fixtures import shipped_grids
 
 
 def test_an_empty_folder_is_one_warning_and_no_error(tmp_path, caplog, monkeypatch):
@@ -30,7 +30,7 @@ def test_an_empty_folder_is_one_warning_and_no_error(tmp_path, caplog, monkeypat
     monkeypatch.setattr(processor_module, 'logger', logging.getLogger('LVP.test.pp_processor'))
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(PostProcessingRefusedError) as raised:
-            _Processor([]).load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+            _Processor([]).load_folder(path=tmp_path, tiling_grids=shipped_grids())
         NotificationCenter().report_outcome(
             raised.value, solicited=True, category='Post-processing', log_only=True
         )
@@ -100,7 +100,7 @@ def test_every_folder_it_cannot_process_logs_no_error(folder, tmp_path, caplog, 
         caplog.at_level(logging.DEBUG),
         pytest.raises(PostProcessingRefusedError) as raised,
     ):
-        _Processor([]).load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+        _Processor([]).load_folder(path=tmp_path, tiling_grids=shipped_grids())
 
     assert words in str(raised.value)
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []

@@ -9,7 +9,6 @@ from modules.coord_transformations import PlateLocation
 session, live = make_session('edit', home=True)
 try:
     import modules.config_helpers as config_helpers
-    from modules.tiling_config import TilingConfig
 
     settings = session.settings
     banner('base protocol')
@@ -91,10 +90,8 @@ try:
     )
 
     banner('SET TILING')
-    # TilingConfig takes its catalogue path; the API owns it.
-    # tiling_configs_path() is a METHOD on ProtocolsAPI, not a property.
-    tc = TilingConfig(tiling_configs_file_loc=session.scope.protocols.tiling_configs_path())
-    print('tiling catalogue:', tc.available_configs())
+    tc = session.scope.protocols.tiling_grids()
+    print('tiling catalogue:', session.tiling_config().available)
     print('no-tiling label :', tc.no_tiling_label())
     before = p.num_steps()
     session.apply_tiling(p, '2x2')

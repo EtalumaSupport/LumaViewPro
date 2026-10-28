@@ -45,6 +45,7 @@ import modules.image_utils as image_utils
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 class TestStitchLoudDegradeOnMissingPixelSize:
@@ -320,7 +321,7 @@ class TestSimplePositionStitcher:
                 pass
 
         class FakeHelper:
-            def load_folder(self, path, tiling_configs_file_loc):
+            def load_folder(self, path, tiling_grids):
                 return {
                     'status': True,
                     'images_df': pd.DataFrame(rows),
@@ -352,9 +353,7 @@ class TestSimplePositionStitcher:
 
         monkeypatch.setattr(stitcher, '_group_algorithm', degraded_group_algorithm)
 
-        result = stitcher.load_folder(
-            tmp_path, tmp_path / 'tiling.json', channel_colors=release_colors()
-        )
+        result = stitcher.load_folder(tmp_path, shipped_grids(), channel_colors=release_colors())
 
         assert result['status'] is True
         assert result['degraded'] is True

@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 
 from modules.protocol import Protocol
-from tests.test_a_late_write_records_its_frame import REPO_ROOT, _step
+from tests.test_a_late_write_records_its_frame import _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.installation_fixtures import shipped_grids
 
 WAIT_S = 60.0
 
@@ -78,7 +79,7 @@ def _warnings():
 def _protocol(steps, scans):
     period = datetime.timedelta(seconds=1.0)
     return Protocol(
-        tiling_configs_file_loc=REPO_ROOT / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(steps),

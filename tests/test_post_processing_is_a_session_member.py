@@ -89,7 +89,7 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
     assert result.output_root == tmp_path
     assert seen['lane'] is session.post_processing.lane
     assert seen['lane'] is not session.file_io_executor
-    assert seen['tiling_configs_file_loc'] == session.scope.protocols.tiling_configs_path()
+    assert seen['tiling_grids'] is session.scope.protocols.tiling_grids()
     assert seen['has_turret'] is True
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')
@@ -312,4 +312,4 @@ def test_the_stitcher_plugin_stitches_through_the_session(session, monkeypatch, 
 
     assert result.success
     assert seen['lane'] is session.post_processing.lane
-    assert seen['tiling_configs_file_loc'] == session.scope.protocols.tiling_configs_path()
+    assert seen['tiling_grids'] is session.scope.protocols.tiling_grids()

@@ -145,7 +145,7 @@ class TestProtocolFileLimits:
         with pytest.raises(ProtocolFormatError, match='exhausting memory'):
             Protocol.from_file(
                 file_path=big_file,
-                tiling_configs_file_loc=None,
+                tiling_grids=shipped_grids(),
                 unit=stock_unit(),
             )
 
@@ -160,7 +160,7 @@ class TestProtocolFileLimits:
         with pytest.raises(Exception) as exc_info:
             Protocol.from_file(
                 file_path=small_file,
-                tiling_configs_file_loc=None,
+                tiling_grids=shipped_grids(),
                 unit=stock_unit(),
             )
         assert 'exhausting memory' not in str(exc_info.value)
@@ -2885,6 +2885,7 @@ from modules.layer_record import release_colors
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
 from modules.lumascope_api.frame_record import CapturedStill
+from tests.installation_fixtures import shipped_grids
 
 
 def _function_source(source: str, func_name: str) -> str:

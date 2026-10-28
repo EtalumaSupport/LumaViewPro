@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from modules.layer_record import release_colors
 from modules.post_processing_api import PostProcessingAPI
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
@@ -24,7 +25,7 @@ def a_post_processing_api() -> Iterator[PostProcessingAPI]:
     try:
         yield PostProcessingAPI(
             lane=lane,
-            tiling_configs_path=lambda: REPO / 'data' / 'tiling.json',
+            tiling_grids=shipped_grids(),
             has_turret=lambda: False,
             settings_snapshot=dict,
             channel_colors=release_colors,

@@ -18,10 +18,10 @@ import modules.protocol as protocol_module
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.scope_fakes import build_scope
 from tests.test_a_zstack_with_no_range_is_refused import _standalone_config
+from tests.installation_fixtures import shipped_grids
 
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent
-_TILING = _REPO_ROOT / 'data' / 'tiling.json'
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def test_invalid_steps_are_refused_without_a_log_line_each(sim_scope, monkeypatc
     with pytest.raises(ProtocolFormatError) as refusal:
         Protocol.from_config(
             input_config=config,
-            tiling_configs_file_loc=_TILING,
+            tiling_grids=shipped_grids(),
             capabilities=sim_scope.capabilities,
             objective_helper=sim_scope.objective_helper,
             wellplate_loader=sim_scope.wellplate_loader,

@@ -14,7 +14,6 @@ from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import json
-import pathlib
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -44,6 +43,7 @@ from tests.protocol_drives import (
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -116,9 +116,6 @@ def _make_image_capture_config():
     return ImageCaptureConfig.from_image_mode('8bit')
 
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-
-
 def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
     """Build a real Protocol object from a list of step dicts."""
     import pandas as pd
@@ -133,7 +130,7 @@ def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 def _make_single_step_protocol(

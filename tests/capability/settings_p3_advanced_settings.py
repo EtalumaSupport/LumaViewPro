@@ -114,13 +114,13 @@ try:
         s.update_settings(key, good)
 
     # tiling overlap: is there a validator a script can reach?
-    from modules.tiling_config import TilingConfig
+    from modules.tiling_config import TilingGrids
 
     try:
-        TilingConfig.validate_overlap_percent(999)
-        _common.ok('TilingConfig refuses 999% overlap', False)
+        TilingGrids.validate_overlap_percent(999)
+        _common.ok('TilingGrids refuses 999% overlap', False)
     except Exception as e:
-        _common.ok('TilingConfig refuses 999% overlap', True, f'{type(e).__name__}: {e}')
+        _common.ok('TilingGrids refuses 999% overlap', True, f'{type(e).__name__}: {e}')
     was_refused, detail = refused('tiling_overlap_percent', 999.0)
     _common.ok('the settings writer refuses 999% overlap', was_refused, detail)
 

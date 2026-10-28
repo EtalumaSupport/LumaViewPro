@@ -1020,9 +1020,9 @@ A Lumascope Classic on Windows that came up on no driver, or on one LumaViewPro 
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
-**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with `session.load_protocol(file_path)` (from a `.tsv` on disk, with the scope put on the protocol's plate), `session.new_protocol(...)` (from the session's settings, as the GUI's New does) or `session.create_empty_protocol()` (no steps, for `add_step` to fill). Each resolves `data/tiling.json` from the scope's data folder and judges the protocol against the scope's catalogues.
+**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with `session.load_protocol(file_path)` (from a `.tsv` on disk, with the scope put on the protocol's plate), `session.new_protocol(...)` (from the session's settings, as the GUI's New does) or `session.create_empty_protocol()` (no steps, for `add_step` to fill). Each builds the protocol on the scope's tiling grids and judges it against the scope's catalogues.
 
-**Tiling grids.** `session.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`, as a record: `available` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default` is the one to preselect, one of `available`. `available_configs()` and `default_config()` answer the same in-process. The scope reads the file once, at bring-up, with the installation's other catalogues, so a `tiling.json` edited while the program runs is seen at the next start; a file that is missing, unreadable or not JSON, or is not a `data` object of grids with whole-number `m` and `n` and a `metadata.default` naming one of them, refuses the bring-up with `InstallationFileError` (`installation_file_unusable`, a fault: reinstall or restore the file), naming it. The members that build a protocol still read the file as they build, and raise the same for a file broken since. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `session.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
+**Tiling grids.** `session.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`, as a record: `available` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default` is the one to preselect, one of `available`. The scope reads the file once, at bring-up, with the installation's other catalogues, so a `tiling.json` edited while the program runs is seen at the next start; a file that is missing, unreadable or not JSON, or is not a `data` object of grids with whole-number `m` and `n` and a `metadata.default` naming one of them, refuses the bring-up with `InstallationFileError` (`installation_file_unusable`, a fault: reinstall or restore the file), naming it. Every protocol the session builds or loads is laid out on these same grids, so the grids `tiling_config()` offers are the grids `apply_tiling` accepts, and the record is frozen: a caller cannot change them. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `session.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
 
 ```python
 grids = session.tiling_config()
@@ -4796,9 +4796,7 @@ Reached through returned by `session.make_support_report` and `session.make_logs
 Reached through returned by `session.tiling_config`.
 
 - `available`
-- `available_configs` (in-process)
 - `default`
-- `default_config` (in-process)
 
 ### UiDispatcher
 

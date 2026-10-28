@@ -33,9 +33,10 @@ import modules.stack_builder as stack_builder
 from modules.plugins import ENGINEERING_PLUGIN, PluginSpec, ProcessorResult
 from modules.protocol import Protocol
 from modules.scope_session import ScopeSession
-from tests.test_a_late_write_records_its_frame import REPO_ROOT, _step
+from tests.test_a_late_write_records_its_frame import _step
 from tests.settings_fixtures import complete_settings
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
+from tests.installation_fixtures import shipped_grids
 
 WAIT_S = 60.0
 
@@ -99,7 +100,7 @@ def _recording_processor():
 def _one_scan_protocol(name='P1'):
     """A Full Protocol whose duration ends it after its first scan."""
     return Protocol(
-        tiling_configs_file_loc=REPO_ROOT / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step(name, 0, x=20.0, gain=1.0)]),

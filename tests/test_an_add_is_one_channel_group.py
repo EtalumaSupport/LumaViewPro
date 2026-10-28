@@ -36,13 +36,13 @@ from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pyt
     session,
     turret_in_a_known_slot,
 )
-from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 AT = PlateLocation(x_mm=122.26, y_mm=81.48, z_um=5000.0)
 OBJECTIVE = '4x Oly'
@@ -143,7 +143,7 @@ def _run_folder(tmp_path, protocol, *, without_groups=False):
 def _composite(folder):
     return CompositeGeneration(has_turret=False).load_folder(
         path=folder,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         brightness_thresholds_percent=THRESHOLDS,
         channel_colors=release_colors(),
     )
@@ -301,7 +301,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
         with pytest.raises(PostProcessingFailedError) as failed:
             VideoBuilder(has_turret=False).load_folder(
                 path=folder,
-                tiling_configs_file_loc=TILING_CONFIGS,
+                tiling_grids=shipped_grids(),
                 frame_rate_fps=1,
                 enable_timestamp_overlay=False,
                 channel_colors=release_colors(),
@@ -321,7 +321,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
         with pytest.raises(PostProcessingFailedError) as failed:
             StackBuilder(has_turret=False).load_folder(
                 path=folder,
-                tiling_configs_file_loc=TILING_CONFIGS,
+                tiling_grids=shipped_grids(),
                 channel_colors=release_colors(),
             )
 

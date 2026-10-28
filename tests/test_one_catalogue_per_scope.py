@@ -73,7 +73,6 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
         assert session.sequenced_capture_runner._scope is scope
         assert session.select_labware(EXTRA_PLATE) is not None
         assert session.source_path == root
-        assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
     finally:
         _shut(session)
 

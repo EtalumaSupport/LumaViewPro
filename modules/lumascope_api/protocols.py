@@ -2,13 +2,12 @@
 """ProtocolsAPI -- protocol-author surface: construct Protocol objects.
 
 The protocol constructors need one thing the Protocol data class cannot
-resolve for itself: where `data/tiling.json` lives. That path is a
-property of the running INSTALLATION, not of any protocol, so the
-constructors resolve it here and callers never pass
-`tiling_configs_file_loc` by hand.
+hold for itself: the installation's tiling grids. They are a property of
+the running INSTALLATION, not of any protocol, so the constructors hand
+every protocol the scope's one copy and callers never pass it by hand.
 
 The data folder is the scope's own, given at its construction; the
-tiling config and the labware catalogue a loaded protocol is judged
+tiling grids and the labware catalogue a loaded protocol is judged
 against both come from it, so a protocol is never built against another
 installation's files.
 
@@ -55,7 +54,7 @@ if TYPE_CHECKING:
 
     from modules.lumascope_api._lumascope import Lumascope
     from modules.protocol import Protocol
-    from modules.tiling_config import TilingConfig
+    from modules.tiling_config import TilingConfig, TilingGrids
 
 _api_log = logging.getLogger('LVP.api')
 
@@ -112,17 +111,15 @@ class ProtocolsAPI:
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
 
-    def tiling_configs_path(self) -> pathlib.Path:
-        """Resolve data/tiling.json from the scope's data folder.
+    def tiling_grids(self) -> TilingGrids:
+        """The installation's tiling grids: the scope's one copy, read at bring-up.
 
-        The one owner of that path: the protocol constructors resolve it
-        here, and the run engine takes it from here at run start for the
-        post-run composite merge and hyperstack build, so a headless run
-        reads the same tiling config the session was built with instead
-        of whatever the process's script root holds. An engine seam, not
-        part of the L2 API surface: a caller never needs the path itself.
+        Every protocol is built against it, here and in the post-run builds,
+        so the grids a protocol accepts and lays out are the grids
+        ``tiling_config`` offers. An engine seam, not part of the L2 API
+        surface: a caller chooses a grid by its label.
         """
-        return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
+        return self._scope._tiling_grids
 
     def tiling_config(self) -> TilingConfig:
         """The tiling grids this installation offers: the scope's copy, read at bring-up.
@@ -133,20 +130,21 @@ class ProtocolsAPI:
         names the grid a protocol's steps already carry. Read once with the
         installation's other catalogues, so a tiling.json edited while the
         program runs is seen at the next start; a file no reader can use
-        refuses the bring-up (``InstallationFileError``, naming it).
+        refuses the bring-up (``InstallationFileError``, naming it). The
+        record is frozen: a caller cannot change the grids a session offers.
 
         Raises:
             Nothing.
         """
-        return self._scope._tiling_config
+        return self._scope._tiling_grids.config
 
     def load_protocol(self, file_path: str | pathlib.Path) -> Protocol:
         """Load a Protocol from disk.
 
-        Wraps ``Protocol.from_file(...)`` and resolves
-        ``data/tiling.json`` from the scope's data folder. The file's channel
-        names are read as this scope's keys for them, so a file saved in an
-        earlier release's names lights the LEDs it was made with.
+        Wraps ``Protocol.from_file(...)`` against the scope's tiling grids.
+        The file's channel names are read as this scope's keys for them, so
+        a file saved in an earlier release's names lights the LEDs it was
+        made with.
 
         Args:
             file_path: Path to the protocol file.
@@ -179,7 +177,7 @@ class ProtocolsAPI:
 
         protocol = Protocol.from_file(
             file_path=path_utils.existing_file(file_path),
-            tiling_configs_file_loc=self.tiling_configs_path(),
+            tiling_grids=self.tiling_grids(),
             unit=self._scope.channel_identity,
             wellplate_loader=self._scope.wellplate_loader,
         )
@@ -235,9 +233,9 @@ class ProtocolsAPI:
           - empty_config={...}: labware, period, duration, frame_dimensions
             and binning_size for an empty-steps protocol, which needs no
             objective; routed through Protocol.create_empty.
-        tiling_configs_file_loc is resolved internally from the scope's data
-        folder. The configuration is judged whole before anything is built:
-        every key the build reads, present and of its kind.
+        The protocol is built against the scope's tiling grids. The
+        configuration is judged whole before anything is built: every key
+        the build reads, present and of its kind.
 
         Args:
             input_config: A protocol's configuration, or None.
@@ -288,11 +286,11 @@ class ProtocolsAPI:
             given[0],
             empty=empty_config is not None,
         )
-        tcfg = self.tiling_configs_path()
+        grids = self.tiling_grids()
         if input_config is not None:
             protocol = Protocol.from_config(
                 input_config=input_config,
-                tiling_configs_file_loc=tcfg,
+                tiling_grids=grids,
                 capabilities=self._scope.capabilities,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
@@ -314,7 +312,7 @@ class ProtocolsAPI:
             return protocol
         return Protocol.create_empty(
             config=empty_config,
-            tiling_configs_file_loc=tcfg,
+            tiling_grids=grids,
             capabilities=self._scope.capabilities,
             objective_helper=self._scope.objective_helper,
             wellplate_loader=self._scope.wellplate_loader,

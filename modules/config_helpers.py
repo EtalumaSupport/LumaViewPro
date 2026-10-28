@@ -23,7 +23,7 @@ from modules.layer_record import Modality
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from modules.tiling_config import TilingConfig
+from modules.tiling_config import TilingGrids
 from modules.zstack_config import ZStackReference
 
 if typing.TYPE_CHECKING:
@@ -1251,7 +1251,7 @@ def get_composite_capture_config_from_settings(
             'objective_id': objective_id,
             'zstack_params': {},
             'use_zstacking': False,
-            'tiling': TilingConfig.no_tiling_label(),
+            'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
             'layer_configs': get_layer_configs(settings, specific_layers=channels),
             'period': None,
@@ -1349,7 +1349,7 @@ def get_standalone_capture_config_from_settings(
             'objective_id': objective_id,
             'zstack_params': get_zstack_params_from_settings(settings) if use_zstacking else {},
             'use_zstacking': use_zstacking,
-            'tiling': TilingConfig.no_tiling_label(),
+            'tiling': TilingGrids.no_tiling_label(),
             'tiling_overlap_percent': 0.0,
             'layer_configs': {layer: layer_config},
             'period': None,

@@ -23,7 +23,6 @@ try:
     import modules.config_helpers as config_helpers
     from modules.protocol_runner import ProtocolRunner
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
-    from modules.tiling_config import TilingConfig
     from modules.zstack_config import ZStackConfig
 
     runner = ProtocolRunner(session)
@@ -75,9 +74,7 @@ try:
         'z': curr_position.z_um,
         'name': 'ZStack',
     }
-    tiling_config = TilingConfig(
-        tiling_configs_file_loc=_pl.Path(session.source_path) / 'data' / 'tiling.json'
-    )
+    tiling_config = session.scope.protocols.tiling_grids()
     gui_cfg = config_helpers.build_sequenced_capture_config(
         {
             'labware_id': labware_id,

@@ -16,7 +16,7 @@ Fix
 ---
 - ProtocolSettings._adopt_protocol (every load's adoption) sets the spinner from Protocol.tiling(),
   which infers the label from the steps' Tile column values
-  (TilingConfig.determine_tiling_label_from_tiles -- the authoritative
+  (TilingGrids.determine_tiling_label_from_tiles -- the authoritative
   per-step tile assignment; step NAMES are never parsed, so tile-shaped
   user text cannot fake a tiling).
 - Protocol.apply_tiling refuses a grid over an already-tiled protocol
@@ -36,19 +36,19 @@ import json
 import pathlib
 
 from modules.common_utils import build_step_name, parse_legacy_step_name
-from modules.tiling_config import TilingConfig, _row_label, _split_row_col
+from modules.tiling_config import TilingGrids, _row_label, _split_row_col
+from tests.installation_fixtures import shipped_grids
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
-TILING_JSON = REPO / 'data' / 'tiling.json'
 
 
 # --- (a) the inference workhorse the restore relies on ---
 
 
-def _tiling_config() -> TilingConfig:
-    return TilingConfig(tiling_configs_file_loc=TILING_JSON)
+def _tiling_config() -> TilingGrids:
+    return shipped_grids()
 
 
 def test_infers_2x2_from_tile_column_values():
@@ -150,7 +150,7 @@ def _large_config(tmp_path, m, n):
     }
     loc = tmp_path / 'tiling.json'
     loc.write_text(json.dumps(cfg))
-    return TilingConfig(tiling_configs_file_loc=loc), label
+    return TilingGrids(loc), label
 
 
 def test_large_mosaic_tile_labels_round_trip_through_step_names(tmp_path, scale_capabilities):

@@ -27,6 +27,7 @@ from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from modules.run_events import RunEvents
+from tests.installation_fixtures import shipped_grids
 
 COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 
@@ -52,7 +53,6 @@ def _make_single_step_protocol():
     # Mirrors tests/test_run_refusal_contract.py -- a one-step protocol
     # that passes every prepare() gate on the simulated scope.
     import datetime
-    import pathlib
 
     import pandas as pd
 
@@ -96,8 +96,7 @@ def _make_single_step_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    tiling_configs = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-    return Protocol(tiling_configs_file_loc=tiling_configs, config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 class TestClaimRefusalLeavesNoState:

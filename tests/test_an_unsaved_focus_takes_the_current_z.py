@@ -24,10 +24,10 @@ from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from tests.settings_fixtures import shipped_template
 from tests.stock_channels import LED0
+from tests.installation_fixtures import shipped_grids
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 
 def _layer(focus):
@@ -69,7 +69,7 @@ def _from_config(cfg, capabilities):
 
     return Protocol.from_config(
         input_config=cfg,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         capabilities=capabilities,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),

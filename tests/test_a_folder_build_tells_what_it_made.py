@@ -27,6 +27,7 @@ from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1
+from tests.installation_fixtures import shipped_grids
 
 OLD_RESULTS = 'file,time,num_cells\nold.tif,yesterday,7\n'
 
@@ -278,7 +279,7 @@ def _drive_scripted(name, tmp_path, monkeypatch, **kwargs):
     seen = []
     build.load_folder(
         path=tmp_path,
-        tiling_configs_file_loc=tmp_path / 'tiling.json',
+        tiling_grids=shipped_grids(),
         on_progress=lambda percent, text: seen.append((percent, text)),
         **kwargs,
         channel_colors=release_colors(),

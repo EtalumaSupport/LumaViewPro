@@ -27,14 +27,14 @@ from modules.protocol import Protocol
 from tests.test_protocol_execution import _make_single_step_protocol
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.scope_fakes import stock_unit
+from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 SHIPPED_DEFAULT = REPO / 'data' / 'new_default_protocol.tsv'
 
 
 def test_a_column_less_frame_from_a_caller_is_queryable():
-    protocol = Protocol(tiling_configs_file_loc=TILING_CONFIGS, config={'steps': pd.DataFrame()})
+    protocol = Protocol(tiling_grids=shipped_grids(), config={'steps': pd.DataFrame()})
 
     assert protocol.num_steps() == 0
     assert protocol.steps()[['X', 'Y']].shape == (0, 2)
@@ -42,7 +42,7 @@ def test_a_column_less_frame_from_a_caller_is_queryable():
 
 def test_a_zero_row_parse_is_stored_with_the_canonical_schema():
     steps = Protocol.from_file(
-        file_path=SHIPPED_DEFAULT, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+        file_path=SHIPPED_DEFAULT, tiling_grids=shipped_grids(), unit=stock_unit()
     ).steps()
     canonical = Protocol._create_empty_steps_df()
 
@@ -56,4 +56,4 @@ def _steps_without(column):
 
 def test_a_frame_missing_a_column_is_refused_at_construction():
     with pytest.raises(ProtocolError, match="'Label'"):
-        Protocol(tiling_configs_file_loc=TILING_CONFIGS, config={'steps': _steps_without('Label')})
+        Protocol(tiling_grids=shipped_grids(), config={'steps': _steps_without('Label')})

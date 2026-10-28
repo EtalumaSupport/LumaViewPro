@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pathlib
 from tests.stock_channels import LED0
+from tests.installation_fixtures import shipped_grids
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -63,11 +64,9 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol
 
-    tiling_configs = REPO / 'data' / 'tiling.json'
-
     all_disabled = Protocol.from_config(
         input_config=_from_config_input({'BF': 'none', LED0: 'none'}),
-        tiling_configs_file_loc=tiling_configs,
+        tiling_grids=shipped_grids(),
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
@@ -79,7 +78,7 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
 
     one_enabled = Protocol.from_config(
         input_config=_from_config_input({'BF': 'image', LED0: 'none'}),
-        tiling_configs_file_loc=tiling_configs,
+        tiling_grids=shipped_grids(),
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),

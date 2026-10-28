@@ -19,7 +19,6 @@ GUI entry points (all in ui/lumaviewpro.kv, dispatched by the four
   apply_cell_count_method_to_folder kv:4195
 """
 
-import pathlib
 import sys
 
 import harness as _common
@@ -103,7 +102,7 @@ try:
     try:
         res = ZProjector(has_turret=False).load_folder(
             path=empty,
-            tiling_configs_file_loc=pathlib.Path('data/tiling.json'),
+            tiling_grids=s.scope.protocols.tiling_grids(),
             popup=None,
         )
     except Exception as refused:

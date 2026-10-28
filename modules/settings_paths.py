@@ -35,7 +35,7 @@ from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleratio
 from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
 from modules.zstack_config import ZStackReference
 from modules.python_values import python_values
-from modules.tiling_config import OVERLAP_PERCENT_RANGE, TilingConfig
+from modules.tiling_config import OVERLAP_PERCENT_RANGE, TilingGrids
 
 
 @dataclasses.dataclass(frozen=True)
@@ -256,7 +256,7 @@ def _refuse_unless_member(
 
 def _overlap(path: str, value: float) -> None:
     try:
-        TilingConfig.validate_overlap_percent(value)
+        TilingGrids.validate_overlap_percent(value)
     except ValueError as e:
         raise SettingRefusedError('out_of_range', path, str(e), limits=OVERLAP_PERCENT_RANGE) from e
 

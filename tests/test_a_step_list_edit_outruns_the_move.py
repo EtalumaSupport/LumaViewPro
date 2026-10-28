@@ -69,6 +69,7 @@ from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
 from modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -105,7 +106,7 @@ def _insert(protocol, *, x, before_step_index=None, after_step_index=None):
 def _protocol(num_steps):
     """A real protocol whose step i stands at X = i, so a step is known by its X."""
     protocol = Protocol(
-        tiling_configs_file_loc=REPO / 'data' / 'tiling.json',
+        tiling_grids=shipped_grids(),
         config={'steps': pd.DataFrame(), 'custom_step_count': 0, 'period': None, 'duration': None},
     )
     for i in range(num_steps):

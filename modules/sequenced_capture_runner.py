@@ -1712,13 +1712,6 @@ class SequencedCaptureRunner:
                 attended=plan.run_mode.is_one_position and plan.borrowed_claim is None
             )
 
-            # Asked here, before anything touches the disk, so a scope with
-            # no registered source path fails the run at start with no run
-            # directory left behind -- rather than at its post-run builds,
-            # after it has captured everything. The builds read it from the
-            # session's builds as each starts.
-            self._scope.protocols.tiling_configs_path()
-
             self._setup_run_dir()
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.

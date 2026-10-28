@@ -39,7 +39,6 @@ refusal boundary) is locked by tests/test_protocol_start_refusal_ui_gate.py.
 from tests.protocol_drives import no_post_run_builds
 import ast
 import datetime
-import pathlib
 import threading
 import time
 from concurrent.futures import Future
@@ -72,12 +71,11 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED2
+from tests.installation_fixtures import shipped_grids
 
 COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
 FILES_WAIT_S = 60
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +150,7 @@ def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+    return Protocol(tiling_grids=shipped_grids(), config=config)
 
 
 def _make_single_step_protocol(color='BF'):
@@ -996,86 +994,6 @@ class TestTheRefusalFunnel:
                 _prepare(executor, _make_single_step_protocol(), tmp_path)
         finally:
             claim.end_control(controller.id)
-
-
-# ---------------------------------------------------------------------------
-# 5. A run that cannot resolve its data root fails at start.
-# ---------------------------------------------------------------------------
-
-
-class TestARunThatCannotResolveItsDataRootFailsAtStart:
-    """The run's data root is resolved at start, on the caller's thread.
-
-    The post-run merge and stack build both read data/tiling.json, and
-    both run on a daemon thread long after start() returned. A scope
-    whose source path was never registered cannot answer for that file
-    at all -- so resolving it late means the run captures a full plate
-    and then fails where nobody is waiting. Resolving it at start makes
-    the failure the caller's: the run never commits to disk, the
-    terminal callback carries failed_at_start, and the user is told
-    once.
-    """
-
-    def test_an_unresolvable_data_root_fails_the_run_at_start(
-        self, tmp_path, monkeypatch, centre_posts
-    ):
-        from modules.notification_center import Severity
-        from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-
-        output_dir = tmp_path / 'out'
-        runner = bare_capture_runner()
-        runner._scope.protocols.tiling_configs_path.side_effect = RuntimeError(
-            'the tiling config path could not be resolved'
-        )
-        # A post-run build put on the lane here would carry the failure on
-        # past the run, which is the shape this contract replaces.
-        builds = runner._post_processing
-
-        completions = []
-        plan = runner.prepare(
-            **scr_run_kwargs(
-                parent_dir=output_dir,
-                disable_saving_artifacts=False,
-                events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
-            )
-        )
-        # start() resolves the outcome rather than raising, so the caller
-        # is released with an answer on this path like every other.
-        runner.start(plan)
-
-        runner._scope.protocols.tiling_configs_path.assert_called_once_with()
-        assert len(completions) == 1, (
-            'the terminal callback must fire exactly once for a run that '
-            f'could not resolve its data root; got {completions}'
-        )
-        assert completions[0].status == 'failed_at_start', (
-            f'run_ended must carry the failed-at-start status; got {completions[0]}'
-        )
-        notified = [
-            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
-        ]
-        failed_to_start = [args for args in notified if 'Run failed to start' in args]
-        assert len(failed_to_start) == 1, (
-            f'the user must be told once that the run failed to start; got {notified}'
-        )
-        assert notified == failed_to_start, (
-            f'a failed-at-start run raises exactly that one error; got {notified}'
-        )
-        # The path is resolved BEFORE the run directory is created, so a
-        # run that cannot resolve it leaves no half-made directory behind.
-        assert not output_dir.exists() or not list(output_dir.iterdir()), (
-            'a run that failed before it could resolve its data root must '
-            f'leave the capture location untouched; found {list(output_dir.iterdir())}'
-        )
-        assert not runner.run_in_progress(), (
-            'a run that failed at start must not stay marked in progress'
-        )
-        put_on_the_lane = [
-            call for call in builds.method_calls if call[0] in ('run_hyperstack', 'run_composite')
-        ]
-        assert not put_on_the_lane, (
-            f'a run that never captured anything has nothing to post-process; got {put_on_the_lane}'
-        )
 
 
 class TestARunThatFailsValidationIsRefusedWithItsErrors:

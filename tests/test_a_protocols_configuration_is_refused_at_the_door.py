@@ -19,6 +19,7 @@ import copy
 import pytest
 
 from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, RefusalCause
+from modules.tiling_config import TilingGrids
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
@@ -202,7 +203,7 @@ def test_an_overlap_no_grid_can_take_is_refused_at_one_tile_too(session, overlap
     with pytest.raises((ArgumentRefusedError, ProtocolRunRefusedError)) as refused:
         session.scope.protocols.apply_tiling(
             protocol,
-            session.scope.protocols.tiling_config().no_tiling_label(),
+            TilingGrids.no_tiling_label(),
             frame_dimensions={'width': 1900, 'height': 1900},
             binning_size=1,
             overlap_percent=overlap,

@@ -13,6 +13,7 @@ from modules.protocol import Protocol, StoredNames
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules import post_derivation
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.tiling_config import TilingGrids
 
 from lvp_logger import logger
 
@@ -314,7 +315,7 @@ class ProtocolPostProcessingHelper:
     def load_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
+        tiling_grids: TilingGrids,
     ) -> dict:
         selected_path = pathlib.Path(path)
         logger.info(f'{self._name}: Loading folder {selected_path}')
@@ -358,7 +359,7 @@ class ProtocolPostProcessingHelper:
             # or a step cell a run would refuse, does not refuse it here.
             protocol = Protocol.from_file(
                 file_path=protocol_tsvs['protocol'],
-                tiling_configs_file_loc=tiling_configs_file_loc,
+                tiling_grids=tiling_grids,
                 unit=StoredNames.KEPT,
             )
         except Exception as e:

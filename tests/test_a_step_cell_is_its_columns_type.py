@@ -26,8 +26,9 @@ import pytest
 from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError, StoredNames
 from tests.scope_fakes import stock_unit
 from tests.ast_seams import parse_module, walk_defs
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.case_walk import failing_cases
+from tests.installation_fixtures import shipped_grids
 from modules.coord_transformations import PlateLocation
 
 
@@ -53,7 +54,7 @@ def _load(path, unit=None):
     """``path`` read to run on a stock unit, or as ``unit`` says."""
     return Protocol.from_file(
         file_path=path,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit() if unit is None else unit,
     )
 

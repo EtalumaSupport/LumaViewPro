@@ -26,6 +26,7 @@ from modules.protocol import ProtocolFormatError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import make_session  # noqa: F401
 from modules.protocol import StoredNames
 from tests.stock_channels import LED0
+from tests.installation_fixtures import shipped_grids
 
 
 def _saved_steps(session, path, count):
@@ -85,13 +86,10 @@ def test_a_blank_position_loads_as_no_position_and_saves_blank(make_session, tmp
 
 def test_post_processing_reads_a_blank_position_as_no_position(make_session, tmp_path):
     from modules.protocol import Protocol
-    from tests.test_protocol_roundtrip import TILING_CONFIGS
 
     path = _blank_xy_file(make_session, tmp_path)
 
-    record = Protocol.from_file(
-        file_path=path, tiling_configs_file_loc=TILING_CONFIGS, unit=StoredNames.KEPT
-    )
+    record = Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=StoredNames.KEPT)
 
     assert (record.step_row(step_index=0)['X'], record.step_row(step_index=0)['Y']) == (None, None)
 

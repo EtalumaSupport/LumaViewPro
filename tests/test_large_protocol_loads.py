@@ -14,10 +14,10 @@ import pytest
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.scope_fakes import stock_unit
 from tests.test_protocol_roundtrip import (
-    TILING_CONFIGS,
     _build_protocol,
     _make_step,
 )
+from tests.installation_fixtures import shipped_grids
 
 # Above the advisory threshold (PROTOCOL_SIZE_ADVISORY_STEPS, 10,000) and above
 # the step ceiling this suite exists to keep deleted.
@@ -36,7 +36,7 @@ def _reload(protocol, tmp_path: pathlib.Path) -> Protocol:
     assert protocol.to_file(filepath) is None
     return Protocol.from_file(
         file_path=filepath,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
 
@@ -67,9 +67,7 @@ def test_the_file_ceiling_still_refuses_and_blames_memory_not_corruption(tmp_pat
     huge.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
 
     with pytest.raises(ProtocolFormatError, match='exhausting memory') as exc_info:
-        Protocol.from_file(
-            file_path=huge, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        Protocol.from_file(file_path=huge, tiling_grids=shipped_grids(), unit=stock_unit())
 
     assert 'corrupt' not in str(exc_info.value).lower()
 
@@ -80,6 +78,4 @@ def test_a_malformed_file_is_still_refused(tmp_path):
     junk.write_text('this is not a protocol\n')
 
     with pytest.raises(ProtocolFormatError, match='Not a valid LumaViewPro Protocol'):
-        Protocol.from_file(
-            file_path=junk, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        Protocol.from_file(file_path=junk, tiling_grids=shipped_grids(), unit=stock_unit())

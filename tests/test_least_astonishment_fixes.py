@@ -16,6 +16,7 @@ screen:
 """
 
 from pathlib import Path
+from tests.installation_fixtures import shipped_grids
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -62,7 +63,7 @@ class TestPostProcessingEmptyResultMessages:
         from modules.composite_generation import CompositeGeneration
 
         comp = CompositeGeneration(has_turret=False)
-        comp._post_processing_helper.load_folder = lambda path, tiling_configs_file_loc: {
+        comp._post_processing_helper.load_folder = lambda path, tiling_grids: {
             'status': True,
             'images_df': pd.DataFrame(),
             'root_path': pathlib.Path('.'),
@@ -73,7 +74,7 @@ class TestPostProcessingEmptyResultMessages:
         from modules.exceptions import PostProcessingRefusedError
 
         with pytest.raises(PostProcessingRefusedError) as refused:
-            comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+            comp.load_folder(path='run', tiling_grids=shipped_grids())
         assert refused.value.reason == 'no_images'
         assert 'No image files were found in the selected folder' in str(refused.value)
         assert 'captured scan images' in str(refused.value)

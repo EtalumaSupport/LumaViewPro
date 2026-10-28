@@ -36,7 +36,7 @@ from modules.exceptions import (
 from modules.notification_center import NotificationCenter, Severity, notifications
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
-from tests.test_capture_collision_policy import TILING_CONFIGS
+from tests.installation_fixtures import shipped_grids
 from modules.layer_record import release_colors
 
 
@@ -92,7 +92,7 @@ def _drive(processor, tmp_path, monkeypatch, *, helper=None, groups=2):
     }
     monkeypatch.setattr(processor._post_processing_helper, 'load_folder', lambda **kw: answer)
     return processor.load_folder(
-        path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, channel_colors=release_colors()
+        path=tmp_path, tiling_grids=shipped_grids(), channel_colors=release_colors()
     )
 
 

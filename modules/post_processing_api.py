@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from modules.api_surface import ProgressCallback
     from modules.layer_record import ChannelColors
     from modules.sequential_io_executor import SequentialIOExecutor
+    from modules.tiling_config import TilingGrids
 
 
 @api_fields('path', 'algorithm', 'fallback_from', 'fallback_reason')
@@ -510,7 +511,7 @@ class PostProcessingAPI:
         self,
         *,
         lane: SequentialIOExecutor,
-        tiling_configs_path: Callable[[], pathlib.Path],
+        tiling_grids: TilingGrids,
         has_turret: Callable[[], bool],
         settings_snapshot: Callable[[], dict],
         channel_colors: Callable[[], ChannelColors],
@@ -520,8 +521,8 @@ class PostProcessingAPI:
         """
         Args:
             lane: The post-processing lane every build runs on.
-            tiling_configs_path: The installation's tiling config, from its
-                one owner.
+            tiling_grids: The installation's tiling grids, the scope's one
+                copy, which every protocol a build reads is built against.
             has_turret: Whether the scope has a turret, which decides how a
                 folder's images are grouped by objective.
             settings_snapshot: The live user configuration, read when a
@@ -535,7 +536,7 @@ class PostProcessingAPI:
                 written; asked as each build starts.
         """
         self.lane = lane
-        self._tiling_configs_path = tiling_configs_path
+        self._tiling_grids = tiling_grids
         self._has_turret = has_turret
         self._settings_snapshot = settings_snapshot
         self._channel_colors = channel_colors
@@ -893,7 +894,7 @@ class PostProcessingAPI:
         return self._on_lane(
             functools.partial(
                 StackBuilder(has_turret=self._has_turret()).load_folder,
-                tiling_configs_file_loc=self._tiling_configs_path(),
+                tiling_grids=self._tiling_grids,
                 save_encoding=save_encoding,
                 channel_colors=channel_colors,
             ),
@@ -992,7 +993,7 @@ class PostProcessingAPI:
 
         return functools.partial(
             Stitcher(has_turret=self._has_turret()).load_folder,
-            tiling_configs_file_loc=self._tiling_configs_path(),
+            tiling_grids=self._tiling_grids,
             stitching_mode=settings.mode,
             channel_colors=self._channel_colors(),
         )
@@ -1003,7 +1004,7 @@ class PostProcessingAPI:
 
         return functools.partial(
             ZProjector(has_turret=self._has_turret()).load_folder,
-            tiling_configs_file_loc=self._tiling_configs_path(),
+            tiling_grids=self._tiling_grids,
             method=settings.method,
             channel_colors=self._channel_colors(),
         )
@@ -1031,7 +1032,7 @@ class PostProcessingAPI:
 
         return functools.partial(
             CompositeGeneration(has_turret=self._has_turret()).load_folder,
-            tiling_configs_file_loc=self._tiling_configs_path(),
+            tiling_grids=self._tiling_grids,
             output_format=output_format,
             brightness_thresholds_percent=thresholds,
             channel_colors=channel_colors,
@@ -1043,7 +1044,7 @@ class PostProcessingAPI:
 
         return functools.partial(
             VideoBuilder(has_turret=self._has_turret()).build_from_folder,
-            tiling_configs_file_loc=self._tiling_configs_path(),
+            tiling_grids=self._tiling_grids,
             frame_rate_fps=self._playback_rate(settings.frame_rate_fps),
             enable_timestamp_overlay=settings.timestamp_overlay,
             channel_colors=self._channel_colors(),

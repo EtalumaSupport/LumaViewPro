@@ -28,7 +28,6 @@ and must keep its dtypes.
 """
 
 import datetime
-import pathlib
 
 import numpy as np
 import pandas as pd
@@ -36,8 +35,7 @@ import pandas as pd
 from modules.config_helpers import find_nearest_step
 from modules.protocol import Protocol
 from tests.scope_fakes import stock_unit
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+from tests.installation_fixtures import shipped_grids
 
 
 def _step_row(name='S1', x=1.5, y=2.5, z=3.5, color='BF', illumination=5.0):
@@ -94,7 +92,7 @@ def _protocol_from_dataframe(rows):
 
 def _wrap(df):
     return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': df,
@@ -141,7 +139,7 @@ class TestProtocolHandsOutPythonScalars:
         filepath = tmp_path / 'p.tsv'
         assert protocol.to_file(filepath) is None
         reloaded = Protocol.from_file(
-            file_path=filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
+            file_path=filepath, tiling_grids=shipped_grids(), unit=stock_unit()
         )
         offenders = _numpy_valued(reloaded.step_row(0))
         assert not offenders, (

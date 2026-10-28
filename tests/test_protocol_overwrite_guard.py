@@ -23,7 +23,6 @@ import textwrap
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +36,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
 from tests.scope_fakes import stock_unit
+from tests.installation_fixtures import shipped_grids
 from modules.lumascope_api.frame_record import CapturedStill
 
 
@@ -201,7 +201,7 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
 
     proto = Protocol.from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
     assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
@@ -227,7 +227,7 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
 
     proto = Protocol.from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
     assert proto.num_steps() == 3
@@ -253,7 +253,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
 
     proto = Protocol.from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
     assert proto.num_steps() == 4, (
@@ -290,7 +290,7 @@ def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
 
     Protocol.from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
     assert centre_posts == [], (
@@ -310,7 +310,7 @@ def test_load_accepts_unique_steps(tmp_path):
 
     proto = Protocol.from_file(
         file_path=tsv,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
     assert proto.num_steps() == 2

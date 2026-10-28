@@ -157,13 +157,11 @@ class TestConstructorsRefuseToGuess:
     """The folder the sub-API resolves against, asserted against the sub-API
     directly so it survives the forwarder retirement unchanged."""
 
-    def test_registration_resolves_the_tiling_config(self):
-        # The folder is given at construction; the sub-API resolves from it.
+    def test_the_folder_is_the_one_given_at_construction(self):
         root = REPO_ROOT
         scope = build_scope(simulate=True, register_atexit=False, source_path=root)
         try:
             assert pathlib.Path(scope.source_path) == root
-            assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
         finally:
             scope.disconnect()
 

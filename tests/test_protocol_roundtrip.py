@@ -19,7 +19,6 @@ These tests verify that:
 from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
-import pathlib
 import json
 import threading
 import time
@@ -50,6 +49,7 @@ from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
+from tests.installation_fixtures import shipped_grids
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +59,6 @@ from tests.stock_channels import LED0, LED1, LED2
 COMPLETION_TIMEOUT = 20  # seconds
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
 FILES_WAIT_S = 60
-
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _make_autogain_settings():
@@ -186,7 +184,7 @@ def _build_protocol(steps, period_min=1.0, duration_hrs=1.0, labware='6 well mic
         'tiling': '1x1',
     }
     return Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         config=config,
     )
 
@@ -201,7 +199,7 @@ def _save_and_reload(protocol, tmp_path):
 
     reloaded = Protocol.from_file(
         file_path=filepath,
-        tiling_configs_file_loc=TILING_CONFIGS,
+        tiling_grids=shipped_grids(),
         unit=stock_unit(),
     )
     return reloaded
@@ -442,7 +440,7 @@ class TestRoundTripBasic:
 
         proto = Protocol.from_file(
             file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             unit=stock_unit(),
         )
         assert proto is not None
@@ -494,7 +492,7 @@ class TestRoundTripBasic:
 
         proto = Protocol.from_file(
             file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             unit=stock_unit(),
         )
         assert proto is not None
@@ -544,7 +542,7 @@ class TestRoundTripBasic:
 
         proto = Protocol.from_file(
             file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             unit=stock_unit(),
         )
         assert proto is not None
@@ -994,7 +992,7 @@ class TestRoundTripMetadata:
         with pytest.raises(ProtocolFormatError):
             Protocol.from_file(
                 file_path=filepath,
-                tiling_configs_file_loc=TILING_CONFIGS,
+                tiling_grids=shipped_grids(),
                 unit=stock_unit(),
             )
 
@@ -1015,7 +1013,7 @@ class TestRoundTripMetadata:
             'tiling': '1x1',
         }
         proto = Protocol(
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
@@ -1039,7 +1037,7 @@ class TestRoundTripMetadata:
             'tiling': '1x1',
         }
         proto = Protocol(
-            tiling_configs_file_loc=TILING_CONFIGS,
+            tiling_grids=shipped_grids(),
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
@@ -2299,9 +2297,7 @@ class TestV6LayerSettings:
         # Save WITHOUT layer_settings (legacy save path)
         filepath = tmp_path / 'v5_shape.tsv'
         proto.to_file(filepath)
-        reloaded = Protocol.from_file(
-            filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        reloaded = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
         inferred = reloaded.channel_settings()
 
         assert set(inferred.keys()) == {'BF', LED0, LED1, LED2}
@@ -2352,9 +2348,7 @@ class TestV6LayerSettings:
         assert 'Layer Settings' in text
         assert 'Stim_Enabled' in text
 
-        reloaded = Protocol.from_file(
-            filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        reloaded = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
         ls_out = reloaded.channel_settings()
         assert set(ls_out.keys()) == {'BF', LED0}
         assert ls_out['BF'].acquire == 'image'
@@ -2382,9 +2376,7 @@ class TestV6LayerSettings:
         }
         filepath = tmp_path / 'v6_partial.tsv'
         proto.to_file(filepath, layer_settings=ls_in)
-        reloaded = Protocol.from_file(
-            filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        reloaded = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
         ls_out = reloaded.channel_settings()
         assert 'BF' in ls_out
         assert LED0 not in ls_out
@@ -2412,18 +2404,14 @@ class TestV6LayerSettings:
             },
         )
 
-        reloaded1 = Protocol.from_file(
-            filepath1, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        reloaded1 = Protocol.from_file(filepath1, tiling_grids=shipped_grids(), unit=stock_unit())
         filepath2 = tmp_path / 'v6_second.tsv'
         # No layer_settings kwarg this time
         reloaded1.to_file(filepath2)
 
         text = filepath2.read_text()
         assert 'Layer Settings' in text
-        reloaded2 = Protocol.from_file(
-            filepath2, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit()
-        )
+        reloaded2 = Protocol.from_file(filepath2, tiling_grids=shipped_grids(), unit=stock_unit())
         ls = reloaded2.channel_settings()
         assert ls['BF'].acquire == 'image'
         assert ls['BF'].illumination_ma == 7.5
@@ -2459,7 +2447,7 @@ class TestV6LayerSettings:
             'A1_BF\t14.38\t11.24\t4000.0\tFalse\tBF\tFalse\t2.0\t1.0\tFalse\t2.0\t1\t10x Air\tA1\t\t-1\tFalse\t-1\t-1\timage\t"{""duration"": 5}"\t"{""Blue"": {""enabled"": false}}"\n'
         )
         with pytest.raises(ProtocolFormatError) as refused:
-            Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit())
+            Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
         assert refused.value.file == filepath
 
 

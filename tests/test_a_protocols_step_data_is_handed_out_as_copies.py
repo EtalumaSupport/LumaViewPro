@@ -23,10 +23,11 @@ import pandas as pd
 import pytest
 
 from modules.protocol import Protocol
-from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from modules.coord_transformations import PlateLocation
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0
+from tests.installation_fixtures import shipped_grids
 
 DICT_COLUMNS = ['Stim_Config', 'Video Config']
 
@@ -109,7 +110,7 @@ class TestReadersHandOutCopies:
                 }
             },
         )
-        loaded = Protocol.from_file(path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit())
+        loaded = Protocol.from_file(path, tiling_grids=shipped_grids(), unit=stock_unit())
 
         with pytest.raises(dataclasses.FrozenInstanceError):
             loaded.channel_settings()['BF'].illumination_ma = 999.0
@@ -122,7 +123,7 @@ class TestEveryStoredCellIsReadOnly:
     def test_a_loaded_protocols_cells_are_read_only(self, tmp_path, protocol, column):
         path = tmp_path / 'saved.tsv'
         protocol.to_file(path)
-        loaded = Protocol.from_file(path, tiling_configs_file_loc=TILING_CONFIGS, unit=stock_unit())
+        loaded = Protocol.from_file(path, tiling_grids=shipped_grids(), unit=stock_unit())
 
         with pytest.raises(TypeError):
             loaded.step_row(0)[column]['written'] = True

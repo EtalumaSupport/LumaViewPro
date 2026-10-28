@@ -397,12 +397,13 @@ class Lumascope:
         self._settings_template = load_template(
             logger, str(resolve_data_file('settings.json', source_path=source_path))
         )
-        # The grids ProtocolsAPI.tiling_config answers. A tiling.json edited
-        # while the program runs is seen at the next start, as every
-        # catalogue is: one session never offers two sets of grids.
-        from modules.tiling_config import TilingConfig
+        # The grids ProtocolsAPI.tiling_config answers and every protocol lays
+        # its tiles out against. A tiling.json edited while the program runs
+        # is seen at the next start, as every catalogue is: one session never
+        # offers two sets of grids.
+        from modules.tiling_config import TilingGrids
 
-        self._tiling_config = TilingConfig(
+        self._tiling_grids = TilingGrids(
             tiling_configs_file_loc=resolve_data_file('tiling.json', source_path=source_path)
         )
         return motorconfig_defaults
