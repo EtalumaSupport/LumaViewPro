@@ -25,9 +25,6 @@ import threading
 import pytest
 
 import modules.lumascope_api._lumascope as lumascope_module
-from drivers.null_ledboard import NullLEDBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverFallback, NoLiveDriverError
 from modules.exceptions import InstallationFileError, ScopeDisconnectError, ScopeInUseError
 from modules.lumascope_api import Lumascope
 from modules.lvp_lock import take_instance_lock
@@ -82,30 +79,6 @@ def _held_by_another_process(port: int):
 def _another_process_can_take(port: int) -> bool:
     with _held_by_another_process(port) as said:
         return said == 'held'
-
-
-@pytest.fixture
-def no_hardware(monkeypatch):
-    """The registries answer as a machine with no scope does: null boards, no camera."""
-    absent = DriverFallback('not_detected', ())
-    monkeypatch.setattr(
-        lumascope_module.led_registry,
-        'create_with_fallback',
-        lambda name='auto', **kw: (NullLEDBoard(), absent),
-    )
-    monkeypatch.setattr(
-        lumascope_module.motor_registry,
-        'create_with_fallback',
-        lambda name='auto', **kw: (NullMotionBoard(), absent),
-    )
-
-    def no_camera(name='auto', **kw):
-        if kw.get('simulate'):
-            return real_create(name, **kw)
-        raise NoLiveDriverError('camera', absent)
-
-    real_create = lumascope_module.camera_registry.create
-    monkeypatch.setattr(lumascope_module.camera_registry, 'create', no_camera)
 
 
 def _scope_threads() -> set[threading.Thread]:

@@ -5,9 +5,15 @@ and refused by name on one that cannot.
 
 The answers asserted are the production ones: the exception and reason a
 caller meets on hardware. Nothing here reaches a simulated board privately.
+
+On the wire every member but ``hold_axis`` and ``exposed_under`` is a
+route, and each injection and take-back is a guarded write: a held
+control session refuses another caller's fault, and a real scope refuses
+the fault before the session is asked.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
 from drivers import tmcm6110
 from drivers.exceptions import CameraReadFailedError, HardwareError
@@ -19,9 +25,13 @@ from modules.exceptions import (
     MotorStopFailedError,
     MoveNotCompletedError,
 )
+from modules.caller import Caller, calling
 from modules.lumascope_api import _lumascope
 from modules.lumascope_api.simulation import InjectedFault
+from modules.scope_session import ScopeSession
+from rest.app import build_app
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
 @pytest.fixture
@@ -386,3 +396,73 @@ def test_the_fx2_refuses_what_its_device_cannot_show(ls620):
     ):
         refused = _refused(member, *args)
         assert (refused.reason, refused.board) == ('not_injectable_on_board', 'the simulated FX2')
+
+
+# --- on the wire -------------------------------------------------------------
+
+
+@pytest.fixture
+def client():
+    """A REST client of a simulated session, on one event loop as the server runs."""
+    session = ScopeSession.create(complete_settings(), simulate=True)
+    try:
+        with TestClient(build_app(session)) as client:
+            yield client
+    finally:
+        session.shutdown()
+
+
+def test_a_fault_injected_over_the_wire_meets_the_next_call(client):
+    injected = client.post(
+        '/api/v1/scope/simulation/refuse_camera_write', json={'node': 'gain', 'answer': 'false'}
+    )
+    assert injected.status_code == 200, injected.text
+    assert client.get('/api/v1/scope/simulation/injected').json() == [
+        {
+            'member': 'refuse_camera_write',
+            'arguments': {'node': 'gain', 'answer': 'false', 'count': 1},
+        }
+    ]
+
+    refused = client.put('/api/v1/scope/camera/gain_db', json={'gain_db': 2.0})
+    assert (refused.status_code, refused.json()['reason']) == (500, 'camera_rejected')
+
+    assert client.post('/api/v1/scope/simulation/clear', json={}).status_code == 200
+    assert client.get('/api/v1/scope/simulation/injected').json() == []
+
+
+def test_a_held_control_session_refuses_another_callers_fault_and_admits_its_holders(client):
+    session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
+
+    refused = client.post('/api/v1/scope/simulation/unplug', json={'board': 'motor'})
+    assert (refused.status_code, refused.json()['reason']) == (409, 'control_session_held')
+    taken_back = client.post('/api/v1/scope/simulation/clear', json={})
+    assert (taken_back.status_code, taken_back.json()['reason']) == (409, 'control_session_held')
+    # A read changes nothing, so it is answered whoever holds the session.
+    assert client.get('/api/v1/scope/simulation/injected').json() == []
+
+    held = {'Control-Session': session_id}
+    admitted = client.post('/api/v1/scope/simulation/unplug', json={'board': 'motor'}, headers=held)
+    assert admitted.status_code == 200, admitted.text
+    assert [f['member'] for f in client.get('/api/v1/scope/simulation/injected').json()] == [
+        'unplug'
+    ]
+    # Plugged back in before any command finds it pulled, so the session closes cleanly.
+    cleared = client.post('/api/v1/scope/simulation/clear', json={}, headers=held)
+    assert cleared.status_code == 200, cleared.text
+    assert client.get('/api/v1/scope/simulation/injected').json() == []
+
+
+def test_a_real_scope_refuses_a_fault_over_the_wire_before_a_held_session_is_asked(no_hardware):
+    session = ScopeSession.create(
+        complete_settings(), source_path=str(installation_of_its_own()), warn_pre_release=False
+    )
+    try:
+        with calling(Caller.GUI):
+            session.take_control('operator')
+        with TestClient(build_app(session)) as client:
+            refused = client.post('/api/v1/scope/simulation/unplug', json={'board': 'motor'})
+    finally:
+        session.shutdown()
+    # The scope cannot have the fault, which no session's holder could change.
+    assert (refused.status_code, refused.json()['reason']) == (422, 'needs_simulated_scope')

@@ -650,6 +650,35 @@ def diagnostic_scope():
         instance.disconnect()
 
 
+@pytest.fixture
+def no_hardware(monkeypatch):
+    """The registries answer as a machine with no scope does: null boards, no camera."""
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+    from drivers.registry import DriverFallback, NoLiveDriverError
+    from modules.lumascope_api import _lumascope
+
+    absent = DriverFallback('not_detected', ())
+    monkeypatch.setattr(
+        _lumascope.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kw: (NullLEDBoard(), absent),
+    )
+    monkeypatch.setattr(
+        _lumascope.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **kw: (NullMotionBoard(), absent),
+    )
+
+    def no_camera(name='auto', **kw):
+        if kw.get('simulate'):
+            return real_create(name, **kw)
+        raise NoLiveDriverError('camera', absent)
+
+    real_create = _lumascope.camera_registry.create
+    monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)
+
+
 # ---------------------------------------------------------------------------
 # Memory cap
 # ---------------------------------------------------------------------------

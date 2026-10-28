@@ -2721,7 +2721,7 @@ The REST server puts the API reference below on HTTP: every member marked for th
 Start it from the installation's folder:
 
 ```bash
-python -m rest --simulate      # the simulated scope; omit --simulate for the attached hardware
+python -m rest --simulate      # the simulated scope, whose faults are injected at scope/simulation/*; omit --simulate for the attached hardware
 ```
 
 It brings the scope up as LumaViewPro does -- the user's settings, the startup home, the plugins -- and serves on `127.0.0.1` at the port in `rest_api.port` (shipped 8000), printing the URL. It takes the same single-instance lock as LumaViewPro, so it will not start while LumaViewPro or another server drives the scope. Every real scope takes that lock too, however it is built -- `ScopeSession.create` with `simulate=False`, a bare `Lumascope()`, the support report's diagnostic scope -- so a script's scope is refused with `ScopeInUseError` (`modules.exceptions`, reason `scope_in_use`), with nothing opened, while LumaViewPro, a server or another script drives the microscope; and a process drives one real scope at a time. The scope's `disconnect()`, which its session's `shutdown()` makes, gives the lock back. A simulated scope takes none. A failed startup home is reported in the log and the server still serves, so a client can home again. Ctrl-C or SIGTERM closes it with its clients connected: a new connection is refused, and a member or a new live view asked on an open one is refused (`503`, `server_closing`), while jobs, handles, files and the event stream are still served, and a live view already open keeps showing frames; the session closes, and the stream carries what that close reports -- a run's end, the LEDs turned off -- then `closing`, and ends, as every live view does; a client still waiting on a job then -- a `GET /api/v1/jobs/<id>` long-poll, or a call inside its `Prefer: wait` -- is answered what the job is at that moment, so no wait holds the exit; the process exits `0`, or `1` when the session did not close cleanly. A second signal while it closes is logged and changes nothing. It runs from a source or pip install.
@@ -3043,7 +3043,7 @@ A scope brought up through `ScopeSession.create()` is already streaming. A bare 
 
 ### Faults on the simulated scope
 
-`scope.simulation` presents the faults a real board or camera can, so code under test meets them through the production driver path and asserts what the API answers: the same exception, reason and outcome as on hardware. A fault is armed for the next command, not the one in flight. The members are in-process only (Python, MATLAB calling Python), and each refuses on a real scope (`ArgumentRefusedError`, `needs_simulated_scope`).
+`scope.simulation` presents the faults a real board or camera can, so code under test meets them through the production driver path and asserts what the API answers: the same exception, reason and outcome as on hardware. A fault is armed for the next command, not the one in flight. Every member but `hold_axis` and `exposed_under`, whose event and frame are in-process objects, is on the wire too, at `/api/v1/scope/simulation/<member>`, so a REST client injects a fault as a Python caller does. Each refuses on a real scope (`ArgumentRefusedError`, `needs_simulated_scope`), before a held control session is asked; on a simulated scope each injection and take-back is a guarded write, so while a control session is held another caller's fault is refused (`control_session_held`).
 
 Which board answers a member depends on how the model is simulated. The **fast** tier (`simulator_tier` `fast`) runs simulated boards in place of the drivers, a move and a home taking milliseconds; it is the tier a machine without the firmware runtime falls back to, with a warning in the log. The shipped settings choose the **realistic** tier, where a home and a move take the stage's time. The **firmware** and **realistic** tiers run the production EL-0940 drivers over the board firmware in simulation; a **Classic** model (the LS720's TMCM-6110; the LS620 and LS560's FX2) runs its production drivers over a simulated device on every tier. A board that cannot produce a fault refuses it (`not_injectable_on_board`, its `board` naming the board), and an argument it cannot take is refused as `argument_not_on_board`, its `board` naming the board and its `takes` what the board takes for that argument. `board` is a `Part`, `'motor'` or `'led'` (any other word refused `not_offered`; `fault_unknown` for a board the model lacks, its `offered` the boards it has). A camera fault on a scope whose camera did not come up is refused `fault_unknown` the same way, naming `'camera'`. A home fault's `how` and a camera fault's `node` and `answer` are closed sets (`HomeFault`, `CameraWriteNode`, `CameraWriteAnswer`, `CameraReadNode`, `CameraReadAnswer`, in `modules.lumascope_api.simulation`): a word outside one is refused `not_offered`, and so is a write answer the node does not give, offering those it gives.
 
@@ -3309,7 +3309,7 @@ Reached through `session.scope`.
 - `runtime_state`
 - `scope_models`
 - `settings_template`
-- `simulation` (in-process)
+- `simulation`
 - `unconnected_parts`
 
 ### MotionAPI
@@ -3485,28 +3485,28 @@ Reached through `session.scope.runtime_state`.
 
 Reached through `session.scope.simulation`.
 
-- `answer_model` (in-process)
-- `bind_camera_usb_driver` (in-process)
-- `clear` (in-process)
-- `delay_delivery` (in-process)
-- `delay_reply` (in-process)
-- `drop_replies` (in-process)
+- `answer_model`
+- `bind_camera_usb_driver`
+- `clear`
+- `delay_delivery`
+- `delay_reply`
+- `drop_replies`
 - `exposed_under` (in-process)
-- `fail_home` (in-process)
+- `fail_home`
 - `hold_axis` (in-process)
-- `injected` (in-process)
-- `interlock` (in-process)
-- `reboot` (in-process)
-- `refuse_camera_read` (in-process)
-- `refuse_camera_write` (in-process)
-- `refuse_stream_start` (in-process)
-- `refuse_led_write` (in-process)
-- `remove_camera` (in-process)
-- `replug` (in-process)
-- `silence` (in-process)
-- `stall_stream` (in-process)
-- `unplug` (in-process)
-- `unsilence` (in-process)
+- `injected`
+- `interlock`
+- `reboot`
+- `refuse_camera_read`
+- `refuse_camera_write`
+- `refuse_stream_start`
+- `refuse_led_write`
+- `remove_camera`
+- `replug`
+- `silence`
+- `stall_stream`
+- `unplug`
+- `unsilence`
 
 ### ScopeCapabilities
 

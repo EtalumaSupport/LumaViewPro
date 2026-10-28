@@ -150,6 +150,12 @@ def _api_marks(fn: ast.FunctionDef) -> list[ast.expr] | None:
     return None
 
 
+def _marked_a_read(marks: list[ast.expr]) -> bool:
+    return any(
+        k.arg == 'reads' and isinstance(k.value, ast.Constant) and k.value.value for k in marks
+    )
+
+
 def test_every_session_member_given_a_protocol_reads_it_or_is_a_guarded_write():
     """An edit of a protocol is a write past a control session unless it is guarded.
 
@@ -167,11 +173,33 @@ def test_every_session_member_given_a_protocol_reads_it_or_is_a_guarded_write():
         marks = _api_marks(fn)
         if marks is None:
             continue
-        reads = any(
-            k.arg == 'reads' and isinstance(k.value, ast.Constant) and k.value.value for k in marks
-        )
-        if not reads and not _is_guarded(fn):
+        if not _marked_a_read(marks) and not _is_guarded(fn):
             unguarded.append(fn.name)
     assert not unguarded, (
         f'protocol edits past a control session, each to be guarded or marked a read: {unguarded}'
     )
+
+
+def test_every_fault_injection_is_a_guarded_write():
+    """A fault and its take-back change what the scope answers, as a write does.
+
+    So while a control session is held, another caller's fault is refused
+    like any write of theirs: every ``@api`` member of ``SimulationAPI``
+    that is not marked a read is guarded, in-process or on the wire, and a
+    fault added unguarded fails here.
+    """
+    tree = parse_module('modules/lumascope_api/simulation.py')
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SimulationAPI')
+    unguarded, walked = [], 0
+    for fn in cls.body:
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        marks = _api_marks(fn)
+        if marks is None or _marked_a_read(marks):
+            continue
+        walked += 1
+        if not _is_guarded(fn):
+            unguarded.append(fn.name)
+    # The walk sees the faults, or a rename of the marker has blinded it.
+    assert walked, 'no SimulationAPI member read as a fault'
+    assert not unguarded, f'faults injected past a control session, each to be guarded: {unguarded}'

@@ -1585,13 +1585,13 @@ class Lumascope:
     # on ImagingAPI; forwarders have been retired. Callers use scope.camera
     # and scope.imaging.
 
-    @api(in_process=True)
+    @api
     @property
     def simulation(self) -> 'SimulationAPI':
         """The faults a simulated scope presents, switched on by name.
 
-        In-process only: the faults belong to the simulator, not to a wire.
-        Every member refuses on a real scope.
+        On the wire as in-process, but for two members that take or hand
+        out an in-process object. Every member refuses on a real scope.
 
         Raises:
             Nothing.

@@ -12,8 +12,11 @@ board privately.
 Each member is answered by the simulated board the scope built -- the
 capability probe is the board itself -- and refused by name on a board
 that cannot produce the fault, never a silent no-op. Which board answers
-which member: ``docs/LumascopeSkills.md`` "Simulated mode". The members are
-in-process only: the faults belong to the simulator, not to a wire.
+which member: ``docs/LumascopeSkills.md`` "Simulated mode". Every member but
+``hold_axis`` and ``exposed_under``, whose event and frame are in-process
+objects, is on the wire too, so a REST client injects a fault as a Python
+caller does. Each injection and take-back is a guarded write: a held
+control session refuses another caller's fault.
 
 A fault is armed for the next command, not the one in flight.
 """
@@ -33,7 +36,8 @@ from drivers.simulated_fx2 import SimulatedFX2
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_tmcm6110 import SimulatedTmcm6110
-from modules.api_surface import api, api_fields
+from modules.activity_claim import guarded_write
+from modules.api_surface import Admission, api, api_fields
 from modules.closed_sets import refuse_unless_offered
 from modules.exceptions import ArgumentRefusedError
 from modules.finite_number import WAIT_S, refuse_unless_finite_number
@@ -129,6 +133,13 @@ class SimulatedModelAnswer:
     """
 
     model: str | None
+
+
+# A real scope's member refuses ``needs_simulated_scope`` before any claim is
+# asked, so a held session never answers for a fault the scope cannot have.
+_guarded_write = guarded_write(
+    lambda simulation: simulation._scope._activity_claim if simulation._scope._simulated else None
+)
 
 
 def _family(board: object) -> str:
@@ -227,7 +238,8 @@ class SimulationAPI:
 
     # --- the boards' replies and links ---
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def drop_replies(self, board: Part, count: int | None = 1, command: str | None = None) -> None:
         """The board answers nothing to its next ``count`` commands.
 
@@ -292,7 +304,8 @@ class SimulationAPI:
             return
         raise self._not_injectable('drop_replies', target)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def delay_reply(self, board: Part, delay_s: float) -> None:
         """The board's next reply comes ``delay_s`` seconds late.
 
@@ -321,7 +334,8 @@ class SimulationAPI:
         target.delay_next_reply(float(delay_s))
         self._record('delay_reply', target.disarm_reply, board=board, delay_s=delay_s)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def silence(self, board: Part) -> None:
         """The board answers no command from now on, until ``unsilence``.
 
@@ -346,7 +360,8 @@ class SimulationAPI:
             raise self._not_injectable('silence', target)
         self._record('silence', undo, board=board)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def unsilence(self, board: Part) -> None:
         """The board answers again after ``silence``.
 
@@ -365,7 +380,8 @@ class SimulationAPI:
         else:
             raise self._not_injectable('unsilence', target)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def unplug(self, board: Part) -> None:
         """The board's cable is pulled: its port fails from the next command.
 
@@ -389,7 +405,8 @@ class SimulationAPI:
             raise self._not_injectable('unplug', target)
         self._record('unplug', undo, board=board)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def replug(self, board: Part) -> None:
         """The board's cable goes back in: it is found again.
 
@@ -408,7 +425,8 @@ class SimulationAPI:
         else:
             raise self._not_injectable('replug', target)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def reboot(self, board: Part, booting_for_s: float = 0.0) -> None:
         """The board's firmware restarts and forgets everything it knew.
 
@@ -438,7 +456,8 @@ class SimulationAPI:
 
     # --- the stage ---
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def fail_home(self, axis: Axis, how: HomeFault) -> None:
         """``axis``'s home fails in the simulated hardware, until ``clear``.
 
@@ -476,6 +495,7 @@ class SimulationAPI:
         self._record('fail_home', undo, axis=axis, how=how)
 
     @api(in_process=True)
+    @_guarded_write
     def hold_axis(self, axis: Axis, at_fraction: float = 0.5) -> threading.Event:
         """``axis``'s next move halts part of the way and never arrives, until ``clear``.
 
@@ -510,7 +530,8 @@ class SimulationAPI:
         self._record('hold_axis', hold.release, axis=axis, at_fraction=at_fraction)
         return hold.reached
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def interlock(self, lid_open: bool | None = None, powered: bool | None = None) -> None:
         """The stage's interlock inputs read as given; None leaves one as it is.
 
@@ -534,7 +555,8 @@ class SimulationAPI:
 
         self._record('interlock', undo, lid_open=lid_open, powered=powered)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def answer_model(self, model: str | None) -> None:
         """The motor board names ``model`` as its own, until ``clear``; None names none.
 
@@ -557,7 +579,8 @@ class SimulationAPI:
 
     # --- the camera ---
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def remove_camera(self) -> None:
         """The camera leaves the bus, as a real one does when removed.
 
@@ -575,7 +598,8 @@ class SimulationAPI:
             target.leave_bus()
         self._record('remove_camera', _does_not_resume)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def refuse_camera_write(
         self, node: CameraWriteNode, answer: CameraWriteAnswer, count: int = 1
     ) -> None:
@@ -624,7 +648,8 @@ class SimulationAPI:
             count=count,
         )
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def refuse_camera_read(
         self, node: CameraReadNode, answer: CameraReadAnswer, count: int = 1
     ) -> None:
@@ -670,7 +695,8 @@ class SimulationAPI:
             count=count,
         )
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def stall_stream(self, after_s: float, for_s: float) -> None:
         """The camera's stream delivers no frame for ``for_s`` seconds,
         starting ``after_s`` seconds from now; it stays connected and grabbing.
@@ -690,7 +716,8 @@ class SimulationAPI:
         target.hold_frames(SimulatedStall(after_s, for_s))
         self._record('stall_stream', target.release_frames, after_s=after_s, for_s=for_s)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def delay_delivery(self, frames: int) -> None:
         """The camera's frames are stored ``frames`` behind their hand-over
         from now on, as through a driver queue that has fallen behind.
@@ -716,7 +743,8 @@ class SimulationAPI:
         target.delay_delivery(int(frames))
         self._record('delay_delivery', lambda: target.delay_delivery(0), frames=frames)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def refuse_stream_start(self, count: int = 1) -> None:
         """The camera refuses its next ``count`` stream starts and stays on the bus.
 
@@ -737,7 +765,8 @@ class SimulationAPI:
         target.transport.refuse_start(int(count))
         self._record('refuse_stream_start', target.transport.allow_start, count=count)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def bind_camera_usb_driver(self, hardware_id: str, service: str | None) -> None:
         """Windows binds a USB identity of the simulated FX2 to ``service``.
 
@@ -780,7 +809,8 @@ class SimulationAPI:
             service=service,
         )
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def refuse_led_write(self, count: int = 1) -> None:
         """The LED board refuses its next ``count`` writes and stays on the bus.
 
@@ -835,7 +865,7 @@ class SimulationAPI:
 
     # --- what is injected ---
 
-    @api(in_process=True, reads=True)
+    @api(reads=True)
     def injected(self) -> tuple[InjectedFault, ...]:
         """The faults injected since the last ``clear``, oldest first, as asked.
 
@@ -847,7 +877,8 @@ class SimulationAPI:
         self._refuse_unless_simulated('injected')
         return tuple(fault for fault, _ in self._injected)
 
-    @api(in_process=True)
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def clear(self) -> None:
         """Every injected fault taken back, newest first: drops, holds,
         refused writes and stalls lifted, boards plugged back in and

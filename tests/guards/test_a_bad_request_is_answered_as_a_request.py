@@ -43,6 +43,8 @@ _NOT_WALKED = re.compile(
     r'discard_close_drain|recover_file_writer|bandwidth|support_report|logs_zip|engineering'
 )
 
+_FAULTS = '/api/v1/scope/simulation/'
+
 _WRONG = {
     'string': ('bogus', '', ' ../x'),
     'number': (-1e9, 1e12, -1.0),
@@ -118,7 +120,12 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
         handles = {'/Protocol/': protocol, '/ProtocolRunner/': runner}
         walked = 0
         paths = document['paths']
-        for route, method in sorted((p, m) for p in paths for m in paths[p]):
+        # A simulated fault a route injects is what every later route meets
+        # (a removed camera stays removed), so the faults are walked last,
+        # where only other faults meet them.
+        for _, route, method in sorted(
+            (p.startswith(_FAULTS), p, m) for p in paths for m in paths[p]
+        ):
             operations = paths[route]
             asked = [p for p in operations[method].get('parameters', []) if p['in'] == 'query']
             if not (method in ('post', 'put') or asked) or _NOT_WALKED.search(route):
