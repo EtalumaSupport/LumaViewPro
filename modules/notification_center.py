@@ -178,7 +178,11 @@ class Outcome:
 
 @api(in_process=True)
 def outcome_of(exception: BaseException) -> Outcome:
-    """What *exception* is, as its type says: the one reading of an outcome's kind and words."""
+    """What *exception* is, as its type says: the one reading of an outcome's kind and words.
+
+    Raises:
+        Nothing.
+    """
     # Quiet first: a quiet outcome is never shown, whatever else its type is.
     if isinstance(exception, (Quiet, CancelledError)):
         kind = OutcomeKind.QUIET

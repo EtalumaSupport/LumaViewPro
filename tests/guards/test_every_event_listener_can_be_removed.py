@@ -5,7 +5,8 @@ A client that adds a listener must be able to take it away: the REST
 stream adds one per ``@api(event=...)`` member each time the app opens and
 removes each, through ``remove_<event>_listener``, when it closes, so an
 add with no remove leaves a listener behind on every lifespan. Walks the
-session and every sub-object its marked reads lead to, as the stream does.
+session and every sub-object its marked reads lead to, as the stream does:
+its subject is a class's members, the ones the stream adds.
 """
 
 from __future__ import annotations

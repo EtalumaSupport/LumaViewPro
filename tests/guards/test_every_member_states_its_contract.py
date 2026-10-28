@@ -7,7 +7,8 @@ walk reads it to know what each bad argument and each injected fault must
 answer. Before this guard nothing read the sections, so they could name a
 class that does not exist, a built-in the caller cannot branch on, or a
 refusal without the reason that tells its causes apart. This guard holds,
-over every marked member:
+over every marked member of the declared API (``tests.marked_set``), a
+module's marked function among them:
 
 1. **Readable.** Each line at the entry indent is ``ClassName: words``,
    or the section is the one line ``Nothing.``; anything else there is
@@ -31,18 +32,17 @@ import inspect
 import re
 
 from lib.lumascope_error import LumascopeError
-from modules import wire_encoding
 from modules.api_surface import (
     QUOTED_REASON,
     RAISES_ENTRY,
     RAISES_SECTION,
     _function_of,
     api,
-    mark_of,
     raises_of,
 )
 from modules.exceptions import Refusal
 from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES
+from tests.marked_set import Marked, marked_members, marked_set
 
 # The section, its entries and a quoted reason are read as the REST
 # description reads them (api_surface); a line at the entry indent that is
@@ -96,17 +96,14 @@ _REASON_UNNAMED_PINNED = frozenset(
 )
 
 
-def _sections(classes: dict[str, type] | None = None):
-    """``('Class.member', section text or None)`` for every marked member of ``classes``, the project's by default."""
-    for owner, cls in sorted(
-        (wire_encoding.project_classes() if classes is None else classes).items()
-    ):
-        for name, member in vars(cls).items():
-            if mark_of(member) is None:
-                continue
-            doc = inspect.getdoc(_function_of(member)) or ''
-            found = _SECTION.search(doc)
-            yield f'{owner}.{name}', found.group(1) if found else None
+def _sections(marked: dict[str, Marked] | None = None):
+    """``(name, section text or None)`` for every marked member of *marked*, the declared API by default."""
+    for name, entry in sorted((marked_set() if marked is None else marked).items()):
+        if entry.field:
+            continue
+        doc = inspect.getdoc(_function_of(entry.value)) or ''
+        found = _SECTION.search(doc)
+        yield name, found.group(1) if found else None
 
 
 _ROOT = {cls.__name__: cls for cls in EXCEPTION_CLASSES if issubclass(cls, LumascopeError)}
@@ -166,7 +163,10 @@ def test_every_refusal_with_several_reasons_names_its_reason():
 
 
 def test_every_member_has_a_section():
-    without = _without_a_section(_sections())
+    sections = list(_sections())
+    functions = {'rest.app.build_app', 'modules.notification_center.outcome_of'}
+    assert functions <= {name for name, _ in sections}, 'the walk lost the functions'
+    without = _without_a_section(sections)
     assert without == [], 'say what each raises, or Nothing.:\n' + '\n'.join(without)
 
 
@@ -196,7 +196,7 @@ class _Planted:
 
 
 def test_the_checks_name_what_they_refuse():
-    planted = list(_sections({'_Planted': _Planted}))
+    planted = list(_sections(marked_members({'_Planted': _Planted})))
     assert _without_a_section(planted) == ['_Planted.unstated']
     assert _prose(planted) == ["_Planted.nothing_and_an_entry: 'Nothing.'"]
     assert raises_of(inspect.getdoc(_Planted.nothing)) == []

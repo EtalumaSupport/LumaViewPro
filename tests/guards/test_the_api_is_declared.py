@@ -5,9 +5,12 @@ A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
-guard holds nine things over every class the API can name
-(``wire_encoding.project_classes``): each defined under ``modules/``, and each
-project class a marked annotation resolves to, a driver's record among them:
+guard holds nine things over the declared API (``tests.marked_set``): the
+marked members and fields of every class the API can name
+(``wire_encoding.project_classes``: each defined under ``modules/``, and each
+project class a marked annotation resolves to, a driver's record among them),
+and every marked top-level function of a project module, keyed by its dotted
+path (``rest.app.build_app``):
 
 1. **Equal.** The marked set equals the ``## API reference`` index in
    ``docs/LumascopeSkills.md``, both ways, in-process labels included. The
@@ -58,6 +61,12 @@ project class a marked annotation resolves to, a driver's record among them:
    its reason. An answer keeps the address, a listener's callback's
    arguments among them.
 
+Beside the nine, two hold the set itself whole. A module's function is
+never marked for the wire, since nothing routes a function: it is
+``in_process``. And every class defined in a project module that carries a
+mark is in the table, by identity, so no mark sits where the rules cannot
+see it.
+
 The rules read annotations as strings and look each name up in that table,
 which resolves them once, so a class an annotation names cannot be missing
 from it unseen: the table raises instead. Rules 3, 4 and 8 are shown on
@@ -71,13 +80,23 @@ import dataclasses
 import enum
 import inspect
 import re
+import sys
+import types
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from modules import wire_encoding
-from modules.api_surface import api
+from modules.api_surface import API, api
 from tests.ast_seams import REPO_ROOT, RetiredNames, Words
+from tests.marked_set import (
+    Marked,
+    marked_classes_outside,
+    marked_functions,
+    marked_members,
+    marked_set,
+)
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 INDEX_HEADING = '## API reference'
@@ -85,13 +104,14 @@ IN_PROCESS_LABEL = '(in-process)'
 
 # Members whose absence would mean the walk lost its way, one per kind of
 # owner: a Session member, a sub-API member, a run handle's, a run outcome's
-# field, and an outcome delivered to a listener.
+# field, an outcome delivered to a listener, and a module's function.
 NOT_VACUOUS = {
     'ScopeSession.add_step',
     'CameraAPI.set_gain_db',
     'Operation.stop',
     'RunOutcome.status',
     'Notification.kind',
+    'rest.app.build_app',
 }
 
 _BLIND = Words({'Any', 'object'})
@@ -109,40 +129,29 @@ def aliases() -> dict[str, str]:
 
 
 @pytest.fixture(scope='module')
-def marked(universe: dict[str, type]) -> dict[str, str]:
-    return _marked(universe)
-
-
-def _marked(universe: dict[str, type]) -> dict[str, str]:
-    """``Class.member`` -> ``api`` or ``in_process``; fields -> ``api``."""
-    from modules.api_surface import fields_of, mark_of
-
-    found = {}
-    for cname, cls in universe.items():
-        for member, value in vars(cls).items():
-            tag = mark_of(value)
-            if tag is not None:
-                found[f'{cname}.{member}'] = tag
-        for field in fields_of(cls):
-            found[f'{cname}.{field}'] = 'api'
-    return found
+def marked(universe: dict[str, type]) -> dict[str, Marked]:
+    """The declared API (``tests.marked_set``): *universe*'s marks and every marked function."""
+    return marked_set(universe)
 
 
 def _index(text: str) -> dict[str, str]:
-    """``Class.member`` -> ``api`` or ``in_process``, from the doc's index."""
+    """``Class.member`` or ``module.function`` -> ``api`` or ``in_process``, from the doc's index.
+
+    A heading is a class's name, or a module's dotted path for its functions.
+    """
     start = text.index(f'\n{INDEX_HEADING}\n')
     section = text[start + len(INDEX_HEADING) + 2 :]
     end = section.find('\n## ')
     section = section if end < 0 else section[:end]
     indexed, cls = {}, None
     for line in section.splitlines():
-        heading = re.fullmatch(r'### `?([A-Za-z_][A-Za-z0-9_]*)`?', line.strip())
+        heading = re.fullmatch(r'### `?([A-Za-z_][A-Za-z0-9_.]*)`?', line.strip())
         if heading:
             cls = heading.group(1)
             continue
         item = re.fullmatch(r'- `([A-Za-z_][A-Za-z0-9_]*)`( \(in-process\))?', line.strip())
         if item:
-            assert cls is not None, f'index item {line!r} sits under no class heading'
+            assert cls is not None, f'index item {line!r} sits under no heading'
             indexed[f'{cls}.{item.group(1)}'] = 'in_process' if item.group(2) else 'api'
     return indexed
 
@@ -153,18 +162,18 @@ def indexed() -> dict[str, str]:
     return _index(DOC.read_text(encoding='utf-8'))
 
 
-def test_no_marked_name_is_private(marked: dict[str, str]) -> None:
-    private = sorted(name for name in marked if name.split('.', 1)[1].startswith('_'))
+def test_no_marked_name_is_private(marked: dict[str, Marked]) -> None:
+    private = sorted(name for name, m in marked.items() if m.member.startswith('_'))
     assert not private, f'members marked as API whose names say private: {private}'
 
 
-def test_the_index_is_the_marked_set(marked: dict[str, str], indexed: dict[str, str]) -> None:
+def test_the_index_is_the_marked_set(marked: dict[str, Marked], indexed: dict[str, str]) -> None:
     unindexed = sorted(set(marked) - set(indexed))
     unmarked = sorted(set(indexed) - set(marked))
     mislabelled = sorted(
-        f'{name}: marked {marked[name]}, indexed {indexed[name]}'
+        f'{name}: marked {marked[name].tag}, indexed {indexed[name]}'
         for name in set(marked) & set(indexed)
-        if marked[name] != indexed[name]
+        if marked[name].tag != indexed[name]
     )
     assert not (unindexed or unmarked or mislabelled), (
         f'{DOC.name} "{INDEX_HEADING}" and the @api / @api_fields marks disagree.\n'
@@ -236,12 +245,12 @@ def _field_annotation(cls: type, name: str) -> str | None:
     return None
 
 
-def _edges(cls: type, member: str) -> list[tuple[str, str | None]]:
-    """(edge, annotation text) for a marked member: its return and parameters, or the field."""
-    value = vars(cls).get(member)
+def _edges(owner: type | types.ModuleType, member: str) -> list[tuple[str, str | None]]:
+    """(edge, annotation text) for a marked member or function: its return and parameters, or the field."""
+    value = vars(owner).get(member)
     function = value.fget if isinstance(value, property) else getattr(value, '__func__', value)
     if value is None or not callable(function) or inspect.isclass(function):
-        return [('field', _field_annotation(cls, member))]
+        return [('field', _field_annotation(owner, member))]
     function = inspect.unwrap(function)
     annotations = function.__annotations__
     edges = [('return', _text(annotations.get('return', inspect.Parameter.empty)))]
@@ -333,13 +342,13 @@ def _named_through_aliases(
 
 
 def test_the_api_is_typed_and_closed(
-    universe: dict[str, type], marked: dict[str, str], aliases: dict[str, str]
+    universe: dict[str, type], marked: dict[str, Marked], aliases: dict[str, str]
 ) -> None:
-    owners = {name.split('.', 1)[0] for name in marked}
+    owners = {m.owner_name for m in marked.values()}
     untyped, blind, unpublished = [], [], {}
     for name in sorted(marked):
-        cname, member = name.split('.', 1)
-        for edge, text in _edges(universe[cname], member):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
             if text is None:
                 untyped.append(f'{name} {edge}')
                 continue
@@ -365,7 +374,23 @@ def test_the_api_is_typed_and_closed(
     )
 
 
-def test_the_walk_is_not_vacuous(marked: dict[str, str], indexed: dict[str, str]) -> None:
+def test_no_function_is_marked_for_the_wire(marked: dict[str, Marked]) -> None:
+    wire = sorted(name for name, m in marked.items() if m.at_top_level and m.tag == API)
+    assert not wire, (
+        f'a function marked for the wire, which routes only class members; mark it '
+        f'@api(in_process=True): {wire}'
+    )
+
+
+def test_every_marked_class_is_in_the_table(universe: dict[str, type]) -> None:
+    outside = marked_classes_outside(universe)
+    assert not outside, (
+        'a class carries a mark the rules cannot see, since no class under modules/ names '
+        f'it: define it under modules/, or name it from a marked annotation: {outside}'
+    )
+
+
+def test_the_walk_is_not_vacuous(marked: dict[str, Marked], indexed: dict[str, str]) -> None:
     assert marked.keys() >= NOT_VACUOUS, f'marks not found: {sorted(NOT_VACUOUS - marked.keys())}'
     assert indexed.keys() >= NOT_VACUOUS, (
         f'index entries not found: {sorted(NOT_VACUOUS - indexed.keys())}'
@@ -379,11 +404,11 @@ _DECLARED_PATH = {'FilePath', 'FilePath | None'}
 KNOWN_WIRE_PATH = 'ScopeSession.load_protocol parameter file_path'
 
 
-def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str, str]) -> None:
+def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str, Marked]) -> None:
     seen, undeclared = set(), []
-    for name in sorted(n for n, tag in marked.items() if tag == 'api'):
-        cname, member = name.split('.', 1)
-        for edge, text in _edges(universe[cname], member):
+    for name in sorted(n for n, m in marked.items() if m.tag == 'api'):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
             if not edge.startswith('parameter ') or text is None:
                 continue
             if not _named(text)[1] & _PATH_NAMES:
@@ -425,11 +450,13 @@ NOT_YET_RENAMED: dict[str, str] = {}
 KNOWN_PARAMETER = 'ScopeSession.add_step parameter protocol'
 
 
-def test_the_api_speaks_one_vocabulary(universe: dict[str, type], marked: dict[str, str]) -> None:
+def test_the_api_speaks_one_vocabulary(
+    universe: dict[str, type], marked: dict[str, Marked]
+) -> None:
     seen, hits = set(), set()
     for name in sorted(marked):
-        cname, member = name.split('.', 1)
-        for edge, _ in _edges(universe[cname], member):
+        member = marked[name].member
+        for edge, _ in _edges(marked[name].owner, member):
             if edge == 'field':
                 word, where = member, f'{name} field'
             elif edge.startswith('parameter '):
@@ -541,11 +568,13 @@ def _names_a_float(text: str) -> bool:
     return visit(ast.parse(text, mode='eval'))
 
 
-def test_every_quantity_names_its_unit(universe: dict[str, type], marked: dict[str, str]) -> None:
+def test_every_quantity_names_its_unit(
+    universe: dict[str, type], marked: dict[str, Marked]
+) -> None:
     seen, hits, durations = set(), set(), []
     for name in sorted(marked):
-        cname, member = name.split('.', 1)
-        for edge, text in _edges(universe[cname], member):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
             if text is None:
                 continue
             if 'timedelta' in _named(text)[1]:
@@ -888,12 +917,12 @@ KNOWN_OPEN = 'Notification.category field'
 
 
 def test_every_fixed_word_is_a_closed_set(
-    universe: dict[str, type], marked: dict[str, str]
+    universe: dict[str, type], marked: dict[str, Marked]
 ) -> None:
     loose, hits = [], set()
     for name in sorted(marked):
-        cname, member = name.split('.', 1)
-        for edge, text in _edges(universe[cname], member):
+        member = marked[name].member
+        for edge, text in _edges(marked[name].owner, member):
             if text is None:
                 continue
             names = _named(text, holds_callbacks=edge != 'return')[1]
@@ -966,7 +995,7 @@ def _is_an_address(owner: str, parameter: str, names: set[str], holders: set[str
 
 
 def test_an_led_is_lit_by_its_channels_name(
-    universe: dict[str, type], marked: dict[str, str]
+    universe: dict[str, type], marked: dict[str, Marked]
 ) -> None:
     from modules.api_surface import is_engineering
 
@@ -974,9 +1003,8 @@ def test_an_led_is_lit_by_its_channels_name(
     assert {'LedReading', 'LedSnapshot'} <= holders, f'the walk lost the LED records: {holders}'
     takers, engineering = set(), set()
     for name in sorted(marked):
-        cname, member = name.split('.', 1)
-        value = vars(universe[cname]).get(member)
-        for edge, text in _edges(universe[cname], member):
+        cname, member, value = marked[name].owner_name, marked[name].member, marked[name].value
+        for edge, text in _edges(marked[name].owner, member):
             if not edge.startswith('parameter ') or text is None or _is_a_callback(text):
                 continue
             parameter = edge.removeprefix('parameter ')
@@ -1054,7 +1082,7 @@ def test_an_unpublished_class_from_outside_modules_is_not_closed() -> None:
         match=r"_DriverRecord is named by \['_HandsOutADriverRecord\.record return'\]",
     ):
         test_the_api_is_typed_and_closed(
-            universe, _marked(universe), wire_encoding.project_aliases()
+            universe, marked_set(universe), wire_encoding.project_aliases()
         )
 
 
@@ -1062,7 +1090,7 @@ def test_a_drivers_plain_enum_is_not_a_closed_set() -> None:
     universe = _with(_AnswersADriverWord)
 
     with pytest.raises(AssertionError, match=r"_AnswersADriverWord\.word return: _DriverWord'\]"):
-        test_every_fixed_word_is_a_closed_set(universe, _marked(universe))
+        test_every_fixed_word_is_a_closed_set(universe, marked_set(universe))
 
 
 def test_an_alias_cannot_hide_any() -> None:
@@ -1070,7 +1098,7 @@ def test_an_alias_cannot_hide_any() -> None:
     aliases = wire_encoding.project_aliases() | {'_HidesAny': 'dict[str, Any]'}
 
     with pytest.raises(AssertionError, match=r'_AnswersAnAlias\.hidden return: _HidesAny'):
-        test_the_api_is_typed_and_closed(universe, _marked(universe), aliases)
+        test_the_api_is_typed_and_closed(universe, marked_set(universe), aliases)
 
 
 def test_a_name_that_resolves_to_nothing_raises() -> None:
@@ -1084,3 +1112,42 @@ def test_two_classes_under_one_name_raise() -> None:
 
     with pytest.raises(TypeError, match=r"_Twin: \['drivers.one._Twin', 'drivers.two._Twin'\]"):
         wire_encoding.closure({first, second}, {})
+
+
+# --- The set is every mark -----------------------------------------------------
+# Functions of this module, read as a project module's would be: the rules
+# reach a function, not only a class's member.
+
+
+@api(in_process=True)
+def _takes_anything(value: Any) -> None:
+    raise NotImplementedError
+
+
+@api
+def _on_the_wire(count: int) -> int:
+    raise NotImplementedError
+
+
+def _this_module() -> tuple[types.ModuleType, ...]:
+    return (sys.modules[__name__],)
+
+
+def test_a_function_is_judged_by_the_rules(universe: dict[str, type]) -> None:
+    marked = marked_set(universe) | marked_functions(_this_module())
+
+    with pytest.raises(AssertionError, match=r'_takes_anything parameter value: Any'):
+        test_the_api_is_typed_and_closed(universe, marked, wire_encoding.project_aliases())
+
+
+def test_a_function_marked_for_the_wire_is_named() -> None:
+    with pytest.raises(AssertionError, match=r'_on_the_wire'):
+        test_no_function_is_marked_for_the_wire(marked_functions(_this_module()))
+
+
+def test_a_stand_in_answering_a_mark_is_not_one() -> None:
+    """The conftest's stand-ins answer any attribute, a mark among them (a kivy property on a widget)."""
+    # a stand-in by design: the conftest's own kind, the thing the seam must not read as a mark
+    widget = type('_Widget', (), {'bg_color': MagicMock(), '__module__': 'ui.fixture'})
+
+    assert marked_members({'_Widget': widget}) == {}

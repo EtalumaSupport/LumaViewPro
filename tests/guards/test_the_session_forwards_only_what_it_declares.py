@@ -12,7 +12,8 @@ since L2 callers go through the session, and is not read here.
 The walk reads one shape: an unmarked method or property whose body is a
 single ``return`` of a chain rooted at ``self.scope``. A forward spelled
 another way (``getattr``, two statements, a class-level ``property(...)``,
-``__getattr__``, a held copy) is not claimed.
+``__getattr__``, a held copy) is not claimed. Its subject is one class's
+members, the session's.
 """
 
 from __future__ import annotations

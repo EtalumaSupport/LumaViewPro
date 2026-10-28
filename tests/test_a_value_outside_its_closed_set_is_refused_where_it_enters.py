@@ -110,6 +110,17 @@ def test_a_container_of_a_closed_set_takes_plain_strings_and_refuses_naming_the_
             _several(wrong_type)
 
 
+def test_a_function_marked_inside_another_judges_its_first_argument():
+    """A nested function is no method: its first parameter is an argument, not ``self``."""
+
+    @api
+    def nested(mode: CameraAutoMode) -> CameraAutoMode:
+        return mode
+
+    assert nested('Once') is CameraAutoMode.ONCE
+    _not_offered(lambda: nested('Twice'), 'mode', OFFERED)
+
+
 def test_a_record_built_with_a_plain_string_holds_the_member():
     reading = LedReading(2, LED2, 'lit', 10.0)
     assert reading.state is LedState.LIT

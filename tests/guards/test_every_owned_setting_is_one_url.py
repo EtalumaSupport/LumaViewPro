@@ -5,8 +5,9 @@
 A wire member there that is a setter marks the read it writes
 (``@api(sets=...)``), so the server serves the two as one resource and a
 client reads and writes the setting at one URL. An action that stores a
-setting as one of its effects is not a setter of it, and stays a call. A
-static read: no session.
+setting as one of its effects is not a setter of it, and stays a call. Its
+subject is a class's members, the ones the server routes. A static read: no
+session.
 """
 
 from modules import settings_paths

@@ -12,7 +12,8 @@ and every ``RunEvents`` field to a declaration, and each record's fields,
 in order, to the callback's argument types. A callback whose one argument
 is a record declares that record; one with no arguments declares the
 record its host reads when the event is sent, and has no arguments to
-compare.
+compare. Its subject is a class's members: a listener is added to the
+object whose events it hears, never to a module.
 
 Annotations are compared as source text, normalized, as
 ``test_the_api_is_declared`` reads them: no session, no ``get_type_hints``.

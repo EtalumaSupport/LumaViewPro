@@ -17,7 +17,9 @@ This guard holds the marks to what the members are:
 3. **A stop exists.** A declared stop is ``'Class.member'`` naming a marked
    member of a project class, which is not itself a read.
 
-A static read: no session.
+Its subject is a class's members: a read and a stop are what the server
+routes, and a module's marked function is in-process, never routed
+(``test_the_api_is_declared``). A static read: no session.
 """
 
 from __future__ import annotations

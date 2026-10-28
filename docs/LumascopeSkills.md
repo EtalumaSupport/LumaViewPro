@@ -3150,7 +3150,7 @@ A scope's layers are the records of `scope.channel_identity.channels`, in displa
 
 ## API reference
 
-The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(step_index)`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), takes a live object no wire member hands out (a wire client has no handle to send for it), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published. How each type crosses a wire is declared once, in `modules/wire_encoding.py`: scalars as themselves, `datetime` as ISO 8601, an enum by its value or name, a record (a dataclass, a NamedTuple, or a class `@api_fields(..., record=True)` declares one) as an object of its fields and wire properties, a path as its live-folder name and host path, a running call as a job, any other object as a handle; `tests/guards/test_every_wire_edge_has_a_form.py` fails a wire member whose type has none. A record carries every field on a wire, null where a value is unknown, never a shape that varies. In the same process a record answers `to_dict()`, its data as plain Python for a caller that needs a dict (MATLAB's `struct()` takes a dict, not a dataclass): a nested record becomes a dict and an enum its wire form, while a path, a handle and a running call stay the live objects, a NaN stays a NaN, and a key keeps its type.
+The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). A class's members are listed under its name; a function defined at a module's top level is listed under the module's dotted path (`rest.app`), and is in-process, since the wire routes only a class's members. An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(step_index)`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), takes a live object no wire member hands out (a wire client has no handle to send for it), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published. How each type crosses a wire is declared once, in `modules/wire_encoding.py`: scalars as themselves, `datetime` as ISO 8601, an enum by its value or name, a record (a dataclass, a NamedTuple, or a class `@api_fields(..., record=True)` declares one) as an object of its fields and wire properties, a path as its live-folder name and host path, a running call as a job, any other object as a handle; `tests/guards/test_every_wire_edge_has_a_form.py` fails a wire member whose type has none. A record carries every field on a wire, null where a value is unknown, never a shape that varies. In the same process a record answers `to_dict()`, its data as plain Python for a caller that needs a dict (MATLAB's `struct()` takes a dict, not a dataclass): a nested record becomes a dict and an enum its wire form, while a path, a handle and a running call stay the live objects, a NaN stays a NaN, and a key keeps its type.
 
 ### ScopeSession
 
@@ -4874,6 +4874,18 @@ Reached through `LiveWork.work`.
 Taken by `session.post_processing.build`.
 
 - `method`
+
+### modules.notification_center
+
+Imported from `modules.notification_center`: how every host reads what an exception is.
+
+- `outcome_of` (in-process)
+
+### rest.app
+
+Imported from `rest.app` by a host that serves a session over REST itself.
+
+- `build_app` (in-process)
 
 ---
 
