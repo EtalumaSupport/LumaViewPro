@@ -51,7 +51,9 @@ class TestAZOnlyScope:
             (path,) = _files(session)
 
         assert path.name == 'live_BF_000001.tiff'
-        assert _description(path)['Plate']['WellLabel'] == ''
+        # No well is stated, not an empty one: a stand-in label in a file
+        # reads downstream as the instrument's own report.
+        assert 'WellLabel' not in _description(path)['Plate']
         assert _warnings(centre_posts) == []
 
 

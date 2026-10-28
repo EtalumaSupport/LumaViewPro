@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import parse_module, tracked_python_files, walk_defs
+from tests.ast_seams import MemberNames, parse_module, tracked_python_files, walk_defs
 
 _OWNER_MODULE = 'modules/lumascope_api/frame_record.py'
-_OWNER_DEFS = {'grab_record', 'delivered_frame_record'}
+_OWNER_DEFS = MemberNames(_OWNER_MODULE, {'grab_record', 'delivered_frame_record'})
 _TEST_DESCRIPTION = 'tests/frame_records.py'
 
 

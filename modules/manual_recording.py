@@ -476,8 +476,8 @@ class ManualRecordingController:
             video_as_frames
             and capture_config.output_format_sequenced == image_mode.OutputFormat.HYPERSTACK
         )
-        # What the file will claim of the scope -- its frame size, and the
-        # pixel size its objective and binning give -- is read by the engine
+        # What the file will claim of the scope -- its frame size, its
+        # objective, its plate and the camera's facts -- is read by the engine
         # once it holds the claim: a turret or frame change can neither start
         # then nor still be running, so the file cannot claim the scope as it
         # was an instant before one.
@@ -492,8 +492,8 @@ class ManualRecordingController:
             # one refuses the start, as it refuses a capture: a file with no
             # objective would carry no scale while the scope went on with one
             # the person had not confirmed.
-            claimed['objective_id'], _ = scope.runtime_state.resolve_current_objective()
-            claimed['labware'] = scope.runtime_state.get_labware() if video_as_frames else None
+            claimed['objective'], _ = scope.runtime_state.resolve_current_objective()
+            claimed['plate'] = scope.runtime_state.get_labware() if video_as_frames else None
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
             claimed['camera'] = recording_camera(scope) if video_as_frames else None
             claimed['config'] = RecordingConfig(
@@ -560,8 +560,8 @@ class ManualRecordingController:
                 capture_depth=capture_config.capture_depth,
                 camera=claimed['camera'],
                 hyperstack=hyperstack,
-                objective_id=claimed['objective_id'],
-                labware=claimed['labware'],
+                objective_id=claimed['objective'],
+                labware=claimed['plate'],
                 to_plate=claimed['to_plate'],
             )
             if video_as_frames:
