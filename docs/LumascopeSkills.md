@@ -4367,6 +4367,19 @@ Reached through returned by `session.objective_question`.
 - `proposed`
 - `turret_slot`
 
+### Outcome
+
+Reached through `modules.notification_center.outcome_of(exception)`.
+
+- `cause`
+- `fatal`
+- `for_person`
+- `kind`
+- `reason`
+- `remedy`
+- `title`
+- `words`
+
 ### PartStatus
 
 Reached through returned by `BringUpRecord.part`, `missing` and `parts`.

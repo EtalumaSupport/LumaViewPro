@@ -139,6 +139,7 @@ class OutcomeKind(StrEnum):
     UNCLASSIFIED = 'unclassified'
 
 
+@api_fields('kind', 'title', 'words', 'for_person', 'reason', 'remedy', 'fatal', 'cause')
 @dataclass(frozen=True)
 class Outcome:
     """What an exception's type says it is, read once for every host that answers it.
