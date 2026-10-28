@@ -236,9 +236,9 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     imaging.get_image_from_buffer()
 
     with caplog.at_level(logging.INFO, logger='LVP.api'):
-        imaging.capture_and_wait(accept_dark=True)
+        record = imaging.capture_still(accept_dark=True).record
 
-    gain = _judgment(imaging.last_capture_info['frame_record'], 'gain')
+    gain = _judgment(record, 'gain')
     assert gain.counts
     assert gain.change.credits[0].by is Counter.PREVIEW
     assert gain.change.written_ns == change.written_ns
@@ -254,9 +254,9 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
 
     with caplog.at_level(logging.INFO, logger='LVP.api'):
-        imaging.capture_and_wait(accept_dark=True)
+        record = imaging.capture_still(accept_dark=True).record
 
-    gain = _judgment(imaging.last_capture_info['frame_record'], 'gain')
+    gain = _judgment(record, 'gain')
     assert gain.counts
     assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
@@ -273,9 +273,9 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
         imaging.get_image(force_new_capture=True)
 
     with caplog.at_level(logging.INFO, logger='LVP.api'):
-        imaging.capture_and_wait(accept_dark=True)
+        record = imaging.capture_still(accept_dark=True).record
 
-    gain = _judgment(imaging.last_capture_info['frame_record'], 'gain')
+    gain = _judgment(record, 'gain')
     assert gain.counts
     assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
@@ -288,8 +288,7 @@ def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
     motion.move_z(motion.get_current_position('Z') + 100.0)
 
     record_change = sim_scope.imaging.frame_validity.changes()['z_move']
-    sim_scope.imaging.capture_and_wait(accept_dark=True)
-    z = _judgment(sim_scope.imaging.last_capture_info['frame_record'], 'z_move')
+    z = _judgment(sim_scope.imaging.capture_still(accept_dark=True).record, 'z_move')
 
     assert record_change.in_force_ns is not None
     assert record_change.in_force_ns >= record_change.written_ns
@@ -300,8 +299,8 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
     # The structured TIFF: OME-XML keeps only schema attributes, so on that
     # path the judgments go as the frame id and camera ticks already do.
     sim_scope.camera.set_exposure_ms(20.0)
-    image = sim_scope.imaging.capture_and_wait(accept_dark=True, force_to_8bit=True)
-    record = sim_scope.imaging.last_capture_info['frame_record']
+    still = sim_scope.imaging.capture_still(accept_dark=True, force_to_8bit=True)
+    image, record = still.image, still.record
     metadata = image_save.generate_image_metadata(
         sim_scope,
         channel='BF',
@@ -337,8 +336,8 @@ def test_a_full_depth_file_carries_the_judgments_as_plain_words(sim_scope, tmp_p
     # member there wrote its repr, no literal, and the whole plane came back
     # as a string every post-processing build then failed on.
     sim_scope.camera.set_exposure_ms(20.0)
-    image = sim_scope.imaging.capture_and_wait(accept_dark=True, force_to_8bit=True)
-    record = sim_scope.imaging.last_capture_info['frame_record']
+    still = sim_scope.imaging.capture_still(accept_dark=True, force_to_8bit=True)
+    image, record = still.image, still.record
     metadata = image_save.generate_image_metadata(
         sim_scope,
         channel='BF',

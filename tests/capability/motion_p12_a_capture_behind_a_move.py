@@ -85,8 +85,8 @@ def _capture_behind(session, start_move):
         handle = start_move()
         handle.add_done_callback(lambda _h: arrived.setdefault('at', time.monotonic()))
         try:
-            image = session.scope.imaging.capture_and_wait()
-            answer = f'frame {image.shape}'
+            still = session.scope.imaging.capture_still()
+            answer = f'frame {still.image.shape}'
         except Exception as e:
             answer = f'{type(e).__name__}: {getattr(e, "reason", e)}'
         captured = time.monotonic() - start
@@ -95,7 +95,7 @@ def _capture_behind(session, start_move):
         del fv.invalidate
     predates = False
     if answer.startswith('frame'):
-        frame_seq = session.scope.imaging.last_capture_info['frame_record'].judgments[0].frame_seq
+        frame_seq = still.record.judgments[0].frame_seq
         predates = not first or frame_seq <= first[0]
     return arrived['at'] - start, captured, answer, predates
 

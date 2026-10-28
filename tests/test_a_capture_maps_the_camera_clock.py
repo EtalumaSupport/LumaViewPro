@@ -46,10 +46,9 @@ def test_a_captured_frame_mapped_through_its_record_began_before_it_arrived(sim_
 
     imaging.add_frame_listener(arrived, name='arrivals')
     try:
-        imaging.capture_and_wait()
+        record = imaging.capture_still().record
     finally:
         imaging.remove_frame_listener(arrived)
-    record = imaging.last_capture_info['frame_record']
     mapping = record.clock_mapping
 
     assert sim_scope.capabilities.camera_has_clock_latch
@@ -75,8 +74,7 @@ def test_a_camera_without_a_latch_records_no_mapping(caplog):
     try:
         bind_settings_like_a_session(scope)
         scope.imaging.enable_streaming()
-        scope.imaging.capture_and_wait()
-        record = scope.imaging.last_capture_info['frame_record']
+        record = scope.imaging.capture_still().record
     finally:
         scope.disconnect()
 

@@ -34,10 +34,7 @@ def _camera(scope):
 
 def _record(scope):
     imaging = scope.imaging
-    imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
-    record = (imaging.last_capture_info or {}).get('frame_record')
-    if record is None:
-        return None
+    record = imaging.capture_still(accept_dark=True, timeout_s=5.0).record
     return {k: getattr(record, k, None) for k in ('exposure_ms', 'gain_db')}
 
 

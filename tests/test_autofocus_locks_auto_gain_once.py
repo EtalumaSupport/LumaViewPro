@@ -115,10 +115,8 @@ def test_lock_and_resume_pair_on_the_api():
     assert lock.state == lock.state.CONVERGED
     assert cam._auto_gain_enabled is False
     for _ in range(3):
-        assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
-        assert 'auto_gain' not in (imaging.last_capture_info or {}), (
-            'a capture inside the bracket locked on its own'
-        )
+        record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
+        assert record.auto_gain is None, 'a capture inside the bracket locked on its own'
         assert cam._auto_gain_enabled is False
     camera._resume_auto_gain_impl(lock)
     assert cam._auto_gain_enabled is True

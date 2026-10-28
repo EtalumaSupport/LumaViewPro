@@ -35,11 +35,10 @@ def test_the_simulated_camera_offers_it_and_offsets_its_frames(sim_scope):
 
     assert sim_scope.camera.set_black_level(4.0) == 4.0
     assert sim_scope.camera.read_black_level() == 4.0
-    image = imaging.capture_and_wait(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    still = imaging.capture_still(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
 
-    assert image is not None
-    assert np.all(image == 4)
-    assert imaging.last_capture_info['frame_record'].black_level == 4.0
+    assert np.all(still.image == 4)
+    assert still.record.black_level == 4.0
 
 
 def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_scope):
@@ -134,8 +133,7 @@ def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session)
     assert str(caught.value) == (
         'This camera has no black level setting. The black level stays as it is.'
     )
-    assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0) is not None
-    assert scope.imaging.last_capture_info['frame_record'].black_level == 0.0
+    assert scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).record.black_level == 0.0
 
 
 # --- Pylon --------------------------------------------------------------------

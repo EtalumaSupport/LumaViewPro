@@ -142,16 +142,15 @@ def test_a_runs_dark_frames_are_told_once_per_step_and_counted(tmp_path, monkeyp
 
 
 def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
-    from tests.test_manual_capture_member import _files, _open_session, _settings
+    from tests.test_manual_capture_member import _capture, _open_session, _settings
 
     with _open_session(_settings(tmp_path)) as session:
         _frames_made(monkeypatch, session.scope._camera_driver, _blown)
         with caplog.at_level(logging.WARNING, logger='LVP.modules.manual_capture'):
-            paths = _files(session)
-        record = session.scope.imaging.last_capture_info['frame_record']
+            (still,) = _capture(session)
 
-    assert paths and paths[0].is_file(), 'a blown still is saved'
-    assert record.blown is True
+    assert still.file.is_file(), 'a blown still is saved'
+    assert still.frame.blown is True
     told = [r.getMessage() for r in caplog.records if 'The still is' in r.getMessage()]
     assert told == [
         '[ManualCapture] The still is 100% saturated -- likely over-exposure or a '

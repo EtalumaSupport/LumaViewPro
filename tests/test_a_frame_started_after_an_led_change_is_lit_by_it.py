@@ -30,8 +30,7 @@ HOLD_S = 0.1
 def test_a_frame_started_after_an_led_change_is_recorded_is_lit_by_it(sim_scope, monkeypatch):
     scope = sim_scope
     scope.illumination.led_on('BF', 50.0)
-    scope.imaging.capture_and_wait()
-    mapping = scope.imaging.last_capture_info['frame_record'].clock_mapping
+    mapping = scope.imaging.capture_still().record.clock_mapping
     fv = scope.frame_validity
     invalidate = fv.invalidate
     recorded = []

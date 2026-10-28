@@ -32,7 +32,8 @@ from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import CaptureFailedError, ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
-from modules.lumascope_api.camera import CameraAPI
+from modules.lumascope_api.camera import AutoGainConvergence, CameraAPI
+from modules.lumascope_api.frame_record import SettingSource
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import OutcomeKind
 from tests import ast_seams
@@ -180,13 +181,10 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
     the gate, reports CONVERGED, and leaves the camera locked (auto off)."""
     imaging, camera, cam = _build(ae_lands_on_ms=62.003)
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
-    image = imaging._capture_and_wait_impl(timeout_s=1.0)
-    assert image is not None, 'the capture was rejected against the stale exposure target'
-    info = imaging.last_capture_info
-    assert info['auto_gain'] == 'CONVERGED'
-    assert info['auto_gain_exposure_ms'] == 62.003
+    record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
+    assert record.auto_gain is AutoGainConvergence.CONVERGED
+    assert (record.exposure_ms, record.exposure_source) == (62.003, SettingSource.FRAME)
     assert imaging.frame_validity.target('exposure') == 62003.0
-    assert info['chunk_exposure_us'] == 62003.0
     assert cam._auto_gain_enabled is False
 
 
@@ -197,11 +195,9 @@ def test_auto_gain_capture_reports_maxed_and_saves():
     imaging, camera, _cam = _build(ae_lands_on_ms=500.0)
     lvp_logger.logger.reset_mock()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
-    image = imaging._capture_and_wait_impl(timeout_s=1.0)
-    assert image is not None
-    info = imaging.last_capture_info
-    assert info['auto_gain'] == 'MAXED'
-    assert info['auto_gain_exposure_ms'] == 200.0
+    record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
+    assert record.auto_gain is AutoGainConvergence.MAXED
+    assert record.exposure_ms == 200.0
     lock_lines = [m for m in _logged('info') if '[AG CONVERGE] locked: state=MAXED' in m]
     assert len(lock_lines) == 1
 
@@ -212,11 +208,9 @@ def test_auto_gain_capture_reports_at_minimum_below_class_floor():
     and the frame is still captured at 0.4 ms."""
     imaging, camera, _cam = _build(ae_lands_on_ms=0.4)
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
-    image = imaging._capture_and_wait_impl(timeout_s=1.0)
-    assert image is not None
-    info = imaging.last_capture_info
-    assert info['auto_gain'] == 'AT_MINIMUM'
-    assert info['auto_gain_exposure_ms'] == 0.4
+    record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
+    assert record.auto_gain is AutoGainConvergence.AT_MINIMUM
+    assert record.exposure_ms == 0.4
     assert imaging.frame_validity.target('exposure') == 400.0
 
 

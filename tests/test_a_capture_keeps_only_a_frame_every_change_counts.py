@@ -60,9 +60,7 @@ def test_the_clock_is_mapped_before_the_frame_the_capture_returns(sim_scope):
     assert sim_scope.capabilities.camera_has_clock_latch, 'precondition: the simulator latches'
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
 
-    sim_scope.imaging.capture_and_wait(accept_dark=True)
-
-    record = sim_scope.imaging.last_capture_info['frame_record']
+    record = sim_scope.imaging.capture_still(accept_dark=True).record
     gain = _judgment(record, 'gain')
     arrived_ns = gain.change.written_ns + gain.after_write_ms * 1e6
     assert record.clock_mapping.host_ns < arrived_ns
@@ -102,9 +100,7 @@ def test_a_clock_rule_change_is_waited_out_on_the_cameras_clock(sim_scope):
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
     written_ns = sim_scope.imaging.recorded_changes()['gain'].written_ns
 
-    sim_scope.imaging.capture_and_wait(accept_dark=True)
-
-    gain = _judgment(sim_scope.imaging.last_capture_info['frame_record'], 'gain')
+    gain = _judgment(sim_scope.imaging.capture_still(accept_dark=True).record, 'gain')
     assert gain.change.rule.rule is Rule.CLOCK
     assert gain.counts
     assert gain.frame_start_ticks > gain.qualifies_after_ticks

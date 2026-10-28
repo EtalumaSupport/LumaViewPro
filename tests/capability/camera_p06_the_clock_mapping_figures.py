@@ -45,9 +45,7 @@ def _spread(values, unit_scale, digits):
 
 def _mapping(imaging):
     """One capture's clock mapping, or None when the capture carried none."""
-    imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
-    record = (imaging.last_capture_info or {}).get('frame_record')
-    return None if record is None else record.clock_mapping
+    return imaging.capture_still(accept_dark=True, timeout_s=5.0).record.clock_mapping
 
 
 def _arrivals(imaging, mapping):

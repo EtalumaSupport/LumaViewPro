@@ -58,6 +58,4 @@ def test_a_frame_written_with_the_binning_unknown_and_unreadable_is_refused_and_
 
 
 def test_a_capture_with_the_binning_unknown_records_the_cameras_binning(session):
-    session.scope.imaging.capture_and_wait(timeout_s=5.0)
-
-    assert session.scope.imaging.last_capture_info['frame_record'].binning_size == 2
+    assert session.scope.imaging.capture_still(timeout_s=5.0).record.binning_size == 2

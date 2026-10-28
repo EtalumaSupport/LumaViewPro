@@ -28,10 +28,8 @@ HOLD_S = 3.0  # time to look at the optics at each step
 
 def _frame(scope):
     imaging = scope.imaging
-    image = imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
-    record = (imaging.last_capture_info or {}).get('frame_record')
-    mean = round(float(image.mean()), 2)
-    return mean, record
+    still = imaging.capture_still(accept_dark=True, timeout_s=5.0)
+    return round(float(still.image.mean()), 2), still.record
 
 
 @contextlib.contextmanager
@@ -82,9 +80,7 @@ def main():
             figure(f'{request} mA: commanded', commanded)
             figure(f'{request} mA: state', state)
             figure(f'{request} mA: frame mean', mean)
-            recorded = (
-                None if record is None else record.illumination_ma.get(illumination.color2ch(LAYER))
-            )
+            recorded = record.illumination_ma.get(illumination.color2ch(LAYER))
             figure(f'{request} mA: frame record', recorded)
             check(f'{request} mA is commanded on the step', commanded == expected, commanded)
             check(

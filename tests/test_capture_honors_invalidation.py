@@ -41,7 +41,8 @@ _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signa
 def live_scope():
     """A full simulated scope: real IlluminationAPI over SimulatedLEDBoard
     and a streaming camera, on the lanes the scope builds. Every capture
-    here goes through the public ``capture_and_wait``, so its body runs on
+    here goes through a public door (``capture_and_wait``, or
+    ``capture_still`` where the frame's record is read), so its body runs on
     the camera lane and an LED write injected from the camera driver
     dispatches to the IO lane, as a write from another caller would."""
     scope = build_scope(simulate=True)
@@ -102,16 +103,14 @@ class TestMidWindowInvalidationHonored:
             live_scope, monkeypatch, lambda: live_scope.illumination.led_on('BF', 100)
         )
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=1.0)
+        record = live_scope.imaging.capture_still(timeout_s=1.0).record
 
         assert landed.is_set(), 'the mid-window write never landed'
-        assert out is not None
         info = live_scope.imaging.last_capture_info
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run, not returned'
         bf_address = live_scope.channel_identity.find('BF').led_addresses[0]
-        assert info['frame_record'].illumination_ma == {bf_address: 100.0}, (
-            'the re-run must read the NEW commanded state; '
-            f'recorded {info["frame_record"].illumination_ma}'
+        assert record.illumination_ma == {bf_address: 100.0}, (
+            f'the re-run must read the NEW commanded state; recorded {record.illumination_ma}'
         )
 
     def test_dirtied_window_rejection_recovers(self, live_scope, monkeypatch):
@@ -125,16 +124,15 @@ class TestMidWindowInvalidationHonored:
             live_scope, monkeypatch, lambda: live_scope.illumination.led_off('BF'), frame=_DARK
         )
 
-        live_scope.imaging.capture_and_wait(timeout_s=0.05)
+        record = live_scope.imaging.capture_still(timeout_s=0.05).record
 
         assert landed.is_set(), 'the mid-window write never landed'
-        info = live_scope.imaging.last_capture_info
-        assert info['rechecks'] >= 1
-        assert info['frame_record'].dark is None, (
+        assert live_scope.imaging.last_capture_info['rechecks'] >= 1
+        assert record.dark is None, (
             'the expectation must re-derive lit -> dark; the capture was '
             'judged against the LED it no longer commands'
         )
-        assert info['frame_record'].illumination_ma == {}
+        assert record.illumination_ma == {}
 
     def test_excluded_source_never_retriggers(self, live_scope, monkeypatch):
         """The live view's settled state excludes stage motion
@@ -211,14 +209,13 @@ class TestDrainDeadline:
 
         landed = _during_the_first_grab(live_scope, monkeypatch, a_turret_move_lands, frame=_DARK)
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=0.5)
+        record = live_scope.imaging.capture_still(timeout_s=0.5).record
 
         assert landed.is_set(), 'the mid-window write never landed'
         info = live_scope.imaging.last_capture_info
         assert info['n_entry'] == 0, 'precondition: nothing owed at entry'
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run'
-        assert out is not None, 'the grab waited out its own retry window and was refused'
-        assert info['frame_record'].dark is True
+        assert record.dark is True
 
     def test_healthy_capture_records_telemetry(self, live_scope):
         """The per-capture evidence a support bundle reads: present on

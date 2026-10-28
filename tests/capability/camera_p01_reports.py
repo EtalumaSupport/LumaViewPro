@@ -76,9 +76,7 @@ def main():
 
         level = camera_api.read_black_level()
         figure('black level', level)
-        imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
-        record = (imaging.last_capture_info or {}).get('frame_record')
-        recorded = None if record is None else record.black_level
+        recorded = imaging.capture_still(accept_dark=True, timeout_s=5.0).record.black_level
         figure('black level in the frame record', recorded)
         check(
             'a captured frame records the black level the camera reports',

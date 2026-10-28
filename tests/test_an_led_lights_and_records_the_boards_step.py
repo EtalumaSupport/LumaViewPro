@@ -65,8 +65,7 @@ def test_an_fx2_frame_records_the_commanded_current(fx2_session, fx2):
     illumination, _peripheral = fx2
     illumination.led_on('BF', 5.0)
     imaging = fx2_session.scope.imaging
-    assert imaging.capture_and_wait(accept_dark=True, timeout_s=2.0) is not None
-    record = imaging.last_capture_info['frame_record']
+    record = imaging.capture_still(accept_dark=True, timeout_s=2.0).record
     bf_address = fx2_session.scope.channel_identity.find('BF').led_addresses[0]
     assert record.illumination_ma[bf_address] == pytest.approx(2 * _FX2_STEP_MA)
 

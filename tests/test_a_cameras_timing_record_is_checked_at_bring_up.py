@@ -311,8 +311,7 @@ def test_a_measured_count_makes_a_capture_wait_for_the_frame_after_it(tmp_path, 
     scope.imaging.enable_streaming()
     try:
         scope.camera.set_gain_db(scope.camera.read_gain_db() + 1.0)
-        scope.imaging.capture_and_wait(accept_dark=True)
-        record = scope.imaging.last_capture_info['frame_record']
+        record = scope.imaging.capture_still(accept_dark=True).record
     finally:
         scope.imaging.disable_streaming()
         scope.disconnect()

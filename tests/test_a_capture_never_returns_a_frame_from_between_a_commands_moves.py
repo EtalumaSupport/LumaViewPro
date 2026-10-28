@@ -74,8 +74,7 @@ def _between(scope, monkeypatch, command) -> tuple[int, list[int]]:
     with concurrent.futures.ThreadPoolExecutor(1) as pool:
         running = pool.submit(command)
         while not running.done():
-            scope.imaging.capture_and_wait()
-            arrived.append(scope.imaging.last_capture_info['frame_record'].judgments[0].frame_seq)
+            arrived.append(scope.imaging.capture_still().record.judgments[0].frame_seq)
         running.result()
     first, last = min(recorded), max(recorded)
     return len(recorded), [seq for seq in arrived if first < seq <= last]

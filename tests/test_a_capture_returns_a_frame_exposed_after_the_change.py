@@ -231,7 +231,7 @@ def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
         delivered.next_one()
         landed = case.change(scope)
         try:
-            scope.imaging.capture_and_wait()
+            record = scope.imaging.capture_still().record
         except CaptureFailedError as failed:
             # No frame made after the change within the capture's bound:
             # the contract's other side, a capture that takes the next
@@ -242,7 +242,7 @@ def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
             raise AssertionError(
                 f'the capture gave up on {failed.setting} ({failed.reason})'
             ) from failed
-        frame_id = scope.imaging.last_capture_info['frame_record'].frame_id
+        frame_id = record.frame_id
         made_under = scope.simulation.exposed_under(delivered[frame_id])
     finally:
         scope.simulation.clear()

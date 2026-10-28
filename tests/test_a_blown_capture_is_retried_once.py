@@ -98,9 +98,7 @@ def test_a_kept_blown_frame_is_on_its_record_and_not_told(sim_scope, monkeypatch
     told = []
     monkeypatch.setattr(lvp_logger.logger, 'warning', lambda msg, *a, **kw: told.append(msg))
 
-    sim_scope.imaging.capture_and_wait(all_ones_check=True)
-
-    record = sim_scope.imaging.last_capture_info['frame_record']
+    record = sim_scope.imaging.capture_still(all_ones_check=True).record
     assert (record.saturated_fraction, record.blown) == (1.0, True)
     assert [line for line in told if 'saturated' in line] == [], told
 
@@ -109,7 +107,5 @@ def test_a_capture_that_does_not_ask_records_no_saturation(sim_scope, monkeypatc
     blown = np.full((4, 4), 255, dtype=np.uint8)
     frames_carrying(monkeypatch, sim_scope._camera_driver, lambda: blown)
 
-    sim_scope.imaging.capture_and_wait()
-
-    record = sim_scope.imaging.last_capture_info['frame_record']
+    record = sim_scope.imaging.capture_still().record
     assert (record.saturated_fraction, record.blown) == (None, None)

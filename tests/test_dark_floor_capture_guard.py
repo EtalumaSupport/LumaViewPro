@@ -84,11 +84,10 @@ class TestDarkFrameDelivery:
 
         # The shortest retry budget that still takes the save branch: the
         # branch is reached once the budget is past, however short.
-        out = dark_scope.imaging.capture_and_wait(timeout_s=0.05)
+        still = dark_scope.imaging.capture_still(timeout_s=0.05)
 
-        assert out is not None, 'a dark frame under a lit channel must still be delivered'
-        assert out.max() == _DARK.max(), 'the dark frame itself must come back untouched'
-        assert dark_scope.imaging.last_capture_info['frame_record'].dark is True, (
+        assert still.image.max() == _DARK.max(), 'the dark frame itself must come back untouched'
+        assert still.record.dark is True, (
             'a dark frame must be recorded dark on its record, or no caller can tell'
         )
 
@@ -110,10 +109,9 @@ class TestDarkFrameDelivery:
         frame is what the caller asked for: accepted unchanged."""
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
-        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
-        assert out is not None
-        assert out.max() == 6, 'the dark frame itself must be returned untouched'
-        assert dark_scope.imaging.last_capture_info['frame_record'].dark is None, (
+        still = dark_scope.imaging._capture_still_impl(member='capture_still', timeout_s=0.5)
+        assert still.image.max() == 6, 'the dark frame itself must be returned untouched'
+        assert still.record.dark is None, (
             'with nothing commanded the frame is not judged, so its record says so'
         )
 
@@ -140,15 +138,15 @@ class TestDarkFrameDelivery:
         dark_scope.illumination.led_on(LED0, 100)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
-        measured = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
-        assert measured is not None, 'a dark frame is delivered with or without the override'
-        assert dark_scope.imaging.last_capture_info['frame_record'].dark is True, (
+        measured = dark_scope.imaging._capture_still_impl(member='capture_still', timeout_s=0.3)
+        assert measured.record.dark is True, (
             'without the override the darkness must be measured and recorded'
         )
 
-        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5, accept_dark=True)
-        assert out is not None, 'accept_dark must still admit the dark frame'
-        assert dark_scope.imaging.last_capture_info['frame_record'].dark is None, (
+        out = dark_scope.imaging._capture_still_impl(
+            member='capture_still', timeout_s=0.5, accept_dark=True
+        )
+        assert out.record.dark is None, (
             'accept_dark skips the measurement, so the record judges nothing'
         )
 
@@ -160,9 +158,8 @@ class TestDarkFrameDelivery:
         dark_scope.illumination.led_on(LED2, 150)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
-        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
-        assert out is not None, 'a black frame under a lit peer is delivered, not refused'
-        assert dark_scope.imaging.last_capture_info['frame_record'].dark is True, (
+        out = dark_scope.imaging._capture_still_impl(member='capture_still', timeout_s=0.3)
+        assert out.record.dark is True, (
             'a lit peer makes the darkness worth recording on the capture'
         )
 

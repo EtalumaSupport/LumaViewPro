@@ -135,10 +135,10 @@ def test_a_capture_records_the_frame_it_returns_when_a_newer_one_arrives_during_
         staticmethod(measure_then_wait_for_a_newer_frame),
     )
 
-    image = sim_scope.imaging.capture_and_wait(force_to_8bit=False, all_ones_check=True)
+    still = sim_scope.imaging.capture_still(force_to_8bit=False, all_ones_check=True)
 
     assert newer.is_set(), 'no newer frame arrived during the capture; this proves nothing'
-    record = sim_scope.imaging.last_capture_info['frame_record']
+    image, record = still.image, still.record
     returned = int(image.flat[0]) - 1  # the stamp is id % 200 + 1
     assert returned == record.frame_id % 200, (
         f'the capture returned frame {returned} (mod 200) but recorded FrameID {record.frame_id}'
