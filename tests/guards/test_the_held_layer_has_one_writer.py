@@ -42,7 +42,7 @@ _RECORD_KEPT_IN = {
     '_restore_camera_state_impl': "clears the record, then sets the snapshot's once it is whole",
     '_apply_settings_impl': 'its own steps, under whichever door called it',
     '_lock_auto_gain_impl': 'its own steps, under whichever door called it',
-    '_capture_and_wait_impl': "a capture's lock of the standing arm, resumed after",
+    '_capture_still_impl': "a capture's lock of the standing arm, resumed after",
     '_resume_auto_gain_impl': 'the re-arm of the arm a capture locked',
     '_clamp_exposure_to_ceiling_before_arm': "the arm's ceiling, part of the arm",
 }

@@ -288,7 +288,7 @@ class ManualCaptureController:
             # admitted again, inline, against whatever holds the scope now -- a
             # run that took it after the still was put on the lane would refuse
             # the still it waits for.
-            array = scope.imaging._capture_holding_layer_impl(
+            still = scope.imaging._capture_holding_layer_impl(
                 channel,
                 self._layer_camera_request(channel),
                 _MEMBER,
@@ -302,7 +302,7 @@ class ManualCaptureController:
                 first_capture = scope.imaging.last_capture_info
             light = common_utils.read_light(scope.illumination, self._shown_layer()).channel
             if light == channel:
-                return channel, array
+                return channel, still.image
             if time.monotonic() - started > first_capture['deadline_s']:
                 raise CaptureFailedError('deadline_expired')
             logger.info(

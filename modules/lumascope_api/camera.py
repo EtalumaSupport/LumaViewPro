@@ -163,6 +163,16 @@ class LayerCameraRequest:
 
 
 @dataclasses.dataclass(frozen=True)
+class LayerHold:
+    """A layer and its stored camera settings, for a capture to hold: the pair
+    ``CameraAPI.hold_layer`` takes, in one value so neither travels without
+    the other. The Session reads ``request`` from the layer's store."""
+
+    layer: str
+    request: LayerCameraRequest
+
+
+@dataclasses.dataclass(frozen=True)
 class _HeldLayer:
     """The layer whose stored settings the camera holds.
 

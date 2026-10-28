@@ -92,7 +92,10 @@ from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
 from modules.lumascope_api.motion import HomeTarget
-from modules.lumascope_api.camera import CameraAPI, LayerCameraRequest
+from modules.finite_number import refuse_unless_wait_s
+from modules.frame_validity import FrameValiditySource
+from modules.lumascope_api.camera import CameraAPI, LayerCameraRequest, LayerHold
+from modules.lumascope_api.frame_record import CapturedStill
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
@@ -2525,6 +2528,70 @@ class ScopeSession:
             layer, 'apply_layer_camera', then='be applied to the camera'
         )
         return self.scope.camera.hold_layer(layer, self._layer_camera_request(layer))
+
+    @api(in_process=True)
+    def capture_still(
+        self,
+        channel: str | None = None,
+        *,
+        force_to_8bit: bool = True,
+        accept_dark: bool = False,
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
+        all_ones_check: bool = False,
+        timeout_s: float = 0.0,
+        sum_count: int = 1,
+        sum_delay_s: float = 0.0,
+        sum_iteration_callback: Callable[[], None] | None = None,
+    ) -> CapturedStill:
+        """Capture a frame-valid image and hand it back with its record.
+
+        Given ``channel``, the camera holds that layer's stored exposure,
+        gain and auto-gain for the grab, as ``apply_layer_camera`` puts them
+        on, in the capture's own camera-lane task; given None, it captures
+        with the camera as set. The capture's arguments are
+        ``scope.imaging.capture_still``'s. In-process: the image does not
+        travel the wire.
+
+        Returns:
+            CapturedStill: The image and the instrument's record of its frame.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
+                layer; ``'not_a_number'`` or ``'out_of_range'``, a time is not
+                a wait from 0 to 30 days, or the wait for the capture and
+                every frame of its sum together is longer. Nothing is captured.
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
+                has no ``channel``; ``'not_connected'``, naming the camera,
+                with none connected or one removed during the capture;
+                ``'camera_not_streaming'``, its feed is stopped;
+                ``'exclusive_activity_running'``, a run, a diagnostic or a
+                home holds the scope and this call is not made under it.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
+                layers could not be resolved. Nothing is captured.
+            CaptureFailedError: no frame passed, with the capture's own
+                reason (``scope.imaging.capture_and_wait``).
+            CameraSettingRejected: given ``channel``, the camera refused one
+                of its settings; nothing was captured.
+        """
+        for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
+            refuse_unless_wait_s(value, name)
+        hold = None
+        if channel is not None:
+            self.scope.channel_identity.refuse_unless_on_scope(
+                channel, 'capture_still', then='be captured'
+            )
+            hold = LayerHold(layer=channel, request=self._layer_camera_request(channel))
+        return self.scope.imaging.capture_still(
+            hold,
+            force_to_8bit=force_to_8bit,
+            accept_dark=accept_dark,
+            exclude_sources=exclude_sources,
+            all_ones_check=all_ones_check,
+            timeout_s=timeout_s,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+        )
 
     def _layer_camera_request(self, layer: str) -> LayerCameraRequest:
         """``layer``'s stored gain, exposure and auto-gain, with the auto-gain

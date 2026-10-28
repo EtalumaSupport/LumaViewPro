@@ -30,6 +30,7 @@ import pytest
 from modules.coord_transformations import PlatePosition
 from modules.lumascope_api._constants import AxisPosition, AxisState
 from tests.ast_seams import parse_module
+from modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import spec_scope
 from modules.layer_record import release_colors
@@ -62,9 +63,12 @@ def capture_ctx(tmp_path):
         'X': AxisPosition(AxisState.IDLE, 1000.0),
         'Y': AxisPosition(AxisState.IDLE, 2000.0),
     }
-    scope.imaging._capture_holding_layer_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+    record = frame_record()
+    scope.imaging._capture_holding_layer_impl.return_value = CapturedStill(
+        image=np.zeros((4, 4), dtype=np.uint8), record=record
+    )
     scope.imaging.capture_frame_depth.return_value = 8
-    scope.imaging.last_capture_info = {'frame_record': frame_record()}
+    scope.imaging.last_capture_info = {'frame_record': record}
     scope.camera._submit_camera.side_effect = _run_on_the_calling_thread
     return types.SimpleNamespace(
         scope=scope,
@@ -268,13 +272,12 @@ class TestASumsOverlayIsDrawnAsItIsShown:
         """Three 8-bit frames summed to 255 are one frame's white; the overlay
         is drawn on that rendering, so the pixel is white, not 255 of 1023."""
         capture_ctx.use_crosshairs = True
-        capture_ctx.scope.imaging._capture_holding_layer_impl.return_value = np.full(
-            (4, 4), 255, dtype=np.uint16
+        record = frame_record(frames_summed=3, frame_significant_bits=8)
+        capture_ctx.scope.imaging._capture_holding_layer_impl.return_value = CapturedStill(
+            image=np.full((4, 4), 255, dtype=np.uint16), record=record
         )
         capture_ctx.scope.imaging.capture_frame_depth.return_value = 10
-        capture_ctx.scope.imaging.last_capture_info = {
-            'frame_record': frame_record(frames_summed=3, frame_significant_bits=8)
-        }
+        capture_ctx.scope.imaging.last_capture_info = {'frame_record': record}
 
         save_one = _run_capture(capture_ctx, sum_count=3)
 

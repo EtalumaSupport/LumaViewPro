@@ -9,7 +9,7 @@ description here, so a field added to the record is added once.
 import datetime
 
 from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.frame_record import FrameRecord
+from modules.lumascope_api.frame_record import FrameRecord, SettingSource
 from modules.recording_frames import FrameFact
 
 
@@ -18,7 +18,9 @@ def frame_record(**overrides) -> FrameRecord:
     fields = {
         'captured_at': datetime.datetime(2026, 9, 29, 12, 0, 0),
         'exposure_ms': 10.0,
+        'exposure_source': SettingSource.FRAME,
         'gain_db': 1.0,
+        'gain_source': SettingSource.FRAME,
         'black_level': None,
         'illumination_ma': {},
         'frames_summed': 1,
@@ -33,6 +35,7 @@ def frame_record(**overrides) -> FrameRecord:
         'saturated_fraction': None,
         'dark': None,
         'held_channel': None,
+        'auto_gain': None,
     }
     fields.update(overrides)
     return FrameRecord(**fields)

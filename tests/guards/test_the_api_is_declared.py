@@ -826,6 +826,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.apply_focus_to_channel_steps parameter channel': _CHANNEL,
     'ScopeSession.apply_tiling parameter tiling': _TILING,
     'ScopeSession.assign_turret_objective parameter objective_id': _OBJECTIVE,
+    'ScopeSession.capture_still parameter channel': _CHANNEL,
     'ScopeSession.channel_acquire parameter channel': _CHANNEL,
     'ScopeSession.channel_auto_gain parameter channel': _CHANNEL,
     'ScopeSession.channel_auto_gain_lock parameter channel': _CHANNEL,

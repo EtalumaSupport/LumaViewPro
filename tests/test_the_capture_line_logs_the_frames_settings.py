@@ -15,7 +15,7 @@ import datetime
 import numpy as np
 import pytest
 
-from modules.lumascope_api.frame_record import FrameRecord
+from modules.lumascope_api.frame_record import FrameRecord, SettingSource
 from modules.protocol_image_writer import _capture_evidence
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
@@ -52,7 +52,9 @@ def _record(**fields):
     defaults = {
         'captured_at': datetime.datetime.now(),
         'exposure_ms': 62.003,
+        'exposure_source': SettingSource.FRAME,
         'gain_db': 3.5,
+        'gain_source': SettingSource.FRAME,
         'black_level': None,
         'illumination_ma': {},
         'frames_summed': 1,
@@ -67,6 +69,7 @@ def _record(**fields):
         'saturated_fraction': 0.0,
         'dark': None,
         'held_channel': None,
+        'auto_gain': None,
     }
     return FrameRecord(**{**defaults, **fields})
 

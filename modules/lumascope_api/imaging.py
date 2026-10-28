@@ -37,8 +37,21 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
 )
 from modules.frame_validity import Change, Counter, FrameValidity, FrameValiditySource, Judgment
-from modules.lumascope_api.camera import AutoGainLock, LayerCameraRequest, _camera_not_connected
-from modules.lumascope_api.frame_record import BLOWN_FRACTION, ClockMapping, FrameRecord
+from modules.lumascope_api.camera import (
+    AutoGainConvergence,
+    AutoGainLock,
+    LayerCameraRequest,
+    LayerHold,
+    _camera_not_connected,
+    _refuse_unless_auto_gain_settings,
+)
+from modules.lumascope_api.frame_record import (
+    BLOWN_FRACTION,
+    CapturedStill,
+    ClockMapping,
+    FrameRecord,
+    SettingSource,
+)
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.video_cadence import StallWatch, prologue_stall_threshold_s
@@ -793,10 +806,16 @@ class ImagingAPI:
         return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
 
     # --- Capture ---
-    def _capture_and_wait_impl(
+    def _capture_and_wait_impl(self, force_to_8bit: bool = True, **capture) -> np.ndarray:
+        """``_capture_still_impl``'s image alone, for the array-only grab
+        (``capture_and_wait``). ``capture`` is its keyword arguments."""
+        return self._capture_still_impl(force_to_8bit, member='capture_and_wait', **capture).image
+
+    def _capture_still_impl(
         self,
         force_to_8bit: bool = True,
         *,
+        member: str,
         accept_dark: bool = False,
         exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
@@ -804,7 +823,7 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback=None,
-    ) -> np.ndarray:
+    ) -> CapturedStill:
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Drains stale frames from the camera pipeline until every change (LED,
@@ -820,6 +839,7 @@ class ImagingAPI:
 
         Args:
             force_to_8bit: Convert to 8-bit output.
+            member: The public member the capture is refused as.
             exclude_sources: Sources to ignore for validity, e.g. ``(FrameValiditySource.Z_MOVE,)``.
                 The frame returned can predate an excluded change, so a
                 frame that is measured or recorded never excludes one.
@@ -844,7 +864,7 @@ class ImagingAPI:
             sum_iteration_callback: Called after each summed frame.
 
         Returns:
-            numpy.ndarray: The captured image.
+            CapturedStill: The captured image with its record.
 
         Raises:
             CaptureFailedError: no frame: ``'no_frame'``, the camera
@@ -886,7 +906,7 @@ class ImagingAPI:
         # A capture refused at its call records nothing; every capture past
         # it records its evidence in last_capture_info, frame or not.
         if not self._driver or not self._driver.active:
-            raise _camera_not_connected('capture_and_wait')
+            raise _camera_not_connected(member)
 
         # active (connected) is necessary but not sufficient to deliver a
         # frame: connect() configures the camera without starting the feed
@@ -899,7 +919,7 @@ class ImagingAPI:
                 '[SCOPE API ] capture_and_wait: no active grab (streaming not '
                 'started or stopped) -- refused until the feed is running.'
             )
-            raise HardwareCommandRefusedError('camera_not_streaming', 'capture_and_wait')
+            raise HardwareCommandRefusedError('camera_not_streaming', member)
 
         hold_start = time.monotonic()
         exposure_s = self._camera._grab_sizing_exposure_s()
@@ -1048,7 +1068,7 @@ class ImagingAPI:
                     _record_capture_info()
                     if removed:
                         # The raise is the report: nothing to re-arm.
-                        raise _camera_not_connected('capture_and_wait')
+                        raise _camera_not_connected(member)
                     if lock is not None:
                         self._camera._resume_auto_gain_impl(lock)
                     raise CaptureFailedError('no_frame')
@@ -1157,6 +1177,7 @@ class ImagingAPI:
                         judgments=judgments,
                         saturated_fraction=grabbed.saturated_fraction,
                         dark=grabbed.dark,
+                        auto_gain=lock.state if lock is not None else None,
                     )
                 except CameraReadFailedError as unread:
                     _record_capture_info()
@@ -1166,7 +1187,7 @@ class ImagingAPI:
                         )
                         raise CaptureFailedError('record_read_failed') from unread
                     removed = True
-                    raise _camera_not_connected('capture_and_wait') from unread
+                    raise _camera_not_connected(member) from unread
             if failed is None:
                 _api_log.info(_capture_line(grabbed, extra['frame_record']))
             _record_capture_info(
@@ -1178,13 +1199,13 @@ class ImagingAPI:
             if lock is not None and not removed:
                 self._camera._resume_auto_gain_impl(lock)
         if failed is not None:
-            raise failed.error('capture_and_wait')
-        return grabbed.image
+            raise failed.error(member)
+        return CapturedStill(image=grabbed.image, record=extra['frame_record'])
 
     def _capture_holding_layer_impl(
         self, layer: str, request: LayerCameraRequest, member: str, **capture
-    ) -> np.ndarray:
-        """``_capture_and_wait_impl``, with the camera holding ``layer``'s stored settings.
+    ) -> CapturedStill:
+        """``_capture_still_impl``, with the camera holding ``layer``'s stored settings.
 
         For a capture that is already its own camera-lane task (the still):
         the camera's hold for a capture (``CameraAPI._hold_layer_for_capture``)
@@ -1198,7 +1219,7 @@ class ImagingAPI:
             CameraSettingRejected: as ``_hold_layer_for_capture`` says.
         """
         self._camera._hold_layer_for_capture(layer, request, member)
-        return self._capture_and_wait_impl(**capture)
+        return self._capture_still_impl(member=member, **capture)
 
     def _build_frame_record(
         self,
@@ -1210,6 +1231,7 @@ class ImagingAPI:
         judgments: tuple[Judgment, ...],
         saturated_fraction: float | None,
         dark: bool | None,
+        auto_gain: AutoGainConvergence | None,
     ) -> FrameRecord:
         """The instrument's account of the frame just grabbed, on the grab's lane.
 
@@ -1222,15 +1244,18 @@ class ImagingAPI:
         reach it. A read the camera does not answer raises
         ``CameraReadFailedError`` and fails the capture, as a failed black
         level read does, rather than saving a frame whose exposure or gain
-        is unknown.
+        is unknown. The record says which each is (``SettingSource``).
         """
         exposure_us = chunks.get('ExposureTime')
-        exposure_ms = (
-            exposure_us / 1000.0 if exposure_us is not None else self._camera.read_exposure_ms()
-        )
+        if exposure_us is not None:
+            exposure_ms, exposure_source = exposure_us / 1000.0, SettingSource.FRAME
+        else:
+            exposure_ms, exposure_source = self._camera.read_exposure_ms(), SettingSource.READ
         gain_db = chunks.get('Gain')
-        if gain_db is None:
-            gain_db = self._camera.read_gain_db()
+        if gain_db is not None:
+            gain_source = SettingSource.FRAME
+        else:
+            gain_db, gain_source = self._camera.read_gain_db(), SettingSource.READ
 
         ticks = chunks.get('Timestamp')
         frame_id = chunks.get('FrameID')
@@ -1240,7 +1265,9 @@ class ImagingAPI:
         return FrameRecord(
             captured_at=captured_at,
             exposure_ms=exposure_ms,
+            exposure_source=exposure_source,
             gain_db=gain_db,
+            gain_source=gain_source,
             black_level=self._black_level_for_record(),
             illumination_ma=dict(lit),
             frames_summed=frames_summed,
@@ -1255,6 +1282,7 @@ class ImagingAPI:
             saturated_fraction=saturated_fraction,
             dark=dark,
             held_channel=self._camera.get_held_layer(),
+            auto_gain=auto_gain,
         )
 
     def _clock_mapping_for_record(self) -> ClockMapping | None:
@@ -1339,6 +1367,98 @@ class ImagingAPI:
                 level its record needs, so it was not kept; chained from the
                 ``CameraReadFailedError``. Its other reasons are the body's.
         """
+        wait_s = self._capture_wait_s(exclude_sources, timeout_s, sum_count, sum_delay_s)
+        return self._camera._dispatch_camera(
+            self._capture_and_wait_impl,
+            'capture_and_wait',
+            kwargs={
+                'force_to_8bit': force_to_8bit,
+                'accept_dark': accept_dark,
+                'exclude_sources': exclude_sources,
+                'all_ones_check': all_ones_check,
+                'timeout_s': timeout_s,
+                'sum_count': sum_count,
+                'sum_delay_s': sum_delay_s,
+                'sum_iteration_callback': sum_iteration_callback,
+            },
+            timeout_s=wait_s,
+        )
+
+    def capture_still(
+        self,
+        hold: LayerHold | None = None,
+        *,
+        force_to_8bit: bool = True,
+        accept_dark: bool = False,
+        exclude_sources: tuple[FrameValiditySource, ...] = (),
+        all_ones_check: bool = False,
+        timeout_s: float = 0.0,
+        sum_count: int = 1,
+        sum_delay_s: float = 0.0,
+        sum_iteration_callback: Callable[[], None] | None = None,
+    ) -> CapturedStill:
+        """Capture a frame-valid image on the camera worker, and hand it back with its record.
+
+        ``capture_and_wait``'s capture, returning the frame's record with it
+        (``CapturedStill``) in place of the array alone, so the record is the
+        frame's and no later capture's. Given ``hold``, the camera holds that
+        layer's stored settings for the grab (``CameraAPI.hold_layer``), in
+        the same camera-lane task; given None, it captures with the camera as
+        set. The capture's other arguments are ``_capture_still_impl``'s.
+        In-process only, as ``hold_layer`` is: the Session reads the layer's
+        store and hands it in (``ScopeSession.capture_still``), so a still is
+        held at no settings but its layer's.
+
+        Raises:
+            ArgumentRefusedError: as ``capture_and_wait`` says.
+            CaptureFailedError: as ``capture_and_wait`` says.
+            HardwareCommandRefusedError: ``'not_connected'``, naming this
+                member, with no camera; ``'camera_not_streaming'``; or, given
+                ``hold``, a run, a diagnostic or a home holds the scope.
+            CameraSettingRejected: given ``hold``, the camera refused one of
+                its settings; nothing was captured.
+        """
+        wait_s = self._capture_wait_s(exclude_sources, timeout_s, sum_count, sum_delay_s)
+        capture = {
+            'force_to_8bit': force_to_8bit,
+            'accept_dark': accept_dark,
+            'exclude_sources': exclude_sources,
+            'all_ones_check': all_ones_check,
+            'timeout_s': timeout_s,
+            'sum_count': sum_count,
+            'sum_delay_s': sum_delay_s,
+            'sum_iteration_callback': sum_iteration_callback,
+        }
+        if hold is None:
+            return self._camera._dispatch_camera(
+                self._capture_still_impl,
+                'capture_still',
+                kwargs={'member': 'capture_still', **capture},
+                timeout_s=wait_s,
+            )
+        _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
+        # The hold's writes run in the same task, ahead of the capture.
+        return self._camera._dispatch_camera(
+            self._capture_holding_layer_impl,
+            'capture_still',
+            args=(hold.layer, hold.request, 'capture_still'),
+            kwargs=capture,
+            timeout_s=wait_s + self._camera._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _capture_wait_s(
+        self,
+        exclude_sources: tuple[FrameValiditySource, ...],
+        timeout_s: float,
+        sum_count: int,
+        sum_delay_s: float,
+    ) -> float:
+        """How long a public capture waits for its camera-lane task.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, as
+                ``capture_and_wait`` says.
+        """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
@@ -1365,21 +1485,7 @@ class ImagingAPI:
         )
         # Each time in range, a long sum can still make a wait no host holds.
         refuse_unless_wait_s(wait_s, 'the wait for the capture and every frame of its sum')
-        return self._camera._dispatch_camera(
-            self._capture_and_wait_impl,
-            'capture_and_wait',
-            kwargs={
-                'force_to_8bit': force_to_8bit,
-                'accept_dark': accept_dark,
-                'exclude_sources': exclude_sources,
-                'all_ones_check': all_ones_check,
-                'timeout_s': timeout_s,
-                'sum_count': sum_count,
-                'sum_delay_s': sum_delay_s,
-                'sum_iteration_callback': sum_iteration_callback,
-            },
-            timeout_s=wait_s,
-        )
+        return wait_s
 
     # A pixel at or above this fraction of full scale is saturated; how many
     # of them make a frame blown is the record's (``BLOWN_FRACTION``).

@@ -73,6 +73,7 @@ REFUSED = {
     'set_line_noise_reduction': lambda s: s.camera.set_line_noise_reduction(False),
     'apply': lambda s: s.camera.apply(5.0, 20.0, channel='BF'),
     'capture_and_wait': lambda s: s.imaging.capture_and_wait(),
+    'capture_still': lambda s: s.imaging.capture_still(),
 }
 
 # The image mode's apply: with no camera it has no format to apply, and the

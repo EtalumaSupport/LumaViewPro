@@ -12,11 +12,16 @@ the frame, and the writer reads nothing live.
 
 import dataclasses
 import datetime
+import enum
 import types
 from collections.abc import Mapping
 
+import numpy as np
+
+from modules import image_utils
 from modules.api_surface import api_fields
 from modules.frame_validity import Judgment
+from modules.lumascope_api.camera import AutoGainConvergence
 
 # A frame with at least this fraction of its pixels saturated is blown -- a
 # stale-gain or over-exposure symptom. Set high so a legitimately bright
@@ -57,7 +62,22 @@ class ClockMapping:
         return self.camera_ticks + round((host_ns - self.host_ns) * self.tick_hz / 1e9)
 
 
+class SettingSource(enum.StrEnum):
+    """Where a record's exposure or gain came from.
+
+    FRAME: the frame's own chunk value, stamped by the camera on the frame
+        (Pylon ace 2 / dart, the simulated camera).
+    READ: a read of the camera's setting beside the grab, for a frame that
+        carries no chunk value (IDS, FX2, a Basler frame whose chunk was not
+        delivered): the setting in force, not a measurement of the frame.
+    """
+
+    FRAME = 'frame'
+    READ = 'read'
+
+
 @api_fields(
+    'auto_gain',
     'black_level',
     'binning_size',
     'camera_model',
@@ -67,10 +87,12 @@ class ClockMapping:
     'clock_mapping',
     'dark',
     'exposure_ms',
+    'exposure_source',
     'frame_id',
     'frame_significant_bits',
     'frames_summed',
     'gain_db',
+    'gain_source',
     'held_channel',
     'illumination_ma',
     'judgments',
@@ -87,7 +109,11 @@ class FrameRecord:
         captured_at: Host time when the grab returned the frame.
         exposure_ms: Per-frame exposure. For a summed capture this is each
             frame's exposure, not the total; ``frames_summed`` says how many.
+        exposure_source: Whether ``exposure_ms`` is the frame's own or the
+            setting read beside the grab (``SettingSource``).
         gain_db: Gain the frame was taken at.
+        gain_source: Whether ``gain_db`` is the frame's own or the setting
+            read beside the grab.
         black_level: The camera's black level parameter the frame was taken
             at, in the camera's own units (``CameraAPI.get_black_level``).
         illumination_ma: Drive current of each LED address lit for the
@@ -125,11 +151,16 @@ class FrameRecord:
             layer's, after a raw camera write or with the settings a run's
             step wrote. The frame's own exposure and gain are the fields
             above either way.
+        auto_gain: Where the standing auto-gain arm landed when the capture
+            locked it (``AutoGainConvergence``); None when no arm stood.
+            The lock's exposure and gain are ``exposure_ms`` and ``gain_db``.
     """
 
     captured_at: datetime.datetime
     exposure_ms: float | None
+    exposure_source: SettingSource
     gain_db: float | None
+    gain_source: SettingSource
     black_level: float | None
     illumination_ma: Mapping[int, float]
     frames_summed: int
@@ -144,6 +175,7 @@ class FrameRecord:
     saturated_fraction: float | None
     dark: bool | None
     held_channel: str | None
+    auto_gain: AutoGainConvergence | None
 
     def __post_init__(self):
         # Frozen all the way down: the record travels to another thread and
@@ -159,3 +191,44 @@ class FrameRecord:
         if self.saturated_fraction is None:
             return None
         return self.saturated_fraction >= BLOWN_FRACTION
+
+
+@api_fields('image', 'record')
+@dataclasses.dataclass(frozen=True, eq=False)
+class CapturedStill:
+    """One captured still: its pixels and the instrument's record of them, together.
+
+    Handed back by the grab that took them, so no caller reads a frame's
+    record from a slot the next capture replaces. Equality is identity: a
+    frozen dataclass's own would compare the arrays elementwise and raise.
+
+    Attributes:
+        image: The captured array, read-only: the frame, a sum, or its 8-bit
+            rendering.
+        record: The instrument's account of the frame (``FrameRecord``).
+    """
+
+    image: np.ndarray
+    record: FrameRecord
+
+    @property
+    def significant_bits(self) -> int:
+        """The depth of ``image``: 8 for an 8-bit array, else the bits its sum
+        can reach (``image_utils.summed_significant_bits``); a single frame
+        is its own depth."""
+        if self.image.dtype == np.uint8:
+            return 8
+        return image_utils.summed_significant_bits(
+            self.record.frames_summed, self.record.frame_significant_bits
+        )
+
+    @property
+    def full_scale(self) -> int:
+        """The value at which ``image`` is saturated: 255 for an 8-bit array,
+        else what its sum can hold (``image_utils.summed_full_scale``), never
+        the depth's power of two."""
+        if self.image.dtype == np.uint8:
+            return 255
+        return image_utils.summed_full_scale(
+            self.record.frames_summed, self.record.frame_significant_bits
+        )

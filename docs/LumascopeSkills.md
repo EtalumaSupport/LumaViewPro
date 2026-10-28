@@ -3174,6 +3174,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `bookmark`
 - `bring_up_record`
 - `capture_settings_snapshot` (in-process)
+- `capture_still` (in-process)
 - `channel_colors`
 - `clear_current_turret_objective`
 - `clear_turret_objective`
@@ -3871,6 +3872,13 @@ Reached through `RunOutcome.captures`.
 - `missing`
 - `saturated`
 
+### CapturedStill
+
+Reached through `session.capture_still`.
+
+- `image`
+- `record`
+
 ### CatalogueNameRefusedError
 
 Reached through a REST problem, whose members carry it.
@@ -4127,8 +4135,9 @@ Reached through the event `scope.imaging.add_frame_listener` delivers.
 
 ### FrameRecord
 
-Reached through each `SavedStill`'s `frame`, from `session.manual_capture.capture`.
+Reached through each `SavedStill`'s `frame`, from `session.manual_capture.capture`, and a `CapturedStill`'s `record`, from `session.capture_still`.
 
+- `auto_gain`
 - `binning_size`
 - `black_level`
 - `camera_model`
@@ -4138,10 +4147,12 @@ Reached through each `SavedStill`'s `frame`, from `session.manual_capture.captur
 - `clock_mapping`
 - `dark`
 - `exposure_ms`
+- `exposure_source`
 - `frame_id`
 - `frame_significant_bits`
 - `frames_summed`
 - `gain_db`
+- `gain_source`
 - `held_channel`
 - `illumination_ma`
 - `judgments`

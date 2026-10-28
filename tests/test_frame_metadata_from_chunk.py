@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 from modules.image_save import generate_image_metadata
 from modules.lumascope_api.camera import CameraAPI
+from modules.lumascope_api.frame_record import SettingSource
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.frame_records import frame_record, plate
 from modules.layer_record import release_color
@@ -81,6 +82,7 @@ def _record(imaging, chunks):
         judgments=(),
         saturated_fraction=None,
         dark=None,
+        auto_gain=None,
     )
 
 
@@ -90,15 +92,30 @@ def test_exposure_metadata_prefers_chunk_with_us_to_ms_conversion():
         'chunk ExposureTime (us) must win over the live read and convert '
         f'to ms; got {record.exposure_ms}'
     )
+    assert record.exposure_source is SettingSource.FRAME
 
 
 def test_gain_metadata_prefers_chunk_with_live_fallback():
     record = _record(_imaging(), {'ExposureTime': 5000.0, 'Gain': 3.0})
     assert record.gain_db == 3.0, f'chunk Gain must win over the live read; got {record.gain_db}'
+    assert record.gain_source is SettingSource.FRAME
 
     no_chunk = _record(_imaging(), None)
     assert no_chunk.exposure_ms == LIVE_EXPOSURE_MS
     assert no_chunk.gain_db == LIVE_GAIN_DB
+
+
+def test_a_value_read_beside_the_grab_says_so():
+    """A frame without its chunk states the setting read beside the grab,
+    and says it is that read, not the frame's own. Driven directly: the
+    simulated camera always stamps both chunks."""
+    no_chunk = _record(_imaging(), None)
+    assert no_chunk.exposure_source is SettingSource.READ
+    assert no_chunk.gain_source is SettingSource.READ
+
+    gain_only = _record(_imaging(), {'Gain': 3.0})
+    assert gain_only.exposure_source is SettingSource.READ
+    assert gain_only.gain_source is SettingSource.FRAME
 
 
 def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):

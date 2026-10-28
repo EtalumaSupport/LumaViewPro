@@ -18,7 +18,7 @@ import pytest
 
 import modules.image_save as image_save
 from modules.labware_loader import WellPlateLoader
-from modules.lumascope_api.frame_record import FrameRecord
+from modules.lumascope_api.frame_record import FrameRecord, SettingSource
 
 
 class _Unreachable:
@@ -39,7 +39,9 @@ def _record(illumination_ma=None):
     return FrameRecord(
         captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456),
         exposure_ms=12.5,
+        exposure_source=SettingSource.FRAME,
         gain_db=3.0,
+        gain_source=SettingSource.FRAME,
         black_level=4.0,
         illumination_ma={3: 40.0} if illumination_ma is None else illumination_ma,
         frames_summed=2,
@@ -54,6 +56,7 @@ def _record(illumination_ma=None):
         saturated_fraction=None,
         dark=None,
         held_channel=None,
+        auto_gain=None,
     )
 
 
