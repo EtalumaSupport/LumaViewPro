@@ -17,7 +17,9 @@ import ast
 from tests import ast_seams
 
 # The member's docstring, ``Returns``: what a capture leaves, frame or not.
-_SLOT_KEYS = frozenset({'hold_ms', 'drained', 'rechecks', 'deadline_s', 'n_entry', 'active_s'})
+_SLOT_KEYS = ast_seams.Words(
+    {'hold_ms', 'drained', 'rechecks', 'deadline_s', 'n_entry', 'active_s'}
+)
 
 
 def _is_the_slot(node: ast.AST) -> bool:
