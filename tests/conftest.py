@@ -323,8 +323,9 @@ def _install_serial_refusers():
 
     class RefusedSerial(real_serial):
         # A subclass, so a Mock(spec=serial.Serial) keeps the real methods;
-        # only the open is intercepted.
-        def __init__(self, *args, **kwargs):
+        # only the open is intercepted. Refused in __new__, before an instance
+        # exists, since pyserial's __del__ closes a half-built one and raises.
+        def __new__(cls, *args, **kwargs):
             port = kwargs.get('port') or (args[0] if args else '?')
             _serial_touches.append(('open', str(port)))
             raise serial.SerialException(f'{SERIAL_REFUSAL_BANNER}: {port} (no --run-hardware)')

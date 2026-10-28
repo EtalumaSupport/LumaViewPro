@@ -19,6 +19,7 @@ from unittest.mock import Mock
 import serial
 
 from tests import conftest
+from tests.ast_seams import REPO_ROOT
 from tests.bench_results import linked_checkout
 
 VICTIM = 'tests/guards/serial_refusal_victim.py'
@@ -65,6 +66,34 @@ def test_run_hardware_leaves_pyserial_real_and_the_default_does_not(tmp_path):
     assert with_flag.returncode == 0, with_flag.stdout + with_flag.stderr
     without = _run(tmp_path / 'without', 'test_pyserial_is_the_real_one')
     assert without.returncode != 0, without.stdout + without.stderr
+
+
+REFUSED_OPEN = """
+import gc
+import tests.conftest
+import serial
+try:
+    serial.Serial('/dev/cu.usbmodem-not-a-port')
+except serial.SerialException:
+    pass
+gc.collect()
+"""
+
+
+def test_a_refused_open_leaves_no_instance_for_pyserial_to_close_later():
+    # A refused open that left a half-built instance had pyserial's __del__
+    # call close() on it, raising inside whichever later test collected it.
+    # A child under -X dev, since below 3.13 the finalizer drops that error
+    # unless dev mode is on.
+    done = subprocess.run(
+        [sys.executable, '-X', 'dev', '-c', REFUSED_OPEN],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr
+    assert 'Exception ignored' not in done.stderr, done.stderr
 
 
 def test_the_refuser_is_a_subclass_so_specced_mocks_keep_their_methods():
