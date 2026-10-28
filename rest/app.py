@@ -716,7 +716,7 @@ def _add(
         'responses': {
             200: {'model': route.answer, 'description': "The member's answer."},
             202: _ANSWERED_AS_JOB,
-            **problems.declared(doc, classes),
+            **problems.declared(doc, classes, member.admitted_by),
         },
     }
 

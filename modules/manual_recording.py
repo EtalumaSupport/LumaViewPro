@@ -87,7 +87,7 @@ from modules.video_recording import (
 )
 from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
-from modules.api_surface import api
+from modules.api_surface import Admission, api
 from modules.caller import current_caller
 
 if TYPE_CHECKING:
@@ -774,7 +774,7 @@ class ManualRecordingController:
             RecordingStoppedError(reason), solicited=False, category='Recording'
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path).

@@ -42,7 +42,7 @@ from modules.lumascope_api.frame_record import BLOWN_FRACTION, ClockMapping, Fra
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.video_cadence import StallWatch, prologue_stall_threshold_s
-from modules.api_surface import api, api_fields
+from modules.api_surface import Admission, api, api_fields
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2134,7 +2134,7 @@ class ImagingAPI:
         return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def enable_streaming(self) -> None:
         """Begin camera streaming -- the public way to start the live feed, and wait.
 
@@ -2175,7 +2175,7 @@ class ImagingAPI:
         if not driver.open_and_start() and not driver.is_grabbing():
             driver.start_grabbing()
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def disable_streaming(self) -> None:
         """Stop camera streaming, and wait.
 

@@ -152,7 +152,7 @@ from modules.lumascope_api._constants import (
     refuse_acceleration_pct,
     refuse_unless_turret_slot,
 )
-from modules.api_surface import api, api_fields
+from modules.api_surface import Admission, api, api_fields
 from modules.closed_sets import refuse_unless_offered
 from modules.frame_validity import FrameValiditySource
 from modules.coord_transformations import AxisLimits, PlateLocation
@@ -1475,7 +1475,7 @@ class MotionAPI:
         self.refuse_absent('get_actual_position')
         return self._driver.current_pos(axis)
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def set_precision_mode(self, axis: Axis, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
@@ -2736,7 +2736,7 @@ class MotionAPI:
             timeout_s,
         )
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_move_to_plate(self, at: PlateLocation) -> Operation:
         """Start X and Y moving to ``at`` on the selected plate; return the started moves.
 
@@ -2782,7 +2782,7 @@ class MotionAPI:
             refuse_unless_finite_number(value, f'at.{axis.lower()}_mm')
         return self._start_plate_moves('start_move_to_plate', lambda: targets)
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def move_to_plate(self, at: PlateLocation) -> None:
         """Move X and Y to ``at`` on the selected plate, and return once they have arrived.
 
@@ -2810,7 +2810,7 @@ class MotionAPI:
         refuse_waiting_on_ui_thread('move_to_plate')
         self.start_move_to_plate(at).result()
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_move_to_well(self, well: str) -> Operation:
         """Start X and Y moving to the centre of ``well`` on the selected plate; return the started moves.
 
@@ -2842,7 +2842,7 @@ class MotionAPI:
 
         return self._start_plate_moves('start_move_to_well', targets)
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def move_to_well(self, well: str) -> None:
         """Move X and Y to the centre of ``well`` on the selected plate, and return once they have arrived.
 
@@ -2897,7 +2897,11 @@ class MotionAPI:
         with self.one_command(tuple(stage), then='move on the plate'):
             return self._move_xy_impl(member, stage.get('X'), stage.get('Y'), False)
 
-    @api(stop='Operation.stop', in_process_arguments=('ignore_limits',))
+    @api(
+        stop='Operation.stop',
+        in_process_arguments=('ignore_limits',),
+        admitted_by=(Admission.LANE_CALL,),
+    )
     def start_move_xy(
         self,
         x_um: float | None = None,
@@ -2946,7 +2950,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(in_process_arguments=('ignore_limits',))
+    @api(in_process_arguments=('ignore_limits',), admitted_by=(Admission.LANE_CALL,))
     def move_xy(
         self,
         x_um: float | None = None,
@@ -2984,7 +2988,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> Operation:
         """Start X and Y moving by a distance, in um, each that is given; return the started moves.
 
@@ -3015,7 +3019,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> None:
         """Move X and Y by a distance, in um, each that is given, and return once they have arrived.
 
@@ -3049,7 +3053,11 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
-    @api(stop='Operation.stop', in_process_arguments=('ignore_limits',))
+    @api(
+        stop='Operation.stop',
+        in_process_arguments=('ignore_limits',),
+        admitted_by=(Admission.LANE_CALL,),
+    )
     def start_move_z(
         self,
         z_um: float,
@@ -3106,7 +3114,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(in_process_arguments=('ignore_limits',))
+    @api(in_process_arguments=('ignore_limits',), admitted_by=(Admission.LANE_CALL,))
     def move_z(
         self,
         z_um: float,
@@ -3144,7 +3152,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> Operation:
         """Start Z moving by a distance, in um; return the started move.
 
@@ -3179,7 +3187,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> None:
         """Move Z by a distance, in um, and return once it has arrived.
 
@@ -3212,7 +3220,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def home(self, axis: HomeTarget = HomeTarget.ALL) -> None:
         """Home the given axis set, and wait for it.
 
@@ -3270,7 +3278,7 @@ class MotionAPI:
             release_if_unrun()
             raise
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_SUBMIT,))
     def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation:
         """Start the home ``home`` runs, without waiting for it; returns its ``Operation``.
 
@@ -3389,7 +3397,7 @@ class MotionAPI:
 
         return body, release_if_unrun, stop, held if held is not None else current
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def move_turret(self, slot: int, restore_z: bool = True) -> None:
         """Move the turret to a slot, and wait for it. See ``_move_turret_impl``.
 

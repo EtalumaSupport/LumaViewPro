@@ -31,15 +31,18 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import inspect
 import math
 
 from fastapi.responses import JSONResponse
 
 from modules import notification_center, wire_encoding
 from lib.lumascope_error import Fault, LumascopeError, defined_classes
-from modules.api_surface import raises_of
+from modules.activity_claim import ActivityClaim
+from modules.api_surface import Admission, raises_of
 from modules.exceptions import RefusalCause, ServerRefusedError, UnfitArgument
 from modules.notification_center import OutcomeKind, outcome_of
+from modules.sequential_io_executor import SequentialIOExecutor
 from rest.routes import wire_form
 
 MEDIA_TYPE = 'application/problem+json'
@@ -76,6 +79,13 @@ OPENAPI_RESPONSES: dict[int | str, dict] = {
     )
 }
 TYPE_PREFIX = 'urn:lumascope:problem:'
+
+# The function each door is, whose ``Raises:`` states the door's refusals.
+DOORS: dict[Admission, object] = {
+    Admission.LANE_CALL: SequentialIOExecutor.call,
+    Admission.LANE_SUBMIT: SequentialIOExecutor.submit,
+    Admission.GUARDED_WRITE: ActivityClaim.enter_guarded_write,
+}
 
 # What each cause of a refusal, quiet outcome or raised notice answers: a
 # notice ends a request that nothing failed, as a stopped move does. A
@@ -120,19 +130,28 @@ def outcome_classes() -> dict[str, type[LumascopeError]]:
     return found
 
 
-def declared(doc: str, classes: dict[str, type[LumascopeError]]) -> dict[int, dict]:
-    """The responses a member's ``Raises:`` section declares, for its route's description.
+def declared(
+    doc: str,
+    classes: dict[str, type[LumascopeError]],
+    admitted_by: tuple[Admission, ...] = (),
+) -> dict[int, dict]:
+    """The responses a member's ``Raises:`` section and the doors it enters declare, for its route's description.
 
-    Each class an entry names is described under the status each of its
-    reasons answers -- a refusal's cause per reason, a fault 500 -- with
-    the reasons the entry quotes, or every reason the class can carry when
-    it quotes none. Each status carries ``x-refusals``, class to reasons.
+    The entries are the member's own and those of each door in
+    ``admitted_by`` (``DOORS``). Each class an entry names is described
+    under the status each of its reasons answers -- a refusal's cause per
+    reason, a fault 500 -- with the reasons the entry quotes, or every
+    reason the class can carry when it quotes none. Each status carries
+    ``x-refusals``, class to reasons.
 
     Raises:
         KeyError: An entry names a class that is not an outcome class.
     """
+    entries = raises_of(doc)
+    for door in admitted_by:
+        entries += raises_of(inspect.getdoc(DOORS[door]) or '')
     by_status: dict[int, dict[str, list[str]]] = {}
-    for name, quoted in raises_of(doc):
+    for name, quoted in entries:
         cls = classes[name]
         for reason in quoted or _reasons_of(cls) or ('',):
             said = by_status.setdefault(_status_of(cls, reason), {}).setdefault(name, [])

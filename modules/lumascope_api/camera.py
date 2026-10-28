@@ -53,7 +53,7 @@ from modules.frame_validity import FrameValidity, FrameValiditySource
 from modules.scope_capabilities import FrameSize
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
-from modules.api_surface import api, api_fields
+from modules.api_surface import Admission, api, api_fields
 
 if TYPE_CHECKING:
     from drivers.camera import Camera
@@ -1347,7 +1347,7 @@ class CameraAPI:
                 ),
             )
 
-    @api(sets='gain_db')
+    @api(sets='gain_db', admitted_by=(Admission.LANE_CALL,))
     def set_gain_db(self, gain_db: float) -> float | None:
         """Set the camera gain, wait for it, and answer with the gain in effect.
 
@@ -1395,7 +1395,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    @api(sets='exposure_ms')
+    @api(sets='exposure_ms', admitted_by=(Admission.LANE_CALL,))
     def set_exposure_ms(self, exposure_ms: float) -> float | None:
         """Set the camera exposure time, wait for it, and answer with the
         exposure in effect.
@@ -1440,7 +1440,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def set_auto_gain(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
     ) -> bool | None:
@@ -1568,7 +1568,7 @@ class CameraAPI:
             self._refresh_cache_from_hardware_after_auto()
         return result
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def lock_auto_gain(self) -> AutoGainLock:
         """Lock a standing continuous auto-gain arm and return the result.
 
@@ -1782,7 +1782,7 @@ class CameraAPI:
         ) as not_rearmed:
             self._report_refused_write(not_rearmed)
 
-    @api(sets='auto_exposure')
+    @api(sets='auto_exposure', admitted_by=(Admission.LANE_CALL,))
     def set_auto_exposure(self, mode: CameraAutoMode) -> bool | None:
         """Put the camera's auto-exposure in ``mode``, and wait for it.
 
@@ -1902,7 +1902,7 @@ class CameraAPI:
 
         return write_then_save
 
-    @api(sets='high_conversion_gain')
+    @api(sets='high_conversion_gain', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_high_conversion_gain(self, enabled: bool) -> None:
         """Turn the camera's high conversion gain on or off, then save it.
@@ -1934,7 +1934,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
-    @api(sets='line_noise_reduction')
+    @api(sets='line_noise_reduction', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_line_noise_reduction(self, enabled: bool) -> None:
         """Turn the camera's line-noise filter on or off, then save it.
@@ -1963,7 +1963,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
-    @api(sets='image_mode')
+    @api(sets='image_mode', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_image_mode(self, mode: ImageMode) -> None:
         """Capture in ``mode``: apply the camera format it needs, then save it.
@@ -2001,7 +2001,7 @@ class CameraAPI:
             falsifies_recording=True,
         )
 
-    @api(sets='binning')
+    @api(sets='binning', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_binning(self, size: int) -> FrameSize | None:
         """Bin the camera by ``size``, keep the framed region, and save both.
@@ -2055,7 +2055,7 @@ class CameraAPI:
         self._scope.store_settings(saved)
         return self._apply_frame_impl(native, self._target_frame(native, size))
 
-    @api(sets='frame_size')
+    @api(sets='frame_size', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_frame_size(self, width: int, height: int) -> FrameSize | None:
         """Frame the camera at ``width`` x ``height`` at the binning it holds, and save it.
@@ -2641,7 +2641,7 @@ class CameraAPI:
         """
         return self._read_unheld('frame rate', lambda driver: driver.get_resulting_frame_rate())
 
-    @api(sets='black_level')
+    @api(sets='black_level', admitted_by=(Admission.LANE_CALL,))
     def set_black_level(self, level: float) -> float | None:
         """Set the camera's black level, wait for it, and answer with the
         value in effect.
@@ -3635,7 +3635,7 @@ class CameraAPI:
                 self._held_layer = _HeldLayer(layer, request, taken)
         return taken
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def apply(
         self,
         gain_db: float,
@@ -3837,7 +3837,7 @@ class CameraAPI:
             ) from refused[0]
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def update_auto_gain_target_brightness(self, target_brightness: float) -> bool | None:
         """Set the auto-gain target brightness, and wait for it.
 

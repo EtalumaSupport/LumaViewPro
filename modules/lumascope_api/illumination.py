@@ -32,7 +32,7 @@ from modules.exceptions import (
 )
 from modules.layer_record import IdentitySource, refuse_unknown_layer
 from modules.sequential_io_executor import IOTask
-from modules.api_surface import api, api_fields
+from modules.api_surface import Admission, api, api_fields
 from modules.frame_validity import FrameValiditySource
 
 if TYPE_CHECKING:
@@ -1008,7 +1008,7 @@ class IlluminationAPI:
             _LED_WRITE_TIMEOUT_S,
         )
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def led_on(
         self,
         channel: str,
@@ -1042,7 +1042,7 @@ class IlluminationAPI:
         address = self._address_to_light(channel, 'led_on')
         return self._led_on_impl(address, illumination_ma, member='led_on')
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def led_off(self, channel: str) -> None:
         """Turn off a channel's LED, and wait for it.
 
@@ -1131,7 +1131,7 @@ class IlluminationAPI:
             kwargs={'member': 'led_off_by_address'},
         )
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def leds_off(self) -> None:
         """Turn off all LEDs, and wait for it.
 
@@ -1294,7 +1294,7 @@ class IlluminationAPI:
         )
         return LedSnapshot(tag, readings)
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def restore_led_state(self, snapshot: LedSnapshot) -> None:
         """Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
 

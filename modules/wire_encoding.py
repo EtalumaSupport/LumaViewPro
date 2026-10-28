@@ -74,6 +74,8 @@ from collections.abc import Callable, Iterable, Mapping
 from lib.lumascope_error import Fault, RefusalCause
 from modules.api_surface import (
     API,
+    Admission,
+    admitted_by_of,
     fields_of,
     in_process_arguments_of,
     is_record,
@@ -779,6 +781,8 @@ class WireMember:
         segment: The live object's class a read leads to, when the member is
             a sub-object the route continues through; None otherwise.
         doc: The member's docstring.
+        admitted_by: The doors its mark says it enters, whose refusals a
+            host adds to the docstring's (``api_surface.Admission``).
         hands_out: Whether its answer can carry a live object a client is
             handed; known only when ``wire_members`` is given ``handed_out``.
         returns_job: Whether its answer can carry a running call (a
@@ -799,6 +803,7 @@ class WireMember:
     sets: str | None = None
     segment: type | None = None
     doc: str = ''
+    admitted_by: tuple[Admission, ...] = ()
     hands_out: bool = False
     returns_job: bool = False
     progress: str | None = None
@@ -1056,6 +1061,7 @@ def wire_members(
                 reads=reads_of(member),
                 sets=sets_of(member),
                 doc=function.__doc__ or '',
+                admitted_by=admitted_by_of(member),
                 hands_out=_hands_out(returns, handed_out, aliases),
                 returns_job=_returns_job(returns, classes, aliases),
                 progress=progress,
@@ -1085,6 +1091,7 @@ def _read(
         returns=() if segment is not None else outbound(text, classes, aliases),
         segment=segment,
         doc=getattr(function, '__doc__', '') or '',
+        admitted_by=admitted_by_of(function) if function is not None else (),
         hands_out=_hands_out(text, handed_out, aliases),
         returns_job=_returns_job(text, classes, aliases),
     )

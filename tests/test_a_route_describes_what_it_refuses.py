@@ -1,12 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A route's description says what it refuses and fails with, from its member's ``Raises:`` section.
+"""A route's description says what it refuses and fails with, from its member's ``Raises:`` section and the doors it enters.
 
 Each class an entry names, with the reasons it quotes, is described under
 the status each reason answers: a refusal's cause decides 422 or 409 per
 reason, a fault is 500. An entry that quotes no reason is described with
-every reason its class can carry. Each status carries the classes and
-reasons as ``x-refusals``; the ``4XX`` and ``5XX`` ranges stay for what no
-section declares.
+every reason its class can carry. A member that enters a lane asking the
+scope's activity claim, or a guarded write, adds that door's own entries
+(``@api(admitted_by=...)``), so a route that a held control session
+refuses says so. Each status carries the classes and reasons as
+``x-refusals``; the ``4XX`` and ``5XX`` ranges stay for what no section
+declares.
 """
 
 from __future__ import annotations
@@ -36,8 +39,8 @@ def described(tmp_path_factory):
         session.shutdown()
 
 
-def _refusals(described: dict, path: str) -> dict[str, dict[str, list[str]]]:
-    responses = described['paths'][path]['post']['responses']
+def _refusals(described: dict, path: str, method: str = 'post') -> dict[str, dict[str, list[str]]]:
+    responses = described['paths'][path][method]['responses']
     return {status: r['x-refusals'] for status, r in responses.items() if 'x-refusals' in r}
 
 
@@ -75,6 +78,35 @@ def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_cl
         for reason in classes.get('ProtocolRunRefusedError', [])
     }
     assert said == {r: _status(ProtocolRunRefusedError, r) for r in ProtocolRunRefusedError.causes}
+
+
+def test_a_read_that_enters_a_lane_names_the_lanes_refusals_and_no_other(described):
+    """``get_camera_temperatures_degc`` reads through the CAMERA lane; its own section names no lane refusal."""
+    refusals = _refusals(
+        described, '/api/v1/scope/diagnostics/get_camera_temperatures_degc', method='get'
+    )
+
+    assert refusals['409']['ControlSessionRefusedError'] == ['control_session_held']
+    assert refusals['409']['HardwareCommandRefusedError'] == ['exclusive_activity_running']
+    assert refusals['422']['HardwareCommandRefusedError'] == ['activity_ended']
+    assert refusals['503']['HardwareCommandRefusedError'] == ['scope_disconnected']
+
+
+def test_a_guarded_write_names_the_held_session_beside_its_own_refusals(described):
+    refusals = _refusals(described, '/api/v1/delete_step')
+
+    assert refusals == {
+        '409': {'ControlSessionRefusedError': ['control_session_held']},
+        '422': {'StepNotFoundError': ['no_such_step']},
+    }
+
+
+def test_a_build_on_the_post_processing_lane_names_no_door(described):
+    """The post-processing lane asks no claim, so a build is open to anyone, held session or not."""
+    refusals = _refusals(described, '/api/v1/post_processing/build')
+
+    named = {cls for classes in refusals.values() for cls in classes}
+    assert named.isdisjoint({'ControlSessionRefusedError', 'HardwareCommandRefusedError'}), named
 
 
 def test_the_ranges_stay_for_what_no_section_declares(described):

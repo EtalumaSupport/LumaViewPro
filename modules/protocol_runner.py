@@ -39,7 +39,7 @@ from modules.sequenced_capture_runner import (
 )
 
 from lvp_logger import logger
-from modules.api_surface import FilePath, api
+from modules.api_surface import Admission, FilePath, api
 
 
 class ProtocolRunner:
@@ -77,7 +77,7 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_single_scan(
         self,
         protocol: Protocol,
@@ -124,7 +124,7 @@ class ProtocolRunner:
             return_to_position=return_to_position,
         )
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_protocol(
         self,
         protocol: Protocol,
@@ -165,7 +165,7 @@ class ProtocolRunner:
             events=events,
         )
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_composite(
         self,
         *,
@@ -228,7 +228,7 @@ class ProtocolRunner:
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_autofocus(
         self,
         channel: str | None,
@@ -347,7 +347,7 @@ class ProtocolRunner:
             claim=claim,
         )
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_autofocus_all_steps(
         self,
         protocol: Protocol,
@@ -398,7 +398,7 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_zstack(
         self,
         channel: str | None,

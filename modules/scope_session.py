@@ -111,6 +111,7 @@ from modules.settings_saver import SettingsSaver, write_whole
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
 from modules.api_surface import (
     IN_PROCESS,
+    Admission,
     FilePath,
     ProgressCallback,
     api,
@@ -1190,7 +1191,7 @@ class ScopeSession:
         with self._count_in_flight(live_work.WorkKind.PLUGIN_RUN):
             yield
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def discard_close_drain(self) -> None:
         """Drop every video frame still queued in either drain, loudly.
@@ -1845,7 +1846,7 @@ class ScopeSession:
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def recover_file_writer(self) -> int:
         """Give up on a finished run's unwritten images and unlock a stuck writer.
@@ -1886,7 +1887,7 @@ class ScopeSession:
         self.file_io_executor.replace_stuck_worker()
         return abandoned
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def repair_camera_driver(self) -> 'tuple[UsbIdentityBindings, ...]':
         """Install LumaViewPro's driver for a Lumascope Classic and bind its USB identities to it.
@@ -2151,7 +2152,7 @@ class ScopeSession:
             use_zstacking=use_zstacking,
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def load_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` and put the scope on its plate.
@@ -2250,7 +2251,7 @@ class ScopeSession:
                 )
                 self._store_setting(f'{name}.acquire', None)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def apply_channel_settings(self, protocol: 'Protocol') -> None:
         """Put a protocol's Layer Settings into this session's layer controls.
@@ -2303,7 +2304,7 @@ class ScopeSession:
                 if row.stim_enabled is not None and isinstance(stim, dict):
                     self._store_setting(f'{name}.stim_config.enabled', row.stim_enabled)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_protocol(self, protocol: 'Protocol', file_path: FilePath) -> pathlib.Path:
         """Write a protocol to a file, with this session's Layer Settings.
@@ -2345,7 +2346,7 @@ class ScopeSession:
         protocol.to_file(file_path=path, layer_settings=layer_settings)
         return path
 
-    @api(sets='channel_acquire')
+    @api(sets='channel_acquire', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def set_channel_acquire(self, channel: str, mode: AcquireMode | None) -> None:
         """Set what a layer captures: an ``AcquireMode``, or None (nothing).
@@ -2392,7 +2393,7 @@ class ScopeSession:
         if mode is not None and self.settings[layer].get('stim_config') is not None:
             self._store_setting(f'{layer}.stim_config.enabled', False)
 
-    @api(sets='channel_auto_gain')
+    @api(sets='channel_auto_gain', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_channel_auto_gain(self, channel: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
@@ -2630,7 +2631,7 @@ class ScopeSession:
             )
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def add_step(
         self,
@@ -2717,7 +2718,7 @@ class ScopeSession:
             zstack_params=self.get_zstack_params() if use_zstacking else None,
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def update_step(
         self,
@@ -2763,7 +2764,7 @@ class ScopeSession:
             label=label,
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_focus(
         self, protocol: 'Protocol', channel: str, *, step_index: int | None = None
@@ -2806,7 +2807,7 @@ class ScopeSession:
         )
         return SavedFocus(z_um=z, step_index=step_index)
 
-    @api(sets='saved_focus_z_um')
+    @api(sets='saved_focus_z_um', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_channel_focus(self, channel: str, z_um: float) -> None:
         """Store ``z_um`` as ``channel``'s focus, the Z every new step of the layer is born at.
@@ -2846,7 +2847,7 @@ class ScopeSession:
             self._store_setting(f'{layer}.focus', z)
         return z
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_bookmark(self, axes: 'Iterable[StageAxis]') -> PlateLocation:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
@@ -2910,7 +2911,7 @@ class ScopeSession:
             stored = self.settings['bookmark']
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> Operation:
         """Start ``axes`` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
 
@@ -2953,7 +2954,7 @@ class ScopeSession:
             moves.append(motion.start_move_z(mark.z_um))
         return Operation.all_of(tuple(moves))
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> None:
         """Move ``axes`` to the bookmark, and return once they have arrived.
 
@@ -2983,7 +2984,7 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_bookmark')
         self.start_go_to_bookmark(axes).result()
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_all_bookmarks(self) -> PlateLocation:
         """Save the live Z as the Z bookmark and as the focus of every layer this scope has.
@@ -3007,7 +3008,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Bookmarks saved: Z={z}, and as the focus of {layers}')
         return PlateLocation(x_mm=None, y_mm=None, z_um=z)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def apply_focus_to_channel_steps(self, protocol: 'Protocol', channel: str) -> int:
         """Save the live Z as ``channel``'s focus and as the Z of its every step.
@@ -3035,7 +3036,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Focus applied: {channel} Z={z} to {updated} step(s)')
         return updated
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def delete_step(self, protocol: 'Protocol', step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``, as the Delete button does.
@@ -3046,7 +3047,7 @@ class ScopeSession:
         """
         self.scope.protocols.delete_step(protocol, step_index)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def rename_step(self, protocol: 'Protocol', step_index: int, name: str) -> str:
         """Give step ``step_index`` of ``protocol`` the label ``name``; returns its new name.
@@ -3059,7 +3060,7 @@ class ScopeSession:
         """
         return self.scope.protocols.rename_step(protocol, step_index, name)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def set_protocol_labware(self, protocol: 'Protocol', labware_id: str) -> str:
         """Put ``protocol`` on the plate ``labware_id``; returns the key it took.
@@ -3073,7 +3074,7 @@ class ScopeSession:
         """
         return self.scope.protocols.set_labware(protocol, labware_id)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def set_protocol_schedule(
         self,
@@ -3097,7 +3098,7 @@ class ScopeSession:
             duration=schedule_from_units('duration', duration_s, judged=False, unit='seconds'),
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def set_protocol_capture_root(self, protocol: 'Protocol', root: str) -> None:
         """Give ``protocol`` the capture root that prefixes its runs' file names.
@@ -3110,7 +3111,7 @@ class ScopeSession:
         """
         protocol.modify_capture_root(capture_root=root)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def set_step_autofocus(
         self, protocol: 'Protocol', *, enabled: bool, step_index: int | None = None
@@ -3126,7 +3127,7 @@ class ScopeSession:
         else:
             protocol.modify_autofocus(step_index=step_index, enabled=enabled)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def point_steps_at_turret_slot(
         self, protocol: 'Protocol', objective_id: str, slot: int
@@ -3144,7 +3145,7 @@ class ScopeSession:
         """
         return self.scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def apply_tiling(self, protocol: 'Protocol', tiling: str) -> None:
         """Expand every step of ``protocol`` into the tile grid ``tiling``, as Apply does.
@@ -3171,7 +3172,7 @@ class ScopeSession:
             overlap_percent=self.settings['tiling_overlap_percent'],
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def apply_zstacking(
         self,
@@ -3198,7 +3199,7 @@ class ScopeSession:
             protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference
         )
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def go_to_step(self, protocol: 'Protocol', step_index: int) -> None:
         """Go to step ``step_index`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
@@ -3241,7 +3242,7 @@ class ScopeSession:
                 # the caller is never handed a raise with the stage still moving.
                 going.result()
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def start_go_to_step(self, protocol: 'Protocol', step_index: int) -> Operation:
         """Start going to step ``step_index`` of ``protocol``, as a click on a step does.
@@ -3528,7 +3529,7 @@ class ScopeSession:
         """
         return self._shown_channel
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def show_channel(self, channel: str) -> ShownChannel:
         """Show ``channel``: every other LED dark, ``channel`` lit at its stored
         current if the shown channel was lit, then its camera settings.
@@ -3598,7 +3599,7 @@ class ScopeSession:
             if refusing is None:
                 claim.leave_falsifying_change()
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL,))
     def light_shown_channel(self, lit: bool) -> ShownChannel:
         """Light the shown channel's LED at its stored current, or darken it,
         then put its stored camera settings on the camera.
@@ -3776,7 +3777,7 @@ class ScopeSession:
                 value = value[segment]
             return copy.deepcopy(value)
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     def update_settings(self, path: str, value: 'SettingValue') -> None:
         """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'BF.sum'``.
 
@@ -4217,7 +4218,7 @@ class ScopeSession:
         if dt > 0.1:
             logger.warning(f'[Session  ] saving the settings to {file} took {dt * 1000:.0f}ms')
 
-    @api(sets='model')
+    @api(sets='model', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def select_model(self, model: str) -> None:
         """Save the operator's scope model for the next start.
@@ -5031,7 +5032,7 @@ class ScopeSession:
             proposed = DEFAULT_PROPOSED_OBJECTIVE_ID
         return ObjectiveQuestion(turret_slot=slot, proposed=proposed, choices=choices)
 
-    @api
+    @api(admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def confirm_objective(self, objective_id: str, slot: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
@@ -5092,7 +5093,7 @@ class ScopeSession:
         """
         return self.scope.runtime_state.get_current_objective_id()
 
-    @api(sets='objective_id')
+    @api(sets='objective_id', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def select_objective(self, objective_id: str) -> bool:
         """Make ``objective_id`` the active objective. Returns whether it changed.
@@ -5204,7 +5205,7 @@ class ScopeSession:
         """
         return self.settings['protocol']['labware']
 
-    @api(sets='labware_id')
+    @api(sets='labware_id', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def select_labware(self, labware_id: str) -> bool:
         """Make ``labware_id`` the current plate. Returns whether it changed.
@@ -5250,7 +5251,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Labware set to {labware_id!r}')
         return True
 
-    @api(sets='turret_objective')
+    @api(sets='turret_objective', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def assign_turret_objective(self, slot: int, objective_id: str) -> None:
         """Bind ``objective_id`` to the turret's ``slot``.
@@ -5295,7 +5296,7 @@ class ScopeSession:
         refuse_unless_turret_slot(slot)
         return self.settings['turret_objectives'][slot]
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def clear_turret_objective(self, slot: int) -> None:
         """Leave the turret's ``slot`` unassigned.
@@ -5324,7 +5325,7 @@ class ScopeSession:
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
         )
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def clear_current_turret_objective(self) -> None:
         """Leave the turret slot in the light path unassigned.
@@ -5412,7 +5413,7 @@ class ScopeSession:
     # The camera's capture settings: applied, then stored
     # ------------------------------------------------------------------
 
-    @api(sets='scale_bar_enabled')
+    @api(sets='scale_bar_enabled', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def set_scale_bar(self, enabled: bool) -> None:
         """Draw the scale bar on captured images, or stop, and store it.
@@ -5449,7 +5450,7 @@ class ScopeSession:
         """
         return self.settings['motion']['acceleration_max_pct']
 
-    @api(sets='acceleration_limit_pct')
+    @api(sets='acceleration_limit_pct', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_acceleration_limit(self, limit_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.

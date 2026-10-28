@@ -21,7 +21,7 @@ import numpy as np
 
 from lvp_logger import log_dir, logger
 from modules.finite_number import refuse_outside, refuse_unless_wait_s
-from modules.api_surface import ProgressCallback, api, api_fields
+from modules.api_surface import Admission, ProgressCallback, api, api_fields
 from modules.exceptions import (
     ArgumentRefusedError,
     CaptureFailedError,
@@ -285,7 +285,7 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_CALL,))
     def get_camera_temperatures_degc(self) -> dict[str, float] | None:
         """Get all camera temperature sensor readings.
 
@@ -316,7 +316,7 @@ class DiagnosticsAPI:
             return None
         return driver.get_all_temperatures()
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_CALL,))
     def get_camera_link_info(self) -> CameraLink | None:
         """Read the camera's link, live.
 

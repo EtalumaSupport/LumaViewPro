@@ -40,7 +40,12 @@ or a recording's pending frames, each a guarded write
 (``activity_claim.guarded_write``). The display preferences (``settings_paths.PREFERENCES``)
 are written by anyone; a support report and a logs zip are made by anyone,
 since each writes a support artefact and changes no scope state; and a
-post-processing build is open to anyone.
+post-processing build is open to anyone. A member that enters a hardware
+lane or a guarded write says so in its mark, ``@api(admitted_by=(...))``,
+each an ``Admission``: the door whose own ``Raises:`` states those
+refusals, which a host that describes the member -- the REST server's
+route -- adds to the member's own
+(``tests/guards/test_every_route_names_the_doors_it_enters.py``).
 
 Four marks say what a member does, each read by its own reader below:
 ``reads`` that it changes nothing, so a host may answer it as a read;
@@ -118,6 +123,8 @@ STOP_ATTRIBUTE = '_lvp_api_stop'
 ENGINEERING_ATTRIBUTE = '_lvp_api_engineering'
 # The attribute a member's off-wire parameters are recorded under, by name.
 IN_PROCESS_ARGUMENTS_ATTRIBUTE = '_lvp_api_in_process_arguments'
+# The attribute the doors a member enters are recorded under.
+ADMITTED_BY_ATTRIBUTE = '_lvp_api_admitted_by'
 
 API = 'api'
 IN_PROCESS = 'in_process'
@@ -130,6 +137,23 @@ type FilePath = str | os.PathLike[str]
 # a surface to write to, so whoever asked -- a widget, a script, a remote
 # caller -- renders it in its own way and on its own thread.
 type ProgressCallback = Callable[[float, str | None], None]
+
+
+class Admission(enum.StrEnum):
+    """A door a member's call enters, whose refusals are the door's own ``Raises:``.
+
+    The lanes named are those that ask the scope's activity claim, the
+    IO and CAMERA lanes; a lane that asks none refuses nothing of the claim
+    or the control session, and a member reaching only such a lane names
+    no door.
+    """
+
+    # ``SequentialIOExecutor.call``: the blocking dispatch.
+    LANE_CALL = 'lane_call'
+    # ``SequentialIOExecutor.submit``: put on the lane without waiting.
+    LANE_SUBMIT = 'lane_submit'
+    # ``ActivityClaim.enter_guarded_write``: a setting or a file written.
+    GUARDED_WRITE = 'guarded_write'
 
 
 def _function_of(member: object) -> object:
@@ -198,12 +222,14 @@ def api[M](
     stop: str | None = None,
     engineering: bool = False,
     in_process_arguments: tuple[str, ...] = (),
+    admitted_by: tuple[Admission, ...] = (),
 ) -> M | Callable[[M], M]:
     """Mark a member as API; used bare (``@api``) or as ``@api(in_process=True)``.
 
     ``event`` is the record of the event a listener member delivers.
-    ``reads``, ``sets``, ``stop``, ``engineering`` and
-    ``in_process_arguments`` are the marks the module docstring describes.
+    ``reads``, ``sets``, ``stop``, ``engineering``,
+    ``in_process_arguments`` and ``admitted_by`` are the marks the module
+    docstring describes.
     Goes outermost in a decorator stack. A member that takes an argument is
     returned behind its argument door, which refuses a value of another
     type than its annotation declares (``modules.api_arguments``); one that
@@ -240,6 +266,8 @@ def api[M](
             setattr(function, ENGINEERING_ATTRIBUTE, True)
         if in_process_arguments:
             setattr(function, IN_PROCESS_ARGUMENTS_ATTRIBUTE, tuple(in_process_arguments))
+        if admitted_by:
+            setattr(function, ADMITTED_BY_ATTRIBUTE, tuple(Admission(a) for a in admitted_by))
         return target
 
     if member is None:
@@ -459,6 +487,11 @@ def is_engineering(member: object) -> bool:
 def in_process_arguments_of(member: object) -> tuple[str, ...]:
     """The names of *member*'s parameters a wire client does not send."""
     return getattr(_function_of(member), IN_PROCESS_ARGUMENTS_ATTRIBUTE, ())
+
+
+def admitted_by_of(member: object) -> tuple[Admission, ...]:
+    """The doors *member*'s mark says it enters."""
+    return getattr(_function_of(member), ADMITTED_BY_ATTRIBUTE, ())
 
 
 def event_metadata(record: type) -> dict[str, type]:
