@@ -271,13 +271,12 @@ class ZProjector(ProtocolPostProcessor):
             input_path=first_slice_path,
             channel=first_slice_row['Color'],
             significant_bits=output_depth,
+            # A slice's frame count says how many exposures each of its pixels
+            # integrates; a Sum adds the slices, so beside the per-frame exposure
+            # it would state a fraction of the output's integration. Every other
+            # method keeps each pixel one slice's value or a statistic of them.
+            adds_frames=method == ZProjectMethod.Sum,
         )
-        # A slice's frame count says how many exposures each of its pixels
-        # integrates; a Sum adds the slices, so beside the per-frame exposure
-        # it would state a fraction of the output's integration. Every other
-        # method keeps each pixel one slice's value or a statistic of them.
-        if method == ZProjectMethod.Sum:
-            metadata.pop('frames_summed', None)
         image_utils.write_tiff(
             data=result['image'],
             file_loc=output_file_loc_abs,

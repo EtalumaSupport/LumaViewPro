@@ -221,7 +221,9 @@ class TestDerivedOutputs:
             save_encoding='right_aligned',
             white_bits=None,
         )
-        out = image_utils.build_postproc_output_metadata(Path(path), LED1, significant_bits=12)
+        out = image_utils.build_postproc_output_metadata(
+            Path(path), LED1, significant_bits=12, adds_frames=False
+        )
         assert out['channel_display'] == '488 nm'
         assert out['excitation_nm'] == 488.0
         assert out['filterset'] == 'FS-STOCK'
@@ -246,7 +248,7 @@ class TestDerivedOutputs:
             white_bits=None,
         )
         out = image_utils.build_postproc_output_metadata(
-            Path(path), 'Composite', significant_bits=12
+            Path(path), 'Composite', significant_bits=12, adds_frames=False
         )
         assert 'channel_display' not in out
         assert 'excitation_nm' not in out

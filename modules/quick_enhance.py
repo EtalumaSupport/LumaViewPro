@@ -385,6 +385,7 @@ class QuickEnhancer:
                 input_path=source_path,
                 channel=channel,
                 significant_bits=significant_bits,
+                adds_frames=False,
             )
             output_for_write = self.colorize_mono_for_visual_output(output, channel, channel_colors)
             if output_for_write.ndim == 3 and output_for_write.shape[2] == 4:

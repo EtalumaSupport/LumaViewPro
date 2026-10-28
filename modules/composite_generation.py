@@ -417,9 +417,11 @@ class CompositeGeneration(ProtocolPostProcessor):
                 if output_file_loc is not None:
                     output_file_loc.parent.mkdir(parents=True, exist_ok=True)
                     reference_input_path = path / df.iloc[0]['Filepath']
-                    metadata = image_utils.build_composite_output_metadata(
-                        reference_input_path=reference_input_path,
+                    metadata = image_utils.build_postproc_output_metadata(
+                        input_path=reference_input_path,
+                        channel='Composite',
                         significant_bits=composite_significant_bits,
+                        adds_frames=False,
                     )
                     # Honor the run's output format. The composite is a
                     # single 2D RGB image, so only plain OME-TIFF applies --

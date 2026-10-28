@@ -48,7 +48,9 @@ def test_an_input_with_no_metadata_gives_an_output_that_claims_nothing(tmp_path)
     png = tmp_path / 'external.png'
     Image.fromarray(np.zeros((16, 16), dtype=np.uint8)).save(png)
 
-    metadata = image_utils.build_postproc_output_metadata(png, LED1, significant_bits=8)
+    metadata = image_utils.build_postproc_output_metadata(
+        png, LED1, significant_bits=8, adds_frames=False
+    )
 
     assert metadata['pixel_size_um'] is None
     for field in _ACQUISITION_FIELDS:
@@ -89,7 +91,9 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
     assert back['gain_db'] == 3.0
     assert back['illumination_ma'] == 120.0
 
-    derived = image_utils.build_postproc_output_metadata(capture, LED1, significant_bits=12)
+    derived = image_utils.build_postproc_output_metadata(
+        capture, LED1, significant_bits=12, adds_frames=False
+    )
     assert derived['pixel_size_um'] is None
     assert derived['plate_pos_mm'] == {'x': 12.5, 'y': 30.25}
     assert derived['exposure_time_ms'] == 50.0
@@ -142,7 +146,9 @@ def test_a_composite_states_no_per_channel_acquisition_setting(tmp_path):
         },
     )
 
-    metadata = image_utils.build_composite_output_metadata(reference, significant_bits=12)
+    metadata = image_utils.build_postproc_output_metadata(
+        reference, 'Composite', significant_bits=12, adds_frames=False
+    )
 
     for field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma', 'frames_summed'):
         assert field not in metadata, f'a merged image states one {field}'

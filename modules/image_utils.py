@@ -3,6 +3,7 @@ import ast
 import contextlib
 import dataclasses
 import datetime
+import enum
 import functools
 import json
 import os
@@ -472,6 +473,123 @@ _OME_PLANE_ATTRIBUTES = frozenset(
 _LVP_OME_ANNOTATION_NAMESPACE = 'etaluma.com/lvp'
 
 
+class FactKind(enum.Enum):
+    """What a fact of a saved file's record describes, which decides whether a
+    file derived from it states it."""
+
+    # The one frame: its time, its id, how it was judged. A derived file was
+    # not captured, so it states none of them.
+    CAPTURE = 'capture'
+    # A layer's settings and light: stated only by a derived file on the
+    # channel of its inputs.
+    CHANNEL = 'channel'
+    # The scope, the objective, the plate and the place: stated by a derived
+    # file as its inputs state them.
+    SHARED = 'shared'
+    # The file itself: set by whoever writes it, never read from an input.
+    FILE = 'file'
+
+
+@dataclasses.dataclass(frozen=True)
+class FileFact:
+    """One fact a saved file's record can state.
+
+    ``plane`` is its key in the file's Plane block, None for a fact that
+    lives elsewhere in the file; ``unit`` is written beside it as
+    ``<plane>Unit``. ``dropped_by_a_sum``: a derivation that adds frames
+    no longer states it.
+    """
+
+    kind: FactKind
+    plane: str | None = None
+    unit: str | None = None
+    dropped_by_a_sum: bool = False
+
+
+# Every fact a saved file's record can state, by its key in the record: the
+# one list the writer, the reader and the derived builders read, so a fact
+# added here is written, read back and carried, and a fact with no row is
+# none of them. Plane facts in the order the writer writes them.
+FILE_FACTS: dict[str, FileFact] = {
+    'objective': FileFact(FactKind.SHARED, 'Objective'),
+    # PositionX and PositionY, in mm: a pair, because half a plate coordinate
+    # is not one.
+    'plate_pos_mm': FileFact(FactKind.SHARED),
+    'z_pos_um': FileFact(FactKind.SHARED, 'PositionZ', 'um'),
+    'illumination_ma': FileFact(FactKind.CHANNEL, 'Illumination', 'mA'),
+    # Every LED lit for the grab, by layer; Illumination is the named
+    # channel's alone, and the one older files carry.
+    'illumination_by_channel_ma': FileFact(FactKind.CHANNEL, 'IlluminationByChannel', 'mA'),
+    # When those currents were read (frame_record.LightTiming).
+    'illumination_timing': FileFact(FactKind.CHANNEL, 'IlluminationTiming'),
+    'exposure_time_ms': FileFact(FactKind.CHANNEL, 'ExposureTime', 'ms'),
+    'gain_db': FileFact(FactKind.CHANNEL, 'Gain', 'dB'),
+    # The camera's own black level parameter, in the camera's own units: no
+    # unit is written because none is common to every camera.
+    'black_level': FileFact(FactKind.CHANNEL, 'BlackLevel'),
+    # ExposureTime is per frame; a summed image integrates this many of them,
+    # and without the count the file's exposure understates its integration.
+    # A sum of such frames integrates more than its count says, so it states none.
+    'frames_summed': FileFact(FactKind.CHANNEL, 'FramesSummed', dropped_by_a_sum=True),
+    # The pixel size already folds the binning in, so without it a reader
+    # cannot tell a binned frame from a finer objective.
+    'binning_size': FileFact(FactKind.SHARED, 'Binning'),
+    # The frame's time, and what that time is (frame_record.TimestampSource):
+    # a time is written only with its source, which the producer states -- a
+    # still and a recorded frame take their time from different clocks, and a
+    # defaulted source would name the wrong one.
+    'timestamp_iso': FileFact(FactKind.CAPTURE, 'Timestamp'),
+    'timestamp_source': FileFact(FactKind.CAPTURE, 'TimestampSource'),
+    # The camera-side ChunkTimestamp, and its tick frequency for converting
+    # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
+    # GigE); the ChunkFrameID / Framecounter integer.
+    'timestamp_camera_ticks': FileFact(FactKind.CAPTURE, 'TimestampCameraTicks'),
+    'timestamp_camera_tick_hz': FileFact(FactKind.CAPTURE, 'TimestampCameraTickHz'),
+    'frame_id': FileFact(FactKind.CAPTURE, 'FrameID'),
+    # Each change the frame was judged against: whether it counts, how many
+    # frames and milliseconds after the change it came, and who counted the
+    # frames that met the change's count.
+    'frame_validity': FileFact(FactKind.CAPTURE, 'FrameValidity'),
+    # What the capture found the frame to be: the fraction of its pixels at
+    # full scale, and whether it was kept dark under a lit LED.
+    'saturated_fraction': FileFact(FactKind.CAPTURE, 'SaturatedFraction'),
+    'dark': FileFact(FactKind.CAPTURE, 'Dark'),
+    # Whether the camera held a layer's stored settings for the frame, and
+    # which: a frame taken after a script's raw gain or exposure write says
+    # it held none.
+    'camera_held_a_channel': FileFact(FactKind.CAPTURE, 'CameraHeldAChannel'),
+    'camera_held_channel': FileFact(FactKind.CAPTURE, 'CameraHeldChannel'),
+    # Taken where a failed autofocus left the stage, and why it failed.
+    'fallback_focus': FileFact(FactKind.CAPTURE, 'FallbackFocus'),
+    # A recorded frame's number in its recording, and whether an axis was
+    # moving or homing as it arrived: delivery follows the exposure, so this
+    # is the state at delivery.
+    'recording_frame': FileFact(FactKind.CAPTURE, 'RecordingFrame'),
+    'stage_moving': FileFact(FactKind.CAPTURE, 'StageMoving'),
+    'channel': FileFact(FactKind.FILE),
+    'channel_display': FileFact(FactKind.CHANNEL),
+    'excitation_nm': FileFact(FactKind.CHANNEL),
+    'filterset': FileFact(FactKind.SHARED),
+    'pixel_size_um': FileFact(FactKind.SHARED),
+    'instrument': FileFact(FactKind.SHARED),
+    'plate': FileFact(FactKind.SHARED),
+    'well_label': FileFact(FactKind.SHARED),
+    'camera_make': FileFact(FactKind.SHARED),
+    'microscope': FileFact(FactKind.SHARED),
+    'microscope_model': FileFact(FactKind.SHARED),
+    'x_pos': FileFact(FactKind.SHARED),
+    'y_pos': FileFact(FactKind.SHARED),
+    'focal_length': FileFact(FactKind.SHARED),
+    'sub_sec_time': FileFact(FactKind.CAPTURE),
+    'software': FileFact(FactKind.FILE),
+    'datetime': FileFact(FactKind.FILE),
+    'significant_bits': FileFact(FactKind.FILE),
+    'algorithm': FileFact(FactKind.FILE),
+}
+
+_PLANE_FACTS = {key: fact for key, fact in FILE_FACTS.items() if fact.plane is not None}
+
+
 def read_tiff_significant_bits(path: pathlib.Path) -> int:
     """Meaningful payload bits recorded in a TIFF.
 
@@ -924,71 +1042,20 @@ def _plane_facts(plane: dict) -> dict:
     """The flat facts one Plane block states, whichever container held it.
 
     The one reading of a Plane, for the shaped and ImageJ descriptions and for
-    the OME container's schema attributes with its LVP annotation. The
-    objective is a hard key, {} being the writer's "none"; every other fact is
-    present only when the Plane states it.
+    the OME container's schema attributes with its LVP annotation. Every fact
+    is present only when the Plane states it: the producer omits a value that
+    was unknown at capture (a failed camera read; an LED that was off, as on
+    every dark or luminescence frame; an axis that had lost its reference, or
+    a scope with no X and Y), so such a frame still forwards everything it
+    does state and no stand-in is invented on the way to a derived output.
     """
-    facts: dict = {'objective': plane.get('Objective', {})}
-    # Position, exposure, gain and illumination are the writer's optional
-    # fields: the producer omits the key when the value was genuinely unknown
-    # at capture (a failed camera read; an LED that was off, as on every dark
-    # or luminescence frame; an axis that had lost its reference, or a scope
-    # with no X and Y). Mirror that here -- reconstruct them only
-    # when present -- so such a frame still forwards everything it DOES state
-    # and no fabricated stand-in is invented on the way back out to a derived
-    # output. Discarding the whole file over one absent field is the
-    # expensive failure: the derived output then loses everything the
-    # file did state.
+    facts: dict = {}
     if 'PositionX' in plane and 'PositionY' in plane:
         facts['plate_pos_mm'] = {'x': plane['PositionX'], 'y': plane['PositionY']}
-    if 'PositionZ' in plane:
-        facts['z_pos_um'] = plane['PositionZ']
-    if 'Illumination' in plane:
-        facts['illumination_ma'] = plane['Illumination']
-    if 'IlluminationByChannel' in plane:
-        facts['illumination_by_channel_ma'] = plane['IlluminationByChannel']
-    if 'IlluminationTiming' in plane:
-        facts['illumination_timing'] = plane['IlluminationTiming']
-    if 'ExposureTime' in plane:
-        facts['exposure_time_ms'] = plane['ExposureTime']
-    if 'Gain' in plane:
-        facts['gain_db'] = plane['Gain']
-    if 'BlackLevel' in plane:
-        facts['black_level'] = plane['BlackLevel']
-    if 'FramesSummed' in plane:
-        facts['frames_summed'] = plane['FramesSummed']
-    if 'Binning' in plane:
-        facts['binning_size'] = plane['Binning']
-
-    # Per-frame markers travel with the original capture, not with
-    # derived outputs. Read them so the helper is reusable; the builder
-    # for derived outputs strips them before passing to write_tiff.
-    if 'Timestamp' in plane:
-        facts['timestamp_iso'] = plane['Timestamp']
-    if 'TimestampSource' in plane:
-        facts['timestamp_source'] = plane['TimestampSource']
-    if 'TimestampCameraTicks' in plane:
-        facts['timestamp_camera_ticks'] = plane['TimestampCameraTicks']
-    if 'TimestampCameraTickHz' in plane:
-        facts['timestamp_camera_tick_hz'] = plane['TimestampCameraTickHz']
-    if 'FrameID' in plane:
-        facts['frame_id'] = plane['FrameID']
-    if 'FrameValidity' in plane:
-        facts['frame_validity'] = plane['FrameValidity']
-    if 'SaturatedFraction' in plane:
-        facts['saturated_fraction'] = plane['SaturatedFraction']
-    if 'Dark' in plane:
-        facts['dark'] = plane['Dark']
-    if 'CameraHeldAChannel' in plane:
-        facts['camera_held_a_channel'] = plane['CameraHeldAChannel']
-    if 'CameraHeldChannel' in plane:
-        facts['camera_held_channel'] = plane['CameraHeldChannel']
-    if 'FallbackFocus' in plane:
-        facts['fallback_focus'] = plane['FallbackFocus']
-    if 'RecordingFrame' in plane:
-        facts['recording_frame'] = plane['RecordingFrame']
-    if 'StageMoving' in plane:
-        facts['stage_moving'] = plane['StageMoving']
+    for key, fact in _PLANE_FACTS.items():
+        # A file written while the objective was a hard key states "none" as {}.
+        if fact.plane in plane and plane[fact.plane] != {}:
+            facts[key] = plane[fact.plane]
     return facts
 
 
@@ -1033,6 +1100,7 @@ def _imagej_to_structured(imagej_metadata: dict) -> dict:
         ('instrument', 'Instrument'),
         ('plate', 'Plate'),
         ('filterset', 'FilterSet'),
+        ('algorithm', 'Algorithm'),
     ):
         if lower in imagej_metadata:
             structured[canonical] = parsed(lower)
@@ -1181,6 +1249,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['excitation_nm'] = channel_block['ExcitationWavelength'][0]
     if 'FilterSet' in structured:
         flat['filterset'] = structured['FilterSet']
+    if 'Algorithm' in structured:
+        flat['algorithm'] = structured['Algorithm']
 
     if 'Instrument' in structured:
         inst = structured['Instrument']
@@ -1298,17 +1368,20 @@ def build_postproc_output_metadata(
     channel: str,
     *,
     significant_bits: int,
+    adds_frames: bool,
     plate_pos_mm_override: dict | None = None,
     z_pos_um_override: float | None = None,
     algorithm: str | None = None,
 ) -> dict:
     """Build a write_tiff metadata dict for a post-processing output.
 
-    Reads acquisition context from one representative input TIFF
-    (objective, exposure, gain, illumination, pixel size, instrument,
-    plate, well label) and forwards it into the derived output. Per-frame
-    timestamps and frame IDs are stripped because they describe the
-    original capture, not the derived image.
+    Reads acquisition context from one representative input TIFF and
+    forwards what each fact's kind (``FILE_FACTS``) lets a derived file
+    state: the shared facts (objective, scale, position, instrument, plate,
+    well), and a layer's settings only when the output is on its input's
+    channel. A capture's own facts (its time, its id, how it was judged)
+    describe the original capture, not the derived image, and a file's own
+    facts are the output's writer's to set.
 
     The depth is supplied by the caller, not re-read here: the caller
     loads its input pixels through load_pixels, so it already holds the
@@ -1330,7 +1403,9 @@ def build_postproc_output_metadata(
     Args:
         input_path: First-input TIFF; metadata is read from here.
         channel: Layer key for the derived output (Ex405 / Ex488 / Ex589
-            / Lumi / BF / PC / DF).
+            / Lumi / BF / PC / DF), or 'Composite'.
+        adds_frames: Whether each output pixel adds its inputs' (a Sum), so
+            it integrates more frames than any input states.
         plate_pos_mm_override: Optional plate_pos_mm dict to override
             the value read from the input.
         z_pos_um_override: Optional z_pos_um to override the value read
@@ -1342,36 +1417,19 @@ def build_postproc_output_metadata(
     Returns:
         Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
     """
-    metadata = read_postproc_input_metadata(input_path)
-    if metadata is None:
-        # The writer's two hard keys, each in its "none" form.
-        metadata = {'objective': {}, 'pixel_size_um': None}
-    else:
-        for per_capture_field in (
-            'timestamp_iso',
-            'timestamp_source',
-            'timestamp_camera_ticks',
-            'timestamp_camera_tick_hz',
-            'frame_id',
-            'frame_validity',
-            'saturated_fraction',
-            'dark',
-            'camera_held_a_channel',
-            'camera_held_channel',
-            'fallback_focus',
-            'recording_frame',
-            'stage_moving',
-        ):
-            metadata.pop(per_capture_field, None)
+    # An input with no record gives the writer's hard key in its "none" form.
+    read = read_postproc_input_metadata(input_path) or {'pixel_size_um': None}
+    # A layer's settings travel only while the layer does: a derived output
+    # on another channel (a composite) must not pair another layer's
+    # exposure, light or display name with its own channel.
+    on_its_inputs_channel = read.get('channel') == channel
 
-    # Per-layer claims travel only while the layer does: a derived output
-    # on a different channel (a composite) must not pair another layer's
-    # display name or excitation with its own channel field. The
-    # filterset stays -- the same unit produced the inputs.
-    if metadata.get('channel') != channel:
-        metadata.pop('channel_display', None)
-        metadata.pop('excitation_nm', None)
+    def _stated_by_the_output(fact: FileFact) -> bool:
+        if fact.kind is FactKind.CHANNEL:
+            return on_its_inputs_channel and not (adds_frames and fact.dropped_by_a_sum)
+        return fact.kind is FactKind.SHARED
 
+    metadata = {key: value for key, value in read.items() if _stated_by_the_output(FILE_FACTS[key])}
     metadata['channel'] = channel
     metadata['datetime'] = datetime.datetime.now().isoformat(timespec='seconds')
 
@@ -1422,52 +1480,6 @@ def require_uniform_geometry(
             f'to the same canvas before it can be combined.',
             'geometry',
         )
-
-
-def build_composite_output_metadata(
-    reference_input_path: pathlib.Path,
-    *,
-    significant_bits: int,
-) -> dict:
-    """Build a write_tiff metadata dict for a composite output.
-
-    Composite outputs merge multiple input channels with different
-    per-channel exposure / gain / illumination / frame sum, so the output
-    states none of them -- they describe the source captures, not the
-    merged image, and a zero would read as a setting.
-    Shared acquisition context (objective, position, pixel size,
-    instrument, plate, well_label) propagates from the reference input;
-    composite input channels share these at the same site.
-
-    ``channel`` is set to ``'Composite'`` to distinguish the derived
-    output from its per-channel sources. ``datetime`` is wall-clock
-    post-processing time.
-
-    Args:
-        reference_input_path: Any composite-input TIFF; shared metadata
-            is read from here. Callers pass the first available channel
-            (red -> green -> blue -> transmitted order).
-        significant_bits: Payload depth the caller carried from its
-            load_pixels read of the composite inputs.
-
-    Returns:
-        Dict ready to pass as write_tiff's ``metadata`` parameter.
-    """
-    metadata = build_postproc_output_metadata(
-        input_path=reference_input_path,
-        channel='Composite',
-        significant_bits=significant_bits,
-    )
-    for per_channel_field in (
-        'exposure_time_ms',
-        'gain_db',
-        'black_level',
-        'illumination_ma',
-        'illumination_by_channel_ma',
-        'frames_summed',
-    ):
-        metadata.pop(per_channel_field, None)
-    return metadata
 
 
 def _stated(**fields) -> dict:
@@ -2442,112 +2454,28 @@ def generate_tiff_data(
     # write -- and ImageJ's own convention is 'um'.
     micron = OME_UNIT_MICROMETER if image_type == 'ome' else 'um'
 
-    # Shared plane metadata for all structured image types. The position
-    # follows the same optional-fields contract as the exposure, gain and
-    # illumination below it: a producer that has no position omits the keys,
-    # and a stand-in written here would be measured off the file downstream
-    # as the place the capture was taken. A capture whose axis has lost its
-    # reference, or a scope with no X and Y, is exactly that producer.
-    plane = {
-        'Objective': metadata['objective'],
-    }
-    # Each unit travels with the value it describes, as ExposureTimeUnit and
-    # GainUnit do below: a unit standing alone declares a measurement the file
-    # does not carry.
+    # The Plane: every fact of the record that lives there (FILE_FACTS), each
+    # with its unit beside it. Every one is optional: a producer omits the key
+    # when the value was unknown (a failed camera read, an LED that was off or
+    # on an absent board, an axis that had lost its reference, a scope with no
+    # X and Y), because a stand-in written here would be read downstream as
+    # the instrument's own report. A unit standing alone would declare a
+    # measurement the file does not carry, so it is written only with its value.
+    plane: dict = {}
     if 'plate_pos_mm' in metadata:
         plane['PositionX'] = metadata['plate_pos_mm']['x']
         plane['PositionY'] = metadata['plate_pos_mm']['y']
         plane['PositionXUnit'] = 'mm'
         plane['PositionYUnit'] = 'mm'
-    if 'z_pos_um' in metadata:
-        plane['PositionZ'] = metadata['z_pos_um']
-        plane['PositionZUnit'] = micron
-    # Exposure, gain, and illumination share the optional-fields contract
-    # with the per-frame timestamps below: the producer omits the key when
-    # the value is genuinely unknown (a failed camera read, an LED that is
-    # off or on an absent board), because a fabricated stand-in written
-    # here would masquerade downstream as a real acquisition setting.
-    # Present -> written with its unit; absent -> the TIFF field is
-    # omitted, and the frame still saves.
-    if 'illumination_ma' in metadata:
-        plane['Illumination'] = metadata['illumination_ma']
-        plane['IlluminationUnit'] = 'mA'
-    # Every LED lit for the grab, by layer; Illumination above is the named
-    # channel's alone, and the one older files carry.
-    if 'illumination_by_channel_ma' in metadata:
-        plane['IlluminationByChannel'] = metadata['illumination_by_channel_ma']
-        plane['IlluminationByChannelUnit'] = 'mA'
-    # When those currents were read (frame_record.LightTiming).
-    if 'illumination_timing' in metadata:
-        plane['IlluminationTiming'] = metadata['illumination_timing']
-    if 'exposure_time_ms' in metadata:
-        plane['ExposureTime'] = metadata['exposure_time_ms']
-        plane['ExposureTimeUnit'] = 'ms'
-    if 'gain_db' in metadata:
-        plane['Gain'] = metadata['gain_db']
-        plane['GainUnit'] = 'dB'
-    # The camera's own black level parameter, in the camera's own units: no
-    # unit is written because none is common to every camera.
-    if 'black_level' in metadata:
-        plane['BlackLevel'] = metadata['black_level']
-    # ExposureTime is per frame; a summed image integrates this many of them,
-    # and without the count the file's exposure understates its integration.
-    if 'frames_summed' in metadata:
-        plane['FramesSummed'] = metadata['frames_summed']
-    # The pixel size already folds the binning in, so without it a reader
-    # cannot tell a binned frame from a finer objective.
-    if 'binning_size' in metadata:
-        plane['Binning'] = metadata['binning_size']
-
-    # Per-frame timestamps. Each is optional -- callers that don't capture
-    # them (older static metadata builders) simply omit the keys and the
-    # corresponding TIFF fields don't appear.
-    # timestamp_iso is the frame's time, and timestamp_source what that time
-    # is (frame_record.TimestampSource): a time is written only with its
-    # source, which the producer states -- a still and a recorded frame take
-    # their time from different clocks, and a defaulted source would name the
-    # wrong one;
-    # timestamp_camera_ticks is the camera-side ChunkTimestamp value;
-    # timestamp_camera_tick_hz is the camera tick frequency for converting
-    # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
-    # GigE). frame_id is the ChunkFrameID/Framecounter integer.
-    if 'timestamp_iso' in metadata:
-        plane['Timestamp'] = metadata['timestamp_iso']
-        plane['TimestampSource'] = metadata['timestamp_source']
-    if 'timestamp_camera_ticks' in metadata:
-        plane['TimestampCameraTicks'] = metadata['timestamp_camera_ticks']
-    if 'timestamp_camera_tick_hz' in metadata:
-        plane['TimestampCameraTickHz'] = metadata['timestamp_camera_tick_hz']
-    if 'frame_id' in metadata:
-        plane['FrameID'] = metadata['frame_id']
-    # Each change the frame was judged against: whether it counts, how many
-    # frames and milliseconds after the change it came, and who counted
-    # the frames that met the change's count.
-    if 'frame_validity' in metadata:
-        plane['FrameValidity'] = metadata['frame_validity']
-    # What the capture found the frame to be: the fraction of its pixels at
-    # full scale, and whether it was kept dark under a lit LED.
-    if 'saturated_fraction' in metadata:
-        plane['SaturatedFraction'] = metadata['saturated_fraction']
-    if 'dark' in metadata:
-        plane['Dark'] = metadata['dark']
-    # Whether the camera held a layer's stored settings for the frame, and
-    # which: a frame taken after a script's raw gain or exposure write says
-    # it held none.
-    if 'camera_held_a_channel' in metadata:
-        plane['CameraHeldAChannel'] = metadata['camera_held_a_channel']
-    if 'camera_held_channel' in metadata:
-        plane['CameraHeldChannel'] = metadata['camera_held_channel']
-    # Taken where a failed autofocus left the stage, and why it failed.
-    if 'fallback_focus' in metadata:
-        plane['FallbackFocus'] = metadata['fallback_focus']
-    # A recorded frame's number in its recording, and whether an axis was
-    # moving or homing as it arrived: delivery follows the exposure, so this
-    # is the state at delivery.
-    if 'recording_frame' in metadata:
-        plane['RecordingFrame'] = metadata['recording_frame']
-    if 'stage_moving' in metadata:
-        plane['StageMoving'] = metadata['stage_moving']
+    for key, fact in _PLANE_FACTS.items():
+        if key in metadata:
+            plane[fact.plane] = metadata[key]
+            if fact.unit is not None:
+                plane[f'{fact.plane}Unit'] = micron if fact.unit == 'um' else fact.unit
+    # No source is assumed for a time: a defaulted one would name the wrong
+    # clock for every producer that forgot to state its own.
+    if 'timestamp_iso' in metadata and 'timestamp_source' not in metadata:
+        raise KeyError('timestamp_source')
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes

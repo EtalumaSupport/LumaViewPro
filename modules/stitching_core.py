@@ -112,6 +112,7 @@ def _write_output(
         input_path=first_tile_path,
         channel=color,
         significant_bits=significant_bits,
+        adds_frames=False,
         plate_pos_mm_override=center,
         algorithm=algorithm,
     )

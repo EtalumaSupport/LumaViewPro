@@ -1353,32 +1353,44 @@ _IN_THE_FILE_AS = {
     'camera_make': 'Instrument.Microscope.Manufacturer',
     'microscope': 'Instrument.Microscope.Model',
     'microscope_model': 'Instrument.Microscope.Model',
+    'significant_bits': 'tag 65123',
 }
 
 
-@pytest.mark.parametrize(
-    ('save_encoding', 'significant_bits', 'dtype'),
-    # parametrize-justified: the shaped-JSON and the ImageJ containers are two
-    # writers with two readers.
-    [('8bit', 8, np.uint8), ('right_aligned', 12, np.uint16)],
+# What an OME file does not state until the OME plan writes its schema blocks:
+# tifffile keeps only the schema's Image, Pixels, Channel and Plane, and drops
+# the rest at write.
+_NOT_IN_AN_OME_FILE = {'instrument', 'plate', 'well_label', 'filterset', 'channel_display'}
+
+# A layer's own settings: a derived file on another channel states none of them.
+_PER_CHANNEL = (
+    'channel_display',
+    'excitation_nm',
+    'illumination_ma',
+    'illumination_by_channel_ma',
+    'illumination_timing',
+    'exposure_time_ms',
+    'gain_db',
+    'black_level',
+    'frames_summed',
 )
-def test_every_key_a_save_records_reads_back_from_the_file(
-    sim_scope, tmp_path, save_encoding, significant_bits, dtype
-):
-    """The writer copies the record into the file key by key, so a key the save
-    records and the writer does not copy is lost without a word (the held
-    layer and the binning were). Every key of a record with every field set
-    is read back, in both containers."""
+
+
+def _a_full_still(scope, tmp_path, *, save_encoding, significant_bits, dtype, output_format):
+    """A BF still with every field of its record set, lit by BF's LED: the
+    record the save built, and the file it wrote."""
     from modules import image_save
     from modules.layer_record import release_colors
     from tests.frame_records import frame_record, plate
     from tests.scope_fakes import bind_settings_like_a_session
 
     bind_settings_like_a_session(
-        sim_scope, objective_id='4x Oly', protocol={'labware': '96 well microplate'}
+        scope, objective_id='4x Oly', protocol={'labware': '96 well microplate'}
     )
+    bf_address = scope.channel_identity.find('BF').led_addresses[0]
     record = frame_record(
         black_level=0.0,
+        illumination_ma={bf_address: 50.0},
         frame_significant_bits=significant_bits,
         camera_timestamp_ticks=123,
         camera_tick_hz=1_000_000_000,
@@ -1395,11 +1407,11 @@ def test_every_key_a_save_records_reads_back_from_the_file(
         'frame_record': record,
         'labware': plate(),
         'well_label': 'A1',
-        'fallback_focus': None,
+        'fallback_focus': 'no focus peak',
     }
-    recorded = image_save.generate_image_metadata(sim_scope, 'BF', **where, **common)
+    recorded = image_save.generate_image_metadata(scope, 'BF', **where, **common)
     path = image_save.save_image(
-        sim_scope,
+        scope,
         np.zeros((8, 8), dtype=dtype),
         save_folder=str(tmp_path),
         file_root='rt_',
@@ -1407,7 +1419,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
         tail_id_mode=None,
         channel='BF',
         false_color_on=False,
-        output_format='TIFF',
+        output_format=output_format,
         save_encoding=save_encoding,
         significant_bits=significant_bits,
         white_bits=None,
@@ -1415,15 +1427,89 @@ def test_every_key_a_save_records_reads_back_from_the_file(
         **where,
         **common,
     )
+    return recorded, path
 
+
+@pytest.mark.parametrize(
+    ('save_encoding', 'significant_bits', 'dtype', 'output_format'),
+    # parametrize-justified: the shaped-JSON, ImageJ and OME containers are
+    # three writers with three readers.
+    [
+        ('8bit', 8, np.uint8, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'OME-TIFF'),
+    ],
+)
+def test_every_key_a_save_records_reads_back_from_the_file(
+    sim_scope, tmp_path, save_encoding, significant_bits, dtype, output_format
+):
+    """The writer copies the record into the file key by key, so a key the save
+    records and the writer does not copy is lost without a word (the held
+    layer and the binning were). Every key of a record with every field set
+    is read back, in every container, and an OME file loses only what its
+    container cannot yet hold. Each recorded key has its row in the one
+    table the writer and the readers read."""
+    recorded, path = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding=save_encoding,
+        significant_bits=significant_bits,
+        dtype=dtype,
+        output_format=output_format,
+    )
+
+    assert sorted(set(recorded) - set(image_utils.FILE_FACTS)) == [], 'a recorded key has no row'
     read = image_utils.read_postproc_input_metadata(path)
-    lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS))
+    not_held = _NOT_IN_AN_OME_FILE if output_format == 'OME-TIFF' else set()
+    lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS) - not_held)
     assert lost == [], f'recorded but not in the file: {lost}'
     assert (read['binning_size'], read['camera_held_a_channel'], read['camera_held_channel']) == (
         2,
         True,
         'BF',
     )
+
+
+def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_layers_setting(
+    sim_scope, tmp_path
+):
+    """A stitch and a composite are written from a still's record; every key
+    each keeps reads back from its own file, and the composite, whose channel
+    is no input's, keeps none of a layer's settings."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='TIFF',
+    )
+    stitch = image_utils.build_postproc_output_metadata(
+        still, 'BF', significant_bits=12, adds_frames=False, algorithm='registered'
+    )
+    composite = image_utils.build_postproc_output_metadata(
+        still, 'Composite', significant_bits=8, adds_frames=False
+    )
+
+    assert [key for key in _PER_CHANNEL if key in composite] == []
+    for name, metadata, data in (
+        ('stitch', stitch, np.zeros((8, 8), dtype=np.uint16)),
+        ('composite', composite, np.zeros((8, 8, 3), dtype=np.uint8)),
+    ):
+        path = tmp_path / f'{name}.tiff'
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=GREY,
+            significant_bits=metadata['significant_bits'],
+            save_encoding='right_aligned',
+            white_bits=None,
+        )
+        read = image_utils.read_postproc_input_metadata(path)
+        lost = sorted(set(metadata) - set(read) - set(_IN_THE_FILE_AS))
+        assert lost == [], f'the {name} kept but its file does not state: {lost}'
 
 
 # ---------------------------------------------------------------------------

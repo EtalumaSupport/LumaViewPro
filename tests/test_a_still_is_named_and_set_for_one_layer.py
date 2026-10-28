@@ -206,13 +206,15 @@ def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
 
 
 def test_a_composite_states_no_lit_layer_of_its_inputs(session):
-    from modules.image_utils import build_composite_output_metadata
+    from modules.image_utils import build_postproc_output_metadata
 
     session.scope.illumination.led_on(LED0, 100.0)
     session.scope.illumination.led_on(LED1, 50.0)
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
-    composite = build_composite_output_metadata(still.file, significant_bits=8)
+    composite = build_postproc_output_metadata(
+        still.file, 'Composite', significant_bits=8, adds_frames=False
+    )
 
     assert 'illumination_by_channel_ma' not in composite
     assert 'illumination_ma' not in composite
