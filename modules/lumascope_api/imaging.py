@@ -2015,8 +2015,8 @@ class ImagingAPI:
                    Per the Sentinel-return contract: `if image is None: ...`.
 
         Raises:
-            ConfigError: ``'scope_not_composed'``, no session has bound this
-                scope, so it has no scale-bar setting to read.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, so it has no scale-bar setting to read.
         """
         if not self._driver or not self._driver.active:
             return None, None
@@ -2373,7 +2373,8 @@ class ImagingAPI:
             dict: ``{'enabled': bool, 'color': str | None}``, a copy.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         enabled = self._scope.read_setting('scale_bar.enabled')
         with self._state_lock:

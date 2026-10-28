@@ -888,8 +888,11 @@ class SequentialIOExecutor:
                 another lane's worker, which never waits on a lane;
                 ``'blocking_inline'``, called inside the GUI's inline
                 boundary.
-            HardwareCommandRefusedError: the lane is closed, or the scope is
-                held by an activity this call is not made under.
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the lane is
+                closed; ``'exclusive_activity_running'``, the scope is held
+                by an activity this call is not made under;
+                ``'activity_ended'``, the call is made under an activity
+                that has ended.
             ControlSessionRefusedError: ``'control_session_held'``, a control
                 session is held and this call is not its holder's.
             LaneCallStillRunningError: ``timeout_s``, the API's own bound,
@@ -953,8 +956,11 @@ class SequentialIOExecutor:
         already be marked running, so no one but the lane can settle it.
 
         Raises:
-            HardwareCommandRefusedError: the lane is closed, or the scope is
-                held by an activity this call is not made under.
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the lane is
+                closed; ``'exclusive_activity_running'``, the scope is held
+                by an activity this call is not made under;
+                ``'activity_ended'``, the call is made under an activity
+                that has ended.
             ControlSessionRefusedError: ``'control_session_held'``, a control
                 session is held and this call is not its holder's.
         """

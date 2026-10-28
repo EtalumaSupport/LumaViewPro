@@ -628,10 +628,10 @@ class PostProcessingAPI:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: a folder it cannot build from
-                (``ProtocolPostProcessor``): reason
-                ``protocol_data_unreadable``, ``no_images``,
-                ``unsupported_source_format``, ``output_outside_folder``,
-                ``collision``, ``excluded_inputs`` or ``no_data``.
+                (``ProtocolPostProcessor``): ``'protocol_data_unreadable'``,
+                ``'no_images'``, ``'unsupported_source_format'``,
+                ``'output_outside_folder'``, ``'collision'``,
+                ``'excluded_inputs'`` or ``'no_data'``.
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
@@ -660,10 +660,10 @@ class PostProcessingAPI:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: a folder it cannot build from
-                (``ProtocolPostProcessor``): reason
-                ``protocol_data_unreadable``, ``no_images``,
-                ``unsupported_source_format``, ``output_outside_folder``,
-                ``collision``, ``excluded_inputs`` or ``no_data``.
+                (``ProtocolPostProcessor``): ``'protocol_data_unreadable'``,
+                ``'no_images'``, ``'unsupported_source_format'``,
+                ``'output_outside_folder'``, ``'collision'``,
+                ``'excluded_inputs'`` or ``'no_data'``.
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
@@ -692,10 +692,10 @@ class PostProcessingAPI:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: a
-                folder it cannot build from (``ProtocolPostProcessor``): reason
-                ``protocol_data_unreadable``, ``no_images``,
-                ``unsupported_source_format``, ``output_outside_folder``,
-                ``collision``, ``excluded_inputs`` or ``no_data``.
+                folder it cannot build from (``ProtocolPostProcessor``):
+                ``'protocol_data_unreadable'``, ``'no_images'``,
+                ``'unsupported_source_format'``, ``'output_outside_folder'``,
+                ``'collision'``, ``'excluded_inputs'`` or ``'no_data'``.
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
@@ -726,13 +726,13 @@ class PostProcessingAPI:
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
-            PostProcessingRefusedError: reason ``invalid_setting``,
+            PostProcessingRefusedError: ``'invalid_setting'``,
                 *frame_rate_fps* is not a playback rate, before the build is
                 queued; or a folder it cannot build from
-                (``ProtocolPostProcessor``): reason
-                ``protocol_data_unreadable``, ``no_images``,
-                ``unsupported_source_format``, ``output_outside_folder``,
-                ``collision``, ``excluded_inputs`` or ``no_data``.
+                (``ProtocolPostProcessor``): ``'protocol_data_unreadable'``,
+                ``'no_images'``, ``'unsupported_source_format'``,
+                ``'output_outside_folder'``, ``'collision'``,
+                ``'excluded_inputs'`` or ``'no_data'``.
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
@@ -1213,9 +1213,9 @@ class PostProcessingAPI:
             pixel_size_um: The scale the image states, or None.
 
         Raises:
-            PostProcessingRefusedError: reason ``no_scale``, the image is
+            PostProcessingRefusedError: ``'no_scale'``, the image is
                 counted in pixels and *method* bounds an area or a
-                perimeter, which are in microns; ``invalid_setting``,
+                perimeter, which are in microns; ``'invalid_setting'``,
                 *pixel_size_um* is not a positive number of microns.
         """
         from modules.post_processing import PostProcessing, cell_count_scale

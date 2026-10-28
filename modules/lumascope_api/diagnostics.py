@@ -303,7 +303,8 @@ class DiagnosticsAPI:
             camera to describe.
 
         Raises:
-            HardwareError: A camera is active and the read failed.
+            CameraReadFailedError: ``'camera_read_failed'``, a camera is
+                active and the read failed.
         """
         return self._read_camera_or_none(
             self._get_camera_temperatures_degc_impl, 'get_camera_temperatures_degc'
@@ -329,7 +330,8 @@ class DiagnosticsAPI:
                 ``disconnect()`` too.
 
         Raises:
-            HardwareError: A field the camera reports could not be read.
+            CameraReadFailedError: ``'camera_read_failed'``, a field the
+                camera reports could not be read.
         """
         return self._read_camera_or_none(self._get_camera_link_info_impl, 'get_camera_link_info')
 
@@ -1183,8 +1185,10 @@ class DiagnosticsAPI:
             ArgumentRefusedError: ``'fan_duty_out_of_range'``, ``duty_pct``
                 is outside 0..100. Asked after the hardware, before anything
                 is sent.
-            HardwareError: The board answered the write with an error, or
-                did not answer.
+            BoardNoReplyError: ``'board_no_reply'``, the board did not answer
+                the write.
+            BoardReportedError: ``'board_reported_error'``, the board answered
+                the write with an error.
         """
         self._scope.motion.refuse_absent('set_motor_fan_duty')
         if not 0 <= duty_pct <= 100:
@@ -1237,8 +1241,15 @@ class DiagnosticsAPI:
                 controller) or ``'not_on_this_scope'``
                 (``MissingPart.LED_ENGINEERING_MODE``, a controller without
                 the handshake). Nothing was sent.
-            HardwareError: The board did not complete the handshake; the
-                driver has already tried to bring it back to safe mode.
+            BoardNoReplyError: ``'board_no_reply'``, the board did not answer
+                FACTORY.
+            BoardReportedError: ``'board_reported_error'``, the board did not
+                complete the handshake: no Y/N prompt; or no engineering-mode
+                banner after Y, when the driver has already brought it back
+                to safe mode.
+            LedFirmwareWedgedError: ``'led_firmware_wedged'``, the handshake
+                failed after Y and the board's soft reset did not bring its
+                firmware back; it needs a power cycle.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
                 sent.
@@ -1265,8 +1276,9 @@ class DiagnosticsAPI:
 
         Raises:
             HardwareCommandRefusedError: as ``enter_led_engineering_mode``.
-            HardwareError: Q failed and the board's soft reset did not
-                bring its firmware back; it needs a power cycle.
+            LedFirmwareWedgedError: ``'led_firmware_wedged'``, Q failed and
+                the board's soft reset did not bring its firmware back; it
+                needs a power cycle.
         """
         self._refuse_no_led_engineering_mode('exit_led_engineering_mode')
         self._scope.motion._dispatch_motion(

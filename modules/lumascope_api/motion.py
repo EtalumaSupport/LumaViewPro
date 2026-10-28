@@ -739,8 +739,15 @@ class MotionAPI:
             frozenset[Interlock]: The open interlocks.
 
         Raises:
-            HardwareError: the board did not answer the read; the stage's
-                state is unknown, which is not the same answer as none open.
+            BoardNoReplyError: ``'board_no_reply'``, the board did not answer
+                the read; the stage's state is unknown, which is not the same
+                answer as none open.
+            BoardPortFailedError: ``'board_port_failed'``, the port to the
+                board failed or is not open; the state is unknown.
+            BoardReplyUnreadableError: ``'board_reply_unreadable'``, the
+                board's answer could not be read; the state is unknown.
+            BoardReportedError: ``'board_reported_error'``, the board refused
+                the read; the state is unknown.
         """
         # The driver keeps its own words; the API names them by the set.
         return frozenset(Interlock(name) for name in self._driver.interlocks())
@@ -1032,8 +1039,8 @@ class MotionAPI:
                 name.
 
         Raises:
-            ConfigError: ``'scope_not_composed'``, no session has bound this
-                scope, so it has no slot assignments to read.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, so it has no slot assignments to read.
         """
         slot = self.get_turret_slot()
         if slot is None:
@@ -1454,7 +1461,14 @@ class MotionAPI:
                 'Y' or 'Z'.
             HardwareCommandRefusedError: ``'not_connected'``, the installed
                 motor controller is not connected (its cable pulled).
-            HardwareError: the controller did not report the position.
+            BoardNoReplyError: ``'board_no_reply'``, the controller did not
+                answer the read.
+            BoardReplyUnreadableError: ``'board_reply_unreadable'``, the
+                controller's answer is not a position.
+            BoardPortFailedError: ``'board_port_failed'``, the port to the
+                controller failed or is not open.
+            BoardReportedError: ``'board_reported_error'``, the controller
+                refused the read.
         """
         if not self._has_position(axis):
             return None
@@ -1555,7 +1569,14 @@ class MotionAPI:
             engaged and 0 when clear.
 
         Raises:
-            HardwareError: the board did not answer the read.
+            BoardNoReplyError: ``'board_no_reply'``, the board did not answer
+                the read.
+            BoardReplyUnreadableError: ``'board_reply_unreadable'``, the
+                board's answer is not a status.
+            BoardPortFailedError: ``'board_port_failed'``, the port to the
+                board failed or is not open.
+            BoardReportedError: ``'board_reported_error'``, the board refused
+                the read.
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -2775,9 +2796,13 @@ class MotionAPI:
                 ``start_move_to_plate``.
             PositionOutOfRangeError: As ``start_move_to_plate``.
             AxisStateUnknownError: As ``start_move_to_plate``.
-            MoveFaultError: As ``start_move_to_plate``.
-            MoveNotCompletedError: An axis did not arrive; see
-                ``start_move_xy``.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_to_plate``.
                 Nothing was driven.
@@ -2830,9 +2855,13 @@ class MotionAPI:
                 ``start_move_to_plate``.
             PositionOutOfRangeError: As ``start_move_to_plate``.
             AxisStateUnknownError: As ``start_move_to_plate``.
-            MoveFaultError: As ``start_move_to_plate``.
-            MoveNotCompletedError: An axis did not arrive; see
-                ``start_move_xy``.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_to_well``.
                 Nothing was driven.
@@ -2937,9 +2966,12 @@ class MotionAPI:
             PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_xy``.
             AxisStateUnknownError: As ``start_move_xy``.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
-            MoveNotCompletedError: An axis did not arrive; see
-                ``start_move_z``.
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_xy``. Nothing was
                 driven.
@@ -2999,9 +3031,12 @@ class MotionAPI:
             PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_xy_by``.
             AxisStateUnknownError: As ``start_move_xy_by``.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
-            MoveNotCompletedError: An axis did not arrive; see
-                ``start_move_z``.
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_xy_by``. Nothing
                 was driven.
@@ -3037,8 +3072,9 @@ class MotionAPI:
             rest, or given up, and the position listeners told: its
             ``result()`` returns None when Z arrived, and raises
             ``MoveNotCompletedError`` otherwise -- the monitor's fault
-            (``'stalled'``, ``'board_lost'``, ``'position_unread_after_move'``
-            or ``'status_unread'``) or ``'faulted'``, each leaving Z UNKNOWN;
+            (``'stalled'``, ``'board_lost'``, ``'position_unread_after_move'``,
+            ``'status_unread'`` or ``'monitor_ended_mid_move'``) or
+            ``'faulted'``, each leaving Z UNKNOWN;
             ``MoveStoppedError`` ``'stopped'``, a stop the board took while
             it moved; ``MoveStoppedError`` ``'superseded'``, another move or
             a home took Z first. The outcome is the one the move ended
@@ -3090,8 +3126,12 @@ class MotionAPI:
             PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_z``.
             AxisStateUnknownError: As ``start_move_z``.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
-            MoveNotCompletedError: Z did not arrive; see ``start_move_z``.
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_z``. Nothing was
                 driven.
@@ -3154,8 +3194,12 @@ class MotionAPI:
             PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_z_by``.
             AxisStateUnknownError: As ``start_move_z_by``.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
-            MoveNotCompletedError: Z did not arrive; see ``start_move_z``.
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_z_by``. Nothing
                 was driven.
@@ -3392,8 +3436,8 @@ class MotionAPI:
         Raises:
             MoveFaultError: An axis it waited for ended UNKNOWN (the
                 monitor's own object when it gave the axis up: ``'stalled'``,
-                ``'board_lost'``, ``'position_unread_after_move'`` or
-                ``'status_unread'``;
+                ``'board_lost'``, ``'position_unread_after_move'``,
+                ``'status_unread'`` or ``'monitor_ended_mid_move'``;
                 else ``'faulted'``).
             MoveStoppedError: An axis it waited for ended UNKNOWN after a
                 STOP ended its move, as the close's does: ``'stopped'``, or

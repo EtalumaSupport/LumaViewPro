@@ -55,7 +55,15 @@ def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(de
         '422',
         '409',
     }
-    assert refusals['500']['MoveFaultError'] == ['driver_failed']
+    assert refusals['500']['MoveFaultError'] == [
+        'driver_failed',
+        'stalled',
+        'board_lost',
+        'position_unread_after_move',
+        'status_unread',
+        'monitor_ended_mid_move',
+        'faulted',
+    ]
 
 
 def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_class(described):

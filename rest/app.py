@@ -146,7 +146,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     Its close is ``app.state.closing``; its live view ``app.state.live``.
 
     Raises:
-        ConfigurationDefectError: ``route_shadowed``, a Session member is
+        ConfigurationDefectError: ``'route_shadowed'``, a Session member is
             named as one of the server's own routes, so a client could not
             reach it.
     """

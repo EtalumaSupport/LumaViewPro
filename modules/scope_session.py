@@ -2179,8 +2179,6 @@ class ScopeSession:
                 channel no release has; ``'values_out_of_range'``, its Layer
                 Settings hold a value no layer setting takes; each as
                 ``ProtocolsAPI.load_protocol``.
-            ConfigError: As ``select_labware``; the scope stays on the
-                plate it had.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``select_labware``; the scope stays on the plate it had.
         """
@@ -2364,7 +2362,8 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'not_offered'``, ``mode`` is not an
                 ``AcquireMode`` or None.
-            ConfigError: this scope's layers could not be resolved.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+                could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, ``mode`` is not
                 None and this scope does not have ``channel``.
         """
@@ -2422,7 +2421,8 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            ConfigError: this scope's layers could not be resolved.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+                could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, ``enabled`` is
                 True and this scope does not have ``channel``; or the lock's
                 ``'exclusive_activity_running'``, when a run, a diagnostic
@@ -2571,14 +2571,14 @@ class ScopeSession:
         ``add_step`` fills at the current position.
 
         Raises:
-            ProtocolRunRefusedError: reason ``no_acquiring_layer``, logged
-                and notified once; ``tiling_unknown``, a grid this
-                installation does not offer; ``overlap_out_of_range``, the
-                stored tile overlap outside 0 to 50; ``tiles_outside_travel``,
-                a tile past the X or Y travel; ``zstack_not_configured``, a
-                z-stack with no extent; ``positions_unreachable``, a grid on
+            ProtocolRunRefusedError: ``'no_acquiring_layer'``, logged
+                and notified once; ``'tiling_unknown'``, a grid this
+                installation does not offer; ``'overlap_out_of_range'``, the
+                stored tile overlap outside 0 to 50; ``'tiles_outside_travel'``,
+                a tile past the X or Y travel; ``'zstack_not_configured'``, a
+                z-stack with no extent; ``'positions_unreachable'``, a grid on
                 a scope with no X/Y motor or a z-stack on one with no Z
-                motor; ``zslices_outside_travel``, a slice past the Z travel.
+                motor; ``'zslices_outside_travel'``, a slice past the Z travel.
             ObjectiveUnknownError: the objective in the light path is
                 unknown, so the config cannot be assembled:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
@@ -2678,16 +2678,17 @@ class ScopeSession:
                 unknown, as ``runtime_state.resolve_current_objective`` says
                 why (``'slot_unassigned'``, the turret's current slot has no
                 objective). Nothing is added.
-            ConfigError: with ``use_zstacking``, the stored z-stack will not
-                parse (as ``get_zstack_params``).
+            ConfigurationDefectError: ``'layers_unresolved'``, ``channels`` is given
+                and this scope's layers could not be resolved. Nothing is added.
             ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
                 is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no layer named in ``channels``; ``'not_connected'``, with no
                 ``at``, the model's motor controller is not connected, so
                 there is no live position. Nothing is added.
-            ProtocolError: an impossible ``before_step_index`` / ``after_step_index``, or
-                both given (raised by the protocol).
+            StepNotFoundError: ``'no_such_step'``, an impossible
+                ``before_step_index`` / ``after_step_index``.
+            StepEditRefusedError: ``'step_value_refused'``, both given.
         """
         if channels is None:
             layer_configs = self.get_layer_configs()
@@ -2777,17 +2778,18 @@ class ScopeSession:
         ``apply_focus_to_channel_steps`` writes them all.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
                 place it is passing through. Nothing is written.
-            ProtocolError: ``step_index`` is not a step of ``protocol``.
-                Nothing is written.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol``. Nothing is written.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
-            ConfigError: this scope's layers could not be resolved. Nothing is written.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+                could not be resolved. Nothing is written.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'save_focus', then='take a focus'
@@ -2819,8 +2821,9 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
-            ConfigError: this scope's layers could not be resolved. Nothing is written.
-            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+                could not be resolved. Nothing is written.
+            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
             PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
                 outside Z's travel. Nothing is written.
@@ -2967,9 +2970,12 @@ class ScopeSession:
             AxisStateUnknownError: An axis given does not know its
                 position. Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
-            MoveNotCompletedError: An axis did not arrive; see
-                ``MotionAPI.start_move_z``.
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``MotionAPI.start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_bookmark``.
                 Nothing was driven.
@@ -2986,7 +2992,7 @@ class ScopeSession:
         ``bookmark`` reads it; X and Y, which it does not save, are None.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
@@ -3009,7 +3015,7 @@ class ScopeSession:
         Returns how many steps took it.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
@@ -3017,7 +3023,8 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
-            ConfigError: this scope's layers could not be resolved. Nothing is written.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's layers
+                could not be resolved. Nothing is written.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'apply_focus_to_channel_steps', then='take a focus'
@@ -3034,8 +3041,8 @@ class ScopeSession:
         """Remove step ``step_index`` from ``protocol``, as the Delete button does.
 
         Raises:
-            ProtocolError: ``step_index`` is not a step of ``protocol``.
-                Nothing is removed.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol``. Nothing is removed.
         """
         self.scope.protocols.delete_step(protocol, step_index)
 
@@ -3045,9 +3052,10 @@ class ScopeSession:
         """Give step ``step_index`` of ``protocol`` the label ``name``; returns its new name.
 
         Raises:
-            ProtocolError: ``step_index`` is not a step of ``protocol``, or
-                ``name`` has no letter, digit, dash or underscore. The step
-                keeps its name.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol``. The step keeps its name.
+            StepEditRefusedError: ``'step_value_refused'``, ``name`` has no
+                letter, digit, dash or underscore. The step keeps its name.
         """
         return self.scope.protocols.rename_step(protocol, step_index, name)
 
@@ -3060,8 +3068,8 @@ class ScopeSession:
         scope with no XY stage the protocol takes Center Plate.
 
         Raises:
-            ConfigError: ``labware_id`` is not a plate the catalogue has. The
-                protocol keeps its plate.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id`` is not a
+                plate the catalogue has. The protocol keeps its plate.
         """
         return self.scope.protocols.set_labware(protocol, labware_id)
 
@@ -3150,8 +3158,8 @@ class ScopeSession:
                 objective is not in the catalogue, the scope has no X/Y
                 motor, or a tile falls outside the stage's travel. Nothing
                 changes.
-            ConfigError: the protocol's plate is not in the catalogue.
-                Nothing changes.
+            CatalogueNameRefusedError: ``'labware_unknown'``, the protocol's plate is
+                not in the catalogue. Nothing changes.
         """
         import modules.config_helpers as config_helpers
 
@@ -3205,9 +3213,14 @@ class ScopeSession:
         It raises what ``start_go_to_step`` raises, and the following.
 
         Raises:
-            MoveNotCompletedError: an axis did not arrive at the step; see
-                ``MotionAPI.start_move_z``. The layer and the preview
-                are the step's.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command; or an axis did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``MotionAPI.start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'superseded'``, another move or a home took an axis first.
+                The layer and the preview are the step's.
             CameraSettingRejected: the camera refused a setting of the
                 step's layer, raised once the stage has arrived; see
                 ``apply_layer_camera``.
@@ -3292,8 +3305,11 @@ class ScopeSession:
                 the shown one. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
-            MoveNotCompletedError: the turret did not reach the step's slot,
-                or the board did not take an axis's command.
+            MoveFaultError: ``'driver_failed'``, the board did not take an
+                axis's command; or the turret's move to the step's slot did
+                not arrive; see ``MotionAPI.start_move_z``.
+            MoveStoppedError: ``'stopped'`` or ``'superseded'``, the turret's
+                move to the step's slot was ended.
             CameraSettingRejected: the camera refused a setting of the
                 step's layer; the moves are under way, and the layer and the
                 preview are the step's.
@@ -3795,9 +3811,9 @@ class ScopeSession:
                 ``protocol.duration`` no protocol can run, and a layer's
                 illumination above the attached LED board's maximum, among
                 them). Nothing is written.
-            ConfigError: these settings were never prepared from the
-                template and lack the block the path is in. Nothing is
-                written.
+            ConfigurationDefectError: ``'layers_unresolved'``, the write is to the
+                shown layer's camera settings and this scope's layers could not be
+                resolved; the value is stored, and the camera is not changed.
 
         A numpy scalar in ``value``, at any depth, is stored as the Python
         value it holds.
@@ -4913,8 +4929,9 @@ class ScopeSession:
         and a polled read must not log per poll.
 
         Raises:
-            ConfigError: the catalogue is empty, or the model catalogue
-                cannot be read.
+            ConfigurationDefectError: ``'scope_not_initialized'``, bring-up has not
+                said whether this scope has a turret (``configure_scope`` has not
+                run).
             ObjectiveUnknownError: ``'slot_unknown'``, the objective is not
                 confirmed for this light path and the turret model's slot is
                 unknown -- there is no slot to answer for until the turret is
@@ -4982,7 +4999,9 @@ class ScopeSession:
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light
                 path is unknown -- the turret is turning or has not been homed.
-            ConfigError: the catalogue is empty, or cannot be read.
+            ConfigurationDefectError: ``'scope_not_initialized'``, bring-up has not
+                said whether this scope has a turret (``configure_scope`` has not
+                run).
         """
         if not self.scope.runtime_state.is_turreted():
             return self._objective_question_at(None)
@@ -5101,13 +5120,16 @@ class ScopeSession:
                 ``'objective_not_on_turret'``, none does (``offered``: what
                 the slots hold). Nothing is moved.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope (``exclusive_activity_running``), nothing
+                holds the scope (``'exclusive_activity_running'``), nothing
                 written or moved; or the turret move's own refusal,
                 ``'not_connected'`` or ``'axis_absent'``, nothing moved.
             AxisStateUnknownError: The turret has not been homed.
-            MoveNotCompletedError: The Z park, the turret move or the Z
-                restore did not arrive, or was stopped; the slot is unknown
-                afterwards.
+            MoveFaultError: The Z park, the turret move or the Z restore
+                did not arrive (see ``MotionAPI.start_move_z``); the slot is
+                unknown afterwards.
+            MoveStoppedError: ``'stopped'`` or ``'superseded'``, the Z park,
+                the turret move or the Z restore was ended; the slot is
+                unknown afterwards.
         """
         # Refuses an id that is not a catalogue key, before any write and
         # before the no-op compare: an unknown active objective is None, so
@@ -5207,7 +5229,7 @@ class ScopeSession:
                 XY stage and ``labware_id`` is not Center Plate
                 (``missing`` is ``MissingPart.XY_STAGE``). A run, a diagnostic
                 or a recording holds the scope and ``labware_id`` is not the
-                plate in place (``exclusive_activity_running``): each states
+                plate in place (``'exclusive_activity_running'``): each states
                 its positions against the plate it started with. Nothing is
                 written.
         """
@@ -5239,7 +5261,7 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
                 turret, said before ``slot`` or ``objective_id`` is
                 judged; or a run, a diagnostic or a recording holds the
-                scope (``exclusive_activity_running``). Nothing is written.
+                scope (``'exclusive_activity_running'``). Nothing is written.
             PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
             ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is None.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
@@ -5286,7 +5308,7 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
                 turret, said before ``slot`` is judged; or a run, a
                 diagnostic or a recording holds the scope and the slot has an
-                assignment (``exclusive_activity_running``). Nothing is
+                assignment (``'exclusive_activity_running'``). Nothing is
                 written.
             PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
         """
@@ -5316,7 +5338,7 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
                 turret; or a run, a diagnostic or a recording holds the
                 scope and the slot has an assignment
-                (``exclusive_activity_running``). Nothing is written.
+                (``'exclusive_activity_running'``). Nothing is written.
             ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light
                 path is unknown, so there is no slot to clear.
         """

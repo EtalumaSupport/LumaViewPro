@@ -85,7 +85,8 @@ class RuntimeState:
         (``ScopeSession.select_labware`` changes it).
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         return self._scope.wellplate_loader.get_plate(
             labware_id=self._scope.read_setting('protocol.labware')
@@ -110,8 +111,8 @@ class RuntimeState:
         one, so selection and derivation cannot disagree about the turret.
 
         Raises:
-            ConfigError: Bring-up has not recorded the answer
-                (``Lumascope.initialize`` has not run).
+            ConfigurationDefectError: ``'scope_not_initialized'``, bring-up has not
+                recorded the answer (``Lumascope.initialize`` has not run).
         """
         if self._turreted is None:
             raise ConfigurationDefectError(
@@ -229,7 +230,8 @@ class RuntimeState:
                 scope cannot report its optics.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         objective = self.get_current_objective()
         if objective is None:
@@ -251,7 +253,8 @@ class RuntimeState:
                 camera has not reported its frame.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         objective = self.get_current_objective()
         frame = self._scope.camera.frame_size
@@ -277,7 +280,8 @@ class RuntimeState:
                 (``ScopeSession.assign_turret_objective`` does).
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         return self._scope.read_setting('turret_objectives')
 
@@ -289,7 +293,8 @@ class RuntimeState:
             Where the plate is mounted on the stage, in um.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
         """
         stored = self._scope.read_setting('stage_offset')
         return coord_transformations.StageOffset(x_um=float(stored['x']), y_um=float(stored['y']))
@@ -328,7 +333,9 @@ class RuntimeState:
                 offset axis is not a finite number.
             CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has.
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, and ``labware_id`` or ``stage_offset`` was left to the
+                settings.
         """
         labware, offset = self._frame(labware_id, stage_offset)
         return self._coordinate_transformer.stage_to_plate(
@@ -355,7 +362,9 @@ class RuntimeState:
                 offset axis is not a finite number.
             CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has.
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, and ``labware_id`` or ``stage_offset`` was left to the
+                settings.
         """
         labware, offset = self._frame(labware_id, stage_offset)
         return self._coordinate_transformer.plate_to_stage(
@@ -388,7 +397,9 @@ class RuntimeState:
                 finite number; asked here, so the function does not.
             CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has.
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, and ``labware_id`` or ``stage_offset`` was left to the
+                settings.
         """
         labware, offset = self._frame(labware_id, stage_offset)
         transformer = self._coordinate_transformer
@@ -421,7 +432,8 @@ class RuntimeState:
             say which it was.
 
         Raises:
-            ConfigError: No session has bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
             CatalogueNameRefusedError: ``'labware_unknown'``, the selected
                 labware is not in the catalogue.
         """

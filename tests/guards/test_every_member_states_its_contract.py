@@ -22,6 +22,15 @@ module's marked function among them:
 4. **Stated.** Every marked member has a section, ``Nothing.`` for one
    that raises nothing, so "has not said" is no state a member can be in;
    each one without is named.
+5. **What is raised, not its subject.** No entry names an umbrella
+   (``ConfigError``, ``HardwareError``): an umbrella is never raised, so
+   the route's description would publish a class no client is answered
+   with, under a status none of its children need answer.
+6. **A reason in the form that is read.** A reason of the entry's class is
+   quoted as ``'not_connected'`` (or after the word reason), the forms
+   ``QUOTED_REASON`` reads; one written another way is published as if the
+   entry had not named it, so the description carries every reason of the
+   class or drops the one written.
 
 A static read: no session.
 """
@@ -41,7 +50,7 @@ from modules.api_surface import (
     raises_of,
 )
 from modules.exceptions import Refusal
-from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES
+from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES, UMBRELLAS
 from tests.marked_set import Marked, marked_members, marked_set
 
 # The section, its entries and a quoted reason are read as the REST
@@ -49,6 +58,9 @@ from tests.marked_set import Marked, marked_members, marked_set
 # no entry is this guard's own check.
 _SECTION, _ENTRY, _QUOTED_REASON = RAISES_SECTION, RAISES_ENTRY, QUOTED_REASON
 _AT_ENTRY_INDENT = re.compile(r'^ {4}\S.*$', re.M)
+# A name in an entry's words written as code, quoted or not: a reason of
+# the entry's class among them is checked against what is read.
+_CODE_TOKEN = re.compile(r"``'?([a-z][a-z0-9_]*)'?``")
 # The section of a member that raises nothing a caller handles.
 _NOTHING = '    Nothing.'
 
@@ -83,13 +95,9 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ProtocolRunner.start_zstack', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_composite', 'ProtocolRunRefusedError'),
         ('ProtocolsAPI.step_targets', 'CatalogueNameRefusedError'),
-        ('ScopeSession.apply_focus_to_channel_steps', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_tiling', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_zstacking', 'ProtocolRunRefusedError'),
         ('ScopeSession.recover_file_writer', 'HardwareCommandRefusedError'),
-        ('ScopeSession.save_all_bookmarks', 'ProtocolRunRefusedError'),
-        ('ScopeSession.save_focus', 'ProtocolRunRefusedError'),
-        ('ScopeSession.save_channel_focus', 'ProtocolRunRefusedError'),
         ('ScopeSession.run_application_session', 'HardwareCommandRefusedError'),
         ('ScopeSession.start_go_to_step', 'ProtocolRunRefusedError'),
     }
@@ -126,6 +134,32 @@ def _prose(sections) -> list[str]:
 
 def _without_a_section(sections) -> list[str]:
     return [member for member, section in sections if section is None]
+
+
+_UMBRELLA_NAMES = frozenset(cls.__name__ for cls in UMBRELLAS)
+
+
+def _umbrella_entries(sections) -> list[str]:
+    return [
+        f'{member}: {name}'
+        for member, section in sections
+        if section
+        for name, _ in _ENTRY.findall(section)
+        if name in _UMBRELLA_NAMES
+    ]
+
+
+def _unread_reasons(sections) -> list[str]:
+    """Each reason of an entry's class written in a form the description does not read."""
+    found = []
+    for member, section in sections:
+        for name, words in _ENTRY.findall(section or ''):
+            reasons = getattr(_ROOT.get(name), 'causes', {})
+            read = {a or b for a, b in _QUOTED_REASON.findall(words)}
+            unread = sorted({t for t in _CODE_TOKEN.findall(words) if t in reasons} - read)
+            if unread:
+                found.append(f'{member}: {name} {unread}')
+    return found
 
 
 def test_every_section_is_a_list_of_entries():
@@ -170,8 +204,18 @@ def test_every_member_has_a_section():
     assert without == [], 'say what each raises, or Nothing.:\n' + '\n'.join(without)
 
 
+def test_no_entry_names_an_umbrella():
+    named = _umbrella_entries(_sections())
+    assert named == [], 'name the classes under it that the member raises:\n' + '\n'.join(named)
+
+
+def test_every_reason_is_quoted_as_it_is_read():
+    unread = _unread_reasons(_sections())
+    assert unread == [], "quote each as 'not_connected':\n" + '\n'.join(unread)
+
+
 class _Planted:
-    """Three marked members the checks above must tell apart."""
+    """Marked members the checks above must tell apart."""
 
     @api(reads=True)
     def unstated(self) -> None:
@@ -194,9 +238,34 @@ class _Planted:
             ConfigError: no session has bound the scope.
         """
 
+    @api(reads=True)
+    def an_umbrella(self) -> None:
+        """Names the subject, not what is raised.
+
+        Raises:
+            HardwareError: the board did not answer.
+        """
+
+    @api(reads=True)
+    def unread_and_read(self) -> None:
+        """Quotes one reason as it is read, and writes another bare.
+
+        Raises:
+            ObjectiveUnknownError: ``'slot_unknown'``, the turret is lost;
+                ``none_selected``, no objective is chosen. ``slot`` is the
+                slot asked.
+        """
+
 
 def test_the_checks_name_what_they_refuse():
     planted = list(_sections(marked_members({'_Planted': _Planted})))
     assert _without_a_section(planted) == ['_Planted.unstated']
     assert _prose(planted) == ["_Planted.nothing_and_an_entry: 'Nothing.'"]
     assert raises_of(inspect.getdoc(_Planted.nothing)) == []
+    assert _umbrella_entries(planted) == [
+        '_Planted.an_umbrella: HardwareError',
+        '_Planted.nothing_and_an_entry: ConfigError',
+    ]
+    assert _unread_reasons(planted) == [
+        "_Planted.unread_and_read: ObjectiveUnknownError ['none_selected']"
+    ]

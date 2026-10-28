@@ -2614,8 +2614,8 @@ class CameraAPI:
                 its range; ``set_black_level`` is then refused by the camera.
 
         Raises:
-            HardwareError: The camera has a black level setting and the read
-                failed.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera has a
+                black level setting and the read failed.
         """
         driver = self._driver
         if not driver or not driver.active:
@@ -2666,8 +2666,9 @@ class CameraAPI:
             CameraSettingRejected: The camera refused it, as a camera holding
                 its black level automatically does, or raised from the write
                 (chained).
-            HardwareError: The camera's probe, range read or read-back
-                failed; the black level in effect is unknown.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                probe of its black level setting or the read of its range
+                failed. Nothing was sent.
         """
         return self._dispatch_camera(
             self._set_black_level_impl,
@@ -3084,7 +3085,7 @@ class CameraAPI:
         the pixel format the mode chose (``pixel_format``).
 
         Raises:
-            ConfigError: ``'scope_not_composed'``, no session bound this scope.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session bound this scope.
         """
         return ImageMode(self._scope.read_setting('image_mode'))
 
@@ -3231,8 +3232,10 @@ class CameraAPI:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
 
         Raises:
-            HardwareError: A setting the camera offers could not be read.
-            ConfigError: ``'scope_not_composed'``, no session bound this scope.
+            CameraReadFailedError: ``'camera_read_failed'``, a setting the
+                camera offers could not be read.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session bound this
+                scope; read only with a camera active.
         """
         snapshot = {'tag': tag}
         snapshot.update(self._camera_geometry_now())
@@ -3280,7 +3283,8 @@ class CameraAPI:
         offers more than one size, the black level only where it can be set.
 
         Raises:
-            HardwareError: A setting the camera offers could not be read.
+            CameraReadFailedError: ``'camera_read_failed'``, a setting the
+                camera offers could not be read.
         """
         driver = self._driver
         if not driver or not driver.active:

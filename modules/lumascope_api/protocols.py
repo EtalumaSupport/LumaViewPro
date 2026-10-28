@@ -637,8 +637,9 @@ class ProtocolsAPI:
         """Remove step ``step_index`` from ``protocol``; the steps after it move up one.
 
         Raises:
-            ProtocolError: ``step_index`` is not a step of ``protocol``
-                (raised by the protocol). Nothing is removed.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol`` (raised by the protocol). Nothing is
+                removed.
         """
         protocol.delete_step(step_index=step_index)
         self._report_invalid_steps(protocol, solicited=True)
@@ -653,9 +654,10 @@ class ProtocolsAPI:
         it loses focus.
 
         Raises:
-            ProtocolError: ``step_index`` is not a step of ``protocol``, or
-                ``name`` has no letter, digit, dash or underscore (raised
-                by the protocol). The step keeps its name.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol`` (raised by the protocol).
+            StepEditRefusedError: ``'step_value_refused'``, ``name`` has no
+                letter, digit, dash or underscore. The step keeps its name.
         """
         before = protocol.step_row(step_index=step_index)[['Label', 'Auto_Named']].tolist()
         protocol.modify_name(step_index=step_index, step_name=name)
@@ -1461,8 +1463,8 @@ class ProtocolsAPI:
         and a run refuse as ``turret_objectives_unassigned``.
 
         Raises:
-            ConfigError: ``'scope_not_composed'``, no session has bound this
-                scope, so it has no slot assignments to read.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope, so it has no slot assignments to read.
         """
         if not self._scope.capabilities.has_turret:
             return []
