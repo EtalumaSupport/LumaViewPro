@@ -181,7 +181,7 @@ def test_stop_pressed_during_a_steps_turret_change_ends_the_run_with_z_parked(
     position = session.scope.motion.get_current_position
     assert position(axis='Z') == 0.0, 'Z was driven back up after the STOP'
     assert (position(axis='X'), position(axis='Y')) == (0.0, 0.0), 'the step was driven to'
-    assert session.scope.motion.get_turret_slot() is None
+    assert session.scope.motion.turret_status().slot is None
 
 
 def test_stop_pressed_during_grease_redistribution_ends_the_protocol(

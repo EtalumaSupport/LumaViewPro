@@ -100,7 +100,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
 
         assert turret_session.select_objective('20x Oly') is True
 
-        assert turret_session.scope.motion.get_turret_slot() == 2
+        assert turret_session.scope.motion.turret_status().slot == 2
         assert turret_session.settings['turret_objectives'] == before
         assert turret_session.scope.runtime_state.get_current_objective_id() == '20x Oly'
 
@@ -122,7 +122,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
 
             assert excinfo.value.reason == 'objective_in_several_slots'
             assert excinfo.value.offered == (2, 3)
-            assert session.scope.motion.get_turret_slot() == 1
+            assert session.scope.motion.turret_status().slot == 1
         finally:
             session.shutdown()
 
@@ -134,7 +134,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
 
         assert excinfo.value.reason == 'objective_not_on_turret'
         assert excinfo.value.offered == ('10x Oly', '20x Oly', '4x Oly')
-        assert turret_session.scope.motion.get_turret_slot() == 1
+        assert turret_session.scope.motion.turret_status().slot == 1
 
     def test_an_empty_turret_says_it_holds_nothing(self, turret_session):
         """Its words name what the slots hold, so a turret holding nothing says so."""

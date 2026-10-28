@@ -17,7 +17,7 @@ try:
     for bad in (0, 5, 99, -3):
         try:
             m.move_turret(bad)
-            landed = m.get_current_position('T')
+            landed = m.turret_status().slot
             check(f'move_turret({bad}) refused', False, f'accepted, T landed at {landed}')
         except PositionOutOfRangeError as e:
             z_after = m.get_current_position('Z')

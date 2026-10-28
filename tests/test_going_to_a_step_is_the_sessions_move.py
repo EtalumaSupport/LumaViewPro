@@ -220,7 +220,7 @@ class TestTheMove:
         turret_session.go_to_step(protocol, 0)
 
         _settled_position(turret_session)
-        assert turret_session.scope.motion.get_turret_slot() == slots[objective]
+        assert turret_session.scope.motion.turret_status().slot == slots[objective]
         targets = turret_session.scope.protocols.step_targets(protocol, 0)
         assert targets.turret_slot == slots[objective]
 

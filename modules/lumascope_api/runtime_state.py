@@ -89,7 +89,7 @@ class RuntimeState:
         """The active objective's id and record, or why it is unknown.
 
         On a turreted scope (``capabilities.has_turret``), the objective
-        assigned to the slot in the light path (``motion.get_turret_slot``),
+        assigned to the slot in the light path (``motion.turret_status``),
         read fresh every time; with no turret, the selected one.
 
         Returns:
@@ -149,7 +149,7 @@ class RuntimeState:
                 return None, None, ObjectiveUnknownError('none_selected')
             objective = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
             return objective_id, objective, None
-        slot = self._scope.motion.get_turret_slot()
+        slot = self._scope.motion.turret_status().slot
         if slot is None:
             return None, None, ObjectiveUnknownError('slot_unknown')
         objective_id = self.get_turret_config().get(slot)

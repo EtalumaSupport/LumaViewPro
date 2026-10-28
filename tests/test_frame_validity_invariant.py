@@ -219,13 +219,13 @@ class TestMotionValiditySources:
         and restore are Z moves of their own and record 'z_move'."""
         motion = sim_turreted_session.scope.motion
         fv = sim_turreted_session.scope.imaging.frame_validity
-        slot = 2 if motion.get_turret_slot() != 2 else 1
+        slot = 2 if motion.turret_status().slot != 2 else 1
         before = fv.invalidation_counts
 
         motion.move_turret(slot)
 
         growth = self._growth(fv, before)
-        assert motion.get_turret_slot() == slot
+        assert motion.turret_status().slot == slot
         assert growth['turret'] > 0, f"move_turret must invalidate 'turret': {growth}"
         assert growth['xy_move'] == 0, f"move_turret invalidated 'xy_move': {growth}"
 

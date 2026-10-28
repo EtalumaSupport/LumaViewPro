@@ -869,7 +869,7 @@ class TestAxisState:
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
         sim_scope.motion.wait_until_finished_moving(timeout_s=2.0)
-        assert not sim_scope.motion.is_moving()
+        assert not sim_scope.motion.is_any_axis_moving()
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_disconnect_sets_unknown(self, sim_scope):

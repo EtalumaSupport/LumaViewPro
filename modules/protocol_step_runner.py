@@ -131,7 +131,7 @@ class ProtocolStepRunner:
             # The autofocus run has resolved (we passed the not-done gate above).
             # Handle it exactly once. AFE restores the pre-AF Z on a non-success,
             # which leaves the stage in motion, so the polls that immediately
-            # follow hit the is_moving early-return below WITHOUT clearing
+            # follow hit the is_any_axis_moving early-return below WITHOUT clearing
             # _af_future (it is cleared only at the step transition). Without this
             # one-shot latch each of those ~1 kHz settle polls would re-enter and
             # re-handle the same resolved future.
@@ -195,7 +195,7 @@ class ProtocolStepRunner:
         # The step waits while the stage moves. The move is judged by the
         # motion monitor, which gives an axis up once it stops progressing;
         # an axis given up ends the run at its position check.
-        if p._scope.motion.is_moving():
+        if p._scope.motion.is_any_axis_moving():
             return
 
         if not p._grease_redistribution_event.is_set():
@@ -207,7 +207,7 @@ class ProtocolStepRunner:
         # Fetch the step row only after the early-return gates above.
         # scan_iterate polls at up to ~1 kHz while motion is in flight,
         # and protocol.step_row() builds a fresh pandas Series per call --
-        # fetching before the is_moving gate burned that allocation on
+        # fetching before the is_any_axis_moving gate burned that allocation on
         # every poll of every move.
         step = p._protocol.step_row(step_index=p._curr_step)
 
@@ -593,7 +593,7 @@ class ProtocolStepRunner:
         capture wherever the last move left the stage; a refusal of either
         axis moves neither. X, Y and Z are started one after another and
         travel together; the run's tick waits for them by polling
-        ``is_moving``.
+        ``is_any_axis_moving``.
         """
         self._p._scope.motion.start_move_xy(x_um, y_um)
 

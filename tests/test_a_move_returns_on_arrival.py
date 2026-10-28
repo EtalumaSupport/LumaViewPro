@@ -363,7 +363,7 @@ class TestAnAxisTheScopeLacks:
                 move()
             assert caught.value.reason == 'axis_absent'
 
-        assert not motion.is_moving()
+        assert not motion.is_any_axis_moving()
 
 
 class TestAStartedGoToStep:
@@ -386,7 +386,7 @@ class TestAStartedGoToStep:
         protocol = self._two_step_protocol(session)
 
         session.start_go_to_step(protocol, 0)
-        assert motion.is_moving(), 'the started form returned after the stage arrived'
+        assert motion.is_any_axis_moving(), 'the started form returned after the stage arrived'
         session.start_go_to_step(protocol, 1).result(timeout=_TRAVEL_WAIT_S)
 
         step_two = session.scope.protocols.step_targets(protocol, 1)

@@ -170,7 +170,7 @@ class TestGoingToAStep:
             session.go_to_step(protocol, blue_idx)
 
         assert raised.value is refused
-        assert not session.scope.motion.is_moving()
+        assert not session.scope.motion.is_any_axis_moving()
 
 
 class TestTheMember:

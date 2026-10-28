@@ -1297,7 +1297,7 @@ class ScopeSession:
         for name, lane in self.executor_bundle.queued_executors():
             if lane.is_busy():
                 still.append(f'the {name} lane ({lane.describe_running_task()})')
-        if self.scope.motion.is_moving():
+        if self.scope.motion.is_any_axis_moving():
             still.append('an axis moving')
         if self.autofocus_thread.is_running:
             still.append('an autofocus sweep')
@@ -4947,7 +4947,7 @@ class ScopeSession:
         declared model's answer when the board did not come up, so a stale
         objective does not pass unasked then), the slot in the light path
         has no assignment. The slot is the live one
-        (``motion.get_turret_slot``), so an answer names the glass that is
+        (``motion.turret_status``), so an answer names the glass that is
         actually in the light path.
 
         Four conditions withhold an owed question, each leaving one log
@@ -4973,7 +4973,7 @@ class ScopeSession:
         confirmed = self.settings['objective_confirmed']
         first_run = confirmed != self._objective_topology()
         slots = self.settings['turret_objectives']
-        slot = self.scope.motion.get_turret_slot() if has_turret else None
+        slot = self.scope.motion.turret_status().slot if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
         # alone does not: it is unknown during every turret move, and asking
         # then would put the question up while the turret is still turning.
@@ -5034,7 +5034,7 @@ class ScopeSession:
         """
         if not self.scope.capabilities.has_turret:
             return self._objective_question_at(None)
-        slot = self.scope.motion.get_turret_slot()
+        slot = self.scope.motion.turret_status().slot
         if slot is None:
             raise ObjectiveUnknownError('slot_unknown')
         return self._objective_question_at(slot)
@@ -5372,7 +5372,7 @@ class ScopeSession:
                 path is unknown, so there is no slot to clear.
         """
         self._refuse_without_a_turret('clear_current_turret_objective')
-        slot = self.scope.motion.get_turret_slot()
+        slot = self.scope.motion.turret_status().slot
         if slot is None:
             raise ObjectiveUnknownError('slot_unknown')
         self.clear_turret_objective(slot)

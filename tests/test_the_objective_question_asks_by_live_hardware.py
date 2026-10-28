@@ -30,6 +30,7 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import ObjectiveUnknownError
 from modules.layer_record import UNRESOLVED, load_scope_models
+from modules.lumascope_api import AxisState, TurretStatus
 from modules.scope_capabilities import ScopeCapabilities
 from modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
@@ -91,7 +92,7 @@ class TestTheTurretFactPrefersTheBoard:
 def test_a_turret_scope_whose_board_did_not_come_up_has_a_turret_in_no_known_slot(
     tmp_path, monkeypatch
 ):
-    """Everywhere it is asked: the capability, the objective, the slot question.
+    """Everywhere it is asked: the capability, the slot, the objective, the slot question.
 
     The scope is brought up as a real one whose boards were not found: the
     registry's fallback is the null board, as it is on hardware. A stand-in
@@ -122,6 +123,9 @@ def test_a_turret_scope_whose_board_did_not_come_up_has_a_turret_in_no_known_slo
         assert not session.scope.motor_connected
         assert session.scope.capabilities.axes == ()
         assert session.scope.capabilities.has_turret is True
+        unknown = TurretStatus(AxisState.UNKNOWN, None)
+        assert session.scope.motion.turret_status() == unknown
+        assert session.status.turret == unknown
         with pytest.raises(ObjectiveUnknownError) as excinfo:
             session.scope.runtime_state.resolve_current_objective()
         assert excinfo.value.reason == 'slot_unknown'
@@ -140,8 +144,12 @@ class TestTheQuestionUsesIt:
         session.settings['objective_confirmed'] = False
         session.settings['turret_objectives'] = {1: None, 2: None, 3: None, 4: None}
         _board(session, has_turret=True)
-        # The question names the live slot, the one motion reports.
-        monkeypatch.setattr(session.scope.motion, 'get_turret_slot', lambda: 1)
+        # The question names the live slot, the one motion reports. A
+        # stand-in by design: the simulated board has no turret to stand at
+        # slot 1, and the scope's has-a-turret answer was set above.
+        monkeypatch.setattr(
+            session.scope.motion, 'turret_status', lambda: TurretStatus(AxisState.IDLE, 1)
+        )
         monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 

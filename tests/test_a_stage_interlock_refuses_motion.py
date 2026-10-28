@@ -185,13 +185,13 @@ class TestAHomeTheInterlockRefuses:
             build_scope(simulate=True, sim_model='LS850T', register_atexit=False)
         )
         try:
-            assert scope.motion.get_turret_slot() == 1
+            assert scope.motion.turret_status().slot == 1
             monkeypatch.setattr(scope._motion_driver, 'home', _refuse('lid_open', stopped=False))
 
             with pytest.raises(HardwareCommandRefusedError):
                 scope.motion.home('ALL')
 
-            assert scope.motion.get_turret_slot() == 1
+            assert scope.motion.turret_status().slot == 1
         finally:
             scope.disconnect()
 

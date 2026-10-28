@@ -242,7 +242,8 @@ class VerticalControl(BoxLayout):
                 would refuse the answer.
         """
         ctx = _app_ctx.ctx
-        slot = ctx.scope.motion.get_turret_slot()
+        turret = ctx.scope.motion.turret_status()
+        slot = turret.slot if turret is not None else None
         for position, assigned in ctx.scope.runtime_state.get_turret_config().items():
             button = self.ids[f'turret_pos_{position}_btn']
             button.state = 'down' if position == slot else 'normal'

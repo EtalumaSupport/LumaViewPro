@@ -127,7 +127,7 @@ def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
         scope.motion.home('T')
 
     assert caught.value.reason == 'axis_absent'
-    assert scope.motion.get_turret_slot() is None
+    assert scope.motion.turret_status() is None
 
 
 def test_a_home_ends_when_its_board_ends_it_however_long_it_takes(scope, monkeypatch):

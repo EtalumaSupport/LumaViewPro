@@ -106,13 +106,13 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
         motion.start_move_xy(x_um=5000.0)  # about 55 mm from home: over a second of travel
         # MOVING from the start's return, so the pull lands with all of the
         # travel still ahead rather than what a sleep left of it.
-        assert motion.is_moving()
+        assert motion.is_any_axis_moving()
 
         # Read before the pull: the monitor's disconnect clock starts after
         # it, so the interval measured from here can only be the longer.
         pulled = time.monotonic()
         session.scope.simulation.unplug('motor')
-        while motion.is_moving():
+        while motion.is_any_axis_moving():
             assert time.monotonic() - pulled < motion._DISCONNECT_FAULT_S + 2.0, 'X stayed MOVING'
             time.sleep(0.05)
         assert time.monotonic() - pulled >= motion._DISCONNECT_FAULT_S

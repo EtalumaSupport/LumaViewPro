@@ -109,7 +109,7 @@ def test_a_move_that_keeps_moving_is_never_given_up(session, monkeypatch, centre
     assert time.monotonic() - start > 2 * 0.5, 'the moves were too short to show anything'
     motion.move_turret(2)
 
-    assert motion.get_turret_slot() == 2
+    assert motion.turret_status().slot == 2
     assert _faults(centre_posts) == []
 
 

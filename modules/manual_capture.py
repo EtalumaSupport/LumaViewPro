@@ -399,13 +399,13 @@ class ManualCaptureController:
         # underscore for it.
         append = f'{well_label}_{channel}' if well_label else channel
         # The writer's own renderer, so a manual still and a protocol step
-        # spell the turret slot the same way; an unknown slot adds nothing.
+        # spell the turret slot the same way; an unknown slot, or no turret,
+        # adds nothing.
+        turret = scope.motion.turret_status() if request.engineering_mode else None
         append = common_utils.build_step_name(
             common_utils.StepNameComponents(
                 custom_prefix=append,
-                turret_position=(
-                    scope.motion.get_turret_slot() if request.engineering_mode else None
-                ),
+                turret_position=turret.slot if turret is not None else None,
             )
         )
 

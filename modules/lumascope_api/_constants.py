@@ -137,9 +137,9 @@ class AxisPosition:
 class TurretStatus:
     """The turret's state and the slot in the light path, read together.
 
-    ``slot`` is ``MotionAPI.get_turret_slot``'s: the slot the last turret
-    command left the turret in, None while one is in flight, after one
-    failed, and whenever the turret's position is lost. ``state`` is the
+    ``slot`` is the slot the last turret command left the turret in, None
+    before the first, while one is in flight, after one failed, and
+    whenever the turret's position is lost (``MotionAPI.turret_status``). ``state`` is the
     turret's ``AxisState``, which the slot alone cannot say: homing, moving
     or unknown.
     """

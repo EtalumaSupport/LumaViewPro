@@ -51,9 +51,9 @@ def main():
             'select_objective turns the turret to the slot holding it and writes no slot',
             changed
             and now_id == other
-            and m.get_turret_slot() == 4
+            and m.turret_status().slot == 4
             and s.settings['turret_objectives'] == slots_before,
-            f'{first} -> {now_id} at slot {m.get_turret_slot()}',
+            f'{first} -> {now_id} at slot {m.turret_status().slot}',
         )
         jogs = ('jog_z_coarse_um', 'jog_z_fine_um', 'jog_xy_coarse_um', 'jog_xy_fine_um')
         check(
@@ -70,10 +70,10 @@ def main():
 
         # --- rotate the turret (what the 4 turret buttons do) ---
         m.move_turret(2, restore_z=True)
-        t2 = m.get_current_position('T')
+        t2 = m.turret_status().slot
         at2 = s.scope.runtime_state.resolve_current_objective()[0]
         m.move_turret(3, restore_z=True)
-        t3 = m.get_current_position('T')
+        t3 = m.turret_status().slot
         at3 = s.scope.runtime_state.resolve_current_objective()[0]
         check('turret position changes on move_turret', t2 != t3, f'slot2={t2} slot3={t3}')
         check(

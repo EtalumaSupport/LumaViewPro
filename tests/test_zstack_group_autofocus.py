@@ -183,7 +183,7 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     runner._protocol = proto
     swap_lanes(runner._scope, io=_InlineIOExecutor())
     stand_in_step_targets(runner._scope, plate_to_stage=(1.0, 2.0))
-    runner._scope.motion.is_moving.return_value = False
+    runner._scope.motion.is_any_axis_moving.return_value = False
 
     # The state the runner is in on the poll after a sweep has resolved: the
     # future is done and already consumed, and AFE holds the found focus.

@@ -1383,7 +1383,7 @@ class ProtocolsAPI:
         """
         if not self._scope.capabilities.has_turret:
             return -1
-        return self._scope.motion.get_turret_slot()
+        return self._scope.motion.turret_status().slot
 
     @classmethod
     def _slot_meant(cls, objective_id: object, slot: int, turret_config: dict) -> int | None:
@@ -1437,7 +1437,7 @@ class ProtocolsAPI:
         """
         if not self._scope.capabilities.has_turret:
             return
-        live = self._scope.motion.get_turret_slot()
+        live = self._scope.motion.turret_status().slot
         turret_config = self._scope.runtime_state.get_turret_config()
         by_slot: dict[int, list[int]] = {}
         for idx, objective_id in enumerate(protocol.steps()['Objective']):

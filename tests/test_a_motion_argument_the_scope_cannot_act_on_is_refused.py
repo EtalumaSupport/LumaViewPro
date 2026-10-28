@@ -28,7 +28,7 @@ from tests.case_walk import failing_cases
 EVERY_AXIS = ('X', 'Y', 'Z', 'T')
 # The turret has a slot, not a position, so the position reads take the stage axes.
 STAGE_AXES = ('X', 'Y', 'Z')
-STAGE_ONLY = {'get_actual_position', 'get_target_position'}
+STAGE_ONLY = {'get_actual_position', 'get_target_position', 'get_current_position'}
 
 AXIS_MEMBERS = {
     'position_is_known': lambda s, a: s.motion.position_is_known(a),
@@ -65,7 +65,7 @@ def _refused(call, reason):
 def _motion_state(scope):
     motion = scope.motion
     states = {axis: motion.get_axis_state(axis) for axis in EVERY_AXIS}
-    return states, motion.get_target_positions(), motion.get_turret_slot()
+    return states, motion.get_target_positions(), motion.turret_status().slot
 
 
 NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]
@@ -87,7 +87,7 @@ def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope):
 
 
 def test_a_position_read_of_the_turret_is_refused(scope):
-    # The turret's place is a slot (get_turret_slot, turret_status), never a
+    # The turret's place is a slot (turret_status), never a
     # position in the stage's unit.
     for member in sorted(STAGE_ONLY):
         refusal = _refused(lambda member=member: AXIS_MEMBERS[member](scope, 'T'), 'not_offered')

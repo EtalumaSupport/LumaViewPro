@@ -135,7 +135,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     the slot on record is unchanged.
     """
     motion.move_z(1000.0)
-    slot_before = motion.get_turret_slot()
+    slot_before = motion.turret_status().slot
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         motion.move_turret(slot)
@@ -149,7 +149,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     assert 'travel range' not in str(caught.value)
     assert 'safety limit' not in str(caught.value)
     assert motion.get_current_position('Z') == pytest.approx(1000.0, abs=1.0)
-    assert motion.get_turret_slot() == slot_before
+    assert motion.turret_status().slot == slot_before
 
 
 @pytest.mark.parametrize('slot', [1, 2, 3, 4])
@@ -157,4 +157,4 @@ def test_every_real_slot_is_taken(motion, slot):
     """All four inclusive; refusing an endpoint would strand slot 1 or 4."""
     motion.move_turret(slot)
 
-    assert motion.get_turret_slot() == slot
+    assert motion.turret_status().slot == slot

@@ -83,7 +83,7 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
     assert locked_when_settled == [False]
     assert not session.controls_lock.controls_locked
     assert scope.motion.has_homed()
-    assert scope.motion.get_turret_slot() == 1
+    assert scope.motion.turret_status().slot == 1
 
 
 def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
@@ -121,7 +121,7 @@ def test_its_stop_is_the_stages_stop_refused_while_this_board_homes(session, mon
     assert (refused.value.reason, refused.value.member) == ('home_not_stoppable', 'stop_motion')
     assert str(refused.value) == ('This microscope cannot stop a home; the home runs to its end.')
     assert started.result(timeout=HOME_S) is None
-    assert session.scope.motion.get_turret_slot() == 1
+    assert session.scope.motion.turret_status().slot == 1
 
 
 def test_a_stop_refused_during_its_home_cancels_the_legs_after_it(session, monkeypatch):

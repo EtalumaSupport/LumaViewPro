@@ -226,7 +226,7 @@ class TestT8ObjectiveQuestion:
             while motion.get_axis_state('T') != AxisState.MOVING:
                 assert time.monotonic() < deadline, 'the turret move never started'
                 time.sleep(0.005)
-            assert motion.get_turret_slot() is None
+            assert motion.turret_status().slot is None
 
             assert session.objective_question() is None
             with pytest.raises(ObjectiveUnknownError) as excinfo:
@@ -426,7 +426,7 @@ class TestT10SelectObjective:
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
         _clear_log()
         assert session.select_objective('10x Oly') is True
-        assert session.scope.motion.get_turret_slot() == 2
+        assert session.scope.motion.turret_status().slot == 2
         assert session.settings['turret_objectives'][1] == '4x Oly'
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         optics = [line for line in _lines() if line.startswith('[Optics')]

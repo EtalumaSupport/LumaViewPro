@@ -101,7 +101,7 @@ def main():
             for slot, objective in session.scope.runtime_state.get_turret_config().items()
             if objective
         }
-        start_slot = motion.get_turret_slot()
+        start_slot = motion.turret_status().slot
         figure('turret slots assigned', slots)
         figure('turret slot at start', start_slot)
         here = slots.get(start_slot)
@@ -160,7 +160,7 @@ def main():
                 )
             )
             real_move_turret(slot=slot, restore_z=restore_z)
-            turned_to.append((slot, motion.get_turret_slot()))
+            turned_to.append((slot, motion.turret_status().slot))
 
         motion.move_turret = _observed_move_turret
         run_parent = SCRATCH / 'p10_runs'
@@ -189,7 +189,9 @@ def main():
             'each turret move landed on the slot it asked for',
             all(asked == landed for asked, landed in turned_to),
         )
-        check('the turret ends on the slot it started on', motion.get_turret_slot() == start_slot)
+        check(
+            'the turret ends on the slot it started on', motion.turret_status().slot == start_slot
+        )
         figure('channels lit as each turret move starts', lit_at_turn)
         check('no LED is lit as a turret move starts', lit_at_turn and not any(lit_at_turn))
 

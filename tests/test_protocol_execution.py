@@ -540,7 +540,7 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         # Stage never reports idle: scan_iterate keeps hitting the motion-settle
         # early-return after the AF gate, so _af_future is not cleared between
         # polls (it is cleared only at the step transition).
-        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **k: True)
+        monkeypatch.setattr(scope.motion, 'is_any_axis_moving', lambda *a, **k: True)
 
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         executor._protocol = protocol

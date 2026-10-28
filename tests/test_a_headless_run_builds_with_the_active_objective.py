@@ -30,7 +30,7 @@ class _BuiltError(Exception):
 )
 def test_the_protocol_names_the_slots_objective(tmp_path, monkeypatch, start):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        slot = session.scope.motion.get_turret_slot()
+        slot = session.scope.motion.turret_status().slot
         in_light_path = TEST_TURRET_OBJECTIVES[slot]
         stale = next(
             obj for obj in TEST_TURRET_OBJECTIVES.values() if obj not in (None, in_light_path)

@@ -30,7 +30,7 @@ polls a disarmed axis but writes no verdict for it, so a reached bit read
 before the arm -- the prior target's or the leg's -- ends nothing.
 
 Side effect: the same race affected `AutofocusRunner._iterate()`, which
-checks `scope.is_moving()` before capturing each focus-curve sample. AF
+checks `scope.is_any_axis_moving()` before capturing each focus-curve sample. AF
 "noise" from sporadic bad data points was likely caused by this same
 race. The fix resolves both #618 and the latent AF issue.
 """

@@ -167,7 +167,7 @@ def main():
                 f'{full_s:.1f} s against {bound_s:.0f} s',
             )
         check('Z is back at 0 before the turret turns', abs(motion.get_current_position('Z')) < 1.0)
-        slot = motion.get_turret_slot()
+        slot = motion.turret_status().slot
         if slot is not None:
             other = 2 if slot == 1 else 1
             # move_turret waits for the change, so it runs on its own thread

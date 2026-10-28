@@ -34,8 +34,8 @@ from modules.run_outcome import EndingLatch
 
 
 def _turret_token(session) -> str:
-    """The token the writer renders for the turret position the scope holds."""
-    return f'Turret{int(session.scope.motion.get_current_position("T"))}'
+    """The token the writer renders for the turret slot in the light path."""
+    return f'Turret{session.scope.motion.turret_status().slot}'
 
 
 def _saved_frames(tmp_path) -> list[str]:

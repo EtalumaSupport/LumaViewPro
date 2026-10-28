@@ -125,7 +125,7 @@ def _progress_holds(session, reads):
                 hold < STALL_WINDOW_S / 2,
                 f'{hold:.3f} s',
             )
-    slot = motion.get_turret_slot()
+    slot = motion.turret_status().slot
     if slot is not None:
         start = time.monotonic()
         other = 2 if slot == 1 else 1

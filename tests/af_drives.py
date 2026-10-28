@@ -34,7 +34,7 @@ def park_z(scope, z: float) -> None:
     fits.
     """
     scope.motion.move_z(z)
-    while scope.motion.is_moving():
+    while scope.motion.is_any_axis_moving():
         time.sleep(0.01)
 
 
@@ -65,7 +65,7 @@ def af_runner_and_scope():
 
     scope = MagicMock()
     scope.led_connected = False
-    scope.motion.is_moving.return_value = False
+    scope.motion.is_any_axis_moving.return_value = False
     scope.motion.get_current_position.return_value = AF_CENTER_Z
     scope.motion.get_target_position.return_value = 600.0
     scope.motion.get_axis_limits.return_value = AxisLimits(min_um=0.0, max_um=14000.0)

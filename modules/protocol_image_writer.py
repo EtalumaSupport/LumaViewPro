@@ -1373,7 +1373,7 @@ class ProtocolImageWriter:
             # whole slot halfway between two. An unknown slot adds nothing.
             turret_pos = None
             if self._engineering_mode and self._scope.capabilities.has_turret:
-                turret_pos = self._scope.motion.get_turret_slot()
+                turret_pos = self._scope.motion.turret_status().slot
 
             # The objective is stamped onto the saved filename here (the one
             # writer), separate from the step's identity Name. capture_root is

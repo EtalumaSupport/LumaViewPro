@@ -400,7 +400,7 @@ class TestOneEngineeringMode:
             assert session.engineering_mode is False
             _load(session, _plugin('engineering', on_register=turn_on))
             runner.run_composite(sequence_name='eng', parent_dir=str(tmp_path / 'runs'))
-            token = f'Turret{int(session.scope.motion.get_current_position("T"))}'
+            token = f'Turret{session.scope.motion.turret_status().slot}'
             still = session.manual_capture.capture(false_color_on=False).result(timeout=WAIT_S)
 
         frames = sorted(p.name for p in single_run_dir(tmp_path / 'runs').glob('*.tiff'))

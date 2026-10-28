@@ -115,7 +115,7 @@ class TestEachStepKeepsItsOwnSlot:
         for idx, slot in enumerate((2, 1, 2)):
             session.go_to_step(protocol, idx)
             session.scope.motion.wait_until_finished_moving(timeout_s=30)
-            assert session.scope.motion.get_turret_slot() == slot
+            assert session.scope.motion.turret_status().slot == slot
 
     def test_changing_one_step_to_a_slot_leaves_the_others_where_they_are(self, session):
         # The reporter's retest: change one step to T1 and every step went to T1.

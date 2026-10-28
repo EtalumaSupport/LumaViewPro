@@ -748,7 +748,7 @@ class AutofocusRunner:
 
         # Check if Z is still moving (in-memory state check, zero serial I/O
         # when IDLE). Covers both target arrival and overshoot.
-        if self._scope.motion.is_moving():
+        if self._scope.motion.is_any_axis_moving():
             return
 
         if self._abort_event is not None and self._abort_event.is_set():

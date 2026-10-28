@@ -272,7 +272,6 @@ scope.runtime_state.get_field_of_view()                # FieldOfView(width_um, h
 # Turret integration
 scope.runtime_state.get_turret_config()                # (in-process) {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy;
                                                        # a wire client reads a slot as session.turret_objective(slot)
-scope.motion.is_current_slot_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
 scope.runtime_state.get_labware()                      # the plate the settings select, from the catalogue
@@ -1369,7 +1368,7 @@ A number you pass is a finite number: NaN or an infinity is refused with `Argume
 
 A wait you pass is from 0 to 30 days: `wait_until_finished_moving`'s `timeout_s`, the run waiting forms' `timeout_s` (`run_single_scan` and the rest), `Operation.result` / `exception`'s `timeout`, `capture_and_wait` and `get_image`'s times, `enter_led_engineering_mode` and the `send_diagnostic_command` forms' `timeout_s`, `run_camera_bandwidth_test`'s cutoff, and the simulator's `delay_reply` and `reboot`. A negative wait, or one past 30 days, is refused with `ArgumentRefusedError` reason `out_of_range`, `limits` holding the range, before anything starts: a run waiting form has started no run, and a capture whose sum would wait longer than 30 days in all is refused the same way. The bound is the same on every host; past it, a wait the operating system cannot hold used to raise `OverflowError` out of the wait on one platform and not another.
 
-An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals, and each set of names is a string enum: `Axis` (X, Y, Z and T) and `StageAxis` (X, Y and Z), both in `modules.axes`, and `HomeTarget` (Z, T and ALL, `modules.lumascope_api.motion`); a member takes the enum's member or its plain string (`'Z'`). Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step_um`, the bookmark members and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `not_offered`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes a `HomeTarget`; `jog_step_um`, `get_target_position`, `get_actual_position`, `save_bookmark`, `go_to_bookmark` and `start_go_to_bookmark` take a `StageAxis`: the turret has a slot, not a position (`get_turret_slot`, `turret_status`). The answers name axes the same way: `axis_positions`, `get_target_positions`, `Status.axes` and a position event (`PositionChanged.axis`) by `StageAxis`, `axes_without_position` and `ScopeCapabilities.axes` by `Axis`; each equals its plain string (`positions['Z']` reads Z). An axis's state is an `AxisState` (`modules.lumascope_api`, a string enum: `'unknown'`, `'idle'`, `'moving'`, `'homing'`), answered by `get_axis_state`, `axes_without_position`, `AxisPosition.state` and `TurretStatus.state`; an `AxisPosition` or `TurretStatus` built with any other word is refused `not_offered`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60 s between them (`inter_cycle_delay_s`) and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key, and a key the write does not take is `key_unknown`, its `offered` holding the keys it takes: `target_brightness`, `min_gain_db`, `max_gain_db`, `max_exposure_ms` and `min_exposure_ms`. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
+An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals, and each set of names is a string enum: `Axis` (X, Y, Z and T) and `StageAxis` (X, Y and Z), both in `modules.axes`, and `HomeTarget` (Z, T and ALL, `modules.lumascope_api.motion`); a member takes the enum's member or its plain string (`'Z'`). Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step_um`, the bookmark members and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `not_offered`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes a `HomeTarget`; `jog_step_um`, `get_target_position`, `get_actual_position`, `save_bookmark`, `go_to_bookmark` and `start_go_to_bookmark` take a `StageAxis`: the turret has a slot, not a position (`turret_status`). The answers name axes the same way: `axis_positions`, `get_target_positions`, `Status.axes` and a position event (`PositionChanged.axis`) by `StageAxis`, `axes_without_position` and `ScopeCapabilities.axes` by `Axis`; each equals its plain string (`positions['Z']` reads Z). An axis's state is an `AxisState` (`modules.lumascope_api`, a string enum: `'unknown'`, `'idle'`, `'moving'`, `'homing'`), answered by `axes_without_position`, `AxisPosition.state` and `TurretStatus.state`; an `AxisPosition` or `TurretStatus` built with any other word is refused `not_offered`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (no entry in `axis_positions`, a position None). A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60 s between them (`inter_cycle_delay_s`) and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key, and a key the write does not take is `key_unknown`, its `offered` holding the keys it takes: `target_brightness`, `min_gain_db`, `max_gain_db`, `max_exposure_ms` and `min_exposure_ms`. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
 A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`labware_id`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
@@ -1585,6 +1584,7 @@ still states the major version.
 | level 43 | Every outcome class declares its reasons in `causes`, whatever its kind: a refusal's, a quiet outcome's and a raised notice's map each reason to its `RefusalCause`, a fault's and a reported notice's to None. A bare `cause` or `reason` in the class body is refused where the class is defined, and so is a class that carries a string another outcome class carries with another kind or cause, or without naming that class in `same_fact_as`; a subclass carries its parent's reasons as the same fact, and one that restates a parent's reason with another cause is refused. An outcome class is of one kind: a class under two kinds is refused, as is a class on the root that is no kind, and a subject below the umbrella carries no reasons. `RefusalCause` has a third value, `RESTART` (`'restart'`): no retry cures it until the server restarts (503 with no `Retry-After`). An outcome built with a reason its class does not declare raises `TypeError`, for every class. |
 | level 44 | A position to keep is read by `scope.motion.positions_to_keep(axes, then=...)`: X, Y and Z in um from one snapshot of state and number, refused `axis_moving` while an asked axis moves, `position_unknown` while one homes or has lost its reference, and `axis_absent` for an axis the scope has no motor for, never answered 0.0. A plugin or script that keeps a position (a sweep's centre, a reference in a result, the Z it returns to) reads it here, never through `get_current_position`. `scope.protocols.focus_z_um` reads Z through it, and a bookmark and the session's `get_current_plate_position` read through it too. |
 | level 45 | A capture's record comes back with its frame and nowhere else: `session.capture_still` (the scope's `imaging.capture_still` beneath it) returns a `CapturedStill`, its `record` the frame's `FrameRecord`, whose `exposure_source` / `gain_source` say whether each is the frame's own or read beside the grab and whose `auto_gain` is a locked arm's outcome. `imaging.last_capture_info` keeps only how the latest capture waited, frame or not (`hold_ms`, `drained`, `rechecks`, `deadline_s`, `n_entry`, `active_s`): its `frame_record`, `chunk_exposure_us`, `chunk_gain_db` and `auto_gain*` keys are gone. |
+| level 46 | The turret's slot is read through `scope.motion.turret_status()` alone: `get_turret_slot`, `is_moving` and `is_current_slot_objective_set` are gone, and `get_axis_state` is no longer declared. On a scope with a turret (`capabilities.has_turret`) whose motor board is lost or never came up, `turret_status()` answers `TurretStatus('unknown', None)`, never None; None means the scope has no turret. `get_current_position` and `get_current_positions` read X, Y and Z only: `'T'` is refused `not_offered`, and the turret is left out of the positions. |
 
 ### Configuration queries
 
@@ -1869,7 +1869,7 @@ step = scope.motion.jog_step_um('Z', coarse=True)
 scope.motion.move_z_by(-step)
 
 # Status
-scope.motion.is_moving()                         # any axis moving?
+scope.motion.axis_positions()['Z'].state         # each stage axis's AxisState; the turret's is turret_status().state
 scope.motion.wait_until_finished_moving()        # block until the axes moving now stop; raises MoveFaultError
                                                  # if one ended UNKNOWN (MoveStoppedError when a stop
                                                  # ended its move, as the close's does), or MoveWaitExpiredError ('still_moving',
@@ -1887,8 +1887,8 @@ scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 c
 scope.capabilities.has_turret                    # the board's answer; the declared model's when no board came up
 scope.motion.move_turret(2)                      # turret slot 1-4; any other slot raises
                                                  # PositionOutOfRangeError rather than driving
-scope.motion.get_turret_slot()                   # slot in the light path, or None when not known
-scope.motion.turret_status()                     # TurretStatus(state, slot) read together; None without a turret
+scope.motion.turret_status()                     # TurretStatus(state, slot) read together; None without a turret;
+                                                 # TurretStatus('unknown', None) with the motor board lost or never up
 # The turret has no encoder: the slot is the one the last move_turret or home
 # left it in, recorded only when that command returned without error and no
 # stop_motion landed on it. None before the first, while one runs, after one
@@ -1919,7 +1919,8 @@ answers None: it moves by slot, not by distance.
 **Axis state model:**
 
 ```python
-scope.motion.get_axis_state('Z')          # 'idle', 'moving', 'homing', or 'unknown'
+scope.motion.axis_positions()['Z'].state  # 'idle', 'moving', 'homing', or 'unknown'
+scope.motion.turret_status().state        # the turret's, on a scope with one
 ```
 
 **Position listeners** (push-based):
@@ -3320,16 +3321,12 @@ Reached through `session.scope.motion`.
 - `axis_positions`
 - `get_actual_position`
 - `get_axis_limits`
-- `get_axis_state`
 - `get_limit_switch_status`
 - `get_target_position`
 - `get_target_positions`
-- `get_turret_slot`
 - `has_homed`
 - `home`
 - `interlocks`
-- `is_current_slot_objective_set`
-- `is_moving`
 - `jog_step_um`
 - `move_to_plate`
 - `move_to_well`

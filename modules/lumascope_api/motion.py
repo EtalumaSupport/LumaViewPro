@@ -366,7 +366,7 @@ class MotionAPI:
         # _disconnect_since bounds a vanished board. Kept with its move, so a
         # retarget never inherits the earlier move's clock.
         # Without it, a move whose position_reached never fires wedges
-        # every state-reader -- capture settle-checks, is_moving pollers --
+        # every state-reader -- capture settle-checks, is_any_axis_moving pollers --
         # forever, while only explicit waiters carry their own timeout.
         # Only the monitor thread touches it.
         self._moving_since: dict[str, tuple[_Move, StallWatch]] = {}
@@ -1049,25 +1049,6 @@ class MotionAPI:
             self._stop_generation += 1
             raise MotorStopFailedError() from e
 
-    @api(reads=True)
-    def is_current_slot_objective_set(self) -> bool:
-        """Whether the turret slot in the light path has an objective assigned.
-
-        Returns:
-            bool: True if the turret's current slot is known and has a
-                configured objective ID; False if the slot is unconfigured
-                or not known -- an unknown slot has no objective anyone can
-                name.
-
-        Raises:
-            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
-                this scope, so it has no slot assignments to read.
-        """
-        slot = self.get_turret_slot()
-        if slot is None:
-            return False
-        return self._scope.runtime_state.get_turret_config()[slot] is not None
-
     @contextlib.contextmanager
     def _reference_position_logger(self) -> Iterator[None]:
         """Context manager that logs limit-switch status before and after homing.
@@ -1393,44 +1374,37 @@ class MotionAPI:
             self._record_turret_slot(int(slot))
 
     @api(reads=True)
-    def get_turret_slot(self) -> int | None:
-        """The turret slot in the light path, or None when it is not known.
-
-        The slot the last turret command (``move_turret``, a home) left the
-        turret in, recorded only when that command returned without error
-        and no stop was issued while it ran. None before the first such
-        command, while one is in flight, after one failed, and whenever the
-        turret's position is lost. The turret has no encoder, so nothing
-        else can say which slot is in the light path; the controller's step
-        count is not a slot.
-
-        Returns:
-            int | None: The slot, 1-4, or None.
-
-        Raises:
-            Nothing.
-        """
-        return self._last_turret_position
-
-    @api(reads=True)
     def turret_status(self) -> TurretStatus | None:
         """The turret's state and the slot in the light path, read together; None on a scope with no turret.
 
-        The slot is ``get_turret_slot``'s; the state is the turret's
-        ``AxisState``, which says what the slot alone cannot: whether it is
-        homing, moving, or lost. With the motor board lost it is UNKNOWN
-        with no slot. No serial I/O.
+        The slot is the one the last turret command (``move_turret``, a
+        home) left the turret in, recorded only when that command returned
+        without error and no stop was issued while it ran. It is None before
+        the first such command, while one is in flight, after one failed,
+        and whenever the turret's position is lost. The turret has no
+        encoder, so nothing else can say which slot is in the light path;
+        the controller's step count is not a slot. The state is the
+        turret's ``AxisState``, which says what the slot alone cannot:
+        whether it is homing, moving, or lost.
+
+        A scope has a turret as ``capabilities.has_turret`` answers. With
+        the motor board lost, or never come up, the turret is UNKNOWN with
+        no slot. No serial I/O.
 
         Raises:
             Nothing.
         """
-        # The state store holds the present axes from bring-up on, before
+        # The state store holds the board's axes from bring-up on, before
         # the scope's capabilities exist; a home at bring-up tells this.
+        # A board that did not come up put no T there, and only then is
+        # the capability asked.
         lost = self._board_lost()
         with self._axis_state_lock:
             state = self._axis_state.get('T')
             slot = self._last_turret_position
         if state is None:
+            if self._scope.capabilities.has_turret:
+                return TurretStatus(AxisState.UNKNOWN, None)
             return None
         return TurretStatus(AxisState.UNKNOWN, None) if lost else TurretStatus(state, slot)
 
@@ -1475,7 +1449,7 @@ class MotionAPI:
 
         Args:
             axis: Axis name ("X", "Y", "Z"). The turret has a slot, not a
-                position: ``get_turret_slot``.
+                position: ``turret_status``.
 
         Returns:
             float | None: Current position in um; None with the null board
@@ -1631,22 +1605,6 @@ class MotionAPI:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
-    @api(reads=True)
-    def is_moving(self) -> bool:
-        """Check if any axis is currently moving.
-
-        Reads from in-memory axis state -- zero serial I/O. The motion
-        monitor thread handles firmware queries and state transitions.
-
-        Returns:
-            bool: True if any axis is MOVING or HOMING. A Z move is MOVING
-            from its first target write, its backlash leg included.
-
-        Raises:
-            Nothing.
-        """
-        return self.is_any_axis_moving()
-
     def set_acceleration_limit(self, limit_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).
 
@@ -1777,9 +1735,12 @@ class MotionAPI:
             return True
         return action == self._home_impl and self._scope.capabilities.has_turret
 
-    @api(reads=True)
     def get_axis_state(self, axis: Axis) -> AxisState:
         """Get the current state of an axis.
+
+        The frame-settle check's read, which needs an absent axis's answer
+        that ``axis_positions`` and ``turret_status`` leave out; a caller
+        reads those.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
@@ -1792,6 +1753,7 @@ class MotionAPI:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
         """
+        axis = refuse_unless_offered(Axis, axis, 'axis')
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
@@ -1917,7 +1879,9 @@ class MotionAPI:
         Reads from the in-memory state dict -- zero serial I/O.
 
         Returns:
-            bool: True if any axis is in MOVING or HOMING state.
+            bool: True if any axis is in MOVING or HOMING state. A Z move
+            is MOVING from its first target write, its backlash leg
+            included.
         """
         with self._axis_state_lock:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
@@ -2287,7 +2251,7 @@ class MotionAPI:
 
         Args:
             axis: Axis name ("X", "Y", "Z"). The turret has a slot, not a
-                position: ``get_turret_slot``.
+                position: ``turret_status``.
 
         Returns:
             float | None: The target in um, or None for an axis with no
@@ -2318,7 +2282,7 @@ class MotionAPI:
         """The target of every stage axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
 
         An axis with no hardware behind it is left out, and so is the
-        turret, which has a slot (``get_turret_slot``). No serial I/O.
+        turret, which has a slot (``turret_status``). No serial I/O.
 
         Raises:
             Nothing.
@@ -2329,8 +2293,8 @@ class MotionAPI:
             if ax != Axis.T and self._has_position(ax)
         }
 
-    def get_current_position(self, axis: Axis) -> float | None:
-        """Get the current position for an axis; um for X/Y/Z, turret slot (1-4) for T.
+    def get_current_position(self, axis: StageAxis) -> float | None:
+        """Get the current position for a stage axis, in um.
 
         Reads from the in-memory position cache. During MOVING the cache
         is refreshed by _motion_monitor_loop polling the motor's actual
@@ -2338,7 +2302,8 @@ class MotionAPI:
         holds the last confirmed position.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z"). The turret has a slot, not a
+                position: ``turret_status``.
 
         Returns:
             float | None: The position in um, or None for an axis with no
@@ -2347,23 +2312,24 @@ class MotionAPI:
                 read since bring-up is UNKNOWN at 0.0, which nothing read.
 
         Raises:
-            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
-                name.
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
+                'Y' or 'Z'.
         """
-        axis = refuse_unless_offered(Axis, axis, 'axis')
+        axis = refuse_unless_offered(StageAxis, axis, 'axis')
         if not self._has_position(axis):
             return None
         return self._read_position_cache(axis)
 
-    def get_current_positions(self) -> dict[Axis, float]:
-        """The position of every axis the scope has a position for, by axis name, as ``get_current_position`` answers each.
+    def get_current_positions(self) -> dict[StageAxis, float]:
+        """The position of every stage axis the scope has a position for, by axis name, as ``get_current_position`` answers each.
 
-        An axis with no hardware behind it is left out. No serial I/O.
+        An axis with no hardware behind it is left out, and so is the
+        turret, which has a slot (``turret_status``). No serial I/O.
         """
         return {
-            ax: self.get_current_position(ax)
+            StageAxis(ax): self.get_current_position(ax)
             for ax in self._scope.capabilities.axes
-            if self._has_position(ax)
+            if ax != Axis.T and self._has_position(ax)
         }
 
     def _plate_target_to_stage(self, axis: str, plate_mm: float) -> float:
@@ -3945,12 +3911,12 @@ class MotionAPI:
                             break
                         if not self._driver.is_connected():
                             # A board that vanishes mid-move would otherwise
-                            # leave the axis MOVING forever -- is_moving() never
+                            # leave the axis MOVING forever -- is_any_axis_moving() never
                             # clears, so autofocus and the protocol runner wedge
                             # silently. Bound the disconnect: after a short
                             # deadline, fault the axis to a terminal state
                             # (UNKNOWN fires the arrival event so waiters and
-                            # is_moving() unblock) and notify the user once.
+                            # is_any_axis_moving() unblock) and notify the user once.
                             first = self._disconnect_since.setdefault(ax, time.monotonic())
                             if time.monotonic() - first > self._DISCONNECT_FAULT_S:
                                 self._disconnect_since.pop(ax, None)

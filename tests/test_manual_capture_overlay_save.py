@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from modules.coord_transformations import PlatePosition
-from modules.lumascope_api._constants import AxisPosition, AxisState
+from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
 from tests.ast_seams import parse_module
 from modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record, plate
@@ -228,7 +228,7 @@ class TestEngineeringModeNamesTheTurretPosition:
 
     def test_engineering_mode_writes_the_canonical_turret_token(self, capture_ctx):
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.get_turret_slot.return_value = 2
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
 
         save_one = _run_capture(capture_ctx)
 
@@ -237,7 +237,7 @@ class TestEngineeringModeNamesTheTurretPosition:
 
     def test_the_legacy_spelling_is_gone(self, capture_ctx):
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.get_turret_slot.return_value = 2
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
         capture_ctx.use_crosshairs = True
 
         save_one = _run_capture(capture_ctx)
@@ -252,7 +252,7 @@ class TestEngineeringModeNamesTheTurretPosition:
         """A scope that has not reported a turret position yet names the file
         exactly as production mode does; nothing is invented."""
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.get_turret_slot.return_value = None
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.UNKNOWN, None)
 
         save_one = _run_capture(capture_ctx)
 
@@ -261,7 +261,7 @@ class TestEngineeringModeNamesTheTurretPosition:
     def test_production_mode_names_no_turret_position(self, capture_ctx):
         """Behaviour preserved on both sides of the change."""
         capture_ctx.engineering_mode = False
-        capture_ctx.scope.motion.get_turret_slot.return_value = 2
+        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
 
         save_one = _run_capture(capture_ctx)
 

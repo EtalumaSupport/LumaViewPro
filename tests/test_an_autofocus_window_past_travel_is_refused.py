@@ -47,7 +47,7 @@ def _autofocus_from(scope, z, monkeypatch, peak):
         lambda image: 1e6 - abs(scope.motion.get_current_position('Z') - peak),
     )
     scope.motion.move_z(z)
-    while scope.motion.is_moving():
+    while scope.motion.is_any_axis_moving():
         time.sleep(0.01)
     thread = AutofocusThread(afe=AutofocusRunner(scope=scope))
     thread.start()
@@ -103,7 +103,7 @@ def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(scope, monkeypatch, 
     assert outcome_of(refused.value).kind == OutcomeKind.FAULT
     # The restore is a move; read Z once it has arrived, within a motor
     # step, since the stage lands on its own step grid.
-    while scope.motion.is_moving():
+    while scope.motion.is_any_axis_moving():
         time.sleep(0.01)
     assert scope.motion.get_current_position('Z') == pytest.approx(start, abs=0.01)
 

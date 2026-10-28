@@ -182,7 +182,7 @@ def _slot_when_the_turret_came_into_force(scope, monkeypatch, command) -> int | 
 
     def observed(source, at_ns, *, moving_seen_ns):
         if source == 'turret':
-            slot_at[at_ns] = scope.motion.get_turret_slot()
+            slot_at[at_ns] = scope.motion.turret_status().slot
         motion_settled(source, at_ns, moving_seen_ns=moving_seen_ns)
 
     monkeypatch.setattr(fv, 'motion_settled', observed)

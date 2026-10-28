@@ -262,7 +262,7 @@ def test_a_stop_during_the_turret_leg_leaves_z_parked_and_no_slot(turret_session
     after_stop = sent[sent.index('STOP') :]
     assert not [c for c in after_stop if c.startswith('TARGET_WZ')], after_stop
     assert driver.current_pos('Z') == pytest.approx(0.0, abs=0.1)
-    assert motion.get_turret_slot() is None
+    assert motion.turret_status().slot is None
 
 
 def test_a_stop_after_the_turret_arrived_leaves_z_parked_and_no_slot(turret_session, monkeypatch):
@@ -294,7 +294,7 @@ def test_a_stop_after_the_turret_arrived_leaves_z_parked_and_no_slot(turret_sess
     after_stop = sent[sent.index('STOP') :]
     assert not [c for c in after_stop if c.startswith('TARGET_WZ')], after_stop
     assert driver.current_pos('Z') == pytest.approx(0.0, abs=0.1)
-    assert motion.get_turret_slot() is None
+    assert motion.turret_status().slot is None
 
 
 @pytest.fixture

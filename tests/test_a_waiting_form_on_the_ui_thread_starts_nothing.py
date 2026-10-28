@@ -62,7 +62,7 @@ _WAITING_FORMS = {
     'start_go_to_step': lambda s, r, d: s.start_go_to_step(_far_step(s), 0),
     'home': lambda s, r, d: s.scope.motion.home('Z'),
     'move_turret': lambda s, r, d: s.scope.motion.move_turret(
-        2 if s.scope.motion.get_turret_slot() == 1 else 1
+        2 if s.scope.motion.turret_status().slot == 1 else 1
     ),
     'run_application_session': lambda s, r, d: s.run_application_session(),
     'run_composite': lambda s, r, d: r.run_composite(parent_dir=str(d)),

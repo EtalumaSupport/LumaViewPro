@@ -258,7 +258,7 @@ def scan_ready_runner(step, **state):
     from modules.protocol_state_machine import ProtocolState, SequencedCaptureRunMode
 
     runner = bare_capture_runner()
-    runner._scope.motion.is_moving.return_value = False
+    runner._scope.motion.is_any_axis_moving.return_value = False
     runner._scope.led_connected = False
     protocol = MagicMock()
     protocol.step_row.return_value = step
