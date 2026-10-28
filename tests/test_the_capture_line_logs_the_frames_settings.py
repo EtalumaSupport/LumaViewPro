@@ -15,8 +15,9 @@ import datetime
 import numpy as np
 import pytest
 
-from modules.lumascope_api.frame_record import FrameRecord, SettingSource
+from modules.lumascope_api.frame_record import SettingSource
 from modules.protocol_image_writer import _capture_evidence
+from tests.frame_records import frame_record
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from modules.lumascope_api.frame_record import CapturedStill
 
@@ -48,29 +49,17 @@ def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_sco
 
 
 def _record(**fields):
-    defaults = {
-        'captured_at': datetime.datetime.now(),
-        'exposure_ms': 62.003,
-        'exposure_source': SettingSource.FRAME,
-        'gain_db': 3.5,
-        'gain_source': SettingSource.FRAME,
-        'black_level': None,
-        'illumination_ma': {},
-        'frames_summed': 1,
-        'frame_significant_bits': 12,
-        'camera_timestamp_ticks': None,
-        'camera_tick_hz': None,
-        'frame_id': None,
-        'binning_size': 1,
-        'camera_model': 'a camera that stamps chunks',
-        'clock_mapping': None,
-        'judgments': (),
-        'saturated_fraction': 0.0,
-        'dark': None,
-        'held_channel': None,
-        'auto_gain': None,
-    }
-    return FrameRecord(**{**defaults, **fields})
+    return frame_record(
+        **{
+            'captured_at': datetime.datetime.now(),
+            'exposure_ms': 62.003,
+            'gain_db': 3.5,
+            'frame_significant_bits': 12,
+            'camera_model': 'a camera that stamps chunks',
+            'saturated_fraction': 0.0,
+            **fields,
+        }
+    )
 
 
 def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
