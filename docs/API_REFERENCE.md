@@ -303,7 +303,13 @@ def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> N
 
 Marks: in-process; event: [`ShownChannel`](#ShownChannel).
 
-Tell `listener` `(channel, lit)` each time the shown channel changes.
+Tell `listener` `(channel, lit)` each time the shown channel moves, or the session lights or darkens it.
+
+The session's own acts are told: `show_channel`,
+`light_shown_channel` and `go_to_step`, and a run's step when it
+moves the shown channel. Every LED change, whoever made it -- a raw
+LED write, a run's light, its end policy -- is an `led` event
+(`add_led_listener`).
 
 **Args**
 
@@ -3238,6 +3244,9 @@ Marks: reads (changes nothing).
 Route: `GET /api/v1/shown_channel`.
 
 The channel the scope shows: its layer, and whether its LED is lit.
+
+Whether it is lit is the LED store's answer at this read, whoever lit
+or darkened it.
 
 **Raises**
 
@@ -12667,7 +12676,7 @@ the camera, and whether its LED is lit with every other one dark.
 **Fields**
 
 - <a id="ShownChannel.channel"></a>`channel`: `str` -- The channel's key name.
-- <a id="ShownChannel.lit"></a>`lit`: `bool` -- Whether its LED is lit.
+- <a id="ShownChannel.lit"></a>`lit`: `bool` -- Whether its LED reads lit in the LED store, whoever lit it. An LED whose last write went unanswered reads unknown there, and is not lit here; the `led` event carries its unknown state.
 
 <a id="SimulatedModelAnswer"></a>
 ## `SimulatedModelAnswer`

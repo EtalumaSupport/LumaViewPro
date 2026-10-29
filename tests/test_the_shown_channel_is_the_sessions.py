@@ -222,6 +222,75 @@ def test_showing_the_shown_layer_during_a_recording_is_no_change(session):
         recording.result(timeout=60)
 
 
+class TestTheShownChannelsLitIsTheLed:
+    """``lit`` is the LED store's answer, whoever lit or darkened the LED: a
+    raw ``leds_off`` or ``led_on`` from a script or REST included."""
+
+    def test_after_a_raw_leds_off_the_shown_channel_reads_dark(self, session):
+        session.light_shown_channel(True)
+
+        session.scope.illumination.leds_off()
+
+        assert session.shown_channel == ShownChannel('BF', lit=False)
+
+    def test_after_a_raw_leds_off_the_next_layer_is_shown_dark(self, session):
+        session.light_shown_channel(True)
+        session.scope.illumination.leds_off()
+
+        assert session.show_channel(LED0) == ShownChannel(LED0, lit=False)
+        assert _lit(session) == set()
+
+    def test_after_a_raw_led_on_of_the_shown_layer_it_reads_lit(self, session):
+        session.scope.illumination.led_on('BF', 50.0)
+
+        assert session.shown_channel == ShownChannel('BF', lit=True)
+
+    def test_after_a_raw_leds_off_a_current_write_to_the_shown_layer_lights_nothing(self, session):
+        session.light_shown_channel(True)
+        session.scope.illumination.leds_off()
+
+        session.update_settings('BF.illumination_ma', 80.0)
+
+        assert _lit(session) == set()
+
+    def test_after_a_raw_leds_off_a_recording_admits_showing_its_own_layer(self, session):
+        """The stale lit asked for a light the recording refuses; dark, showing
+        the recording's own layer is no change."""
+        session.light_shown_channel(True)
+        recording = session.manual_recording.start(false_color_on=False)
+        try:
+            session.scope.illumination.leds_off()
+
+            assert session.show_channel('BF') == ShownChannel('BF', lit=False)
+        finally:
+            recording.stop()
+            recording.result(timeout=60)
+
+
+@pytest.fixture
+def lumi_session():
+    built = ScopeSession.create(complete_settings(microscope='Lumi'), simulate=True)
+    yield built
+    built.shutdown()
+
+
+class TestALayerWithNoLedIsShownDark:
+    def test_lighting_it_answers_dark(self, lumi_session):
+        lumi_session.show_channel('Lumi')
+
+        assert lumi_session.light_shown_channel(True) == ShownChannel('Lumi', lit=False)
+
+    def test_a_lit_layer_shown_again_after_it_is_dark(self, lumi_session):
+        """PC lit, the Lumi drawer opened (Lumi has no LED, so every LED goes
+        dark), PC opened again: PC stays dark, as the LEDs left it."""
+        lumi_session.show_channel('PC')
+        lumi_session.light_shown_channel(True)
+        lumi_session.show_channel('Lumi')
+
+        assert lumi_session.show_channel('PC') == ShownChannel('PC', lit=False)
+        assert _lit(lumi_session) == set()
+
+
 def test_putting_a_layer_on_the_camera_is_not_a_rest_route():
     """``show_channel`` is the one public way a layer's settings reach the
     camera; the Session's own apply is in-process."""

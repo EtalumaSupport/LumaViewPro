@@ -504,6 +504,19 @@ class TestTheLedPreview:
 
         assert self._lit(session) == {LED0}, 'a re-click re-drove the preview'
 
+    def test_a_re_selected_step_after_a_raw_leds_off_is_shown_dark(self, session):
+        """A re-click moves the shown channel back to the step's layer lit as the
+        LEDs read: dark after a raw ``leds_off``, though the session lit it."""
+        session.settings['protocol_led_on'] = True
+        protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
+        session.go_to_step(protocol, 0)
+        session.show_channel(LED0)
+        session.scope.illumination.leds_off()
+
+        session.go_to_step(protocol, 0)
+
+        assert self._lit(session) == set()
+
     def test_a_different_step_previews_again(self, session):
         session.settings['protocol_led_on'] = True
         objective = _objective_of(session)

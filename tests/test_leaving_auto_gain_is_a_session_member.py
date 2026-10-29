@@ -32,7 +32,7 @@ from modules.lumascope_api.camera import (
     AutoGainLock,
     stored_exposure_after_lock,
 )
-from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
+from modules.scope_session import ScopeSession, SettingsLock
 from tests.scope_fakes import identity_with_layers
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -62,7 +62,7 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', LED0, LED1, LED2), s
         settings=settings,
         settings_lock=SettingsLock(lambda paths: None),
         _settings_saver=None,
-        _shown_channel=ShownChannel(shown, lit=False),
+        _shown_layer=shown,
         _auto_gain_locks={},
         activity_claim=ActivityClaim(),
         apply_layer_camera=MagicMock(),

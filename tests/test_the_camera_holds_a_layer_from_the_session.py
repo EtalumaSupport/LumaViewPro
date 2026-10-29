@@ -79,7 +79,7 @@ class TestBringUp:
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=False),
             apply_layer_camera=applied,
-            _set_shown_channel=lambda shown: None,
+            _show_layer=lambda layer: None,
         )
         said = _said(monkeypatch)
         ScopeSession._apply_bring_up_layer(stand_in)
@@ -91,7 +91,7 @@ class TestBringUp:
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=True),
             apply_layer_camera=applied,
-            _set_shown_channel=lambda shown: None,
+            _show_layer=lambda layer: None,
             _layers_on_scope=lambda: set(),
         )
         said = _said(monkeypatch)

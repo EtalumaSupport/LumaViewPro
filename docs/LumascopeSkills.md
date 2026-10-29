@@ -606,8 +606,12 @@ light and gives it back saves it first and restores it after
 the session: `session.show_channel(channel)` puts that channel's stored gain,
 exposure and auto-gain on the camera, and `session.light_shown_channel(lit)`
 lights or darkens it at its stored current. This is the one way a channel's
-settings reach the camera; a run and a go-to-step move it too. Over REST each
-change is a `shown_channel` event.
+settings reach the camera; a run and a go-to-step move it too. Its `lit` is
+what the LEDs read, whoever lit or darkened them: after a raw
+`illumination.leds_off()` it is dark, and the next channel shown is dark too.
+Over REST each move of the shown channel, and each light the session itself
+lights or darkens, is a `shown_channel` event; every LED change, a raw write or
+a run's light included, is an `led` event.
 
 ```python
 print(session.show_channel('BF'))           # ShownChannel(channel='BF', lit=False)

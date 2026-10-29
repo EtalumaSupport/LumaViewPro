@@ -36,7 +36,7 @@ from modules.lumascope_api.camera import (
     AutoGainLock,
     stored_exposure_after_lock,
 )
-from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
+from modules.scope_session import ScopeSession, SettingsLock
 from tests.stock_channels import LED0
 
 
@@ -85,7 +85,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
         # A session that names no settings file: its writes wake no saver.
         _settings_saver=None,
         # The layer is shown, and the camera holds it.
-        _shown_channel=ShownChannel(layer, lit=False),
+        _shown_layer=layer,
         _auto_gain_locks={},
         activity_claim=ActivityClaim(),
         apply_layer_camera=lambda shown: None,

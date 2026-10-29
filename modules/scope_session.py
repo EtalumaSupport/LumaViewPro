@@ -462,7 +462,9 @@ class ShownChannel:
 
     Attributes:
         channel: The channel's key name.
-        lit: Whether its LED is lit.
+        lit: Whether its LED reads lit in the LED store, whoever lit it. An
+            LED whose last write went unanswered reads unknown there, and is
+            not lit here; the ``led`` event carries its unknown state.
     """
 
     channel: str
@@ -627,15 +629,16 @@ class ScopeSession:
         # or re-read the level-derivation properties below -- never
         # acquire engine locks or trust edge context.
         self._run_state_listeners: list = []
-        # The channel the scope shows, the one store of it: show_channel,
-        # light_shown_channel, go_to_step and a run's steps write it. The
-        # GUI opens on BF with every LED dark, and so does the store.
-        self._shown_channel = ShownChannel(common_utils.DEFAULT_LAYER, lit=False)
+        # The layer the scope shows, the one store of it: show_channel,
+        # go_to_step and a run's steps write it. Whether it is lit is the
+        # LED store's, read at each read, never kept here. The GUI opens on
+        # BF, and so does the store.
+        self._shown_layer = common_utils.DEFAULT_LAYER
         self._shown_channel_listeners: list = []
-        # The shown channel as a run's first lit step found it, shown again
+        # The layer shown as a run's first lit step found it, shown again
         # once the run's cleanup has restored the camera; None outside a run
         # whose steps have lit. Written and read on the protocol thread.
-        self._shown_before_run: ShownChannel | None = None
+        self._shown_before_run: str | None = None
         # The step the last go_to_step previewed, as (protocol, index): a
         # repeat of it is a re-click, whose preview would put out a channel
         # the person lit in between. Forgotten at every run transition, so
@@ -687,7 +690,7 @@ class ScopeSession:
         self.manual_recording = ManualRecordingController(
             scope=scope,
             settings=settings,
-            shown_layer=lambda: self._shown_channel.channel,
+            shown_layer=lambda: self._shown_layer,
             channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
@@ -699,7 +702,7 @@ class ScopeSession:
         self.manual_capture = ManualCaptureController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            shown_layer=lambda: self._shown_channel.channel,
+            shown_layer=lambda: self._shown_layer,
             layer_camera_request=self._layer_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
@@ -1349,17 +1352,11 @@ class ScopeSession:
             self._run_state_listeners.remove(listener)
 
     def _run_went_idle(self) -> None:
-        """The engine's run has ended: release any claim waiting on it, then tell the listeners.
-
-        The shown channel's lit is the run's end state: the run's own end
-        policy left its layer lit or dark.
-        """
+        """The engine's run has ended: release any claim waiting on it, then tell the listeners."""
         with self._release_at_run_idle_lock:
             waiting, self._release_at_run_idle = self._release_at_run_idle, []
         for held in waiting:
             held.release()
-        layer = self._shown_channel.channel
-        self._set_shown_channel(ShownChannel(layer, lit=self._layer_lit(layer)))
         self.notify_run_state()
 
     def notify_run_state(self) -> None:
@@ -2520,7 +2517,7 @@ class ScopeSession:
             if lock is not None:
                 self._auto_gain_locks[channel] = lock
         if (
-            channel == self._shown_channel.channel
+            channel == self._shown_layer
             and (enabled or holds)
             and not self._an_activity_holds_the_scope()
             and self.scope.camera_connected
@@ -3684,9 +3681,10 @@ class ScopeSession:
         shows = last is None or last[0] is not protocol or last[1] != step_index
         # A first visit is the step's preview. A repeat leaves the LEDs as the
         # person left them while the step's layer is shown, and moves the shown
-        # channel, lit or dark as it was, back to it when another was shown.
-        moves_light = shows or self._shown_channel.channel != step['Color']
-        lit = self.settings['protocol_led_on'] if shows else self._shown_channel.lit
+        # channel, lit or dark as its LED reads, back to it when another was shown.
+        was_lit = self._layer_lit(self._shown_layer)
+        moves_light = shows or self._shown_layer != step['Color']
+        lit = self.settings['protocol_led_on'] if shows else was_lit
         if moves_light and lit and self._led_address(step['Color']) is not None:
             # A preview that would light needs the LED controller, asked
             # before anything moves; a dark one needs no board. A recording
@@ -3718,7 +3716,7 @@ class ScopeSession:
         # The step's values are now its layer's, so the layer lights at the
         # step's current.
         self._show_leds(step['Color'], lit)
-        self._set_shown_channel(ShownChannel(step['Color'], lit))
+        self._show_layer(step['Color'], was_lit=was_lit)
         return moves
 
     def _load_step_into_layer(self, step) -> None:
@@ -3797,23 +3795,30 @@ class ScopeSession:
         readings = self.scope.illumination.get_led_states()
         return any(r.address == address and r.state == LedState.LIT for r in readings)
 
-    def _set_shown_channel(self, shown: ShownChannel) -> None:
-        """Store ``shown`` and tell the listeners when it changed."""
-        if shown == self._shown_channel:
+    def _show_layer(self, layer: str, *, was_lit: bool | None = None) -> None:
+        """Make ``layer`` the shown layer, and tell the listeners when it moved
+        or when the act that called this changed its light.
+
+        ``was_lit`` is the shown layer's light as the act read it before it
+        wrote; None for a caller that cannot read one (a run's step and end
+        hear of the LED only once it has changed), whose light the LED
+        event tells.
+        """
+        lit = self._layer_lit(layer)
+        if layer == self._shown_layer and (was_lit is None or was_lit == lit):
             return
-        self._shown_channel = shown
+        self._shown_layer = layer
         from modules.notification_center import notifications
 
         notifications.tell_listeners(
-            list(self._shown_channel_listeners), shown.channel, shown.lit, category='Illumination'
+            list(self._shown_channel_listeners), layer, lit, category='Illumination'
         )
 
     def _step_lit_by_run(self, layer: str) -> None:
-        """A run's step has shown ``layer``: it is the shown channel, lit as
-        its LED reads -- a layer with no LED is shown dark."""
+        """A run's step has shown ``layer``: it is the shown layer."""
         if self._shown_before_run is None:
-            self._shown_before_run = self._shown_channel
-        self._set_shown_channel(ShownChannel(layer, lit=self._layer_lit(layer)))
+            self._shown_before_run = self._shown_layer
+        self._show_layer(layer)
 
     def _show_the_layer_shown_before_the_run(self) -> None:
         """The run's cleanup has restored the camera: show the layer shown
@@ -3821,26 +3826,30 @@ class ScopeSession:
 
         A write made to it during the run was stored only, and goes on the
         camera here; with none, the camera already holds it and nothing is
-        written. Its LED is what the run's end policy left, so it is shown
-        lit as its LED reads. Called on the protocol thread, under the run's
-        taking, so the camera half is admitted.
+        written. Its LED is what the run's end policy left. Called on the
+        protocol thread, under the run's taking, so the camera half is
+        admitted.
         """
         before, self._shown_before_run = self._shown_before_run, None
         if before is None:
             return
-        self._set_shown_channel(ShownChannel(before.channel, lit=self._layer_lit(before.channel)))
+        self._show_layer(before)
         if self.scope.camera_connected:
-            self.apply_layer_camera(before.channel)
+            self.apply_layer_camera(before)
 
     @api(reads=True)
     @property
     def shown_channel(self) -> ShownChannel:
         """The channel the scope shows: its layer, and whether its LED is lit.
 
+        Whether it is lit is the LED store's answer at this read, whoever lit
+        or darkened it.
+
         Raises:
             Nothing.
         """
-        return self._shown_channel
+        layer = self._shown_layer
+        return ShownChannel(layer, self._layer_lit(layer))
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def show_channel(self, channel: str) -> ShownChannel:
@@ -3877,11 +3886,22 @@ class ScopeSession:
         """
         self.scope.channel_identity.refuse_unless_on_scope(channel, 'show_channel', then='be shown')
         with self._a_layer_change(channel, 'show_channel'):
-            lit = self._shown_channel.lit
-            self._show_leds(channel, lit)
-            self._set_shown_channel(ShownChannel(channel, lit))
+            # The light is decided on the lane, in the task that writes it: read
+            # off it, another show's switch could be caught between its old
+            # LED going dark and its new one lighting.
+            self.io_executor.call(
+                IOTask(action=self._show_channel_light_on_lane, args=(channel,)),
+                'show_channel',
+                timeout_s=None,
+            )
             self.apply_layer_camera(channel)
-        return self._shown_channel
+        return self.shown_channel
+
+    def _show_channel_light_on_lane(self, channel: str) -> None:
+        """The lane half of ``show_channel``: ``channel`` lit if the shown layer is, every other LED dark."""
+        was_lit = self._layer_lit(self._shown_layer)
+        self._show_leds(channel, was_lit)
+        self._show_layer(channel, was_lit=was_lit)
 
     @contextlib.contextmanager
     def _a_layer_change(self, layer: str, member: str):
@@ -3901,7 +3921,7 @@ class ScopeSession:
             ControlSessionRefusedError: ``'control_session_held'``, naming
                 the session.
         """
-        if layer == self._shown_channel.channel:
+        if layer == self._shown_layer:
             yield
             return
         claim = self.activity_claim
@@ -3949,15 +3969,16 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LED is already lit or dark.
         """
-        layer = self._shown_channel.channel
+        layer = self._shown_layer
         self.scope.channel_identity.refuse_unless_on_scope(
             layer, 'light_shown_channel', then='be lit'
         )
+        was_lit = self._layer_lit(layer)
         self._show_leds(layer, lit)
-        self._set_shown_channel(ShownChannel(layer, lit))
+        self._show_layer(layer, was_lit=was_lit)
         if self.scope.camera_connected:
             self.apply_layer_camera(layer)
-        return self._shown_channel
+        return self.shown_channel
 
     @api(in_process=True, event=SettingsChanged)
     def add_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None:
@@ -3998,7 +4019,13 @@ class ScopeSession:
 
     @api(in_process=True, event=ShownChannel)
     def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
-        """Tell ``listener`` ``(channel, lit)`` each time the shown channel changes.
+        """Tell ``listener`` ``(channel, lit)`` each time the shown channel moves, or the session lights or darkens it.
+
+        The session's own acts are told: ``show_channel``,
+        ``light_shown_channel`` and ``go_to_step``, and a run's step when it
+        moves the shown channel. Every LED change, whoever made it -- a raw
+        LED write, a run's light, its end policy -- is an ``led`` event
+        (``add_led_listener``).
 
         Args:
             listener: Called as ``listener(channel, lit)``, the layer now
@@ -4228,7 +4255,7 @@ class ScopeSession:
         the camera from the store. While a manual recording runs its
         illumination is stored only: the recording refuses every light.
         """
-        layer = self._shown_channel.channel
+        layer = self._shown_layer
         with self.settings_lock:
             auto_gain = self.settings[layer]['auto_gain']
         camera = path in (f'{layer}.gain_db', f'{layer}.exposure_ms') or (
@@ -4237,7 +4264,7 @@ class ScopeSession:
         holder = self.activity_claim.holder
         led = (
             path == f'{layer}.illumination_ma'
-            and self._shown_channel.lit
+            and self._layer_lit(layer)
             and (holder is None or holder.kind != WorkKind.RECORDING)
         )
         if not (camera or led):
@@ -4894,7 +4921,7 @@ class ScopeSession:
         up.
         """
         layer = common_utils.DEFAULT_LAYER
-        self._set_shown_channel(ShownChannel(layer, lit=False))
+        self._show_layer(layer)
         if not self.scope.camera_connected:
             logger.info(f'[Session  ] bring-up: no camera, so {layer} is not applied to it')
             return
