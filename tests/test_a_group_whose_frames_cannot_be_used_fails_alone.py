@@ -16,6 +16,7 @@ group, not a recorded file that does not exist.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -57,7 +58,7 @@ def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: in
             'illumination_ma': 5.0,
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': x, 'y': 11.24},
-            'datetime': '2026:10:07 12:00:00',
+            'datetime': datetime.datetime(2026, 10, 7, 12, 0, 0),
             'well_label': well,
             'significant_bits': 8,
         },

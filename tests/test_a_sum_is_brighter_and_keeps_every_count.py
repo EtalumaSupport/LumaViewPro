@@ -21,6 +21,7 @@ an 8-bit camera was offered only the 8-bit image mode.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -211,7 +212,7 @@ def _write(
         file_loc=path,
         metadata={
             **counted,
-            'datetime': '2026-10-04T12:00:00',
+            'datetime': datetime.datetime(2026, 10, 4, 12, 0, 0),
             'plate_pos_mm': {'x': 0.0, 'y': 0.0},
             'z_pos_um': 0.0,
             'exposure_time_ms': 50.0,

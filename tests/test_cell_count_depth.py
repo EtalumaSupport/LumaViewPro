@@ -10,6 +10,7 @@ converter; a legacy left-justified file (no narrow tag) correctly reads as 16.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 
 from modules.cell_count_method import CellCountMethod
@@ -29,7 +30,7 @@ def _meta(significant_bits):
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-        'datetime': '2026:06:18 12:00:00',
+        'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
         'well_label': 'A1',
         'significant_bits': significant_bits,
     }

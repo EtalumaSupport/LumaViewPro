@@ -14,6 +14,7 @@ Every case writes through the real writer and reads back from disk.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 import tifffile as tf
 from PIL import Image
@@ -72,7 +73,7 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
             'pixel_size_um': None,
             'channel': LED1,
             'significant_bits': 12,
-            'datetime': '2026-10-04T00:00:00',
+            'datetime': datetime.datetime(2026, 10, 4, 0, 0, 0),
             'plate_pos_mm': {'x': 12.5, 'y': 30.25},
             'z_pos_um': 4321.0,
             'exposure_time_ms': 50.0,
@@ -136,7 +137,7 @@ def test_a_composite_states_no_per_channel_acquisition_setting(tmp_path):
             'pixel_size_um': 0.65,
             'channel': LED2,
             'significant_bits': 12,
-            'datetime': '2026-10-04T00:00:00',
+            'datetime': datetime.datetime(2026, 10, 4, 0, 0, 0),
             'exposure_time_ms': 50.0,
             'gain_db': 3.0,
             'black_level': 4.0,

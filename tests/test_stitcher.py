@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
+import datetime
 import logging
 import pathlib
 import re
@@ -710,7 +711,7 @@ class TestGroupAlgorithmPixelSize:
             significant_bits=8,
             save_encoding='8bit',
             metadata={
-                'datetime': '2026-07-14T12:00:00',
+                'datetime': datetime.datetime(2026, 7, 14, 12, 0, 0),
                 'plate_pos_mm': {'x': x, 'y': y},
                 'z_pos_um': 0.0,
                 'objective': {},

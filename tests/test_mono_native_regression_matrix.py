@@ -26,6 +26,7 @@ Pipeline coverage:
 
 from __future__ import annotations
 
+import datetime
 from unittest.mock import patch
 
 import numpy as np
@@ -47,7 +48,7 @@ def _metadata(path, channel=LED0):
     """Minimal metadata dict matching ``write_tiff``'s generate_tiff_data."""
     return {
         'file_loc': str(path),
-        'datetime': '2026-05-27T00:00:00',
+        'datetime': datetime.datetime(2026, 5, 27, 0, 0, 0),
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
         'objective': {'id': 'test'},
@@ -227,7 +228,7 @@ def rgb_run_folder(tmp_path):
                 'illumination_ma': 5.0,
                 'z_pos_um': 5000.0,
                 'plate_pos_mm': {'x': 10.0, 'y': 10.0},
-                'datetime': '2026:10:13 12:00:00',
+                'datetime': datetime.datetime(2026, 10, 13, 12, 0, 0),
                 'well_label': '',
                 'significant_bits': 8,
             },

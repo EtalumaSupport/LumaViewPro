@@ -473,6 +473,10 @@ _OME_PLANE_ATTRIBUTES = frozenset(
 )
 _LVP_OME_ANNOTATION_NAMESPACE = 'etaluma.com/lvp'
 
+# The TIFF 6.0 DateTime tag's one form. A record's ``datetime`` is a datetime
+# value, formatted here by the writer and parsed back by the reader.
+_TIFF_DATETIME = '%Y:%m:%d %H:%M:%S'
+
 
 class FactKind(enum.Enum):
     """What a fact of a saved file's record describes, which decides whether a
@@ -1197,7 +1201,7 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             structured = _structured_metadata(tif)
             ome_xml = tif.ome_metadata
             datetime_tag = tif.pages[0].tags.get('DateTime')
-            datetime_value = datetime_tag.value if datetime_tag else None
+            datetime_value = _parsed_tiff_datetime(datetime_tag.value) if datetime_tag else None
     except Exception:
         return None
 
@@ -1271,6 +1275,23 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             flat['well_label'] = p['WellLabel']
 
     return flat
+
+
+def _parsed_tiff_datetime(stated: str) -> datetime.datetime | None:
+    """The time a file's DateTime tag states, or None when it states none LVP can read.
+
+    LVP writes the TIFF form; files a derived build wrote before the form was
+    one carry the ISO form, read too. A tag in neither form, from another
+    producer, states no time this reader can give.
+    """
+    try:
+        return datetime.datetime.strptime(stated, _TIFF_DATETIME)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return datetime.datetime.fromisoformat(stated)
+    except (TypeError, ValueError):
+        return None
 
 
 def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.datetime | None']:
@@ -1426,7 +1447,7 @@ def build_postproc_output_metadata(
 
     metadata = {key: value for key, value in read.items() if _stated_by_the_output(FILE_FACTS[key])}
     metadata['channel'] = channel
-    metadata['datetime'] = datetime.datetime.now().isoformat(timespec='seconds')
+    metadata['datetime'] = datetime.datetime.now()
 
     if plate_pos_mm_override is not None:
         metadata['plate_pos_mm'] = plate_pos_mm_override
@@ -2237,6 +2258,8 @@ def write_hyperstack_tiff(
             resolution=hyperstack_resolution,
             metadata=hyperstack_metadata,
             software=f'LumaViewPro {version}',
+            # The hyperstack's time is its build's.
+            datetime=datetime.datetime.now().strftime(_TIFF_DATETIME),
             extratags=caller_extratags,
             **write_options,
         )
@@ -2390,6 +2413,7 @@ def write_tiff(
     support_data = generate_tiff_data(
         data=data, metadata=metadata, image_type=image_type, color=color, white_bits=white_bits
     )
+    tiff_datetime = metadata['datetime'].strftime(_TIFF_DATETIME)
 
     with _written_whole(file_loc) as tmp_loc, tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
         if (image_type is None) and is_color_image(image=data):
@@ -2398,7 +2422,7 @@ def write_tiff(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
-                datetime=metadata['datetime'],
+                datetime=tiff_datetime,
                 software=f'LumaViewPro {version}',
                 extratags=support_data['extratags'],
                 **support_data['options'],
@@ -2409,7 +2433,7 @@ def write_tiff(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
-                datetime=metadata['datetime'],
+                datetime=tiff_datetime,
                 software=f'LumaViewPro {version}',
                 extratags=support_data['extratags'],
                 **support_data['options'],
@@ -2430,7 +2454,7 @@ def write_tiff(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
-                datetime=metadata['datetime'],
+                datetime=tiff_datetime,
                 software=f'LumaViewPro {version}',
                 colormap=colormap_array,
                 extratags=support_data['extratags'],

@@ -9,6 +9,7 @@ Per-layer + dtype matrix.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 import pytest
 import tifffile
@@ -201,6 +202,6 @@ _METADATA = {
     'illumination_ma': 5.0,
     'z_pos_um': 5000.0,
     'plate_pos_mm': {'x': 1.0, 'y': 2.0},
-    'datetime': '2026:10:13 12:00:00',
+    'datetime': datetime.datetime(2026, 10, 13, 12, 0, 0),
     'well_label': '',
 }

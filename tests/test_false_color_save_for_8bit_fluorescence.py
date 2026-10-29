@@ -24,6 +24,7 @@ Tests below exercise ``write_tiff`` directly for both bit depths.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 import pytest
 import tifffile as tf
@@ -48,7 +49,7 @@ def _minimal_metadata(path, channel=LED2):
     expects. The plane metadata is keyed off these fields."""
     return {
         'file_loc': str(path),
-        'datetime': '2026-05-17T11:00:00',
+        'datetime': datetime.datetime(2026, 5, 17, 11, 0, 0),
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
         'objective': {'id': 'test'},

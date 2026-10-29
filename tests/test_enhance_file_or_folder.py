@@ -1,5 +1,6 @@
 """Quick Enhance through the Session: a missing target is refused, progress counts, outputs reach the viewer."""
 
+import datetime
 import ast
 from pathlib import Path
 from modules.layer_record import release_color
@@ -38,7 +39,7 @@ def _write_source(path):
             'illumination_ma': 100.0,
             'z_pos_um': 1000.0,
             'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-            'datetime': '2026:06:18 12:00:00',
+            'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
             'well_label': 'A1',
             'significant_bits': 8,
         },

@@ -15,6 +15,7 @@ Every case writes through the real writer and reads the file back from disk.
 
 from __future__ import annotations
 
+import datetime
 import ast
 import json
 import xml.etree.ElementTree as ET
@@ -39,7 +40,7 @@ def _every_plane_field() -> dict:
         'pixel_size_um': 0.65,
         'channel': LED1,
         'excitation_nm': 470.0,
-        'datetime': '2026-10-19T12:00:00',
+        'datetime': datetime.datetime(2026, 10, 19, 12, 0, 0),
         'plate_pos_mm': {'x': 12.5, 'y': 30.25},
         'z_pos_um': 4321.0,
         'illumination_ma': 120.0,

@@ -15,6 +15,7 @@ Z-stack at each tile, BF and LED 0 (``LED0``) -- 24 images.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -127,7 +128,7 @@ def _add_an_ordinary_step(folder: pathlib.Path) -> None:
                 'illumination_ma': 5.0,
                 'z_pos_um': 5000.0,
                 'plate_pos_mm': {'x': 12.0, 'y': 12.0},
-                'datetime': '2026:10:18 12:01:00',
+                'datetime': datetime.datetime(2026, 10, 18, 12, 1, 0),
                 'well_label': '',
                 'significant_bits': 8,
             },

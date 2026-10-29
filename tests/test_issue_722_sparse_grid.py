@@ -20,6 +20,7 @@ test_capture_collision_policy.py.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -44,7 +45,7 @@ def _write_frame(
         significant_bits=8,
         save_encoding='8bit',
         metadata={
-            'datetime': '2026-07-06T12:00:00',
+            'datetime': datetime.datetime(2026, 7, 6, 12, 0, 0),
             'plate_pos_mm': {'x': 10.0, 'y': 5.0},
             'z_pos_um': z_um,
             'objective': {

@@ -16,6 +16,7 @@ run folder written as a run of this release saves it: a 2x2 tiled scan at
 
 from __future__ import annotations
 
+import datetime
 import shutil
 
 import numpy as np
@@ -116,7 +117,7 @@ def write_run_folder(tmp_path, fluorescence: str):
                 'illumination_ma': 5.0,
                 'z_pos_um': float(step[3]),
                 'plate_pos_mm': {'x': float(step[1]), 'y': float(step[2])},
-                'datetime': '2026:10:18 12:00:00',
+                'datetime': datetime.datetime(2026, 10, 18, 12, 0, 0),
                 'well_label': '',
                 'significant_bits': 8,
             },

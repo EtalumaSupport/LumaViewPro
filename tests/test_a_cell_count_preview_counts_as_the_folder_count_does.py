@@ -12,6 +12,7 @@ writes for it.
 
 from __future__ import annotations
 
+import datetime
 import csv
 from types import SimpleNamespace
 
@@ -52,7 +53,7 @@ def _capture(path, pixel_size_um):
             'pixel_size_um': pixel_size_um,
             'channel': LED1,
             'significant_bits': 8,
-            'datetime': '2026-10-21T00:00:00',
+            'datetime': datetime.datetime(2026, 10, 21, 0, 0, 0),
         },
         ome=False,
         color=release_color(LED1),

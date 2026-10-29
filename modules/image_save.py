@@ -452,7 +452,7 @@ def generate_image_metadata(
             else {}
         ),
         **({'filterset': identity.filterset} if identity.filterset else {}),
-        'datetime': captured_at.strftime('%Y:%m:%d %H:%M:%S'),
+        'datetime': captured_at,
         # The objective under its own field names, each naming its unit; a
         # measurement the catalogue does not hold is absent.
         'objective': {

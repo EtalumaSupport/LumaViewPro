@@ -18,6 +18,7 @@ channels.
 
 from __future__ import annotations
 
+import datetime
 import ast
 import json
 import pathlib
@@ -233,7 +234,7 @@ def test_an_old_names_image_is_written_as_fluorescence(installation, tmp_path):
             'illumination_ma': 5.0,
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': 12.0, 'y': 12.0},
-            'datetime': '2026:10:25 12:00:00',
+            'datetime': datetime.datetime(2026, 10, 25, 12, 0, 0),
             'well_label': '',
             'significant_bits': 12,
         },

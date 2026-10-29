@@ -36,6 +36,7 @@ PlateName.
 
 from __future__ import annotations
 
+import datetime
 import numpy as np
 
 from modules import image_utils
@@ -46,7 +47,7 @@ def _build_metadata():
     return {
         'channel': 'BF',
         'significant_bits': 8,
-        'datetime': '2026:05:26 23:00:00',
+        'datetime': datetime.datetime(2026, 5, 26, 23, 0, 0),
         'objective': {
             'id': '4x Oly',
             'magnification': 4,

@@ -16,6 +16,7 @@ Key requirements:
 import ast
 import datetime
 import errno
+import re
 from unittest import mock
 
 import numpy as np
@@ -44,7 +45,7 @@ def _make_metadata():
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-        'datetime': '2026:03:16 12:00:00',
+        'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
         'well_label': 'A1',
         'well_site': '1',
     }
@@ -1543,7 +1544,7 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
         metadata={
             'pixel_size_um': 0.5,
             'channel': 'BF',
-            'datetime': '2026:03:16 12:00:00',
+            'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
             'objective': {'aperture': 0.16, 'working_distance': 13.0, 'DOF': 40.0},
         },
         ome=False,
@@ -1581,6 +1582,55 @@ def test_each_fact_has_one_key_and_an_imagej_document_renders_the_instrument(sim
     assert (document['Model'], document['PlateName']) == (
         recorded['instrument']['model'],
         recorded['plate']['name'],
+    )
+
+
+def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_scope, tmp_path):
+    """TIFF 6.0's DateTime is ``YYYY:MM:DD HH:MM:SS``; a derived file wrote
+    the ISO form and a hyperstack none. Each file's time is its build's, in
+    the one form, and reads back as a time."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='8bit',
+        significant_bits=8,
+        dtype=np.uint8,
+        output_format='TIFF',
+    )
+    derived = tmp_path / 'derived.tiff'
+    image_utils.write_tiff(
+        data=np.zeros((8, 8), dtype=np.uint8),
+        file_loc=derived,
+        metadata=image_utils.build_postproc_output_metadata(
+            still, 'BF', significant_bits=8, adds_frames=False
+        ),
+        ome=False,
+        color=GREY,
+        significant_bits=8,
+        save_encoding='8bit',
+        white_bits=None,
+    )
+    hyperstack = tmp_path / 'stack.ome.tiff'
+    image_utils.write_hyperstack_tiff(
+        iter([np.zeros((8, 8), dtype=np.uint8)]),
+        hyperstack,
+        shape=(1, 1, 1, 8, 8),
+        dtype=np.uint8,
+        hyperstack_metadata={'axes': 'TZCYX'},
+        hyperstack_options={'photometric': 'minisblack'},
+    )
+
+    stated = {}
+    for name, path in (('derived', derived), ('hyperstack', hyperstack)):
+        with tf.TiffFile(str(path)) as tif:
+            tag = tif.pages[0].tags.get('DateTime')
+        stated[name] = tag.value if tag else None
+    for name, value in stated.items():
+        assert value is not None and re.fullmatch(r'\d{4}:\d\d:\d\d \d\d:\d\d:\d\d', value), (
+            f'the {name} states its time as {value!r}'
+        )
+    assert isinstance(
+        image_utils.read_postproc_input_metadata(derived)['datetime'], datetime.datetime
     )
 
 

@@ -23,6 +23,7 @@ The four modes and their derived facts:
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -38,7 +39,7 @@ def _metadata(path, channel=LED0, significant_bits=None):
     """Minimal metadata dict matching write_tiff's generate_tiff_data."""
     meta = {
         'file_loc': str(path),
-        'datetime': '2026-06-18T00:00:00',
+        'datetime': datetime.datetime(2026, 6, 18, 0, 0, 0),
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
         'objective': {'id': 'test'},

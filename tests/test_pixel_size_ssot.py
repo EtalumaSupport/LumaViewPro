@@ -8,6 +8,7 @@ the scope's optics declare. These pin the corrected resolution order
 value, the LS850T no-op, and the honest-None degradation on the save path.
 """
 
+import datetime
 from types import SimpleNamespace
 
 import numpy as np
@@ -175,7 +176,7 @@ class TestSaveWithoutScale:
             'illumination_ma': 100.0,
             'z_pos_um': 1000.0,
             'plate_pos_mm': {'x': 10.0, 'y': 20.0},
-            'datetime': '2026:03:16 12:00:00',
+            'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
             'well_label': 'A1',
             'well_site': '1',
         }

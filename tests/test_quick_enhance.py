@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import ast
 import pathlib
@@ -27,7 +28,7 @@ def _metadata(significant_bits: int, channel: str = LED1) -> dict:
         'illumination_ma': 1.0,
         'z_pos_um': 0.0,
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
-        'datetime': '2026:07:17 00:00:00',
+        'datetime': datetime.datetime(2026, 7, 17, 0, 0, 0),
         'significant_bits': significant_bits,
     }
 

@@ -24,6 +24,7 @@ forward.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -56,7 +57,7 @@ def _write_structured_input(
         significant_bits=8,
         save_encoding='8bit',
         metadata={
-            'datetime': '2026-05-27T12:00:00',
+            'datetime': datetime.datetime(2026, 5, 27, 12, 0, 0),
             'plate_pos_mm': plate_pos_mm,
             'z_pos_um': z_pos_um,
             'objective': {

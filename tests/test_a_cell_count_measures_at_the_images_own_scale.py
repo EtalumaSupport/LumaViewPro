@@ -11,6 +11,7 @@ an image with no scale rather than applied as if a pixel were a micron.
 
 from __future__ import annotations
 
+import datetime
 import csv
 import json
 
@@ -43,7 +44,7 @@ def _capture(path, pixel_size_um):
             'pixel_size_um': pixel_size_um,
             'channel': LED1,
             'significant_bits': 8,
-            'datetime': '2026-10-04T00:00:00',
+            'datetime': datetime.datetime(2026, 10, 4, 0, 0, 0),
         },
         ome=False,
         color=release_color(LED1),

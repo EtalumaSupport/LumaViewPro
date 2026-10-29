@@ -15,6 +15,7 @@ folder written as a run of this release saves it.
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import numpy as np
@@ -101,7 +102,7 @@ def run_folder(tmp_path):
                 'illumination_ma': 5.0,
                 'z_pos_um': 5000.0,
                 'plate_pos_mm': {'x': float(step[1]), 'y': float(step[2])},
-                'datetime': '2026:10:12 12:00:00',
+                'datetime': datetime.datetime(2026, 10, 12, 12, 0, 0),
                 'well_label': '',
                 'significant_bits': 8,
             },
