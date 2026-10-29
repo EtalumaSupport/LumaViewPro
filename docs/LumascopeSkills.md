@@ -695,17 +695,22 @@ wait. A capture never infers validity from pixel content; when the scope keeps
 changing longer than its budget, it raises `CaptureFailedError`
 (`'deadline_expired'`).
 
-**Which channel a still is.** A still is named for the lit LED -- the first in
-address order when more than one is lit -- else for the shown channel. The
-camera holds that channel's stored gain, exposure and auto-gain for the frame,
-whatever came before: a run, a go-to, an LED lit through `scope.illumination`.
-After a raw camera write (`scope.camera.set_gain_db` and the other setters) the
-written values stand, and the frame's record says so: its `held_channel` is
-None.
+**Which channel a still is.** A still is named for the shown channel, and the
+camera holds that channel's stored gain, exposure and auto-gain for the frame
+and after it, whatever came before: a run, a go-to. It is lit by the shown
+channel's LED alone: with another LED lit through `scope.illumination`, the
+still is refused, `HardwareCommandRefusedError` `'other_led_lit'`, before
+anything changes, as a recording's start is. To take a still of another
+channel, show it. After a raw camera write (`scope.camera.set_gain_db` and the
+other setters) the written values stand, and the frame's record says so: its
+`held_channel` is None.
 
 **A still.** `session.capture_still(channel)` takes one frame and returns a
 `CapturedStill`: the read-only `image` and its `record`, a `FrameRecord` of
-what the instrument was when the frame was taken.
+what the instrument was when the frame was taken. `channel` is the shown
+channel (another is refused `'channel_not_shown'`), and another LED lit is
+refused `'other_led_lit'`; `capture_still()` with no channel takes the frame
+with the camera and the LEDs as they are.
 
 ```python
 scope.motion.move_to_well('B2')             # over the simulator's specimen

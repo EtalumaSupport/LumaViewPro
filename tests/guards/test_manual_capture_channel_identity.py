@@ -1,17 +1,18 @@
 # Copyright Etaluma, Inc.
-"""A manual still capture names the channel it imaged the way a manual recording does.
+"""A manual still capture names the channel it imaged as a manual recording does: the shown layer.
 
 The still capture used to find its channel by scanning the layer accordions
 for the open one, inside the camera-executor task. With no drawer open the scan
 bound nothing: the wrong layer's folder was created and remembered, and the save
-then raised on a name that was never assigned. With a LED lit on a different
-channel than the open drawer, the file was named for the drawer while the light
-was the truth -- the rule the manual recording already follows.
+then raised on a name that was never assigned. With an LED lit on another
+channel than the open drawer, the file was named for the drawer and lit by
+another light; that still is now refused.
 
-These tests pin the rule and the seam: the channel is resolved once, by the one
-function a still and each recorded frame share (a lit LED wins, else the
-Session's shown channel); every widget read happens on the button, before the
-capture guard is armed; and the open-layer scan has one implementation.
+These tests pin the rule and the seam: a still and a recording are named for
+the Session's shown channel, and each refuses another LED lit by the one
+function they share (``lit_other_than``); every widget read happens on the
+button, before the capture guard is armed; and the open-layer scan has one
+implementation.
 """
 
 import ast
@@ -87,19 +88,18 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
 # ---------------------------------------------------------------------------
 
 
-def test_a_lit_led_outranks_the_shown_channel(identity_scope, tmp_path):
-    """LED1 shown with false colour on, LED 2 lit: the file is named,
-    labelled and rendered as LED2. The light is the truth; the shown layer's
-    toggle only says the frame is rendered in colour."""
+def test_the_shown_lit_channel_names_and_colours_the_still(identity_scope, tmp_path):
+    """LED2 shown and lit, false colour on: the file is named, labelled and
+    rendered as LED2; the toggle only says the frame is rendered in colour."""
     identity_scope.illumination.led_on(channel=LED2, illumination_ma=100)
 
     written, _ = _run_manual_capture(
-        tmp_path, identity_scope, shown_layer=LED1, false_color_on=True, separate_folders=False
+        tmp_path, identity_scope, shown_layer=LED2, false_color_on=True, separate_folders=False
     )
 
     assert len(written) == 1
     path = written[0]
-    assert LED2 in path.name and LED1 not in path.name, path.name
+    assert LED2 in path.name, path.name
     assert _read_channel_name(path) == LED2
     # An 8-bit still with false colour on is written PALETTE with a (3, 256)
     # colormap; the imaged channel decides which row carries the ramp.
@@ -121,7 +121,7 @@ def test_a_lit_led_outranks_the_shown_channel(identity_scope, tmp_path):
 
 
 def _illumination(*readings):
-    # a stand-in by design: the subject is the resolver, and these readings
+    # a stand-in by design: the subject is the other-light check, and these readings
     # are its interchangeable input, built to each clause
     return SimpleNamespace(get_led_states=lambda: readings)
 
@@ -138,30 +138,33 @@ def _dark(address, name):
     return LedReading(address, name, LedState.DARK, None)
 
 
-def test_resolver_clauses():
-    """A lit, named LED wins over the shown layer; nothing lit falls to the
-    shown layer; two lit, the first in address order wins; a lit address the
-    identity names no layer for names no channel; no board (None) is nothing
-    lit."""
-    from modules.common_utils import read_light
+def test_another_light_clauses():
+    """Another named LED lit is named; the layer's own LED lit, or nothing,
+    is no other light; two others lit are both named, in address order; a
+    lit address the identity names no layer for is named by its address; no
+    board (None) is nothing lit; given a frame's lit addresses, those are
+    the ones read."""
+    from modules.lumascope_api.illumination import lit_other_than
 
     lit_red = _illumination(_dark(1, LED1), _lit(2, LED2), _dark(3, 'BF'))
-    assert read_light(lit_red, LED1).channel == LED2
+    assert lit_other_than(lit_red, LED1) == [LED2]
+    assert lit_other_than(lit_red, LED2) == []
     none_lit = _illumination(_dark(2, LED2), _dark(3, 'BF'))
-    assert read_light(none_lit, LED1).channel == LED1
-    assert read_light(_illumination(), LED0).channel == LED0
+    assert lit_other_than(none_lit, LED1) == []
     two_lit = _illumination(_lit(0, LED0), _lit(2, LED2))
-    assert read_light(two_lit, LED1).channel == LED0
+    assert lit_other_than(two_lit, LED1) == [LED0, LED2]
     unnamed_lit = _illumination(_lit(6, None), _dark(2, LED2))
-    assert read_light(unnamed_lit, LED1).channel == LED1
+    assert lit_other_than(unnamed_lit, LED1) == ['LED address 6']
     no_board = SimpleNamespace(get_led_states=lambda: None)
-    assert read_light(no_board, LED1).channel == LED1
+    assert lit_other_than(no_board, LED1) == []
+    assert lit_other_than(none_lit, LED1, {2: 100.0}) == [LED2]
 
 
 def test_both_manual_outputs_share_the_resolver():
-    """The recording controller no longer carries its own copy; the still
-    capture and each recorded frame call the one function (``read_light``
-    answers through ``light_of``), and the default layer lives with it."""
+    """The recording controller no longer carries its own copy; the still,
+    the held capture beneath it and the recording's start refuse another
+    light through the one function, each recorded frame is named through
+    ``light_of``, and the default layer lives with it."""
     recording = parse_module('modules/manual_recording.py')
     private = [
         n.name
@@ -171,7 +174,9 @@ def test_both_manual_outputs_share_the_resolver():
     assert private == [], 'the recording controller still carries a private resolver'
 
     for rel, resolver in (
-        ('modules/manual_capture.py', 'read_light'),
+        ('modules/manual_capture.py', 'lit_other_than'),
+        ('modules/lumascope_api/imaging.py', 'lit_other_than'),
+        ('modules/manual_recording.py', 'lit_other_than'),
         ('modules/recording_frames.py', 'light_of'),
     ):
         calls = [

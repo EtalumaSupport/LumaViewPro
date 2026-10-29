@@ -24,7 +24,6 @@ import logging
 import pytest
 
 from drivers.null_ledboard import NullLEDBoard
-from modules import common_utils
 from modules.exceptions import (
     ArgumentRefusedError,
     MissingPart,
@@ -36,6 +35,7 @@ from modules.lumascope_api.illumination import (
     LedState,
     LedTransition,
     LedTransitionCtx,
+    lit_other_than,
 )
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     EVERY_MODEL,
@@ -213,7 +213,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     assert illumination.get_led_states() is None
     assert illumination.save_led_state('after') is None
     assert ('BF', LedState.DARK) in heard
-    assert common_utils.read_light(illumination, LED1).channel == LED1
+    assert lit_other_than(illumination, LED1) == []
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))

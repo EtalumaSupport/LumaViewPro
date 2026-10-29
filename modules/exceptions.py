@@ -3449,7 +3449,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
             asked for. ``'not_on_this_scope'`` -- the scope does not have
             another part asked for, such as an LED channel or fan control.
             ``'activity_ended'`` -- the command was made under an activity
-            that has ended.
+            that has ended. ``'other_led_lit'`` -- a capture held at a layer
+            would be lit by another LED, which ``RecordingRefusedError``
+            explains as the same fact. ``'channel_not_shown'`` -- a still was
+            asked of a layer other than the shown one.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
         holder_trigger: The holding run's starter, for a run (``'gui'``,
@@ -3486,8 +3489,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'axis_absent': RefusalCause.REQUEST,
         'not_on_this_scope': RefusalCause.REQUEST,
         'activity_ended': RefusalCause.REQUEST,
+        'other_led_lit': RefusalCause.STATE,
+        'channel_not_shown': RefusalCause.STATE,
     }
-    same_fact_as = (ProtocolRunRefusedError,)
+    same_fact_as = (ProtocolRunRefusedError, RecordingRefusedError)
 
     # Keyed as ``causes`` is: a refusal for who holds the scope reads as the
     # microscope being busy; one for the hardware's state names that state.
@@ -3506,6 +3511,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'position_unread': 'Motor Controller Not Responding',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
+        'other_led_lit': RecordingRefusedError._TITLES['other_led_lit'],
+        'channel_not_shown': 'Another Layer Is Shown',
     }
 
     def __init__(
@@ -3715,6 +3722,13 @@ def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
         return "The microscope's lid is open. Close it to move or home the stage."
     if reason == 'stage_unpowered_before_motion':
         return "The stage has no power. Check the stage's power supply, then home."
+    if reason == 'other_led_lit':
+        return (
+            "An LED other than the shown layer's is lit, so nothing was captured. "
+            'Turn it off, or show its layer, then capture.'
+        )
+    if reason == 'channel_not_shown':
+        return 'A still is taken of the shown layer. Show the layer, then capture.'
     if reason == 'camera_not_streaming':
         return (
             'The camera is connected but is not delivering frames, so nothing was '

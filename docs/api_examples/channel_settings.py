@@ -70,13 +70,15 @@ def main():
             session.light_shown_channel(False)
             report(stored[channel])
 
-        # A raw write stands for the next still, whose record says the camera
-        # held no channel's settings.
+        # A still is of the shown channel, lit by its own LED alone. With
+        # brightfield shown and lit, a raw write stands for the next still,
+        # whose record says the camera held no channel's settings.
+        session.show_channel('BF')
+        session.light_shown_channel(True)
         scope.camera.set_exposure_ms(RAW_EXPOSURE_MS)
         scope.camera.set_gain_db(RAW_GAIN_DB)
-        scope.illumination.led_on('BF', 5)
         raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
-        scope.illumination.leds_off()
+        session.light_shown_channel(False)
         report(raw)
         return stored, raw
     finally:

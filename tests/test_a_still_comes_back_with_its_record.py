@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 
 import numpy as np
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
 from modules.lumascope_api.camera import AutoGainConvergence
 from modules.lumascope_api.frame_record import CapturedStill
 from modules.scope_session import ScopeSession
@@ -44,6 +45,8 @@ def session():
 
 class TestTheStillIsHandedBackWithItsRecord:
     def test_a_still_of_a_channel_is_taken_at_that_layers_stored_settings(self, session):
+        session.show_channel(LED0)
+
         still = session.capture_still(LED0)
 
         assert isinstance(still, CapturedStill)
@@ -58,6 +61,15 @@ class TestTheStillIsHandedBackWithItsRecord:
 
         assert still.record.held_channel is None
         assert round(still.record.gain_db, 3) == 7.0
+
+    def test_a_still_with_no_channel_is_taken_under_any_light(self, session):
+        """No layer named, nothing is named for one: another LED lit is the
+        caller's light, as the engineering plugin's measurements take it."""
+        session.scope.illumination.led_on(LED0, 100.0)
+
+        still = session.capture_still()
+
+        assert list(still.record.illumination_ma.values()) == [100.0]
 
     def test_its_pixels_cannot_be_changed(self, session):
         still = session.capture_still('BF')
@@ -109,6 +121,44 @@ class TestTheStillIsRefusedBeforeAnythingIsCaptured:
 
         assert refused.value.reason == 'channel_unknown'
         assert session.scope.camera.get_held_layer() == before
+
+    def test_a_layer_not_shown_is_refused(self, session):
+        """BF shown: a still of LED 0 would leave the camera on LED 0's
+        settings while BF is shown."""
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.capture_still(LED0)
+
+        assert refused.value.reason == 'channel_not_shown'
+        assert session.scope.camera.get_held_layer() == 'BF'
+
+    def test_another_led_lit_is_refused(self, session):
+        session.scope.illumination.led_on(LED0, 100.0)
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.capture_still('BF')
+
+        assert refused.value.reason == 'other_led_lit'
+
+    def test_another_led_lit_during_the_grab_is_refused(self, session):
+        """Lit between two summed frames: the frame the still hands back was
+        lit by it, and its record says so."""
+        lit = []
+
+        def light_another():
+            # On the camera's worker, which may not block on an LED command
+            # itself; the light is waited for so it is lit before the next frame.
+            if not lit:
+                lighting = threading.Thread(
+                    target=lambda: lit.append(session.scope.illumination.led_on(LED0, 100.0))
+                )
+                lighting.start()
+                lighting.join()
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.capture_still('BF', sum_count=2, sum_iteration_callback=light_another)
+
+        assert lit
+        assert refused.value.reason == 'other_led_lit'
 
     def test_a_wait_no_number_bounds_is_refused(self, session):
         with pytest.raises(ArgumentRefusedError) as refused:

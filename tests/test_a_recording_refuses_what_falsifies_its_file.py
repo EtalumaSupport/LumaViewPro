@@ -338,10 +338,8 @@ class TestTheStartKeepsItsName:
 
     def test_a_start_with_the_camera_on_another_layer_is_refused(self, sim_session):
         sim_session.show_channel('BF')
-        # A still under a raw light leaves the camera on that light's layer.
-        sim_session.scope.illumination.led_on(LED0, 50.0)
-        sim_session.manual_capture.capture(false_color_on=False).result(timeout=30)
-        sim_session.scope.illumination.led_off(LED0)
+        # Another layer's settings put on the camera while BF is shown.
+        sim_session.apply_layer_camera(LED0)
         assert sim_session.scope.camera.get_held_layer() == LED0
         with pytest.raises(RecordingRefusedError) as refused:
             sim_session.manual_recording.start(false_color_on=False)

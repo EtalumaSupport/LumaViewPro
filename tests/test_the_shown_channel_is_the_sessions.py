@@ -107,13 +107,13 @@ def test_a_runs_step_shows_its_layer_lit_only_when_its_led_is(tmp_path):
 
 
 def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
-    """A still held another layer (a raw LED named it); lighting the shown
-    layer afterwards puts the camera back on the shown layer's settings."""
+    """The camera holds another layer (its settings put on it while BF is
+    shown); lighting the shown layer puts the camera back on the shown
+    layer's settings."""
     camera = session.scope.camera
     session.update_settings(f'{LED0}.exposure_ms', 88.0)
-    session.scope.illumination.led_on(LED0, 100.0)
-    session.manual_capture.capture(false_color_on=False).result(timeout=30)
-    session.scope.illumination.led_off(LED0)
+    session.apply_layer_camera(LED0)
+    assert camera.get_held_layer() == LED0
 
     session.light_shown_channel(True)
 

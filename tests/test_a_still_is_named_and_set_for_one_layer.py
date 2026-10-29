@@ -1,17 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A still is named for the light, and taken at that layer's stored settings.
+"""A still is named for the shown layer, and taken at that layer's stored settings.
 
-The still's name is the light: the lit LED, else the shown layer
-(``common_utils.read_light``). The LEDs are written on the IO
-lane and the camera on the camera lane, so the light could change without
-the camera following, and a still was named for one layer and taken at
-another's: after a run (named for its last step at the pre-run layer's
-settings), after a raw LED, after a typed value, and pressed between a
-show's LED and camera halves. The still now has the camera hold its
-name's layer inside its own camera-lane task (``manual_capture``,
-``ImagingAPI._hold_layer_for_capture``), unless a raw camera write came
+The LEDs are written on the IO lane and the camera on the camera lane, so
+the light could change without the camera following, and a still was named
+for one layer and taken at another's: after a run (named for its last step
+at the pre-run layer's settings), after a typed value, and pressed between a
+show's LED and camera halves. The still has the camera hold the shown layer
+inside its own camera-lane task (``manual_capture``,
+``ImagingAPI._capture_holding_layer_impl``), unless a raw camera write came
 last: then the raw values stand and the frame's record says no layer was
-held.
+held. A still named for the lit LED left the camera holding that LED's
+layer while another was shown, so another LED lit refuses the still,
+as it refuses a recording's start.
 """
 
 from __future__ import annotations
@@ -67,14 +67,51 @@ def _stored(layer) -> tuple[float, float]:
     return values['exposure_ms'], values['gain_db']
 
 
-def test_a_raw_led_names_the_still_and_the_camera_takes_its_layer(session):
+def _files(tmp_path) -> list:
+    return sorted(p.name for p in tmp_path.rglob('*') if p.is_file())
+
+
+def test_a_still_with_another_led_lit_is_refused_and_the_camera_keeps_the_shown_layer(
+    session, tmp_path
+):
+    """BF shown, LED 0 lit raw: named for BF the frame would be lit by LED 0,
+    and named for LED 0 it left the camera on LED 0's settings under BF."""
     session.scope.illumination.led_on(LED0, 100.0)
+
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        session.manual_capture.capture(false_color_on=False).result(timeout=30)
+
+    assert refused.value.reason == 'other_led_lit'
+    assert session.scope.camera.get_held_layer() == 'BF'
+    assert _files(tmp_path) == []
+
+
+def test_a_still_with_two_leds_lit_is_refused(session, tmp_path):
+    session.show_channel(LED0)
+    session.light_shown_channel(True)
+    session.scope.illumination.led_on(LED1, 50.0)
+
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        session.manual_capture.capture(false_color_on=False).result(timeout=30)
+
+    assert refused.value.reason == 'other_led_lit'
+    assert session.scope.camera.get_held_layer() == LED0
+    assert _files(tmp_path) == []
+
+
+def test_after_a_still_the_camera_holds_the_shown_layer(session):
+    """The camera off the shown layer (another layer's settings put on it)
+    is put back on the shown layer by the still, and stays there."""
+    session.show_channel(LED0)
+    session.apply_layer_camera(LED1)
+    assert session.scope.camera.get_held_layer() == LED1
 
     name, record = _still(session)
 
     assert f'_{LED0}_' in name
     assert _settings_of(record) == _stored(LED0)
     assert record.held_channel == LED0
+    assert session.scope.camera.get_held_layer() == LED0
 
 
 def test_a_still_after_a_run_is_one_layers(session, tmp_path):
@@ -145,9 +182,10 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     whether its settings were a layer's, and whose."""
     from modules.image_utils import read_file_record
 
-    session.scope.illumination.led_on(LED0, 100.0)
+    session.show_channel(LED0)
+    session.light_shown_channel(True)
     held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
-    session.scope.illumination.leds_off()
+    session.light_shown_channel(False)
     session.scope.camera.set_exposure_ms(30.0)
     raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
 
@@ -163,24 +201,16 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     ), raw_saved
 
 
-def test_a_still_two_leds_lit_is_named_for_the_first_and_its_file_states_both(session):
-    from modules.image_utils import read_file_record
-
-    session.scope.illumination.led_on(LED0, 100.0)
-    session.scope.illumination.led_on(LED1, 50.0)
-
-    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
-
-    saved = read_file_record(still.file)
-    assert f'_{LED0}_' in still.file.name, 'the first lit LED in address order names it'
-    assert saved.get('illumination_by_channel_ma') == {LED0: 100.0, LED1: 50.0}, saved
-    assert saved.get('illumination_ma') == 100.0, 'Illumination is the named channel alone'
+def _show_lit(session, layer, ma):
+    session.update_settings(f'{layer}.illumination_ma', ma)
+    session.show_channel(layer)
+    session.light_shown_channel(True)
 
 
 def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
     from modules.image_utils import read_file_record
 
-    session.scope.illumination.led_on(LED1, 75.0)
+    _show_lit(session, LED1, 75.0)
 
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
@@ -190,12 +220,13 @@ def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
 
 
 def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
-    """The board takes 0 mA as off, and so does the frame's record: the
-    still is named for the LED that lit it, which its file states."""
+    """The board takes 0 mA as off, and so does the frame's record: an LED
+    left on at 0 mA is no other light, and the file states the one that lit
+    the still."""
     from modules.image_utils import read_file_record
 
+    _show_lit(session, LED1, 100.0)
     session.scope.illumination.led_on(LED0, 0.0)
-    session.scope.illumination.led_on(LED1, 100.0)
 
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
@@ -209,8 +240,7 @@ def test_a_composite_states_no_lit_layer_of_its_inputs(session):
     from modules import image_utils
     from modules.image_utils import build_postproc_output_metadata
 
-    session.scope.illumination.led_on(LED0, 100.0)
-    session.scope.illumination.led_on(LED1, 50.0)
+    _show_lit(session, LED0, 100.0)
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
     composite = build_postproc_output_metadata(
@@ -256,23 +286,15 @@ def test_a_still_during_a_recording_on_the_held_layer_is_taken(session):
 
 
 @pytest.mark.slow
-def test_a_light_that_never_settles_fails_the_still_within_one_budget(session, monkeypatch):
-    import modules.manual_capture as manual_capture
+def test_a_shown_layer_that_never_settles_fails_the_still_within_one_budget(session, monkeypatch):
+    controller = session.manual_capture
+    # a stand-in by design: a layer shown anew faster than a capture takes is
+    # a race the simulated scope cannot be made to win on every run
+    shown = iter([LED0, LED1] * 1000)
+    monkeypatch.setattr(controller, '_shown_layer', lambda: next(shown))
 
-    # a stand-in by design: an LED toggled faster than a capture takes is a
-    # race the simulated board cannot be made to win on every run
-    lights = iter([LED0, LED1] * 1000)
-    real = manual_capture.common_utils.read_light
-    monkeypatch.setattr(
-        manual_capture.common_utils,
-        'read_light',
-        lambda illumination, shown: manual_capture.common_utils.Light(next(lights), {}),
-    )
-    try:
-        with pytest.raises(CaptureFailedError) as failed:
-            session.manual_capture.capture(false_color_on=False).result(timeout=60)
-    finally:
-        monkeypatch.setattr(manual_capture.common_utils, 'read_light', real)
+    with pytest.raises(CaptureFailedError) as failed:
+        controller.capture(false_color_on=False).result(timeout=60)
 
     assert failed.value.reason == 'deadline_expired'
 
@@ -297,8 +319,9 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
             taken.append(session.activity_claim.try_claim('diagnostic'))
         return real_shown_layer()
 
+    session.show_channel(LED0)
+    session.light_shown_channel(True)
     monkeypatch.setattr(controller, '_shown_layer', shown_layer_after_the_scope_is_taken)
-    session.scope.illumination.led_on(LED0, 100.0)
     try:
         (still,) = controller.capture(false_color_on=False).result(timeout=30)
     finally:

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from modules.layer_record import Modality
 
-    from modules.lumascope_api.illumination import IlluminationAPI, LedReading
+    from modules.lumascope_api.illumination import LedReading
     from modules.scope_capabilities import FieldOfView, ScopeCapabilities
 
 
@@ -528,7 +528,7 @@ class Light(NamedTuple):
     """What lit one frame, from one read of the LEDs.
 
     Attributes:
-        channel: The channel the frame is named for (``read_light``).
+        channel: The channel the frame is named for (``light_of``).
         illumination_by_channel_ma: The current of every lit LED a layer
             names, by that layer's key, in address order; empty when none
             was lit.
@@ -538,39 +538,24 @@ class Light(NamedTuple):
     illumination_by_channel_ma: 'Mapping[str, float]'
 
 
-def read_light(illumination: 'IlluminationAPI', shown_layer: str) -> Light:
-    """The channel a frame was imaged in, and every lit layer's current, from one read.
+def light_of(readings: 'tuple[LedReading, ...] | None', shown_layer: str) -> Light:
+    """The channel a recorded frame was imaged in, and every lit layer's current, from one read.
 
-    The channel is the lit LED, else ``shown_layer``: the shown layer for a
-    still, and for each frame of a recording the layer it is named for. A
-    lit LED is direct evidence of what is illuminating the sample, so it
-    outranks the shown channel -- a caller can light an LED through the
-    illumination API without showing its layer, and the light is the
-    truth. The shown layer
-    is the tiebreak for luminescence, which images with no LED lit at all
-    and would otherwise be unnameable. With more than one LED lit, the
-    first in address order wins; a lit address the identity names no layer
-    for names no channel and has no current here.
+    The channel is the lit LED, else ``shown_layer``, the layer the recording
+    is named for. A recording refuses to start with another LED lit and
+    refuses every light while it runs (``ManualRecordingController.start``),
+    and a protocol's video step lights its own layer alone, so a frame's
+    lit LED is its layer's; the shown layer names a frame with no LED lit,
+    as luminescence images. With more than one LED lit, the first in
+    address order wins; a lit address the identity names no layer for
+    names no channel and has no current here.
 
     Lit is the frame record's meaning: commanded on at a current above 0 mA,
     since the board takes 0 mA as off (``snapshot_lit_pairs``). An LED left
-    on at 0 mA names nothing.
-
-    get_led_states() answers None when no LED board is installed: nothing
-    is lit, so a board-less scope falls through to the layer.
-
-    The one naming rule: the manual still and every recorded frame
-    (``recording_frames.arrival_facts``) read it, so no two outputs can
-    disagree about what one frame is. A recording itself is named for the
-    shown layer, and refuses to start with another LED lit
-    (``ManualRecordingController.start``), so its frames agree with it.
+    on at 0 mA names nothing. ``readings`` is None when no LED board is
+    installed: nothing is lit, so a board-less scope falls through to the
+    layer.
     """
-    return light_of(illumination.get_led_states(), shown_layer)
-
-
-def light_of(readings: 'tuple[LedReading, ...] | None', shown_layer: str) -> Light:
-    """``read_light``'s answer from readings already taken, for a caller that
-    states the same read's currents by address too (a recorded frame)."""
     from modules.lumascope_api.illumination import snapshot_lit_pairs
 
     lit = {address for address, _ma in snapshot_lit_pairs(readings)}

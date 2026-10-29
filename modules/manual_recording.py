@@ -68,7 +68,7 @@ from modules.exceptions import (
     VideoWriterFailedError,
 )
 from modules.lumascope_api.frame_record import FrameTime
-from modules.lumascope_api.illumination import snapshot_lit_pairs
+from modules.lumascope_api.illumination import lit_other_than
 from modules.notification_center import notifications
 from modules.operation import Operation
 from modules.recording_frames import (
@@ -1111,13 +1111,7 @@ def _refuse_a_name_that_would_be_false(scope, layer: str) -> None:
             ``layer``'s is lit; ``'camera_holds_another_layer'``, the camera
             holds another layer's settings.
     """
-    readings = scope.illumination.get_led_states() or ()
-    lit = {address for address, _ma in snapshot_lit_pairs(readings)}
-    others = [
-        r.name or f'LED address {r.address}'
-        for r in readings
-        if r.address in lit and r.name != layer
-    ]
+    others = lit_other_than(scope.illumination, layer)
     if others:
         raise RecordingRefusedError(
             reason='other_led_lit',

@@ -30,10 +30,13 @@ EX488_JOB=$(curl -s --json '{"false_color_on": false}' $API/manual_capture/captu
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$EX488_JOB           # 200
 curl -s -w '\n' --json '{"lit": false}' $API/light_shown_channel                                # 200
 
-# A raw camera write stands for the next still, which holds no channel's settings.
+# A still is of the shown channel, lit by its own LED alone. With brightfield
+# shown and lit, a raw camera write stands for the next still, which holds no
+# channel's settings.
+curl -s -w '\n' --json '{"channel": "BF"}' $API/show_channel                         # 200
+curl -s -w '\n' --json '{"lit": true}' $API/light_shown_channel                      # 200
 curl -s -w '\n' -X PUT --json '{"exposure_ms": 1.5}' $API/scope/camera/exposure_ms   # 200: 1.5
 curl -s -w '\n' -X PUT --json '{"gain_db": 3.0}' $API/scope/camera/gain_db           # 200: 3.0
-curl -s -w '\n' --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
 RAW_JOB=$(curl -s --json '{"false_color_on": false}' $API/manual_capture/capture | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$RAW_JOB             # 200
-curl -s -w '\n' --json '{}' $API/scope/illumination/leds_off        # 200
+curl -s -w '\n' --json '{"lit": false}' $API/light_shown_channel    # 200

@@ -18,6 +18,7 @@ def step(label, fn):
 try:
     import modules.common_utils as cu
     from modules import config_helpers
+    from modules.lumascope_api.illumination import lit_other_than
 
     step('runtime_state.get_well_label()', lambda: scope.runtime_state.get_well_label())
     step(
@@ -29,8 +30,8 @@ try:
         lambda: sorted(s.get_layer_configs([LED0])[LED0].keys()),
     )
     step(
-        'cu.read_light(illum, BF).channel',
-        lambda: cu.read_light(scope.illumination, 'BF').channel,
+        'lit_other_than(illum, BF)',
+        lambda: lit_other_than(scope.illumination, 'BF'),
     )
     step(
         'cu.build_step_name(...)',

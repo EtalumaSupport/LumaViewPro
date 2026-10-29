@@ -16,7 +16,7 @@ import functools
 import logging as _logging
 import threading
 from dataclasses import dataclass
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from drivers import host_clock
@@ -393,6 +393,31 @@ def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tup
     feed a save_led_state snapshot into apply() as snapshot_lit.
     """
     return _lit_channel_pairs(readings, drop_nonpositive=True)
+
+
+def lit_other_than(
+    illumination: IlluminationAPI, layer: str, lit: Mapping[int, float] | None = None
+) -> list[str]:
+    """Every LED lit but ``layer``'s, by channel name, else by board address.
+
+    The one answer to whether a frame named for ``layer`` is lit by another
+    light: a capture held at a layer (``ImagingAPI._capture_holding_layer_impl``),
+    the still and a manual recording's start each refuse when it is not empty.
+
+    Args:
+        illumination: The LED store, read for which channel each address is.
+        layer: The layer the frame is named for.
+        lit: The addresses lit, from a frame's record (``FrameRecord.illumination_ma``);
+            None reads them from the store now, ``snapshot_lit_pairs``'s meaning.
+    """
+    readings = illumination.get_led_states() or ()
+    if lit is None:
+        lit = dict(snapshot_lit_pairs(readings))
+    return [
+        r.name or f'LED address {r.address}'
+        for r in readings
+        if r.address in lit and r.name != layer
+    ]
 
 
 def resolve_end_state(

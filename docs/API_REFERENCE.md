@@ -715,7 +715,7 @@ In-process: the image does not travel the wire.
 
 **Args**
 
-- `channel`: The layer whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no layer's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set.
+- `channel`: The shown layer, whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task; no other layer is taken, so the camera holds the shown layer after it. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no layer's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set.
 - `force_to_8bit`: Convert the image to 8 bits; False keeps the camera's depth (`CapturedStill.significant_bits`).
 - `accept_dark`: Skip the dark-frame judgment: a frame with essentially no lit pixel while a channel is lit is kept at once, its record's `dark` None. False (the default) retries such a frame until `timeout_s` and then keeps it, its record's `dark` True.
 - `exclude_sources`: Hardware changes to ignore for validity, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame returned can predate an excluded change, so a frame that is measured or recorded never excludes one.
@@ -732,14 +732,14 @@ CapturedStill: The image and the instrument's record of its frame.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a layer; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown layer, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
 - `ConfigurationDefectError`: `'layers_unresolved'`, this scope's layers could not be resolved. Nothing is captured.
 - `CaptureFailedError`: no frame passed, with the capture's own reason (`scope.imaging.capture_and_wait`).
 - `CameraSettingRejected`: given `channel`, the camera refused one of its settings; nothing was captured.
 
 **Refusals**
 
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `channel_not_shown`, `other_led_lit`, `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `layers_unresolved`
 - [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `chunk_rejected`, `no_fresh_frame`, `record_read_failed`, `recording_not_started`, `unknown_save_encoding`
@@ -2272,7 +2272,7 @@ How many of the run's images were given up on.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`; [`FileWriterNotStuckError`](#FileWriterNotStuckError): `file_writer_not_stuck`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`; [`FileWriterNotStuckError`](#FileWriterNotStuckError): `file_writer_not_stuck`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `not_on_this_scope`, `activity_ended`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`, `monitor_ended`, `not_connected`
 
@@ -2481,7 +2481,7 @@ standard startup orchestration without copy-pasting from the App.
 
 **Refusals**
 
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `scope_disconnected`, `monitor_ended`, `not_connected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `scope_disconnected`, `monitor_ended`, `not_connected`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `wait_on_ui_thread`
 
 <a id="ScopeSession.save_all_bookmarks"></a>
@@ -3871,16 +3871,16 @@ Capture one still and save it; returns at once.
 - `bullseye`: Also save a copy with the bullseye colour map.
 - `crosshairs`: Also save a copy with the centre crosshairs. With either overlay, one extra file is written, from the same frame, beside the unmarked one.
 
-The still is named for the lit LED's channel, else the shown
-channel's layer (`session.show_channel`), read as its frame is
-taken, and the camera holds that layer's stored settings for the
-frame; after a raw camera write it keeps the written values, and
-the frame's record says no layer was held. In the session's
-engineering mode the name carries the turret slot.
+The still is named for the shown layer (`session.show_channel`),
+read as its frame is taken, and the camera holds that layer's
+stored settings for the frame and after it; after a raw camera
+write it keeps the written values, and the frame's record says no
+layer was held. In the session's engineering mode the name carries
+the turret slot.
 
 **Returns**
 
-An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`capture_and_wait`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged); `CancelledError` when the lane dropped it unrun (the scope disconnected); `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given: the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
+An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`capture_and_wait`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown layer's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged); `CancelledError` when the lane dropped it unrun (the scope disconnected); `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given: the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
 
 **Raises**
 
@@ -6209,7 +6209,7 @@ actually transitions out of eng mode.
 
 **Refusals**
 
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `scope_disconnected`, `monitor_ended`, `not_connected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `scope_disconnected`, `monitor_ended`, `not_connected`
 - [`LedFirmwareWedgedError`](#LedFirmwareWedgedError): `led_firmware_wedged`
 
 <a id="DiagnosticsAPI.get_camera_link_info"></a>
@@ -15509,7 +15509,7 @@ log.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended.
+- `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended. `'other_led_lit'` -- a capture held at a layer would be lit by another LED, which `RecordingRefusedError` explains as the same fact. `'channel_not_shown'` -- a still was asked of a layer other than the shown one.
 - `member`: The member or task that was refused, for the log.
 - `holder`: The kind of activity holding the scope, when known.
 - `holder_trigger`: The holding run's starter, for a run (`'gui'`, `'rest'`, `'api'`); None otherwise.
@@ -15529,6 +15529,7 @@ log.
 | `axis_absent` | request | 422 |
 | `camera_not_streaming` | state | 409 |
 | `capture_in_flight` | state | 409 |
+| `channel_not_shown` | state | 409 |
 | `exclusive_activity_running` | state | 409 |
 | `home_in_flight` | state | 409 |
 | `home_not_stoppable` | state | 409 |
@@ -15536,6 +15537,7 @@ log.
 | `monitor_ended` | restart | 503 |
 | `not_connected` | restart | 503 |
 | `not_on_this_scope` | request | 422 |
+| `other_led_lit` | state | 409 |
 | `position_unread` | state | 409 |
 | `scope_disconnected` | restart | 503 |
 | `stage_unpowered_before_motion` | state | 409 |

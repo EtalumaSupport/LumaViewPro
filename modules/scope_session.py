@@ -90,7 +90,12 @@ from modules.live_work import LiveWork, WorkItem, WorkKind
 from modules.lumascope_api import AxisPosition, TurretStatus
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
-from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import (
+    LedState,
+    LedTransition,
+    LedTransitionCtx,
+    lit_other_than,
+)
 from modules.lumascope_api.motion import HomeTarget
 from modules.finite_number import refuse_unless_wait_s
 from modules.frame_validity import FrameValiditySource
@@ -2616,9 +2621,10 @@ class ScopeSession:
         In-process: the image does not travel the wire.
 
         Args:
-            channel: The layer whose stored exposure, gain and auto-gain the
-                camera holds for the grab, put on in the capture's own
-                camera-lane task. After a raw camera
+            channel: The shown layer, whose stored exposure, gain and
+                auto-gain the camera holds for the grab, put on in the
+                capture's own camera-lane task; no other layer is taken, so
+                the camera holds the shown layer after it. After a raw camera
                 write (``CameraAPI.set_gain_db``, ``set_exposure_ms``,
                 ``apply``) the camera holds no layer's settings, and none are
                 written: the raw values stand, and the record's
@@ -2657,6 +2663,10 @@ class ScopeSession:
                 has no ``channel``; ``'not_connected'``, naming the camera,
                 with none connected or one removed during the capture;
                 ``'camera_not_streaming'``, its feed is stopped;
+                ``'channel_not_shown'``, ``channel`` is not the shown layer,
+                nothing captured; ``'other_led_lit'``, given ``channel``, an
+                LED other than its own is lit before the grab (nothing
+                captured) or lit the frame;
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
                 home holds the scope and this call is not made under it.
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
@@ -2673,8 +2683,10 @@ class ScopeSession:
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'capture_still', then='be captured'
             )
+            if channel != self._shown_layer:
+                raise HardwareCommandRefusedError('channel_not_shown', 'capture_still')
             hold = LayerHold(layer=channel, request=self._layer_camera_request(channel))
-        return self.scope.imaging.capture_still(
+        still = self.scope.imaging.capture_still(
             hold,
             force_to_8bit=force_to_8bit,
             accept_dark=accept_dark,
@@ -2685,6 +2697,11 @@ class ScopeSession:
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
         )
+        if channel is not None and lit_other_than(
+            self.scope.illumination, channel, still.record.illumination_ma
+        ):
+            raise HardwareCommandRefusedError('other_led_lit', 'capture_still')
+        return still
 
     def _layer_camera_request(self, layer: str) -> LayerCameraRequest:
         """``layer``'s stored gain, exposure and auto-gain, with the auto-gain

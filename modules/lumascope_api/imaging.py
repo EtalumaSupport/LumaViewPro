@@ -52,7 +52,7 @@ from modules.lumascope_api.frame_record import (
     FrameRecord,
     grab_record,
 )
-from modules.lumascope_api.illumination import live_lit_pairs
+from modules.lumascope_api.illumination import lit_other_than, live_lit_pairs
 from modules.notification_center import notifications
 from modules.video_cadence import StallWatch, prologue_stall_threshold_s
 from modules.api_surface import Admission, api, api_fields
@@ -1200,13 +1200,18 @@ class ImagingAPI:
         the camera's hold for a capture (``CameraAPI._hold_layer_for_capture``)
         runs inline, as the capture body does, so neither is admitted again
         against whatever holds the scope now. ``capture`` is the capture
-        body's keyword arguments.
+        body's keyword arguments. A frame named and set for ``layer`` is lit
+        by no other LED, so another one lit refuses it before the hold.
 
         Raises:
-            HardwareCommandRefusedError: as ``_hold_layer_for_capture`` says,
-                and whatever the capture raises.
+            HardwareCommandRefusedError: ``'other_led_lit'``, an LED other
+                than ``layer``'s is lit; nothing was written or captured. As
+                ``_hold_layer_for_capture`` says, and whatever the capture
+                raises.
             CameraSettingRejected: as ``_hold_layer_for_capture`` says.
         """
+        if lit_other_than(self._scope.illumination, layer):
+            raise HardwareCommandRefusedError('other_led_lit', member)
         self._camera._hold_layer_for_capture(layer, request, member)
         return self._capture_still_impl(member=member, **capture)
 
@@ -1426,7 +1431,8 @@ class ImagingAPI:
             CaptureFailedError: as ``capture_and_wait`` says.
             HardwareCommandRefusedError: ``'not_connected'``, naming this
                 member, with no camera; ``'camera_not_streaming'``; or, given
-                ``hold``, a run, a diagnostic or a home holds the scope.
+                ``hold``, a run, a diagnostic or a home holds the scope, or
+                ``'other_led_lit'``, an LED other than its layer's is lit.
             CameraSettingRejected: given ``hold``, the camera refused one of
                 its settings; nothing was captured.
         """

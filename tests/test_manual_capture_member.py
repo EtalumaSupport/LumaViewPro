@@ -35,7 +35,7 @@ from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
 from tests.protocol_drives import run_identity
-from tests.stock_channels import LED0, LED1, LED2
+from tests.stock_channels import LED0, LED2
 
 RESULT_TIMEOUT_S = 30.0
 
@@ -165,16 +165,6 @@ class TestWhereTheFileLands:
 
         assert f'_{LED0}_' in path.name
         assert read_file_record(path)['channel'] == LED0
-
-    def test_a_lit_led_outranks_the_shown_channel(self, still_session):
-        session, _ = still_session
-        session.show_channel(LED0)
-        session.scope.illumination.led_on(LED1, 50.0)
-
-        (path,) = _files(session)
-
-        assert f'_{LED1}_' in path.name
-        assert read_file_record(path)['channel'] == LED1
 
     def test_a_second_still_takes_the_next_number(self, still_session):
         session, _ = still_session
