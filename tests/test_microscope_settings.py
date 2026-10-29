@@ -215,11 +215,16 @@ def _bind_write_frame_text(fake_self):
 
 
 def _compile_ms_method(method_name: str, namespace: dict):
-    from ui.ui_helpers import show_on_slider, show_text
+    from ui.ui_helpers import show_on_slider, show_text, typed_number
 
     fn_src = _extract_ms_method(method_name)
     # The module's own redraw writers: the method writes every box through them.
-    ns = {'show_text': show_text, 'show_on_slider': show_on_slider, **namespace}
+    ns = {
+        'show_text': show_text,
+        'show_on_slider': show_on_slider,
+        'typed_number': typed_number,
+        **namespace,
+    }
     exec(compile(fn_src, f'<microscope_settings::{method_name}>', 'exec'), ns)
     return ns[method_name]
 
@@ -574,7 +579,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
     that never happened while the box sat blank.
     """
 
-    def _make(self, width_text, unparseable=False, camera_present=True):
+    def _make(self, width_text, camera_present=True):
         from types import SimpleNamespace
 
         records = []
@@ -586,11 +591,9 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         }
 
         def _typed():
-            if unparseable:
-                raise ValueError('Invalid value for frame width/height')
             return {
-                'width': int(boxes['frame_width_id'].text),
-                'height': int(boxes['frame_height_id'].text),
+                'width': boxes['frame_width_id'].text,
+                'height': boxes['frame_height_id'].text,
             }
 
         applied = []
@@ -641,7 +644,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         )
 
     def test_a_blank_entry_is_reported_as_a_correction_and_applies_nothing(self):
-        fn, fake_self, records, applied, _settings, _boxes = self._make('', unparseable=True)
+        fn, fake_self, records, applied, _settings, _boxes = self._make('')
 
         fn(fake_self, 'frame_width_id')
 
@@ -657,7 +660,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         )
 
     def test_a_blank_entry_puts_both_boxes_back(self):
-        fn, fake_self, _records, _applied, settings, boxes = self._make('', unparseable=True)
+        fn, fake_self, _records, _applied, settings, boxes = self._make('')
 
         fn(fake_self, 'frame_width_id')
 

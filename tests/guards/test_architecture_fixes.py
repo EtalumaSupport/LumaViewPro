@@ -519,7 +519,7 @@ _UI_EXCEPT_PIN = {
     ('ui/listener_bridge.py', 'Exception'): 0,
     ('ui/main_display.py', 'Exception'): 0,
     ('ui/microscope_settings.py', 'Exception'): 1,
-    ('ui/microscope_settings.py', 'ValueError'): 1,
+    ('ui/microscope_settings.py', 'ValueError'): 0,
     ('ui/motion_settings.py', 'Exception'): 0,
     ('ui/notification_popup.py', 'Exception'): 0,
     ('ui/post_processing.py', 'Exception'): 0,

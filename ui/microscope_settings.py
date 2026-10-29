@@ -28,6 +28,7 @@ from ui.ui_helpers import (
     show_on_slider,
     show_text,
     submit_reported,
+    typed_number,
 )
 
 if TYPE_CHECKING:
@@ -708,19 +709,16 @@ class MicroscopeSettings(BoxLayout):
         image_settings._resort_accordion()
 
     def _typed_frame_dimensions(self) -> dict:
-        """The size currently TYPED into the frame fields.
+        """The text currently TYPED into the frame fields, unparsed.
 
         Only the handler applying the edit wants this. Every other
         consumer wants the size the camera delivered, which lives in
         settings['frame'] -- the fields are an editor, and until the
         apply lands they can hold a size no camera is at.
-
-        Raises:
-            ValueError: the fields do not hold a pair of integers.
         """
         return {
-            'width': int(self.ids['frame_width_id'].text),
-            'height': int(self.ids['frame_height_id'].text),
+            'width': self.ids['frame_width_id'].text,
+            'height': self.ids['frame_height_id'].text,
         }
 
     def _write_frame_text(self, width, height) -> None:
@@ -764,22 +762,25 @@ class MicroscopeSettings(BoxLayout):
         # hear about it.
         gui_logger.text_input(record, self.ids[committed_id].text)
 
-        try:
-            typed = self._typed_frame_dimensions()
-        except ValueError:
+        def put_back():
+            frame = ctx.settings['frame']
+            self._write_frame_text(frame['width'], frame['height'])
+
+        typed = self._typed_frame_dimensions()
+        width = typed_number(typed['width'], int, put_back)
+        height = None if width is None else typed_number(typed['height'], int, put_back)
+        if width is None or height is None:
             # An entry that is not a pair of integers is a CORRECTION, not a
             # request. Substituting the stored size and applying it reported a
             # framing the user never asked for -- emptying a box logged the
             # size already in force, so the bundle claimed an edit that never
-            # happened while the box sat blank. Put both boxes back and stop.
-            frame = ctx.settings['frame']
-            gui_logger.text_input(f'{record}_APPLIED', frame[axis])
-            self._write_frame_text(frame['width'], frame['height'])
+            # happened while the box sat blank. Both boxes are back; stop.
+            gui_logger.text_input(f'{record}_APPLIED', ctx.settings['frame'][axis])
             return
 
         # Rapid edits (width, then height, each committing on focus loss)
         # fold into one apply while one is in flight -- see _CoalescingApplier.
-        if self._frame_size_applier.submit((typed['width'], typed['height'])):
+        if self._frame_size_applier.submit((width, height)):
             camera = ctx.scope.camera
             applier = self._frame_size_applier
             submit_reported(
