@@ -374,8 +374,7 @@ def _axis_limits_or_refuse(
     so every caller -- the GUI, a script, REST -- is told the same thing.
 
     Raises:
-        ProtocolRunRefusedError: An axis in *axes* has no limits. It has
-            been logged and shown before it is raised.
+        ProtocolRunRefusedError: An axis in *axes* has no limits.
     """
     _refuse_without_motors(axis_limits, axes, what=what)
     return {axis: axis_limits[axis] for axis in axes}
@@ -733,8 +732,10 @@ class StepRecord:
         acquire: What the step captures.
         video_config: What the step records as video; None where the step
             carries no video config.
-        stim_config: Each channel's stimulation, by channel; None where the
-            step carries no stimulation config.
+        stim_config: Each channel's stimulation, by channel: every
+            fluorescence channel of the release (``'Ex405'`` to
+            ``'Ex640'``), whether or not this scope has its LED; None where
+            the step carries no stimulation config.
         auto_named: The name is rendered from the step's fields.
         label: The caller's label for the step; '' for none.
         channel_group_id: The steps captured together as one composite

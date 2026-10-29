@@ -2808,9 +2808,7 @@ class ImagingAPI:
             raise FrameListenerNotRegisteredError(name) from ex
 
     @api(in_process=True)
-    def remove_frame_listener(
-        self, cb: Callable[[np.ndarray, datetime.datetime, dict | None], None]
-    ) -> None:
+    def remove_frame_listener(self, cb: Callable[[Frame], None]) -> None:
         """Remove a listener registered via ``add_frame_listener``.
 
         No new call reaches the handler once this returns (a call already

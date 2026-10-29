@@ -19,12 +19,8 @@ a client retries only a 409; one that declares no cause (a by-contract
 cancel) is 409. A fault is 500.
 
 The server's own answers carry their own reasons, kind ``refusal``:
-``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
-``unsupported_media_type`` 415, ``overloaded`` 503, ``server_closing`` 503
-for a member asked while the server closes, ``no_frame_yet`` 503 for a
-live view the camera has sent no frame to, ``handle_shared`` 422 for an
-id every client shares, and ``not_cancellable`` 409 for a stop asked of a
-job that holds no operation.
+``ServerRefusedError``'s, each explained on that class, each sent with the
+status ``_SERVER_STATUS`` gives it rather than its cause's.
 """
 
 from __future__ import annotations

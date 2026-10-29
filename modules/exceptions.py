@@ -1826,10 +1826,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     (already running, files still writing, empty protocol, validation
     errors, hardware not connected), by the protocols API when a protocol
     or a step names something this scope cannot do, and by the protocol
-    builder for a z-stack asked for with no range. Each of those reports it
-    through the one reporter as it raises, so it has been logged and shown
-    once already; any later report of the same exception is a no-op, and a
-    caller reconciles its own state without telling anyone again.
+    builder for a z-stack asked for with no range. Each of those raises it
+    without reporting it: the boundary the caller sits behind reports it
+    once, so a REST caller is answered and a GUI user is shown it.
 
     Its message is the sentence a person reads, so a headless caller that
     prints it prints what the GUI shows.

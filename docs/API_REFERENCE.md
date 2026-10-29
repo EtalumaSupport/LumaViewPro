@@ -362,7 +362,7 @@ slices when stacked.
 **Raises**
 
 - `AxisMovingError`: `'axis_moving'`, with no `at`, an axis is moving, so the live position is a place it is passing through. Nothing is added.
-- `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_layer'`, no layer acquires. With `use_zstacking`, also `'zstack_not_configured'`, `'positions_unreachable'` or `'zslices_outside_travel'`, as `apply_zstacking` refuses the stored stack. Logged and notified once; nothing is added.
+- `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_layer'`, no layer acquires. With `use_zstacking`, also `'zstack_not_configured'`, `'positions_unreachable'` or `'zslices_outside_travel'`, as `apply_zstacking` refuses the stored stack. Nothing is added.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, as `runtime_state.resolve_current_objective` says why (`'slot_unassigned'`, the turret's current slot has no objective). Nothing is added.
 - `ConfigurationDefectError`: `'layers_unresolved'`, `channels` is given and this scope's layers could not be resolved. Nothing is added.
 - `ArgumentRefusedError`: `'channel_unknown'`, a name in `channels` is not a channel.
@@ -616,12 +616,11 @@ Binding the objective the slot already holds is a no-op.
 
 - `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` or `objective_id` is judged; or a run, a diagnostic or a recording holds the scope (`'exclusive_activity_running'`). Nothing is written.
 - `PositionOutOfRangeError`: `slot` is not a slot number 1-4.
-- `ObjectiveUnknownError`: `'none_selected'`, `objective_id` is None.
 - `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, `objective_id` is not exactly a catalogue key.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `none_selected`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`
 
 <a id="ScopeSession.bookmark"></a>
@@ -942,12 +941,11 @@ active objective changed.
 - `ArgumentRefusedError`: `'slot_required'`, no `slot` on a turret scope. Nothing is written.
 - `HardwareCommandRefusedError`: `'axis_absent'`, a `slot` on a scope with no turret. Nothing is written.
 - `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, `objective_id` is not exactly a catalogue key. Nothing is written.
-- `ObjectiveUnknownError`: `'none_selected'`, `objective_id` is None.
 - `PositionOutOfRangeError`: `slot` is not a slot number 1-4.
 
 **Refusals by REST status**
 
-- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `none_selected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_required`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
@@ -1975,7 +1973,7 @@ steps; a labware with no wells still gives an empty protocol, which
 
 **Raises**
 
-- `ProtocolRunRefusedError`: `'no_acquiring_layer'`, logged and notified once; `'tiling_unknown'`, a grid this installation does not offer; `'overlap_out_of_range'`, the stored tile overlap outside 0 to 50; `'tiles_outside_travel'`, a tile past the X or Y travel; `'zstack_not_configured'`, a z-stack with no extent; `'positions_unreachable'`, a grid on a scope with no X/Y motor or a z-stack on one with no Z motor; `'zslices_outside_travel'`, a slice past the Z travel.
+- `ProtocolRunRefusedError`: `'no_acquiring_layer'`, no layer acquires; `'tiling_unknown'`, a grid this installation does not offer; `'overlap_out_of_range'`, the stored tile overlap outside 0 to 50; `'tiles_outside_travel'`, a tile past the X or Y travel; `'zstack_not_configured'`, a z-stack with no extent; `'positions_unreachable'`, a grid on a scope with no X/Y motor or a z-stack on one with no Z motor; `'zslices_outside_travel'`, a slice past the Z travel.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, so the config cannot be assembled: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret.
 - `ProtocolScheduleRefusedError`: `period_s` or `duration_s` is one no protocol can run.
 - `AxisStateUnknownError`: an acquiring layer has no saved focus, so its steps would save the current Z, and Z does not know its position. Reported once.
@@ -2102,7 +2100,7 @@ Count a plugin's run as live work from entry to exit, entered and left on any th
 
 For a plugin whose run starts on one thread and ends on a worker it
 starts: entered at the press, before the worker, and left as the
-worker ends, so `live_work` and `in_flight_named` name the run
+worker ends, so `live_work` names the run
 across the gap before its own claim and after it -- a confirmation
 asked first, the worker's end. A run that holds a claim takes it as
 it always did; this holds no claim and refuses nothing, and the
@@ -2574,16 +2572,16 @@ reach; it guarantees nothing about where the number came from.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
+- `ArgumentRefusedError`: `'not_a_number'`, `z_um` is NaN or infinite. Nothing is written.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`.
 - `ConfigurationDefectError`: `'layers_unresolved'`, this scope's layers could not be resolved. Nothing is written.
 - `ProtocolRunRefusedError`: `'positions_unreachable'` -- this scope has no Z axis. Nothing is written.
-- `PositionOutOfRangeError`: `z_um` is NaN or infinite, or lies outside Z's travel. Nothing is written.
+- `PositionOutOfRangeError`: `z_um` lies outside Z's travel. Nothing is written.
 
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `layers_unresolved`
 
 <a id="ScopeSession.save_focus"></a>
@@ -2817,7 +2815,6 @@ objective already active is a no-op.
 **Raises**
 
 - `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, `objective_id` is not exactly a catalogue key. The refusal lands before any write or move.
-- `ObjectiveUnknownError`: `'none_selected'`, `objective_id` is None.
 - `ArgumentRefusedError`: On a turret scope, `'objective_in_several_slots'`, two or more slots hold `objective_id` (`offered`: the slots), or `'objective_not_on_turret'`, none does (`offered`: what the slots hold). Nothing is moved.
 - `HardwareCommandRefusedError`: A run, a diagnostic or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or the turret move's own refusal, `'not_connected'` or `'axis_absent'`, nothing moved.
 - `AxisStateUnknownError`: The turret has not been homed.
@@ -2826,7 +2823,7 @@ objective already active is a no-op.
 
 **Refusals by REST status**
 
-- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `none_selected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
@@ -3800,11 +3797,13 @@ Returns the step's name after the update.
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`. Nothing is changed on either.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, as `add_step` raises it (`'slot_unassigned'`, the turret's current slot has no objective). The step is unchanged.
+- `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_layer'`, `channel` is not set to acquire; `'channel_already_in_add'`, another step of the same add already takes that channel. The step is unchanged.
+- `StepNotFoundError`: `'no_such_step'`, `step_index` is not a step of `protocol`, judged before anything else.
 
 **Refusals by REST status**
 
-- 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unassigned`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`
+- 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unassigned`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_unknown`, `no_acquiring_layer`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
 
 <a id="ScopeSession.user_settings_file"></a>
 ### `ScopeSession.user_settings_file`
@@ -5661,9 +5660,13 @@ removal already told by whatever noticed it.
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera: none is connected and the snapshot holds a setting to restore, or the restore found it removed.
+- `CameraReadFailedError`: a setting could not be read to compare; what the camera holds is saved first.
+- `CameraSettingRejected`: the camera refused binning, frame size or format; the restore stops there, with what the camera holds saved.
 
 **Refusals**
 
+- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="CameraAPI.save_camera_state"></a>
@@ -6880,15 +6883,16 @@ the addresses it has lit at a positive current.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the snapshot has an LED lit, raised before any change.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the snapshot has an LED lit, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
+- `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'illumination_out_of_range'` for a light in the snapshot, before anything is written.
 - `BoardNoReplyError`: the board did not answer a write; that channel is unknown and the writes after it are not made.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `illumination_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI.save_led_state"></a>
 ### `IlluminationAPI.save_led_state`
@@ -7407,10 +7411,7 @@ Nothing.
 ### `ImagingAPI.remove_frame_listener`
 
 ```python
-def remove_frame_listener(
-    self,
-    cb: Callable[[np.ndarray, datetime.datetime, dict | None], None],
-) -> None
+def remove_frame_listener(self, cb: Callable[[Frame], None]) -> None
 ```
 
 Marks: in-process.
@@ -10553,7 +10554,7 @@ One step whose autofocus did not focus; the run went on at its fallback Z.
 
 A record: it crosses the wire as its data.  
 Held in: [`FrameDelivered.frame`](#FrameDelivered.frame).  
-Taken by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame), [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
+Taken by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame), [`ImagingAPI.remove_frame_listener`](#ImagingAPI.remove_frame_listener), [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
 
 One delivered frame and the facts known when it was stored.
 
@@ -10619,7 +10620,7 @@ Built only by this module's two entries: `grab_record` for a still,
 
 - <a id="FrameRecord.auto_gain"></a>`auto_gain`: `AutoGainConvergence | None` -- Where the standing auto-gain arm landed when the capture locked it (`AutoGainConvergence`); None when no arm stood. The lock's exposure and gain are `exposure_ms` and `gain_db`.
 - <a id="FrameRecord.binning_size"></a>`binning_size`: `int` -- Binning the frame was delivered at.
-- <a id="FrameRecord.black_level"></a>`black_level`: `float | None` -- The camera's black level parameter the frame was taken at, in the camera's own units (`CameraAPI.get_black_level`). None for a recorded frame: no frame reports it.
+- <a id="FrameRecord.black_level"></a>`black_level`: `float | None` -- The camera's black level parameter the frame was taken at, in the camera's own units (`CameraAPI.read_black_level`). None for a recorded frame: no frame reports it.
 - <a id="FrameRecord.camera_model"></a>`camera_model`: `str | None` -- The camera that took it.
 - <a id="FrameRecord.camera_tick_hz"></a>`camera_tick_hz`: `int | None` -- Ticks per second of that clock.
 - <a id="FrameRecord.camera_timestamp_ticks"></a>`camera_timestamp_ticks`: `int | None` -- The camera's own clock for the frame (for a summed capture, the last frame's).
@@ -12857,7 +12858,7 @@ One step of a protocol, a field per column of its steps table.
 - <a id="StepRecord.label"></a>`label`: `str` -- The caller's label for the step; '' for none.
 - <a id="StepRecord.name"></a>`name`: `str` -- The step's name, rendered from its other fields.
 - <a id="StepRecord.objective"></a>`objective`: `str` -- The objective's catalogue key.
-- <a id="StepRecord.stim_config"></a>`stim_config`: `dict[str, Stimulation] | None` -- Each channel's stimulation, by channel; None where the step carries no stimulation config.
+- <a id="StepRecord.stim_config"></a>`stim_config`: `dict[str, Stimulation] | None` -- Each channel's stimulation, by channel: every fluorescence channel of the release (`'Ex405'` to `'Ex640'`), whether or not this scope has its LED; None where the step carries no stimulation config.
 - <a id="StepRecord.tile"></a>`tile`: `str` -- The step's tile in its grid; '' for no tile.
 - <a id="StepRecord.tile_group_id"></a>`tile_group_id`: `int | None` -- The tile grid the step is one tile of; None for none.
 - <a id="StepRecord.turret_slot"></a>`turret_slot`: `int | None` -- The turret slot the step uses; None for none.
@@ -16491,10 +16492,9 @@ Raised by SequencedCaptureRunner.prepare() when a run cannot start
 (already running, files still writing, empty protocol, validation
 errors, hardware not connected), by the protocols API when a protocol
 or a step names something this scope cannot do, and by the protocol
-builder for a z-stack asked for with no range. Each of those reports it
-through the one reporter as it raises, so it has been logged and shown
-once already; any later report of the same exception is a no-op, and a
-caller reconciles its own state without telling anyone again.
+builder for a z-stack asked for with no range. Each of those raises it
+without reporting it: the boundary the caller sits behind reports it
+once, so a REST caller is answered and a GUI user is shown it.
 
 Its message is the sentence a person reads, so a headless caller that
 prints it prints what the GUI shows.

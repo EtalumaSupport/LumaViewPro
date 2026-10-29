@@ -230,8 +230,8 @@ class ProtocolsAPI:
           - input_config={...}: positions, layer_configs, the z-stack, the
             tiling, the schedule and the frame; built flat by
             Protocol.from_config, then tiled and stacked.
-          - empty_config={...}: labware, period, duration, frame_dimensions
-            and binning_size for an empty-steps protocol, which needs no
+          - empty_config={...}: labware_id, period, duration,
+            frame_dimensions and binning_size for an empty-steps protocol, which needs no
             objective; routed through Protocol.create_empty.
         The protocol is built against the scope's tiling grids. The
         configuration is judged whole before anything is built: every key
@@ -363,8 +363,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, or
-                no layer acquires. Logged and notified once. With
-                ``zstack_params``, also what ``apply_zstacking`` refuses.
+                no layer acquires. With ``zstack_params``, also what ``apply_zstacking`` refuses.
             ObjectiveUnknownError: the active objective is unknown, for the
                 reason ``runtime_state.resolve_current_objective`` gives (on a
                 turret scope, ``'slot_unassigned'`` for a slot with no
@@ -490,17 +489,17 @@ class ProtocolsAPI:
         Returns the step's name after the update.
 
         Raises:
-            ProtocolRunRefusedError: an axis does not know its position, or
-                the layer the step takes is not set to acquire (reason
-                ``no_acquiring_layer``, as an add), or another step of the
-                same add already takes that channel (reason
-                ``channel_already_in_add``). Logged and notified once; the
-                step is unchanged.
+            ProtocolRunRefusedError: an axis does not know its position
+                (``'step_position_unknown'``), or the layer the step takes is
+                not set to acquire (``'no_acquiring_layer'``, as an add), or
+                another step of the same add already takes that channel
+                (``'channel_already_in_add'``). The step is unchanged.
             ObjectiveUnknownError: the active objective is unknown, as an
                 add refuses it; the step is unchanged.
-            ProtocolError: ``step_index`` is not a step of ``protocol``
-                (raised by the protocol), judged before anything else: an
-                empty protocol has no step to update, whatever the layer.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol`` (raised by the protocol), judged before
+                anything else: an empty protocol has no step to update,
+                whatever the layer.
         """
         from modules.protocol import Protocol
 
@@ -586,7 +585,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
-                has no Z axis. Logged and notified once.
+                has no Z axis.
             ArgumentRefusedError: ``'not_a_number'``, ``z_um`` is not a
                 finite number.
             PositionOutOfRangeError: ``z_um`` lies outside Z's travel.
@@ -943,8 +942,7 @@ class ProtocolsAPI:
         this refusal through ``ScopeSession.new_protocol`` and ``add_step``.
 
         Raises:
-            ProtocolRunRefusedError: reason ``no_acquiring_layer``. Logged
-                and notified once.
+            ProtocolRunRefusedError: reason ``no_acquiring_layer``.
         """
         from modules.protocol import Protocol
 
@@ -1002,7 +1000,7 @@ class ProtocolsAPI:
         Raises:
             ProtocolRunRefusedError: reason ``channel_unknown``, naming the
                 channels and the steps; else ``layer_not_on_scope``, naming
-                the layers and the steps. Logged and notified once.
+                the layers and the steps.
         """
         identity = self._scope.channel_identity
         present = {record.key_name for record in identity.channels}
@@ -1049,7 +1047,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
-                the channels and the steps. Logged and notified once.
+                the channels and the steps.
             ProtocolFormatError: a step's stimulation entry is not a config
                 (``Protocol.step_records``).
         """
@@ -1182,8 +1180,7 @@ class ProtocolsAPI:
                 position a finite number, or NaN where the step has none.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_unreachable``. It has been
-                logged and shown before it is raised.
+            ProtocolRunRefusedError: ``positions_unreachable``.
         """
         present = set(self._scope.capabilities.axes)
         needed = []
@@ -1274,8 +1271,7 @@ class ProtocolsAPI:
                 (``Protocol.labware_id()``), already validated as known.
 
         Raises:
-            ProtocolRunRefusedError: ``positions_outside_travel``. It has
-                been logged and shown before it is raised.
+            ProtocolRunRefusedError: ``positions_outside_travel``.
             ConfigError: No session has bound the scope, so it has no
                 stage offset to judge X/Y with.
         """
@@ -1328,8 +1324,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: A step's gain or exposure is outside the
-                camera's range. It has been logged and shown before it is
-                raised.
+                camera's range.
         """
         limits = self._scope.capabilities.camera_limits
         checks = (

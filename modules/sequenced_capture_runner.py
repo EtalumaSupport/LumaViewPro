@@ -1168,8 +1168,11 @@ class SequencedCaptureRunner:
                 streaming, an axis position not
                 known, the stage's lid open, a save location that cannot
                 be used, a sequence_name that is a path rather than a
-                name). The user has already been notified once when this
-                raises.
+                name).
+            RunCheckFailedError: the run's checks could not be asked:
+                ``'validation_crashed'``, the protocol's validation failed to
+                run; ``'hardware_state_unknown'``, the scope's state could not
+                be read.
             ControlSessionRefusedError: ``'control_session_held'``, a
                 control session is held by someone else.
         """

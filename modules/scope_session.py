@@ -1192,7 +1192,7 @@ class ScopeSession:
 
         For a plugin whose run starts on one thread and ends on a worker it
         starts: entered at the press, before the worker, and left as the
-        worker ends, so ``live_work`` and ``in_flight_named`` name the run
+        worker ends, so ``live_work`` names the run
         across the gap before its own claim and after it -- a confirmation
         asked first, the worker's end. A run that holds a claim takes it as
         it always did; this holds no claim and refuses nothing, and the
@@ -2741,8 +2741,8 @@ class ScopeSession:
                 and None is the stored default's.
 
         Raises:
-            ProtocolRunRefusedError: ``'no_acquiring_layer'``, logged
-                and notified once; ``'tiling_unknown'``, a grid this
+            ProtocolRunRefusedError: ``'no_acquiring_layer'``, no layer
+                acquires; ``'tiling_unknown'``, a grid this
                 installation does not offer; ``'overlap_out_of_range'``, the
                 stored tile overlap outside 0 to 50; ``'tiles_outside_travel'``,
                 a tile past the X or Y travel; ``'zstack_not_configured'``, a
@@ -2851,7 +2851,7 @@ class ScopeSession:
                 acquires. With ``use_zstacking``, also
                 ``'zstack_not_configured'``, ``'positions_unreachable'`` or
                 ``'zslices_outside_travel'``, as ``apply_zstacking`` refuses
-                the stored stack. Logged and notified once; nothing is added.
+                the stored stack. Nothing is added.
             ObjectiveUnknownError: the objective in the light path is
                 unknown, as ``runtime_state.resolve_current_objective`` says
                 why (``'slot_unassigned'``, the turret's current slot has no
@@ -2935,6 +2935,13 @@ class ScopeSession:
                 unknown, as ``add_step`` raises it (``'slot_unassigned'``, the
                 turret's current slot has no objective). The step is
                 unchanged.
+            ProtocolRunRefusedError: ``'step_position_unknown'``, an axis
+                does not know its position; ``'no_acquiring_layer'``,
+                ``channel`` is not set to acquire; ``'channel_already_in_add'``,
+                another step of the same add already takes that channel. The
+                step is unchanged.
+            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
+                step of ``protocol``, judged before anything else.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'update_step', then='take a step'
@@ -3021,8 +3028,10 @@ class ScopeSession:
                 could not be resolved. Nothing is written.
             ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
-            PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
-                outside Z's travel. Nothing is written.
+            ArgumentRefusedError: ``'not_a_number'``, ``z_um`` is NaN or
+                infinite. Nothing is written.
+            PositionOutOfRangeError: ``z_um`` lies outside Z's travel.
+                Nothing is written.
         """
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'save_channel_focus', then='take a focus'
@@ -5422,8 +5431,6 @@ class ScopeSession:
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key. Nothing is
                 written.
-            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
-                None.
             PositionOutOfRangeError: ``slot`` is not a slot
                 number 1-4.
         """
@@ -5484,8 +5491,6 @@ class ScopeSession:
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key. The refusal
                 lands before any write or move.
-            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
-                None.
             ArgumentRefusedError: On a turret scope,
                 ``'objective_in_several_slots'``, two or more slots hold
                 ``objective_id`` (``offered``: the slots), or
@@ -5643,7 +5648,6 @@ class ScopeSession:
                 judged; or a run, a diagnostic or a recording holds the
                 scope (``'exclusive_activity_running'``). Nothing is written.
             PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
-            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is None.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key.
         """

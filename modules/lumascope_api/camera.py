@@ -3459,6 +3459,11 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera: none is connected and the snapshot holds a setting
                 to restore, or the restore found it removed.
+            CameraReadFailedError: a setting could not be read to compare;
+                what the camera holds is saved first.
+            CameraSettingRejected: the camera refused binning, frame size or
+                format; the restore stops there, with what the camera holds
+                saved.
         """
         return self._dispatch_camera(
             self._restore_camera_state_impl,
@@ -3594,8 +3599,8 @@ class CameraAPI:
         changed nothing saves nothing.
 
         Raises:
-            HardwareError: A setting could not be read to compare; what the
-                camera holds is saved first.
+            CameraReadFailedError: A setting could not be read to compare;
+                what the camera holds is saved first.
             CameraSettingRejected: The camera refused binning, frame size or
                 format; the restore stops there, as a setter's raise does,
                 with what the camera holds saved.
@@ -3620,7 +3625,7 @@ class CameraAPI:
         that differs from the camera's value now, in ``_GEOMETRY_ORDER``.
 
         Raises:
-            HardwareError: A setting could not be read to compare.
+            CameraReadFailedError: A setting could not be read to compare.
             CameraSettingRejected: The camera refused binning, frame size or
                 format; the restore stops there, as a setter's raise does.
         """

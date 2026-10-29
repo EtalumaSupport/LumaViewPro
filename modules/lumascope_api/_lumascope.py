@@ -671,7 +671,8 @@ class Lumascope:
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
                 False; defaults to ``configured_model``, then the
-                'microscope' setting, then 'LS850T'.
+                'microscope' setting (the shipped template's when no
+                settings are bound).
             configured_model: The scope model selected in settings, for
                 units whose hardware cannot report one (the Classic/FX2
                 line has no motor board to ask). Optional: a

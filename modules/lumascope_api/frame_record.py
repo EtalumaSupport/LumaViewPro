@@ -169,7 +169,7 @@ class FrameRecord:
         gain_source: Whether ``gain_db`` is the frame's own or the setting
             read beside the grab; None exactly when ``gain_db`` is.
         black_level: The camera's black level parameter the frame was taken
-            at, in the camera's own units (``CameraAPI.get_black_level``).
+            at, in the camera's own units (``CameraAPI.read_black_level``).
             None for a recorded frame: no frame reports it.
         illumination_ma: Drive current of each LED address lit for the
             frame, by address. An address that was off is absent.

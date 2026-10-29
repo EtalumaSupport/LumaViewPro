@@ -1333,6 +1333,11 @@ class IlluminationAPI:
                 another activity holds the scope or the LEDs, raised at the
                 first channel it would change; or a manual recording runs
                 and the snapshot has an LED lit, raised before any change.
+                ``'not_connected'``, no LED controller is connected, or
+                ``'not_on_this_scope'``, before anything is written.
+            ArgumentRefusedError: ``'led_address_unknown'``,
+                ``'not_a_number'`` or ``'illumination_out_of_range'`` for a
+                light in the snapshot, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
         """

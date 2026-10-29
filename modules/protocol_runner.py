@@ -905,8 +905,7 @@ class ProtocolRunner:
         Raises:
             ProtocolRunRefusedError: The runner refused the request (already
                 running, files still writing, empty/invalid protocol,
-                hardware not connected); no state was committed and the
-                user was already notified once.
+                hardware not connected); no state was committed.
         """
         import modules.config_helpers as config_helpers
 

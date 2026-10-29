@@ -1071,7 +1071,8 @@ answers `202 Accepted` with `Location: /api/v1/jobs/<id>` and the job:
 A member that starts an operation -- a run, a move, a home, a still -- is
 answered `202` with the operation's job as soon as it has started, whatever
 the wait. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads a
-job; once it has ended it carries `result` or `error` (the problem). A job's
+job, `200` whatever its status; with `Prefer: respond-async` it answers at
+once, a poll of the job's `progress`. Once it has ended it carries `result` or `error` (the problem). A job's
 `status` says whether the call answered a problem, not how the operation went:
 a stopped run's job is `completed` with its outcome `aborted`, a stopped move's
 `failed` with its stop notice. A run's job also carries `files`, the job of
@@ -1173,8 +1174,9 @@ curl -s --json '{}' $API/scope/illumination/leds_off        # 200
 ```
 
 Build a one-step protocol and run it. A run is answered `202` at once with its
-job; read the job with `Prefer: wait` until it has ended, then its `files` job
-until the run's images are on disk.
+job; poll the job at once with `Prefer: respond-async`, or read it with
+`Prefer: wait` until it has ended, then its `files` job until the run's images
+are on disk.
 
 ```bash
 curl -s -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
@@ -1183,6 +1185,7 @@ curl -s -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_w
 curl -s --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200: ["custom0000_BF"]
 RUNNER=$(curl -s --json '{}' $API/create_protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\"}" $API/handles/ProtocolRunner/$RUNNER/start_single_scan | jq -r .id)   # 202
+curl -s -H 'Prefer: respond-async' $API/jobs/$JOB           # 200: the job as it stands, its "progress" where the run has got
 FILES=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r .files.id)   # 200: "status": "completed", "result" the RunOutcome
 curl -s -H 'Prefer: wait=60' $API/jobs/$FILES               # 200: "result" the RunFiles, once the images are on disk
 curl -s "$API/live_folder_listing?name=ProtocolData"        # 200: the run's folder
