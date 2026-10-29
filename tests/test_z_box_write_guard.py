@@ -32,7 +32,7 @@ class _Slider:
 @pytest.fixture
 def control(monkeypatch):
     """A VerticalControl with only the two widgets these writers touch."""
-    motion = SimpleNamespace(get_target_position=lambda axis: 3774.0)
+    motion = SimpleNamespace(get_target_positions=lambda: {'Z': 3774.0})
     ctx = SimpleNamespace(lumaview=SimpleNamespace(scope=SimpleNamespace(motion=motion)))
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     ctrl = VerticalControl.__new__(VerticalControl)

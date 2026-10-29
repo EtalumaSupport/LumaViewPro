@@ -551,7 +551,11 @@ def _valid_rows() -> list[Valid]:
             'home',
             'MotionAPI.home',
             lambda s: s.session.scope.motion.home(),
-            lambda s, _: None if s.session.scope.motion.has_homed() else 'not homed',
+            lambda s, _: (
+                'not homed'
+                if s.session.scope.motion.axes_without_position().keys() - {'T'}
+                else None
+            ),
         ),
         Valid(
             'tiling_config',

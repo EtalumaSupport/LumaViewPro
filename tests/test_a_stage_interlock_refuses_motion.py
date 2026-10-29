@@ -94,7 +94,7 @@ class TestAMoveTheLidRefuses:
         assert (raised.value.reason, raised.value.member) == ('lid_open_before_motion', member)
         assert isinstance(raised.value.__cause__, MotionInterlockError)
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
-        assert scope.motion.position_is_known('X')
+        assert 'X' not in scope.motion.axes_without_position()
 
     def test_a_z_move_in_flight_that_the_refusal_stopped_ends_idle_where_it_stopped(
         self, scope, monkeypatch

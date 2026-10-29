@@ -21,6 +21,7 @@ import time
 from harness import HARDWARE, check, figure, hardware_session, report
 
 from modules.lumascope_api.illumination import LedState
+from tests.scope_fakes import channel_reading
 
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
 HOLD_S = 3.0  # time to look at the optics at each step
@@ -74,7 +75,7 @@ def main():
             print(f'--- {LAYER} {request} mA: look at the optics now ---', flush=True)
             commanded = illumination.led_on(LAYER, request)
             time.sleep(HOLD_S)
-            state = illumination.get_led_state(LAYER)
+            state = channel_reading(illumination, LAYER)
             mean, record = _frame(scope)
             means[request] = mean
             figure(f'{request} mA: commanded', commanded)

@@ -38,7 +38,7 @@ from modules.protocol import Protocol, ProtocolFormatError
 from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
+from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from tests.protocol_drives import (
     StepHeartbeat,
     wait_for_run_end,
@@ -2152,13 +2152,13 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.illumination.led_on_by_address(0, 100)
-        assert scope.illumination.get_led_state(LED0).state is LedState.LIT
+        assert channel_reading(scope.illumination, LED0).state is LedState.LIT
         scope.illumination.led_off_by_address(0)
-        assert scope.illumination.get_led_state(LED0).state is LedState.DARK
+        assert channel_reading(scope.illumination, LED0).state is LedState.DARK
 
     def test_led_on_by_color_name(self, scope):
         scope.illumination.led_on(channel=LED1, illumination_ma=200)
-        state = scope.illumination.get_led_state(LED1)
+        state = channel_reading(scope.illumination, LED1)
         assert (state.state, state.illumination_ma) == (LedState.LIT, 200)
 
     def test_leds_off(self, scope):
@@ -2183,13 +2183,13 @@ class TestLumascapeAPIMotor:
     def test_move_z(self, scope):
         scope.motion.move_z(3000.0)
         # Simulated motor moves instantly in fast mode
-        pos = scope.motion.get_target_position('Z')
+        pos = scope.motion.get_target_positions()['Z']
         assert pos == pytest.approx(3000.0, abs=1.0)
 
-    def test_get_target_position_from_cache(self, scope):
-        """get_target_position uses cache -- zero serial I/O."""
+    def test_get_target_positions_from_cache(self, scope):
+        """get_target_positions uses cache -- zero serial I/O."""
         scope.motion.move_z(5000.0)
-        pos = scope.motion.get_target_position('Z')
+        pos = scope.motion.get_target_positions()['Z']
         assert pos == pytest.approx(5000.0, abs=1.0)
 
 

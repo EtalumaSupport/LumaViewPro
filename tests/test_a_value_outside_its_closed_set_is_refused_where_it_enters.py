@@ -29,6 +29,7 @@ from rest.app import build_app
 from rest.routes import routes
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
+from tests.scope_fakes import channel_reading
 
 OFFERED = ('Off', 'Once', 'Continuous')
 
@@ -176,7 +177,7 @@ def test_a_snapshot_a_caller_built_with_plain_strings_restores_its_lit_address(s
 
     illumination.restore_led_state(snapshot)
 
-    assert illumination.get_led_state(LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
+    assert channel_reading(illumination, LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
 
 def test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered(client, session):

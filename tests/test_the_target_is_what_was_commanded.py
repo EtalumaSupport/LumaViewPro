@@ -52,7 +52,7 @@ def turret_session(tmp_path):
 def test_an_arrived_move_answers_its_commanded_target(session):
     motion = session.scope.motion
     motion.move_z(100.0)
-    assert motion.get_target_position('Z') == 100.0
+    assert motion.get_target_positions()['Z'] == 100.0
     # Proves the answer above is not the poll.
     assert motion.get_current_position('Z') != 100.0
 
@@ -74,15 +74,15 @@ def test_a_stopped_move_answers_the_poll(session):
     motion.stop_motion()
     with pytest.raises(MoveNotCompletedError):
         handle.result()
-    assert motion.get_target_position('X') == motion.get_current_position('X')
-    assert motion.get_target_position('X') != 60000.0
+    assert motion.get_target_positions()['X'] == motion.get_current_position('X')
+    assert motion.get_target_positions()['X'] != 60000.0
 
 
 def test_a_home_answers_the_poll(session):
     motion = session.scope.motion
     motion.move_z(100.0)
     motion.home('Z')
-    assert motion.get_target_position('Z') == motion.get_current_position('Z')
+    assert motion.get_target_positions()['Z'] == motion.get_current_position('Z')
 
 
 def test_a_refused_move_keeps_the_previous_target(session):
@@ -90,18 +90,18 @@ def test_a_refused_move_keeps_the_previous_target(session):
     motion.move_z(100.0)
     with pytest.raises(PositionOutOfRangeError):
         motion.move_z(10_000_000.0)
-    assert motion.get_target_position('Z') == 100.0
+    assert motion.get_target_positions()['Z'] == 100.0
 
 
 def test_an_unknown_axis_answers_the_poll(session):
     motion = session.scope.motion
     motion.move_z(100.0)
     motion._set_axis_state('Z', AxisState.UNKNOWN)
-    assert motion.get_target_position('Z') == motion.get_current_position('Z')
+    assert motion.get_target_positions()['Z'] == motion.get_current_position('Z')
 
 
 def test_an_objective_change_returns_z_to_the_commanded_target(turret_session):
     motion = turret_session.scope.motion
     motion.move_z(100.0)
     motion.move_turret(2)
-    assert motion.get_target_position('Z') == 100.0
+    assert motion.get_target_positions()['Z'] == 100.0

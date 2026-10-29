@@ -49,7 +49,7 @@ def test_travel_is_checked_against_the_target_that_is_driven(scope):
         motion.move_xy_by(dx_um=100.0)
 
     # A refused move writes no target, so the previous one stands.
-    assert motion.get_target_position('X') == x_max - 50.0
+    assert motion.get_target_positions()['X'] == x_max - 50.0
 
 
 def test_a_jog_during_a_move_adds_to_that_moves_target(scope):

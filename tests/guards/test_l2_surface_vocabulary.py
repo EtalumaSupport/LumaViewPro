@@ -5,7 +5,7 @@ The L2 surface converged on one word per fact:
 
     LED drive current   mA        -> illumination_ma
     turret move         tmove     -> move_turret
-    turret homed query  has_thomed -> position_is_known('T')
+    turret homed query  has_thomed -> axes_without_position()
     camera reads        *_cached, get_gain_db, get_exposure_ms
                                   -> the held property or read_*
     camera writes       set_auto_exposure_time, apply_layer_camera_settings
@@ -42,7 +42,7 @@ RETIRED = {
     'mA': 'illumination_ma',
     'tmove': 'move_turret',
     '_tmove_impl': '_move_turret_impl',
-    'has_thomed': "position_is_known('T')",
+    'has_thomed': 'axes_without_position()',
     '_thome_impl': '_home_turret_impl',
     'active_cached': 'camera.active',
     'gain_db_cached': 'camera.gain_db',

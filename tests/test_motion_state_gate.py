@@ -111,7 +111,7 @@ def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
         assert scope.motion._axis_state[axis] == AxisState.UNKNOWN, (
             f'{axis} must be UNKNOWN after a failed home'
         )
-    assert scope.motion.has_homed() is False
+    assert scope.motion.axes_without_position().keys() - {'T'}
     errors = _errors_posted(centre_posts)
     assert errors == [], f'the home raises and posts nothing; its caller reports it, got {errors}'
 
@@ -212,12 +212,14 @@ def test_turret_fault_revokes_homed_state(scope):
     driver flag alone cannot see that.
     """
     scope.motion._home_impl()
-    assert scope.motion.position_is_known('T') is True, 'precondition: a good home homes the turret'
+    assert 'T' not in scope.motion.axes_without_position(), (
+        'precondition: a good home homes the turret'
+    )
 
     scope.motion._set_axis_state('T', AxisState.UNKNOWN)
 
-    assert scope.motion.position_is_known('T') is False, (
-        "position_is_known('T') must follow the axis state, not a driver flag that "
+    assert 'T' in scope.motion.axes_without_position(), (
+        "axes_without_position() must follow T's axis state, not a driver flag that "
         'clears only on physical disconnect'
     )
     with pytest.raises(AxisStateUnknownError):
@@ -225,14 +227,14 @@ def test_turret_fault_revokes_homed_state(scope):
 
 
 def test_stage_fault_revokes_homed_state(scope):
-    """Same defect on the stage half: has_homed() must follow the state."""
+    """Same defect on the stage half: axes_without_position() must follow the state."""
     scope.motion._home_impl()
-    assert scope.motion.has_homed() is True
+    assert not (scope.motion.axes_without_position().keys() - {'T'})
 
     scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
 
-    assert scope.motion.has_homed() is False, (
-        'has_homed() must follow the axis state, not the driver latch'
+    assert scope.motion.axes_without_position().keys() - {'T'}, (
+        'axes_without_position() must follow the axis state, not the driver latch'
     )
 
 

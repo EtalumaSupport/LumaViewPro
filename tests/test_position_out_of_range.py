@@ -77,13 +77,13 @@ def test_the_message_names_the_axis_the_request_and_the_range():
 )
 def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
     """A refused move writes no target, so the previous one stands."""
-    target_before = motion.get_target_position(axis)
+    target_before = motion.get_target_positions()[axis]
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         axis_move(motion, axis, position)
 
     assert (caught.value.axis, caught.value.bound) == (axis, 'travel range')
-    assert motion.get_target_position(axis) == target_before
+    assert motion.get_target_positions()[axis] == target_before
 
 
 @pytest.mark.parametrize(
@@ -98,7 +98,7 @@ def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
     """
     axis_move(motion, axis, position)
 
-    assert motion.get_target_position(axis) == position
+    assert motion.get_target_positions()[axis] == position
     assert motion.get_current_position(axis) == pytest.approx(position, abs=1.0)
 
 

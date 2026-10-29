@@ -100,7 +100,6 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
         return layers[layer]
 
     scope = MagicMock()
-    scope.illumination.get_led_state.return_value = {'enabled': False}
 
     ctx = SimpleNamespace(
         ready=True,

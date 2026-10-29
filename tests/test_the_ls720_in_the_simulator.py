@@ -55,11 +55,11 @@ def _board(scope):
 def test_the_ls720_runs_the_6110_driver_and_starts_unknown(scope):
     assert isinstance(scope._motion_driver, Tmcm6110Board)
     assert set(scope.capabilities.axes) == {'X', 'Y', 'Z'}
-    assert not scope.motion.has_homed()
+    assert scope.motion.axes_without_position().keys() - {'T'}
 
 
 def test_a_home_makes_every_axis_known_at_its_index_position(homed):
-    assert homed.motion.has_homed()
+    assert not (homed.motion.axes_without_position().keys() - {'T'})
     assert homed.motion.get_current_positions() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
 
 
@@ -170,7 +170,7 @@ def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
         homed.motion.home()
     assert refused.value.reason == 'lid_open_before_motion'
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
-    assert homed.motion.has_homed()
+    assert not (homed.motion.axes_without_position().keys() - {'T'})
 
 
 def test_a_position_the_board_does_not_report_is_unread_not_none(homed):

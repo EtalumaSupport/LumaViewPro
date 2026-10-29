@@ -62,7 +62,7 @@ def test_the_scope_comes_up_and_the_refused_start_is_told_once(refused_at_bring_
 
 
 def test_the_bring_up_record_names_the_stream_that_did_not_start(refused_at_bring_up):
-    camera = refused_at_bring_up.bring_up_record().part('camera')
+    (camera,) = [p for p in refused_at_bring_up.bring_up_record().parts if p.part == 'camera']
 
     assert camera.up
     assert camera.cause == 'stream_not_started'

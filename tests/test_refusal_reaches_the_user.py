@@ -55,12 +55,12 @@ def test_ignore_limits_bypasses_travel_but_not_the_ceiling(motion):
     """The hatch exists to drive outside TRAVEL deliberately. It is not a
     licence to hand the motor an arbitrary number."""
     motion.move_xy(y_um=90000.0, ignore_limits=True)
-    assert motion.get_target_position('Y') == 90000.0
+    assert motion.get_target_positions()['Y'] == 90000.0
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         motion.move_xy(y_um=MOTOR_POSITION_LIMIT + 1, ignore_limits=True)
     assert caught.value.bound == 'safety limit'
-    assert motion.get_target_position('Y') == 90000.0
+    assert motion.get_target_positions()['Y'] == 90000.0
 
     motion.move_xy(y_um=40000.0)
 

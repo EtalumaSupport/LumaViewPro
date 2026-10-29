@@ -40,6 +40,7 @@ from modules.scope_session import ScopeSession
 import rest.app
 from rest.app import SERVER_SEGMENTS, build_app
 from rest.routes import routes
+from tests.scope_fakes import led_reading
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED2
 
@@ -313,10 +314,10 @@ def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, sessi
     )
     assert on.status_code == 200
     assert on.json() == 10.0
-    assert session.scope.illumination.get_led_state(LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
+    assert led_reading(session.scope, 2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
-    state = client.get('/api/v1/scope/illumination/get_led_state', params={'channel': LED2})
-    assert state.json() == {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0}
+    states = client.get('/api/v1/scope/illumination/get_led_states')
+    assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in states.json()
 
 
 def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session):
@@ -336,7 +337,7 @@ def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session)
     )
 
     assert restored.status_code == 200
-    assert session.scope.illumination.get_led_state(LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
+    assert led_reading(session.scope, 2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
 
 @pytest.mark.parametrize('body', [None, {}])
@@ -346,7 +347,7 @@ def test_a_method_with_no_arguments_takes_an_empty_body_or_an_empty_object(clien
     answer = client.post('/api/v1/scope/illumination/leds_off', json=body)
 
     assert answer.status_code == 200
-    assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
+    assert led_reading(session.scope, 2).state is LedState.DARK
 
 
 @pytest.mark.parametrize(
@@ -368,7 +369,7 @@ def test_a_body_that_does_not_fit_is_422_and_reaches_nothing(client, session, bo
     answer = client.post('/api/v1/scope/illumination/led_on', json=body)
 
     assert answer.status_code == 422
-    assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
+    assert led_reading(session.scope, 2).state is LedState.DARK
 
 
 def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client, session):
@@ -465,7 +466,7 @@ def test_a_number_that_is_not_finite_is_422_and_reaches_nothing(client, session,
     )
 
     assert answer.status_code == 422
-    assert session.scope.illumination.get_led_state(LED2).state is LedState.DARK
+    assert led_reading(session.scope, 2).state is LedState.DARK
 
 
 @pytest.mark.parametrize('number', ['nan', 'inf'])

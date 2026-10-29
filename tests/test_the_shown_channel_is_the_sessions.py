@@ -15,6 +15,7 @@ from modules.lumascope_api.illumination import LedState, LedTransition, LedTrans
 from modules.scope_session import ScopeSession, ShownChannel
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1
+from tests.scope_fakes import channel_reading
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def test_showing_a_channel_keeps_it_dark_until_it_is_lit(session):
     assert _lit(session) == set()
 
     session.light_shown_channel(True)
-    blue = session.scope.illumination.get_led_state(LED0)
+    blue = channel_reading(session.scope.illumination, LED0)
     assert (blue.state, blue.illumination_ma) == (
         LedState.LIT,
         session.settings[LED0]['illumination_ma'],

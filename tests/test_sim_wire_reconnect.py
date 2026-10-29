@@ -70,7 +70,7 @@ def test_after_a_cable_pull_the_firmware_and_the_api_both_still_know_the_stage(s
     scope.simulation.replug('motor')
     assert _silent_reconnect(scope) == {'X': True, 'Y': True, 'Z': True, 'T': True}
     assert scope.motion.axes_without_position() == {}
-    assert scope.motion.has_homed()
+    assert not (scope.motion.axes_without_position().keys() - {'T'})
 
 
 @pytest.mark.xfail(
@@ -82,7 +82,7 @@ def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
     scope.simulation.reboot('motor')
     assert _silent_reconnect(scope) == {'X': False, 'Y': False, 'Z': False, 'T': False}
     assert set(scope.motion.axes_without_position()) == {'X', 'Y', 'Z', 'T'}
-    assert not scope.motion.has_homed()
+    assert scope.motion.axes_without_position().keys() - {'T'}
 
 
 @pytest.mark.slow
@@ -146,7 +146,7 @@ def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
         assert session.status.axes == dict.fromkeys(('X', 'Y', 'Z'), unknown)
         turret = TurretStatus(AxisState.UNKNOWN, None) if 'T' in scope.capabilities.axes else None
         assert (motion.turret_status(), session.status.turret) == (turret, turret)
-        assert not motion.has_homed()
+        assert motion.axes_without_position().keys() - {'T'}
         with pytest.raises(HardwareCommandRefusedError) as refused:
             motion.interlocks()
         assert (refused.value.reason, refused.value.missing) == (

@@ -246,8 +246,9 @@ class XYStageControl(BoxLayout):
         # read.
         if not scope.capabilities.has_xy_stage:
             return None
-        x_target = scope.motion.get_target_position('X')
-        y_target = scope.motion.get_target_position('Y')
+        targets = scope.motion.get_target_positions()
+        x_target = targets.get('X')
+        y_target = targets.get('Y')
         # After disconnect() the null board is installed and there is no
         # target to show; a position listener can still tick here then.
         if x_target is None or y_target is None:

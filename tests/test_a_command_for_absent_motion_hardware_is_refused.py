@@ -256,7 +256,7 @@ def test_a_position_read_of_an_absent_axis_answers_none(make_session, model, abs
             assert scope.motion.turret_status() is None
             continue
         assert scope.motion.get_current_position(axis) is None
-        assert scope.motion.get_target_position(axis) is None
+        assert scope.motion.get_target_positions().get(axis) is None
         assert scope.motion.get_actual_position(axis) is None
     # The turret has a slot, not a position: the stage axes only.
     stage_axes = set(scope.capabilities.axes) - set(absent) - {'T'}
@@ -270,7 +270,7 @@ def test_after_disconnect_every_read_answers_none(make_session):
     motion = session.scope.motion
     for axis in 'XYZ':
         assert motion.get_current_position(axis) is None
-        assert motion.get_target_position(axis) is None
+        assert motion.get_target_positions().get(axis) is None
     assert motion.get_current_positions() == {}
     assert motion.get_target_positions() == {}
 

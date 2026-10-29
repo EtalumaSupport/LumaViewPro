@@ -290,11 +290,11 @@ class TestEveryDoorRefusesAsOneClass:
         assert lit == []
 
     def test_a_move(self, sim_session, held):
-        before = sim_session.scope.motion.get_target_position('Z')
+        before = sim_session.scope.motion.get_target_positions()['Z']
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.scope.motion.move_z(before + 10)
         assert refused.value.reason == 'control_session_held'
-        assert sim_session.scope.motion.get_target_position('Z') == before
+        assert sim_session.scope.motion.get_target_positions()['Z'] == before
 
     def test_a_camera_command(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError) as refused:

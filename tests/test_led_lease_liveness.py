@@ -23,7 +23,12 @@ from modules.lumascope_api.illumination import LedState
 
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    build_scope,
+    channel_reading,
+    home_sim_scope,
+)
 from tests.objective_records import objective
 from tests.stock_channels import LED0, LED1
 
@@ -187,10 +192,10 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     # AF channel was never lit.
     assert holder.held
     assert ill.led_lease_purpose == 'protocol'
-    assert ill.get_led_state(LED0).state is LedState.LIT, (
+    assert channel_reading(ill, LED0).state is LedState.LIT, (
         "the holder's lit channel must survive the refused AF"
     )
-    assert ill.get_led_state(LED1).state is LedState.DARK, (
+    assert channel_reading(ill, LED1).state is LedState.DARK, (
         'the refused AF must not light its channel'
     )
     holder.release(leave_on=False)

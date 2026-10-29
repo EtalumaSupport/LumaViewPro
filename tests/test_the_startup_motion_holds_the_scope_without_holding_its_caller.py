@@ -82,7 +82,7 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
 
     assert locked_when_settled == [False]
     assert not session.controls_lock.controls_locked
-    assert scope.motion.has_homed()
+    assert not (scope.motion.axes_without_position().keys() - {'T'})
     assert scope.motion.turret_status().slot == 1
 
 
@@ -140,7 +140,7 @@ def test_a_stop_refused_during_its_home_cancels_the_legs_after_it(session, monke
         held.release.set()
 
     assert started.result(timeout=HOME_S) is None
-    assert motion.has_homed()
+    assert not (motion.axes_without_position().keys() - {'T'})
     # The home leaves Z at the floor; the sample plane is millimetres above.
     assert session.scope._camera_driver.get_nominal_focal_z() > 1000.0
     assert motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0)

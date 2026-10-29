@@ -15,7 +15,6 @@ import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from modules.api_surface import api, api_fields
-from modules.closed_sets import refuse_unless_offered
 from modules.exceptions import MissingPart
 
 if TYPE_CHECKING:
@@ -149,19 +148,6 @@ class BringUpRecord:
     substitutions: tuple[Substitution, ...] = ()
     settings_set_aside: SettingsSetAside | None = None
 
-    @api(in_process=True, reads=True)
-    def part(self, name: Part) -> PartStatus:
-        """The status of ``name``.
-
-        Raises:
-            ArgumentRefusedError: ``'not_offered'``, ``name`` is not a
-                ``Part``, or is one this record has no status for (a
-                diagnostic scope's record has no camera), offering the parts
-                it has.
-        """
-        held = {status.part: status for status in self.parts}
-        return held[refuse_unless_offered(Part, name, 'name', within=tuple(held))]
-
     @api
     @property
     def missing(self) -> tuple[PartStatus, ...]:
@@ -171,15 +157,3 @@ class BringUpRecord:
             Nothing.
         """
         return tuple(status for status in self.parts if status.missing)
-
-    @api(in_process=True, reads=True)
-    def substitution(self, setting: str) -> Substitution | None:
-        """What bring-up used for ``setting`` instead of the saved value, if anything.
-
-        Raises:
-            Nothing.
-        """
-        for sub in self.substitutions:
-            if sub.setting == setting:
-                return sub
-        return None

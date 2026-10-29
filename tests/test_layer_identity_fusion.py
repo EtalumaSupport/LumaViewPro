@@ -19,7 +19,7 @@ import pytest
 from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
 from modules.layer_record import UNRESOLVED
 from modules.lumascope_api.illumination import LedReading, LedState
-from tests.scope_fakes import build_scope, led_reading
+from tests.scope_fakes import build_scope, channel_reading, led_reading
 from tests.stock_channels import LED1
 
 
@@ -33,7 +33,7 @@ def scope():
 class TestFusion:
     def test_identity_layer_on_drivable_channel_lights(self, scope):
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
-        assert scope.illumination.get_led_state(LED1).state is LedState.LIT
+        assert channel_reading(scope.illumination, LED1).state is LedState.LIT
         scope.illumination.led_off(channel=LED1)
 
     @pytest.mark.parametrize('member', ['led_on', 'led_off'])

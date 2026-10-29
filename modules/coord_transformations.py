@@ -89,11 +89,9 @@ class CoordinateTransformer:
         for name, value in (('x_um', x_um), ('y_um', y_um)):
             refuse_unless_finite_number(value, name)
         offset_x, offset_y = offset_axes(stage_offset)
-        dim_max = labware.get_dimensions()
-
         return PlatePosition(
-            x_mm=dim_max['x'] - (offset_x + x_um) / 1000,
-            y_mm=dim_max['y'] - (offset_y + y_um) / 1000,
+            x_mm=labware.width_mm - (offset_x + x_um) / 1000,
+            y_mm=labware.height_mm - (offset_y + y_um) / 1000,
         )
 
     def plate_to_stage(
@@ -122,9 +120,7 @@ class CoordinateTransformer:
             refuse_unless_finite_number(value, name)
         offset_x, offset_y = offset_axes(stage_offset)
 
-        dim_max = labware.get_dimensions()
-
         return StagePosition(
-            x_um=(dim_max['x'] - offset_x / 1000 - x_mm) * 1000,  # mm -> um
-            y_um=(dim_max['y'] - offset_y / 1000 - y_mm) * 1000,
+            x_um=(labware.width_mm - offset_x / 1000 - x_mm) * 1000,  # mm -> um
+            y_um=(labware.height_mm - offset_y / 1000 - y_mm) * 1000,
         )

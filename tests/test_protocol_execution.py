@@ -40,7 +40,12 @@ from tests.protocol_drives import (
     held_run_claim,
     wait_for_run_end,
 )
-from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from tests.scope_fakes import (
+    build_scope,
+    channel_reading,
+    configure_turret_like_bringup,
+    swap_lanes,
+)
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
@@ -2096,7 +2101,7 @@ class TestProtocolLedNoFlash:
         # A stray channel lit before the run (e.g. a Live-mode LED left on a
         # different color when the user pressed Scan).
         scope.illumination.led_on(LED2, 80)
-        assert scope.illumination.get_led_state(LED2).state is LedState.LIT
+        assert channel_reading(scope.illumination, LED2).state is LedState.LIT
 
         events = []
         scope.illumination.add_led_listener(
@@ -2125,7 +2130,7 @@ class TestProtocolLedNoFlash:
         """
         color, illumination_ma = LED1, 60.0
         scope.illumination.led_on(channel=color, illumination_ma=illumination_ma)
-        assert scope.illumination.get_led_state(color).state is LedState.LIT
+        assert channel_reading(scope.illumination, color).state is LedState.LIT
 
         events = []
         scope.illumination.add_led_listener(

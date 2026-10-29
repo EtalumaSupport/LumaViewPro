@@ -377,7 +377,7 @@ def test_the_ls720s_broken_home_switch_fails_the_home_until_cleared(ls720, monke
     assert failed.value.reason == 'error'
     ls720.simulation.clear()
     ls720.motion.home()
-    assert ls720.motion.has_homed()
+    assert not (ls720.motion.axes_without_position().keys() - {'T'})
 
 
 def test_a_silenced_ls720_board_answers_nothing_until_unsilenced(ls720):

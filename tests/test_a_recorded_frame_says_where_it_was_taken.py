@@ -347,8 +347,8 @@ class TestTheFrameFile:
 class TestTheBoundPlateTransform:
     def test_bound_to_the_labware_and_offset_selected_when_taken(self):
         plates = {
-            'wide': SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
-            'narrow': SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}),
+            'wide': SimpleNamespace(width_mm=100.0, height_mm=50.0),
+            'narrow': SimpleNamespace(width_mm=10.0, height_mm=5.0),
         }
         settings = {'protocol.labware': 'wide', 'stage_offset': {'x': 0.0, 'y': 0.0}}
         state = RuntimeState(
@@ -374,8 +374,8 @@ class TestTheBoundPlateTransform:
 
         protocol = _make_single_step_protocol()
         plates = {
-            protocol.labware_id(): SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
-            'narrow': SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}),
+            protocol.labware_id(): SimpleNamespace(width_mm=100.0, height_mm=50.0),
+            'narrow': SimpleNamespace(width_mm=10.0, height_mm=5.0),
         }
         settings = {'protocol.labware': 'narrow', 'stage_offset': {'x': 5000.0, 'y': 0.0}}
         state = RuntimeState(

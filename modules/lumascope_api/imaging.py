@@ -2299,21 +2299,6 @@ class ImagingAPI:
             self._focusing_event.clear()
 
     # --- Frame validity ---
-    @api
-    @property
-    def frame_is_valid(self) -> bool:
-        """True if all pending hardware state changes have settled.
-
-        ``frame_validity`` is the SSOT (see modules/frame_validity.py).
-
-        Returns:
-            bool: True when no pending state changes are outstanding.
-
-        Raises:
-            Nothing.
-        """
-        return self.frame_validity.is_valid
-
     @api(reads=True)
     def frames_until_valid(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> int:
         """Number of frames that must be grabbed before the next valid frame.

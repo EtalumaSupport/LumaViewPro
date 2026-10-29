@@ -17,7 +17,7 @@ logger = logging.getLogger('LVP.ui.stage')
 
 def _plate_to_pixel(labware, x_mm: float, y_mm: float, scale_x: float, scale_y: float):
     """A plate position (mm) as a pixel on the stage map: the plate's Y runs down the plate, the map's up."""
-    return x_mm * scale_x, (labware.get_dimensions()['y'] - y_mm) * scale_y
+    return x_mm * scale_x, (labware.height_mm - y_mm) * scale_y
 
 
 class Stage(Widget):
@@ -162,16 +162,13 @@ class Stage(Widget):
             # Create current labware instance
             labware = _app_ctx.ctx.scope.runtime_state.get_labware()
 
-            # Get labware dimensions
-            dim_max = labware.get_dimensions()
-
             # Scale from pixels to mm (from the bottom left)
-            scale_x = dim_max['x'] / self.width
-            scale_y = dim_max['y'] / self.height
+            scale_x = labware.width_mm / self.width
+            scale_y = labware.height_mm / self.height
 
             # Convert to plate position in mm (from the top left)
             plate_x = mouse_x * scale_x
-            plate_y = dim_max['y'] - mouse_y * scale_y
+            plate_y = labware.height_mm - mouse_y * scale_y
 
             ctx = _app_ctx.ctx
 
@@ -270,12 +267,9 @@ class Stage(Widget):
             x = 0  # FBO coordinates are relative to FBO, not screen
             y = 0
 
-            # Get labware dimensions
-            dim_max = labware.get_dimensions()
-
             # mm to pixels scale
-            scale_x = w / dim_max['x']
-            scale_y = h / dim_max['y']
+            scale_x = w / labware.width_mm
+            scale_y = h / labware.height_mm
 
             # Stage Coordinates from motorconfig
             x_max, y_max = self._stage_limits_um()
@@ -288,7 +282,7 @@ class Stage(Widget):
             # Draw stage area outline
             Color(0.2, 0.2, 0.2, 0.5)
             Rectangle(
-                pos=(x + (dim_max['x'] - stage_w - stage_x) * scale_x, y + stage_y * scale_y),
+                pos=(x + (labware.width_mm - stage_w - stage_x) * scale_x, y + stage_y * scale_y),
                 size=(stage_w * scale_x, stage_h * scale_y),
             )
 
@@ -415,12 +409,9 @@ class Stage(Widget):
             x = 0  # FBO coordinates are relative to FBO, not screen
             y = 0
 
-            # Get labware dimensions
-            dim_max = labware.get_dimensions()
-
             # mm to pixels scale
-            scale_x = w / dim_max['x']
-            scale_y = h / dim_max['y']
+            scale_x = w / labware.width_mm
+            scale_y = h / labware.height_mm
 
             # Draw protocol step markers
             half_size = 2
@@ -463,14 +454,16 @@ class Stage(Widget):
         x_current = None
         y_current = None
 
-        if scope.motion.has_homed() and self._xy_stage_present():
+        if not scope.motion.axes_without_position().keys() - {'T'} and self._xy_stage_present():
             # Position cache auto-refreshes on first read if stale (>80ms)
-            x_target = scope.motion.get_target_position('X')
-            y_target = scope.motion.get_target_position('Y')
+            targets = scope.motion.get_target_positions()
+            x_target = targets.get('X')
+            y_target = targets.get('Y')
             x_current = scope.motion.get_current_position('X')
             y_current = scope.motion.get_current_position('Y')
             # Each read answers for itself: the close can install the null
-            # board after has_homed() answered, and its reads answer None.
+            # board after axes_without_position() answered, and its reads
+            # answer None.
             position_available = None not in (x_target, y_target, x_current, y_current)
         gui_logger.display('STAGE_POSITION_SHOWN', position_available)
 
@@ -518,12 +511,9 @@ class Stage(Widget):
         x = self.x
         y = self.y
 
-        # Get labware dimensions
-        dim_max = labware.get_dimensions()
-
         # mm to pixels scale
-        scale_x = w / dim_max['x']
-        scale_y = h / dim_max['y']
+        scale_x = w / labware.width_mm
+        scale_y = h / labware.height_mm
 
         well_spacing_x = labware.spacing_x_mm
         well_spacing_y = labware.spacing_y_mm

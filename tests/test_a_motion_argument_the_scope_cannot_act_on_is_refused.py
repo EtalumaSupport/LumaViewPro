@@ -28,13 +28,11 @@ from tests.case_walk import failing_cases
 EVERY_AXIS = ('X', 'Y', 'Z', 'T')
 # The turret has a slot, not a position, so the position reads take the stage axes.
 STAGE_AXES = ('X', 'Y', 'Z')
-STAGE_ONLY = {'get_actual_position', 'get_target_position', 'get_current_position'}
+STAGE_ONLY = {'get_actual_position', 'get_current_position'}
 
 AXIS_MEMBERS = {
-    'position_is_known': lambda s, a: s.motion.position_is_known(a),
     'get_axis_state': lambda s, a: s.motion.get_axis_state(a),
     'get_actual_position': lambda s, a: s.motion.get_actual_position(a),
-    'get_target_position': lambda s, a: s.motion.get_target_position(a),
     'get_current_position': lambda s, a: s.motion.get_current_position(a),
     'get_axis_limits': lambda s, a: s.motion.get_axis_limits(a),
     'set_precision_mode': lambda s, a: s.motion.set_precision_mode(a, True),
@@ -117,7 +115,7 @@ def test_an_axis_the_model_lacks_is_a_name_and_keeps_its_answers(tmp_path):
     session = _session(tmp_path, 'LS850')
     try:
         assert session.scope.motion.get_axis_state('T') == 'unknown'
-        assert session.scope.motion.position_is_known('T') is False
+        assert 'T' not in session.scope.motion.axes_without_position()
         assert session.scope.diagnostics.read_motor_drv_status('T') == 0
     finally:
         session.shutdown()

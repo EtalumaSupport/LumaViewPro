@@ -96,7 +96,7 @@ def body(session, runner):
     snapshot = session.get_settings_snapshot()
     acquire_before = {layer: snapshot[layer]['acquire'] for layer in layers}
     exposure_before = snapshot['BF']['exposure_ms']
-    x0 = scope.motion.get_target_position('X')
+    x0 = scope.motion.get_target_positions()['X']
     try:
         for layer in layers:
             session.set_channel_acquire(layer, 'image' if layer in pair else None)

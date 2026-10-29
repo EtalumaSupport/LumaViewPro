@@ -4,7 +4,7 @@
 The scope is a MagicMock tuned so the AF loop actually executes:
 motion reports idle with numeric Z reads, the camera snapshot is a
 real dict, the default frame is a mid-gray ndarray, and
-get_target_position sits past z_max so every coarse pass completes
+get_target_positions()['Z'] sits past z_max so every coarse pass completes
 after a single sample. Tests patch
 modules.autofocus_functions.focus_function to control the curve shape
 (flat -> degenerate abort; positive -> two-pass success).
@@ -67,7 +67,7 @@ def af_runner_and_scope():
     scope.led_connected = False
     scope.motion.is_any_axis_moving.return_value = False
     scope.motion.get_current_position.return_value = AF_CENTER_Z
-    scope.motion.get_target_position.return_value = 600.0
+    scope.motion.get_target_positions.return_value = {'Z': 600.0}
     scope.motion.get_axis_limits.return_value = AxisLimits(min_um=0.0, max_um=14000.0)
     scope.camera.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
     # AF grabs through the public capture_and_wait, under the run's taking.

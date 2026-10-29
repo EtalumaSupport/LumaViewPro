@@ -35,8 +35,8 @@ def _refuse_to_draw():
 @pytest.fixture
 def stage_and_motion(monkeypatch):
     motion = SimpleNamespace(homed=True)
-    motion.has_homed = lambda: motion.homed
-    motion.get_target_position = lambda axis: CENTRE['XY'.index(axis)]
+    motion.axes_without_position = lambda: {} if motion.homed else {'X': 'unknown', 'Y': 'unknown'}
+    motion.get_target_positions = lambda: {'X': CENTRE[0], 'Y': CENTRE[1]}
     motion.get_current_position = lambda axis: CENTRE['XY'.index(axis)]
     monkeypatch.setattr(
         _app_ctx,
@@ -80,19 +80,18 @@ class _Plate:
         self.spacing_x_mm = 9
         self.spacing_y_mm = 9
         self.well_diameter_mm = 6
-
-    def get_dimensions(self):
-        return {'x': 127.76, 'y': 85.48}
+        self.width_mm = 127.76
+        self.height_mm = 85.48
 
 
 def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     stage_and_motion, monkeypatch
 ):
-    """The close swaps in the null board between the redraw's has_homed() and
+    """The close swaps in the null board between the redraw's axes_without_position() and
     its position reads: the reads answer None, and the whole redraw runs,
     hiding the crosshair, rather than raising on the Kivy clock."""
     stage, motion = stage_and_motion
-    motion.get_target_position = lambda axis: None
+    motion.get_target_positions = lambda: {}
     motion.get_current_position = lambda axis: None
     monkeypatch.setattr(_app_ctx.ctx.scope.runtime_state, 'get_labware', lambda: _Plate())
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))

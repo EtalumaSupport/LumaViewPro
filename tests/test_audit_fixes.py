@@ -688,32 +688,32 @@ class TestPositionCache:
 
     def test_initial_cache_is_zero(self, sim_scope):
         """Cache starts at 0 for all axes before any moves."""
-        assert sim_scope.motion.get_target_position('X') == 0.0
-        assert sim_scope.motion.get_target_position('Y') == 0.0
-        assert sim_scope.motion.get_target_position('Z') == 0.0
+        assert sim_scope.motion.get_target_positions()['X'] == 0.0
+        assert sim_scope.motion.get_target_positions()['Y'] == 0.0
+        assert sim_scope.motion.get_target_positions()['Z'] == 0.0
 
     def test_move_z_updates_cache(self, sim_scope):
         """move_z should push the new position into the cache."""
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.get_target_position('Z') == 5000.0
+        assert sim_scope.motion.get_target_positions()['Z'] == 5000.0
 
     def test_move_z_only_updates_its_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.get_target_position('X') == 0.0
-        assert sim_scope.motion.get_target_position('Y') == 0.0
+        assert sim_scope.motion.get_target_positions()['X'] == 0.0
+        assert sim_scope.motion.get_target_positions()['Y'] == 0.0
 
     def test_move_xy_by_updates_cache(self, sim_scope):
         """move_xy_by should accumulate into the cache."""
         sim_scope.motion.start_move_xy(x_um=1000.0)
         sim_scope.motion.start_move_xy_by(dx_um=500.0).result()
-        assert sim_scope.motion.get_target_position('X') == pytest.approx(1500.0, abs=0.1)
+        assert sim_scope.motion.get_target_positions()['X'] == pytest.approx(1500.0, abs=0.1)
 
     def test_move_z_by_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
         sim_scope.motion.start_move_z(3000.0)
         sim_scope.motion.start_move_z_by(-1000.0).result()
-        assert sim_scope.motion.get_target_position('Z') == pytest.approx(2000.0, abs=0.1)
+        assert sim_scope.motion.get_target_positions()['Z'] == pytest.approx(2000.0, abs=0.1)
 
     def test_get_current_position_matches_target(self, sim_scope):
         """After a blocking move, get_current_position is at the target
@@ -734,11 +734,11 @@ class TestPositionCache:
         # Use move_abs_pos to set a known position, then verify refresh reads it.
         sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
         # Cache still has old value since we bypassed the motion API
-        assert sim_scope.motion.get_target_position('Z') != 5000.0
+        assert sim_scope.motion.get_target_positions()['Z'] != 5000.0
         # Now refresh from hardware
         sim_scope.motion._refresh_position_cache()
         # Should now match what the motor reports
-        pos = sim_scope.motion.get_target_position('Z')
+        pos = sim_scope.motion.get_target_positions()['Z']
         assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
 
 
@@ -995,7 +995,7 @@ class TestIssue602_AFExecutorLED:
                     led_illumination=100.0,
                     led_lease=run_lease,
                 )
-            assert scope.illumination.get_led_state('BF').state is LedState.DARK, (
+            assert channel_reading(scope.illumination, 'BF').state is LedState.DARK, (
                 'aborted AF must leave its channel dark (#602)'
             )
 
@@ -2878,7 +2878,13 @@ from tests.camera_fakes import (
     run_one_stats_poll as _run_one_stats_poll,
     stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
-from tests.scope_fakes import build_scope, give_camera_capabilities, give_stub_lanes, swap_lanes
+from tests.scope_fakes import (
+    build_scope,
+    channel_reading,
+    give_camera_capabilities,
+    give_stub_lanes,
+    swap_lanes,
+)
 from tests.installation_fixtures import copy_installation_files
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
@@ -7900,18 +7906,18 @@ class TestLedSentinelReturnsAreNone:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
-            assert scope.illumination.get_led_state(LED0) is None
+            assert channel_reading(scope.illumination, LED0) is None
         finally:
             scope.disconnect()
 
     def test_get_led_ma_returns_none_when_channel_off(self, sim_scope):
         """A dark channel's reading carries illumination_ma None (was -1.0),
         before it is ever lit and after it is turned off."""
-        assert sim_scope.illumination.get_led_state(LED0).illumination_ma is None
+        assert channel_reading(sim_scope.illumination, LED0).illumination_ma is None
         sim_scope.illumination.led_on(LED0, 50.0)
-        assert sim_scope.illumination.get_led_state(LED0).illumination_ma == 50.0
+        assert channel_reading(sim_scope.illumination, LED0).illumination_ma == 50.0
         sim_scope.illumination.led_off(LED0)
-        assert sim_scope.illumination.get_led_state(LED0).illumination_ma is None
+        assert channel_reading(sim_scope.illumination, LED0).illumination_ma is None
 
 
 class TestSessionCarriesNoHardwareForwarders:
@@ -8063,7 +8069,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
 
 
 class TestGetLedStateShape:
-    """get_led_state / get_led_states answer LedReading records (address,
+    """get_led_states answers LedReading records (address,
     name, state, illumination_ma) and use None (not -1) for the
     illumination_ma of an address that is not lit (matches the
     Sentinel-return contract preface in LumascopeSkills).
@@ -8076,11 +8082,6 @@ class TestGetLedStateShape:
         bind_settings_like_a_session(scope)
         scope._led_driver.set_timing_mode('fast')
         return scope
-
-    def test_get_led_state_off_returns_none_sentinel(self):
-        scope = self._scope()
-        state = scope.illumination.get_led_state(LED0)
-        assert state == LedReading(0, LED0, LedState.DARK, None)
 
     def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
@@ -8103,7 +8104,7 @@ class TestGetLedStateShape:
         assert (
             f"LedReading(address=0, name='{LED0}', state=LedState.LIT, illumination_ma=200.0)"
             in doc
-        ), 'LumascopeSkills get_led_state example must show the LedReading return shape.'
+        ), 'LumascopeSkills get_led_states example must show the LedReading return shape.'
         assert "{'enabled': True, 'illumination_ma'" not in doc, (
             'The retired dict return shape must be gone from LumascopeSkills.'
         )

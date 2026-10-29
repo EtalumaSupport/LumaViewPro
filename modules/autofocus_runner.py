@@ -815,7 +815,7 @@ class AutofocusRunner:
             return
 
         resolution = self._params['resolution']
-        next_target = self._scope.motion.get_target_position('Z') + resolution
+        next_target = self._scope.motion.get_target_positions()['Z'] + resolution
 
         if self._abort_event is not None and self._abort_event.is_set():
             self._is_focusing_event.clear()

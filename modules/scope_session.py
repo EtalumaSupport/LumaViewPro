@@ -3585,7 +3585,8 @@ class ScopeSession:
         address = self.scope.illumination.color2ch(layer)
         if address is None or not self.scope.led_connected:
             return False
-        return self.scope.illumination.get_led_state(layer).state == LedState.LIT
+        readings = self.scope.illumination.get_led_states()
+        return any(r.address == address and r.state == LedState.LIT for r in readings)
 
     def _set_shown_channel(self, shown: ShownChannel) -> None:
         """Store ``shown`` and tell the listeners when it changed."""
@@ -5913,7 +5914,7 @@ class ScopeSession:
         # Bring-up has already reported the missing board once, in its own
         # report; homing it would only have the home refused as "not
         # connected" and show the same absence a second time.
-        if self.scope.bring_up_record().part(Part.MOTOR).missing:
+        if any(status.part == Part.MOTOR for status in self.scope.bring_up_record().missing):
             logger.info('startup motion skipped: the motor board did not come up at bring-up')
             return skipped
 

@@ -67,17 +67,6 @@ class Labware:
         return x, y
 
     @api(in_process=True, reads=True)
-    def has_wells(self) -> bool:
-        """True when the plate defines at least one well. A zero-well plate
-        (the Blank labware) has no well grid: no well index exists, labels
-        are empty, and well UI decorations do not apply.
-
-        Raises:
-            Nothing.
-        """
-        return self.rows * self.columns > 0
-
-    @api(in_process=True, reads=True)
     def get_well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None:
         """The (column, row) of the well centre nearest plate position (x_mm, y_mm).
 
@@ -93,7 +82,8 @@ class Labware:
         """
         for name, value in (('x_mm', x_mm), ('y_mm', y_mm)):
             refuse_unless_finite_number(value, name)
-        if not self.has_wells():
+        # A zero-well plate (the Blank labware) has no well grid.
+        if self.rows * self.columns == 0:
             return None
 
         i = (x_mm - self.offset_x_mm) / self.spacing_x_mm
@@ -122,12 +112,3 @@ class Labware:
 
         letter += chr(ord('A') + well_y)
         return f'{letter}{well_x + 1}'
-
-    @api(in_process=True, reads=True)
-    def get_dimensions(self) -> dict:
-        """The plate's outline in mm, as ``{'x': width, 'y': height}``.
-
-        Raises:
-            Nothing.
-        """
-        return {'x': self.width_mm, 'y': self.height_mm}

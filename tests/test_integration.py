@@ -35,7 +35,7 @@ from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
-from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
+from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -711,9 +711,9 @@ class TestHeadlessSession:
         try:
             scope = session.scope
             scope.illumination.led_on_by_address(0, 100)
-            assert scope.illumination.get_led_state(LED0).illumination_ma == 100
+            assert channel_reading(scope.illumination, LED0).illumination_ma == 100
             scope.illumination.led_off_by_address(0)
-            assert scope.illumination.get_led_state(LED0).state is LedState.DARK
+            assert channel_reading(scope.illumination, LED0).state is LedState.DARK
         finally:
             session.shutdown()
 
@@ -1080,7 +1080,7 @@ class TestAbortedAutofocusRestoresLeds:
 
         # AF setup lit the BF channel before the abort was observed; the
         # aborted exit must have turned it off.
-        state = scope.illumination.get_led_state('BF')
+        state = channel_reading(scope.illumination, 'BF')
         assert state.state is LedState.DARK, (
             'Aborted AF left its LED lit: keep_led_on must skip the LED '
             'restore only when AF completes successfully.'

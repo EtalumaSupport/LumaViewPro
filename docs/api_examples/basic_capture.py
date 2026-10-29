@@ -75,7 +75,7 @@ def main():
 
     # Read the target Z position (returns um): the 5000 commanded, not
     # the polled position a microstep off it. Zero serial I/O.
-    z_target = scope.motion.get_target_position('Z')
+    z_target = scope.motion.get_target_positions()['Z']
     print(f'Z target position: {z_target} um')
 
     # Capture an image. capture_and_wait drains stale frames and

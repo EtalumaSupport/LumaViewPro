@@ -108,7 +108,7 @@ def test_going_to_a_step_holding_an_out_of_range_value_starts_no_move_and_stores
     # Away from the step, so going to it would move X.
     session.scope.motion.move_xy_by(dx_um=1000)
     before = session.get_settings_snapshot()
-    position = session.scope.motion.get_target_position('X')
+    position = session.scope.motion.get_target_positions()['X']
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.start_go_to_step(protocol, 0)
@@ -116,4 +116,4 @@ def test_going_to_a_step_holding_an_out_of_range_value_starts_no_move_and_stores
     assert refused.value.reason == 'values_out_of_range'
     assert 'Step 1' in str(refused.value) and 'Exposure:' in str(refused.value)
     assert session.get_settings_snapshot() == before
-    assert session.scope.motion.get_target_position('X') == position
+    assert session.scope.motion.get_target_positions()['X'] == position

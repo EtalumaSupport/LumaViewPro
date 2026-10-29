@@ -35,8 +35,10 @@ def test_a_plate_move_of_x_alone_leaves_a_y_move_under_way(session):
         motion.move_to_plate(PlateLocation(x_mm=40.0, y_mm=None, z_um=None))
 
         assert not y_move.done(), 'the X move ended the Y move under way'
-        assert motion.get_target_position('Y') == pytest.approx(60_000.0)
-        assert motion.get_target_position('X') == pytest.approx(_stage_um(session, 40.0, 40.0).x_um)
+        assert motion.get_target_positions()['Y'] == pytest.approx(60_000.0)
+        assert motion.get_target_positions()['X'] == pytest.approx(
+            _stage_um(session, 40.0, 40.0).x_um
+        )
     finally:
         scope.simulation.clear()
     y_move.result()
@@ -49,12 +51,12 @@ def test_a_move_to_a_well_lands_on_its_centre_and_an_unknown_label_is_refused(se
     motion.move_to_well('H12')
 
     target = _stage_um(session, x_mm, y_mm)
-    assert motion.get_target_position('X') == pytest.approx(target.x_um)
-    assert motion.get_target_position('Y') == pytest.approx(target.y_um)
+    assert motion.get_target_positions()['X'] == pytest.approx(target.x_um)
+    assert motion.get_target_positions()['Y'] == pytest.approx(target.y_um)
     with pytest.raises(ArgumentRefusedError) as refused:
         motion.move_to_well('Z99')
     assert (refused.value.reason, refused.value.value) == ('well_unknown', 'Z99')
-    assert motion.get_target_position('X') == pytest.approx(target.x_um)
+    assert motion.get_target_positions()['X'] == pytest.approx(target.x_um)
 
 
 def test_each_go_to_bookmark_axis_lands_on_the_bookmark_and_moves_no_other(session):
@@ -71,7 +73,7 @@ def test_each_go_to_bookmark_axis_lands_on_the_bookmark_and_moves_no_other(sessi
 
         session.go_to_bookmark((axis,))
 
-        landed = {other: motion.get_target_position(other) for other in ('X', 'Y', 'Z')}
+        landed = {other: motion.get_target_positions()[other] for other in ('X', 'Y', 'Z')}
         expected = {'X': elsewhere.x_um, 'Y': elsewhere.y_um, 'Z': 1000.0, axis: at_mark}
         if landed != pytest.approx(expected):
             wrong[axis] = landed

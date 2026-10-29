@@ -39,7 +39,7 @@ def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
     protocol = _bf_and_blue(session)
     row = protocol.step_row(step_index=1)
 
-    step = protocol.step(step_index=1)
+    step = protocol.step_records()[1]
 
     assert isinstance(step, StepRecord)
     assert (step.name, step.channel, step.x_mm, step.y_mm, step.z_um) == (
@@ -73,7 +73,7 @@ def test_the_step_table_is_every_step_in_order(session):
 
     table = protocol.step_records()
 
-    assert table == (protocol.step(step_index=0), protocol.step(step_index=1))
+    assert len(table) == protocol.num_steps()
     assert [step.channel for step in table] == ['BF', LED0]
 
 
@@ -83,7 +83,7 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
         protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
     )
 
-    step = protocol.step(step_index=0)
+    step = protocol.step_records()[0]
 
     assert (step.x_mm, step.y_mm, step.z_um) == (None, None, 6000.0)
 
@@ -108,7 +108,7 @@ def test_a_step_with_no_slice_group_or_slot_reads_none_where_the_table_holds_min
     columns = ('Z-Slice', 'Tile Group ID', 'Z-Stack Group ID', 'Turret Slot')
     assert [row[column] for column in columns] == [-1, -1, -1, -1]
 
-    step = protocol.step(step_index=0)
+    step = protocol.step_records()[0]
 
     assert (step.z_slice, step.tile_group_id, step.z_stack_group_id, step.turret_slot) == (
         None,

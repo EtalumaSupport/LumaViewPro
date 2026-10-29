@@ -80,7 +80,6 @@ NOT_WRITERS = MemberNames(
         'refuse_unbuildable_zstack',
         'sanitize_step_name',
         'size_advisory',
-        'step',
         'step_list_revision',
         'step_records',
         'step_row',

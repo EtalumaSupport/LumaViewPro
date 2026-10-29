@@ -167,7 +167,7 @@ def test_a_home_whose_switch_read_fails_still_homes(make_session):
 
     scope.motion.home()
 
-    assert all(scope.motion.position_is_known(axis) for axis in scope.capabilities.axes)
+    assert all(axis not in scope.motion.axes_without_position() for axis in scope.capabilities.axes)
 
 
 def test_a_home_records_a_switch_it_could_not_read_as_unread(make_session, monkeypatch):

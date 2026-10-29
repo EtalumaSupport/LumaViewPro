@@ -36,7 +36,7 @@ def test_the_answers_name_their_axes_by_the_members(session):
     motion = session.scope.motion
     seen = []
     motion.add_position_listener(lambda axis, at: seen.append(axis))
-    motion.move_z(motion.get_target_position('Z') + 1.0)
+    motion.move_z(motion.get_target_positions()['Z'] + 1.0)
     motion.wait_until_finished_moving()
 
     answered = {

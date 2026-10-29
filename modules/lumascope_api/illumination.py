@@ -1222,36 +1222,6 @@ class IlluminationAPI:
         return tuple(self._reading(address) for address in addresses)
 
     @api(reads=True)
-    def get_led_state(self, channel: str) -> LedReading | None:
-        """Read one channel's LED: lit with its current, dark, or unknown.
-
-        Reads from the API-level store, not the board. A channel is named;
-        every board address, named or not, is in ``get_led_states()``.
-
-        Args:
-            channel: A layer name, read through the unit's identity.
-
-        Returns:
-            The LED's reading; None when no LED board is installed (none
-            came up, or after ``disconnect()``).
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` names no
-                layer.
-            HardwareCommandRefusedError: ``'not_on_this_scope'``, the unit's
-                identity gives the layer no LED.
-        """
-        refuse_unknown_layer(channel, argument='channel')
-        if not self._has_board():
-            return None
-        address = self.color2ch(color=channel)
-        if address is None:
-            part = MissingPart.led(channel)
-            raise HardwareCommandRefusedError(part.reason, 'get_led_state', missing=part)
-        with self._led_state_lock:
-            return self._reading(address)
-
-    @api(reads=True)
     def get_led_states(self) -> tuple[LedReading, ...] | None:
         """Read every LED address of the attached board.
 

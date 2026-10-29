@@ -41,7 +41,7 @@ class _Slider:
 @pytest.fixture
 def control(monkeypatch):
     target = {'Z': 2500.0}
-    motion = SimpleNamespace(get_target_position=lambda axis: target[axis])
+    motion = SimpleNamespace(get_target_positions=lambda: dict(target))
     monkeypatch.setattr(
         _app_ctx,
         'ctx',

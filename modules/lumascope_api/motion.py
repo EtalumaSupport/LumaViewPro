@@ -546,34 +546,6 @@ class MotionAPI:
         """
         return state in (AxisState.IDLE, AxisState.MOVING)
 
-    @api(reads=True)
-    def position_is_known(self, axis: Axis) -> bool:
-        """Whether *axis* has a reference position an absolute move can use.
-
-        Offered to callers as a question rather than only as an exception.
-        A caller whose move is optional -- one that should be skipped
-        rather than attempted on an axis whose position was never
-        established -- could otherwise only discover the answer by
-        provoking the refusal and catching it, which is indistinguishable
-        from swallowing a real one.
-
-        Stricter than ``_pre_drive`` by one state: a HOMING axis answers
-        False here, because its reference is still being established,
-        while the gate lets it drive so the home can finish.
-
-        Args:
-            axis: The axis to ask about.
-
-        Returns:
-            bool: True when *axis* is IDLE or MOVING; False when it is
-            UNKNOWN or HOMING, an axis this scope does not have, or the
-            motor board is lost.
-
-        Raises:
-            ArgumentRefusedError: ``'not_offered'``, *axis* is no axis name.
-        """
-        return self._position_known(self._read_axis_states().get(axis))
-
     def _fail_drive(self, axis: str, move: _Move, cause: Exception) -> NoReturn:
         """A commanded move failed at the driver: the axis is UNKNOWN, and raise.
 
@@ -1198,7 +1170,7 @@ class MotionAPI:
         # Save off the Z target before moving Z to 0: the restore returns Z
         # to the number the person commanded, not to the poll of it.
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
-        initial_z = self.get_target_position(axis='Z')
+        initial_z = self._target_position('Z')
         stop_generation = self._generation_asked()
         # The park inside the command too: a park that raises or is stopped
         # still closes it, and a capture cannot land between the park and
@@ -1443,7 +1415,7 @@ class MotionAPI:
         this asks the motor controller directly. Use during continuous
         motion sweeps where the stage is moving and the cache doesn't
         reflect the true position. The commanded target is a third thing
-        again -- get_target_position() answers that.
+        again -- get_target_positions() answers that.
 
         Costs one serial round-trip (~5ms).
 
@@ -1969,34 +1941,6 @@ class MotionAPI:
             _api_log.info('Z home DONE')
 
     @api(reads=True)
-    def has_homed(self) -> bool:
-        """Whether the stage / focus axes have a known reference position.
-
-        Answers from the axis state rather than the driver's homing
-        latch: the latch survives
-        every fault short of a physical disconnect, so it keeps
-        reporting "homed" after a stall or a dropout has already
-        invalidated the reference frame.
-
-        The turret is excluded -- it has its own reference and its own
-        question. A scope whose turret faulted has not lost its stage
-        coordinates.
-
-        Returns:
-            bool: True if every non-turret axis the board has knows its
-                position. False on a board with no such axes, which is
-                what the driver latch reported for the no-motor case, and
-                with the board lost.
-
-        Raises:
-            Nothing.
-        """
-        stage_states = [state for axis, state in self._read_axis_states().items() if axis != 'T']
-        if not stage_states:
-            return False
-        return all(self._position_known(state) for state in stage_states)
-
-    @api(reads=True)
     def axes_without_position(self) -> dict[Axis, AxisState]:
         """Which of this scope's axes do not know their position, and why.
 
@@ -2008,8 +1952,17 @@ class MotionAPI:
         user should wait; an UNKNOWN one has lost its reference, and its
         user must home.
 
-        Unlike ``has_homed``, a scope with no axes answers nothing: it has
-        no position to lose, so nothing about it is unknown.
+        Offered as a question rather than only as an exception: a caller
+        whose move is optional -- one that should be skipped rather than
+        attempted on an axis whose position was never established -- could
+        otherwise only discover the answer by provoking the refusal and
+        catching it, which is indistinguishable from swallowing a real one.
+        Stricter than ``_pre_drive`` by one state: a HOMING axis is
+        answered here, because its reference is still being established,
+        while the gate lets it drive so the home can finish.
+
+        A scope with no axes answers nothing: it has no position to lose,
+        so nothing about it is unknown.
 
         Returns:
             dict[Axis, AxisState]: Axis to its state (``AxisState.UNKNOWN``
@@ -2227,40 +2180,14 @@ class MotionAPI:
 
         Pure cache access -- no T-axis policy here; callers decide their
         own sentinel for the "axis requested but not present" case (see
-        get_target_position's None for no-turret-T). 0.0 if the axis is
+        _target_position's None for an axis with no hardware). 0.0 if the axis is
         missing from the cache.
         """
         with self._pos_cache_lock:
             return self._pos_cache.get(axis, 0.0)
 
-    @api(reads=True)
-    def get_target_position(self, axis: StageAxis) -> float | None:
-        """Get the target position for a stage axis (where it is commanded to go), in um.
-
-        The last target this API wrote to the board for the axis, while the
-        move runs and after it arrives: the commanded number, not the polled
-        position, which sits up to a microstep off it. A relative move's
-        target is the board's own target plus the offset, so it carries that
-        target's microstep rounding. Where no target was reached it is the
-        polled position: before the axis's first move, after a home, after a
-        STOP ended the move, while the axis is UNKNOWN, and while a move has
-        not yet written its final target (a Z backlash leg). An axis whose
-        position has not been read since bring-up -- its bring-up read
-        failed -- is UNKNOWN and answers 0.0, which nothing read. A refused
-        move writes nothing, so the previous target stands. No serial I/O.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z"). The turret has a slot, not a
-                position: ``turret_status``.
-
-        Returns:
-            float | None: The target in um, or None for an axis with no
-                hardware behind it (see ``_has_position``).
-
-        Raises:
-            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
-                'Y' or 'Z'.
-        """
+    def _target_position(self, axis: str) -> float | None:
+        """One axis's target, as ``get_target_positions`` answers it; None for an axis with no hardware behind it (``_has_position``)."""
         if not self._has_position(axis):
             return None
         with self._axis_state_lock:
@@ -2279,7 +2206,20 @@ class MotionAPI:
 
     @api(reads=True)
     def get_target_positions(self) -> dict[StageAxis, float]:
-        """The target of every stage axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
+        """The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
+
+        The last target this API wrote to the board for each axis, while
+        the move runs and after it arrives: the commanded number, not the
+        polled position, which sits up to a microstep off it. A relative
+        move's target is the board's own target plus the offset, so it
+        carries that target's microstep rounding. Where no target was
+        reached it is the polled position: before the axis's first move,
+        after a home, after a STOP ended the move, while the axis is
+        UNKNOWN, and while a move has not yet written its final target (a
+        Z backlash leg). An axis whose position has not been read since
+        bring-up -- its bring-up read failed -- is UNKNOWN and answers
+        0.0, which nothing read. A refused move writes nothing, so the
+        previous target stands.
 
         An axis with no hardware behind it is left out, and so is the
         turret, which has a slot (``turret_status``). No serial I/O.
@@ -2288,7 +2228,7 @@ class MotionAPI:
             Nothing.
         """
         return {
-            StageAxis(ax): self.get_target_position(ax)
+            StageAxis(ax): self._target_position(ax)
             for ax in self._scope.capabilities.axes
             if ax != Axis.T and self._has_position(ax)
         }
@@ -2353,7 +2293,6 @@ class MotionAPI:
         coordinate, so refusing here rejects exactly what the travel
         check downstream would reject, in the unit the caller gave.
         """
-        key = axis.lower()
         # Each stage axis depends only on its own plate axis, so the one
         # coordinate stands for both and the other half is not read.
         converted = self._scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
@@ -2361,7 +2300,8 @@ class MotionAPI:
 
         limits = self.get_axis_limits(axis)
         if limits is not None:
-            dimension = self._scope.runtime_state.get_labware().get_dimensions()[key]
+            labware = self._scope.runtime_state.get_labware()
+            dimension = labware.width_mm if axis == 'X' else labware.height_mm
             offset = self._scope.runtime_state.get_stage_offset()
             offset_mm = (offset.x_um if axis == 'X' else offset.y_um) / 1000
             # Inverting sx = (dimension - offset - px) * 1000: the map
@@ -2530,7 +2470,7 @@ class MotionAPI:
         # No move-init cache write: the cache holds the CURRENT position
         # until _motion_monitor_loop reads it from hardware on its first
         # cycle. The target is the move's own (_Move.target), where
-        # get_target_position reads it.
+        # _target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(said)
         return move.operation

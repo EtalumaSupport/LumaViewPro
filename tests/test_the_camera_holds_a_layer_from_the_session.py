@@ -21,7 +21,7 @@ import pytest
 
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 
@@ -314,7 +314,7 @@ class TestAWriteToTheShownLayer:
 
         session.update_settings('BF.illumination_ma', 7.0)
 
-        assert session.scope.illumination.get_led_state('BF').illumination_ma == 7.0
+        assert channel_reading(session.scope.illumination, 'BF').illumination_ma == 7.0
 
     def test_a_write_while_the_scope_is_held_is_stored_only(self, session):
         held = session.activity_claim.try_claim('diagnostic')

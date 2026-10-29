@@ -31,7 +31,7 @@ from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
 )
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, channel_reading
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -388,7 +388,7 @@ def test_apply_step_light_lights_exclusively_and_holds_idempotently(scope):
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, LED1, GREEN_MA))
-    assert ill.get_led_state(LED1).state is LedState.LIT
+    assert channel_reading(ill, LED1).state is LedState.LIT
     assert sub.on_events() == [(LED1, GREEN_MA)], sub.render()
 
     # Re-apply the identical target: idempotent, no off-then-on blink.
@@ -419,7 +419,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
         _ctx(scope, LED1, GREEN_MA, same_zstack_group=True),
     )
     assert sub.lit_transitions(LED1) == [True], sub.render()
-    assert ill.get_led_state(LED1).state is LedState.LIT
+    assert channel_reading(ill, LED1).state is LedState.LIT
 
     # Plain boundary, opt-in off: extinguish.
     lease.apply(
@@ -427,7 +427,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
         _ctx(scope, LED1, GREEN_MA, same_color=True, keep_led_across_moves=False),
     )
     assert sub.lit_transitions(LED1) == [True, False], sub.render()
-    assert ill.get_led_state(LED1).state is LedState.DARK
+    assert channel_reading(ill, LED1).state is LedState.DARK
 
     lease.release(leave_on=False)
 
@@ -480,7 +480,7 @@ def test_apply_on_released_lease_is_a_noop(scope):
     ill.add_led_listener(sub)
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, LED2, RED_MA))
     assert sub.events == [], sub.render()
-    assert ill.get_led_state(LED2).state is LedState.DARK
+    assert channel_reading(ill, LED2).state is LedState.DARK
 
 
 def test_apply_reclaims_top_from_orphaned_child(scope):
@@ -512,8 +512,8 @@ def test_apply_reclaims_top_from_orphaned_child(scope):
     protocol.apply(LedTransition.RUN_END, LedTransitionCtx(end_policy=LedEndPolicy.OFF))
     assert ill.led_lease_purpose == 'protocol'
     assert sub.final_lit() == set(), sub.render()
-    assert ill.get_led_state(LED2).state is LedState.DARK
-    assert ill.get_led_state(LED1).state is LedState.DARK
+    assert channel_reading(ill, LED2).state is LedState.DARK
+    assert channel_reading(ill, LED1).state is LedState.DARK
 
     protocol.release(leave_on=False)
 
@@ -533,7 +533,7 @@ def test_apply_transition_manual_preview_lights_holds_and_switches(scope):
     ill.add_led_listener(sub)
 
     ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, LED1, GREEN_MA, preview_on=True))
-    assert ill.get_led_state(LED1).state is LedState.LIT
+    assert channel_reading(ill, LED1).state is LedState.LIT
     assert sub.on_events() == [(LED1, GREEN_MA)], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no off-then-on blink.
@@ -560,10 +560,10 @@ def test_apply_transition_refused_while_leased(scope):
         ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, LED2, RED_MA, preview_on=True))
     assert refused.value.reason == 'exclusive_activity_running'
     assert sub.events == [], sub.render()
-    assert ill.get_led_state(LED1).state is LedState.LIT, (
+    assert channel_reading(ill, LED1).state is LedState.LIT, (
         'run channel disturbed by a refused UI write'
     )
-    assert ill.get_led_state(LED2).state is LedState.DARK
+    assert channel_reading(ill, LED2).state is LedState.DARK
 
     lease.release(leave_on=False)
 

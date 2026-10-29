@@ -36,7 +36,7 @@ def main():
             check('turret homes', True)
         except HomingFailedError as e:
             check('turret homes', False, str(e))
-        check('turret position known after home', m.position_is_known('T'))
+        check('turret position known after home', 'T' not in m.axes_without_position())
         m.move_turret(1, restore_z=True)
 
         # --- objective selection (the spinner): turns to the slot holding it ---

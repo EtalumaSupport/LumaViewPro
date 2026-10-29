@@ -71,4 +71,4 @@ def test_a_downward_z_move_approaches_from_below_as_the_rule_or_the_bench_says(
 
     leg = [_LOW_UM - backlash, _LOW_UM]
     assert sent == (leg if approaches else [_LOW_UM])
-    assert scope.motion.get_target_position('Z') == _LOW_UM
+    assert scope.motion.get_target_positions()['Z'] == _LOW_UM

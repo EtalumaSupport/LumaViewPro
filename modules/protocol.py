@@ -2615,17 +2615,6 @@ class Protocol:
         return step_dict['Name']
 
     @api(reads=True)
-    def step(self, step_index: int) -> StepRecord:
-        """Step ``step_index``, as its record: what it was when read.
-
-        Raises:
-            StepNotFoundError: ``step_index`` is not a step of this protocol.
-            ProtocolFormatError: a stimulation entry of the step is not a
-                config.
-        """
-        return _step_record(self.step_row(step_index))
-
-    @api(reads=True)
     def step_records(self) -> tuple[StepRecord, ...]:
         """Every step, in order, as its record: the step table in one read.
 

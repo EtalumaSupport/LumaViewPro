@@ -27,7 +27,7 @@ from modules.lumascope_api.illumination import LedEndPolicy, LedState
 import modules.sequenced_capture_runner as scr
 from tests.protocol_drives import held_run_claim
 from modules.run_outcome import PendingRunOutcome, RunEnding
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, channel_reading
 from tests.stock_channels import LED0
 
 LAYER = LED0
@@ -42,7 +42,7 @@ def scope():
 
 
 def _lit(scope):
-    return scope.illumination.get_led_state(LAYER).state is LedState.LIT
+    return channel_reading(scope.illumination, LAYER).state is LedState.LIT
 
 
 def _make_runner_stub(scope, *, lease):

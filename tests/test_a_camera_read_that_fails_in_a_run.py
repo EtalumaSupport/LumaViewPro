@@ -35,6 +35,7 @@ from modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_a_run_reports_what_it_captured import _run
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from tests.scope_fakes import channel_reading
 
 # Enough failed reads that every read from the arming on meets one.
 EVERY_TIME = 50
@@ -188,7 +189,7 @@ class TestAtRunStart:
         assert 'simulated' not in outcome.message, 'the SDK text reached the person'
         assert outcome.captures.captured == 0
         assert read_failure_told.wait(TOLD_WAIT_S), 'the run that did not begin was not told'
-        assert scope.illumination.get_led_state('BF').state is LedState.LIT, (
+        assert channel_reading(scope.illumination, 'BF').state is LedState.LIT, (
             'a run that did not begin darkened the LED the user lit'
         )
         empty = [

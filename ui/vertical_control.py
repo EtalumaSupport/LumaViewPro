@@ -93,7 +93,7 @@ class VerticalControl(BoxLayout):
 
     def _show_z_target(self):
         """Show the Z target the API holds; nothing when it holds none."""
-        pos = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
+        pos = _app_ctx.ctx.lumaview.scope.motion.get_target_positions().get('Z')
         if pos is not None:
             self._update_z_position(pos)
 
@@ -120,7 +120,7 @@ class VerticalControl(BoxLayout):
         the text is while the box has focus, so a drag is not overwritten.
         """
         slider = self.ids['obj_position']
-        target = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
+        target = _app_ctx.ctx.lumaview.scope.motion.get_target_positions().get('Z')
         if target is not None and not slider.user_interacting:
             slider.value = target
         self._write_z_text(polled)

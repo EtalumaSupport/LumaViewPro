@@ -313,7 +313,9 @@ def make_session(name='probe', *, home=False, settings_file=None, **overrides):
     if home:
         session.run_application_session()
         deadline = time.time() + 60
-        while time.time() < deadline and not session.scope.motion.has_homed():
+        while time.time() < deadline and session.scope.motion.axes_without_position().keys() - {
+            'T'
+        }:
             time.sleep(0.25)
     return session, live
 

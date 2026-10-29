@@ -2032,7 +2032,7 @@ class Lumascope:
             return
         if not self.capabilities.has_focus:
             return
-        if not self.motion.position_is_known('Z'):
+        if 'Z' in self.motion.axes_without_position():
             logger.info(
                 '[SCOPE API ] Simulated sample plane not applied: Z has no reference position'
             )

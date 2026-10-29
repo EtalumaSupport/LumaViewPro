@@ -39,7 +39,7 @@ def scope():
 
 
 def _targets(scope):
-    return {axis: scope.motion.get_target_position(axis) for axis in ('X', 'Y')}
+    return {axis: scope.motion.get_target_positions()[axis] for axis in ('X', 'Y')}
 
 
 def _lose_y(scope, monkeypatch):
@@ -82,7 +82,7 @@ class TestARefusalMovesNeither:
             scope.motion.start_move_xy(_START['X'] - 500.0, _START['Y'])
 
         assert refused.value.reason == 'position_unknown'
-        assert scope.motion.get_target_position('X') == _START['X']
+        assert scope.motion.get_target_positions()['X'] == _START['X']
 
     def test_a_y_that_is_no_number_is_refused_by_its_name(self, scope):
         with pytest.raises(ArgumentRefusedError) as refused:
@@ -110,7 +110,7 @@ class TestAnAxisNotAskedForIsLeftAsItIs:
 
         scope.motion.move_xy(x_um=_START['X'] - 500.0)
 
-        assert scope.motion.get_target_position('X') == _START['X'] - 500.0
+        assert scope.motion.get_target_positions()['X'] == _START['X'] - 500.0
         assert scope.motion.get_axis_state('Y') == AxisState.UNKNOWN
 
     def test_a_distance_for_y_alone_leaves_x(self, scope):
@@ -198,19 +198,19 @@ class TestOverRest:
         answer = client.post('/api/v1/scope/motion/move_xy', json={'x_um': 61_000, 'y_um': 41_000})
 
         assert answer.status_code == 200, answer.text
-        assert {a: motion.get_target_position(a) for a in ('X', 'Y')} == {
+        assert {a: motion.get_target_positions()[a] for a in ('X', 'Y')} == {
             'X': 61_000.0,
             'Y': 41_000.0,
         }
 
     def test_an_empty_body_moves_nothing(self, client):
         client, motion = client
-        before = {a: motion.get_target_position(a) for a in ('X', 'Y')}
+        before = {a: motion.get_target_positions()[a] for a in ('X', 'Y')}
 
         answer = client.post('/api/v1/scope/motion/move_xy', json={})
 
         assert answer.status_code == 200, answer.text
-        assert {a: motion.get_target_position(a) for a in ('X', 'Y')} == before
+        assert {a: motion.get_target_positions()[a] for a in ('X', 'Y')} == before
 
     @pytest.mark.parametrize(
         'member', ['move_absolute', 'move_relative', 'start_move_absolute', 'start_move_relative']

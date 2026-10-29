@@ -51,7 +51,7 @@ from modules.exceptions import HardwareCommandRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules import common_utils
 from tests.af_drives import park_z
-from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
+from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
@@ -548,10 +548,10 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
         ill.led_off(channel=LED1)
     assert refused_on.value.reason == refused_off.value.reason == 'exclusive_activity_running'
 
-    assert ill.get_led_state(LED1).state is LedState.LIT, (
+    assert channel_reading(ill, LED1).state is LedState.LIT, (
         'protocol channel was disturbed by a live write'
     )
-    assert ill.get_led_state(LED2).state is LedState.DARK, (
+    assert channel_reading(ill, LED2).state is LedState.DARK, (
         'live write lit a channel despite the lease'
     )
     # Exactly one command reached the driver (the protocol's LED 1 on): the two
@@ -597,7 +597,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 
     # Preview to an LED 1 step.
     _preview(LED1, 250.0)
-    assert ill.get_led_state(LED1).state is LedState.LIT
+    assert channel_reading(ill, LED1).state is LedState.LIT
     assert sub.lit_transitions(LED1) == [True], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no blink.

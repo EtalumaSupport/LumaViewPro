@@ -89,7 +89,7 @@ def test_a_click_whose_y_is_past_travel_moves_neither(scope):
 
     assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
     motion.wait_until_finished_moving(timeout_s=10.0)
-    assert (motion.get_target_position('X'), motion.get_target_position('Y')) == (60_000.0, y)
+    assert (motion.get_target_positions()['X'], motion.get_target_positions()['Y']) == (60_000.0, y)
 
 
 def test_a_click_inside_travel_moves_both_by_its_offsets(scope):
@@ -99,5 +99,5 @@ def test_a_click_inside_travel_moves_both_by_its_offsets(scope):
     _click(10.0, 20.0)
     motion.wait_until_finished_moving(timeout_s=10.0)
 
-    assert motion.get_target_position('X') == pytest.approx(60_000.0 + _distance_um(scope, 10.0))
-    assert motion.get_target_position('Y') == pytest.approx(40_000.0 + _distance_um(scope, 20.0))
+    assert motion.get_target_positions()['X'] == pytest.approx(60_000.0 + _distance_um(scope, 10.0))
+    assert motion.get_target_positions()['Y'] == pytest.approx(40_000.0 + _distance_um(scope, 20.0))

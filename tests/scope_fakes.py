@@ -395,10 +395,24 @@ def home_sim_scope(scope):
 def led_reading(scope, address):
     """The reading of one LED board address, named or not, from ``get_led_states()``.
 
-    ``get_led_state`` takes a channel's name; a test about an address, or
-    about one the unit's identity does not name, reads it here.
+    A test about an address, or about one the unit's identity does not
+    name, reads it here; a test about a layer reads ``channel_reading``.
     """
     (reading,) = [r for r in scope.illumination.get_led_states() if r.address == address]
+    return reading
+
+
+def channel_reading(illumination, channel):
+    """The reading of the LED ``channel`` lights, from ``get_led_states()``; None with no LED board.
+
+    ``channel`` is a layer name, mapped to its address through the unit's
+    identity (``color2ch``).
+    """
+    readings = illumination.get_led_states()
+    if readings is None:
+        return None
+    address = illumination.color2ch(channel)
+    (reading,) = [r for r in readings if r.address == address]
     return reading
 
 

@@ -20,6 +20,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from tests.scope_fakes import channel_reading
 
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
 RUN_TIMEOUT_S = 180.0
@@ -28,7 +29,7 @@ RUN_TIMEOUT_S = 180.0
 def _autofocus(session, runner, current_ma, *, stop):
     illumination = session.scope.illumination
     illumination.led_on(LAYER, current_ma)
-    before = illumination.get_led_state(LAYER)
+    before = channel_reading(illumination, LAYER)
     leg = 'stopped' if stop else 'finished'
     figure(f'{leg}: {LAYER} before', before)
 
@@ -52,7 +53,7 @@ def _autofocus(session, runner, current_ma, *, stop):
     figure(f'{leg}: outcome', None if outcome is None else (outcome.status, outcome.reason))
     check(f'{leg}: the run ended', outcome is not None)
 
-    after = illumination.get_led_state(LAYER)
+    after = channel_reading(illumination, LAYER)
     figure(f'{leg}: {LAYER} after', after)
     check(f'{leg}: {LAYER} is lit at its pre-run current', after == before, f'{before} -> {after}')
 

@@ -61,7 +61,6 @@ def _lit(session):
 NAME_MEMBERS = {
     'led_on': lambda s, v: s.scope.illumination.led_on(v, 10.0),
     'led_off': lambda s, v: s.scope.illumination.led_off(v),
-    'get_led_state': lambda s, v: s.scope.illumination.get_led_state(v),
     'color2ch': lambda s, v: s.scope.illumination.color2ch(v),
     'set_channel_acquire': lambda s, v: s.set_channel_acquire(v, 'image'),
     'set_channel_auto_gain': lambda s, v: s.set_channel_auto_gain(v, True),
@@ -118,19 +117,6 @@ def test_an_led_is_lit_and_darkened_by_its_channels_name_not_a_board_address(ses
     assert _lit(session) == []
 
 
-def test_one_leds_read_takes_its_channels_name_not_a_board_address(session):
-    """``get_led_state`` names a channel (C11): a query string cannot tell
-    the number 3 from the name '3', so the one read takes the name, and
-    every address, named or not, is ``get_led_states()``'s."""
-    with pytest.raises(ArgumentTypeRefusedError) as refused:
-        session.scope.illumination.get_led_state(3)
-    assert (refused.value.reason, refused.value.argument) == ('wrong_argument_type', 'channel')
-
-    by_name = session.scope.illumination.get_led_state('BF')
-    (by_address,) = [r for r in session.scope.illumination.get_led_states() if r.name == 'BF']
-    assert by_name == by_address
-
-
 @pytest.mark.parametrize('member', ABSENT_MEMBERS)
 def test_a_layer_the_model_lacks_is_absent_hardware(session, member):
     with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -140,13 +126,10 @@ def test_a_layer_the_model_lacks_is_absent_hardware(session, member):
 
 
 def test_a_layer_the_model_lacks_is_a_name_and_keeps_its_answers(session):
-    """A layer with no LED maps to no address, its LED read is absent
-    hardware, and turning it off has nothing to darken."""
+    """A layer with no LED maps to no address, and turning it off has
+    nothing to darken."""
     illumination = session.scope.illumination
     assert illumination.color2ch('Lumi') is None
-    with pytest.raises(HardwareCommandRefusedError) as refused:
-        illumination.get_led_state('Lumi')
-    assert refused.value.missing == MissingPart.led('Lumi')
     illumination.led_off('Lumi')
 
 

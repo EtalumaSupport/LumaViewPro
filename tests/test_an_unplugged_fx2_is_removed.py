@@ -30,6 +30,7 @@ from modules.scope_session import ScopeSession
 from tests.camera_fakes import fx2_stream
 from tests.protocol_drives import held_run_claim
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import channel_reading
 
 
 def _wait_until(condition, timeout_s):
@@ -267,7 +268,7 @@ def test_a_lease_release_that_finds_the_device_unplugged_is_refused_and_its_led_
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(channel=channel, illumination_ma=10.0, preview_on=True),
         )
-        assert scope.illumination.get_led_state('BF').state is LedState.LIT
+        assert channel_reading(scope.illumination, 'BF').state is LedState.LIT
         scope.simulation.remove_camera()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -275,7 +276,7 @@ def test_a_lease_release_that_finds_the_device_unplugged_is_refused_and_its_led_
 
         assert refused.value.reason == 'not_connected'
         assert refused.value.missing == MissingPart.LED_CONTROLLER
-        assert scope.illumination.get_led_state('BF').state is LedState.LIT
+        assert channel_reading(scope.illumination, 'BF').state is LedState.LIT
     finally:
         session.shutdown()
 

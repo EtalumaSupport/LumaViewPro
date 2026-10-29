@@ -792,7 +792,7 @@ class ScopeDisplay(Image):
         proc_ms = 0.0
         if ctx.session.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
-            fv_valid = ctx.scope.imaging.frame_is_valid
+            fv_valid = ctx.scope.imaging.frames_until_valid() == 0
             Clock.schedule_once(lambda dt, v=fv_valid: self._update_validity_dot(v), 0)
 
             # Engineering stats: 2x per second (time-based, not frame-based)

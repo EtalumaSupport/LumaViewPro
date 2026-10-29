@@ -29,6 +29,7 @@ from modules.exceptions import HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from modules.run_events import RunEvents
+from tests.scope_fakes import channel_reading
 
 RESULT_TIMEOUT_S = 30.0
 STILL_EXPOSURE_MS = 800.0
@@ -177,7 +178,7 @@ class TestAHeldLane:
         scope.illumination.led_on('BF', 20.0)
         gain_before = scope.camera.read_gain_db()
         leds_before = scope.illumination.get_led_states()
-        assert scope.illumination.get_led_state('BF').state is LedState.LIT, (
+        assert channel_reading(scope.illumination, 'BF').state is LedState.LIT, (
             'the fixture could not light a channel'
         )
         hold = _LaneHold(session)

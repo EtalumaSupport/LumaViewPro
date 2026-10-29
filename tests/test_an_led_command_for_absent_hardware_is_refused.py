@@ -45,7 +45,7 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )
 from tests.log_capture import capture_module_log, messages
-from tests.scope_fakes import led_reading
+from tests.scope_fakes import channel_reading, led_reading
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -91,10 +91,10 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
     illumination = make_session(model).scope.illumination
 
     commanded = illumination.led_on('BF', 10.0)
-    lit = illumination.get_led_state('BF')
+    lit = channel_reading(illumination, 'BF')
     assert (lit.name, lit.state, lit.illumination_ma) == ('BF', LedState.LIT, commanded)
     illumination.led_off('BF')
-    assert illumination.get_led_state('BF').state is LedState.DARK
+    assert channel_reading(illumination, 'BF').state is LedState.DARK
     illumination.led_on('BF', 10.0)
     illumination.leds_off()
 
@@ -139,14 +139,6 @@ def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
         MissingPart.led_address(2),
     )
     assert sent == []
-
-
-def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):
-    scope = make_session('LS560').scope
-
-    refusal = _refused(lambda: scope.illumination.get_led_state(LED2))
-
-    assert (refusal.reason, refusal.missing) == ('not_on_this_scope', MissingPart.led(LED2))
 
 
 _OFFS = {
@@ -217,7 +209,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
 
     session.shutdown()
 
-    assert illumination.get_led_state('BF') is None
+    assert channel_reading(illumination, 'BF') is None
     assert illumination.get_led_states() is None
     assert illumination.save_led_state('after') is None
     assert ('BF', LedState.DARK) in heard

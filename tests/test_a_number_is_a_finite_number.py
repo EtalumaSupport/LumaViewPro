@@ -24,7 +24,7 @@ from modules.labware_loader import WellPlateLoader
 from modules.lumascope_api.illumination import LedState
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 NOT_FINITE = [math.nan, math.inf, -math.inf]
@@ -94,7 +94,7 @@ def test_a_stored_camera_value_is_refused_not_applied_at_the_maximum(session, va
 def test_an_led_current_is_refused_and_nothing_lit(session, value):
     illumination = session.scope.illumination
     _refused(lambda: illumination.led_on('BF', value), 'illumination_ma')
-    assert illumination.get_led_state('BF').state is LedState.DARK
+    assert channel_reading(illumination, 'BF').state is LedState.DARK
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

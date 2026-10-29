@@ -34,6 +34,7 @@ from tests.test_a_run_waits_for_the_camera_lane import RESULT_TIMEOUT_S, _LaneHo
 from tests.test_protocol_cleanup_extinguish import _make_runner_stub
 from tests.protocol_drives import run_identity
 from tests.stock_channels import LED0
+from tests.scope_fakes import channel_reading
 
 # The driver calls that change the instrument, per driver. Reads, grabs and
 # the simulator's own focus coupling are not writes.
@@ -151,7 +152,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
     scope = sim_session.scope
     layer = LED0
     scope.illumination.led_on(layer, 10.0)
-    assert scope.illumination.get_led_state(layer).state is LedState.LIT, 'precondition: lit'
+    assert channel_reading(scope.illumination, layer).state is LedState.LIT, 'precondition: lit'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
@@ -194,7 +195,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
     threading.Thread(target=_cleanup, daemon=True).start()
     try:
         assert finished.wait(5.0), 'cleanup waited on the busy IO lane'
-        assert scope.illumination.get_led_state(layer).state is LedState.DARK, (
+        assert channel_reading(scope.illumination, layer).state is LedState.DARK, (
             'the undecided end-state must be dark before the busy lane frees'
         )
         assert forced == [1], 'the undecided end-state must be darkened by the safety off'

@@ -16,8 +16,8 @@ still cannot serve and hand the user a second refusal in the other frame
 for the same mistake.
 """
 
+from types import SimpleNamespace
 from typing import ClassVar
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -54,8 +54,8 @@ class TestTheScopeCarriesTheGeometryTheBandsAssume:
     def test_the_plate_the_offset_and_the_travel_are_the_written_ones(self, scope):
         """The band constants below are derived from these three; a change
         to any of them fails here, by name, before a band case fails by number."""
-        dimensions = scope.runtime_state.get_labware().get_dimensions()
-        assert {key: dimensions[key] for key in PLATE_DIMENSIONS} == PLATE_DIMENSIONS
+        labware = scope.runtime_state.get_labware()
+        assert {'x': labware.width_mm, 'y': labware.height_mm} == PLATE_DIMENSIONS
         assert scope.runtime_state.get_stage_offset() == STAGE_OFFSET
         assert {axis: scope.motion.get_axis_limits(axis) for axis in AXIS_TRAVEL} == (AXIS_TRAVEL)
 
@@ -63,7 +63,7 @@ class TestTheScopeCarriesTheGeometryTheBandsAssume:
 class TestRefusalNamesWhatTheUserTyped:
     def test_out_of_plate_entry_reports_the_typed_number(self, scope):
         """The message carries 180, not the -98520.0 it converts to, and Y stays."""
-        target_before = scope.motion.get_target_position('Y')
+        target_before = scope.motion.get_target_positions()['Y']
 
         with pytest.raises(PositionOutOfRangeError) as exc:
             scope.motion.move_to_plate(_y(180.0))
@@ -72,7 +72,7 @@ class TestRefusalNamesWhatTheUserTyped:
         assert '-98520' not in str(exc.value)
         assert exc.value.bound == 'reachable range'
         assert exc.value.quantity == 'plate position'
-        assert scope.motion.get_target_position('Y') == target_before
+        assert scope.motion.get_target_positions()['Y'] == target_before
 
     def test_the_bound_is_reachable_not_the_labware_extent(self, scope):
         """85.0 is ON the plate (extent 85.48) and past what Y can reach.
@@ -90,7 +90,7 @@ class TestRefusalNamesWhatTheUserTyped:
         """40 mm is inside the band and the stage goes to its stage um."""
         scope.motion.move_to_plate(_y(40.0))
 
-        assert scope.motion.get_target_position('Y') == pytest.approx(41480.0)
+        assert scope.motion.get_target_positions()['Y'] == pytest.approx(41480.0)
 
 
 class TestEquivalentToTheTravelCheck:
@@ -155,8 +155,7 @@ class TestEnumeratorsKeepTheirValue:
         transform as pure against a future blanket raise.
         """
         transformer = CoordinateTransformer()
-        labware = MagicMock()
-        labware.get_dimensions.return_value = PLATE_DIMENSIONS
+        labware = SimpleNamespace(width_mm=PLATE_DIMENSIONS['x'], height_mm=PLATE_DIMENSIONS['y'])
 
         stage = transformer.plate_to_stage(
             labware=labware, stage_offset=STAGE_OFFSET, x_mm=0, y_mm=180.0

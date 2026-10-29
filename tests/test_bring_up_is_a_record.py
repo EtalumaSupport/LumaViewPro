@@ -17,8 +17,6 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import pytest
-
 import modules.lumascope_api._lumascope as lumascope_module
 import modules.settings_init as settings_init
 from drivers.null_ledboard import NullLEDBoard
@@ -26,7 +24,6 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverFallback, NoLiveDriverError
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import (
-    ArgumentRefusedError,
     BinningSubstitutedNotice,
     CameraNotAvailableError,
     LedBoardUnavailableError,
@@ -36,7 +33,6 @@ from modules.exceptions import (
 )
 from modules.lumascope_api.bring_up import (
     CAUSE_PHRASES,
-    BringUpRecord,
     Part,
     PartStatus,
     SettingsSetAside,
@@ -94,6 +90,17 @@ def _bring_up(monkeypatch, tmp_path, *, motor=None, led=None, camera=None, **set
     )
 
 
+def _status(record, part):
+    """``part``'s status, read from the record's ``parts``."""
+    (status,) = [status for status in record.parts if status.part == part]
+    return status
+
+
+def _substitution(record, setting):
+    """What bring-up used for ``setting`` instead of the saved value, or None."""
+    return next((sub for sub in record.substitutions if sub.setting == setting), None)
+
+
 def _outcomes(posts, kind):
     return [n for n in posts if n.kind == kind]
 
@@ -118,7 +125,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            motor = s.bring_up_record().part(Part.MOTOR)
+            motor = _status(s.bring_up_record(), Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -139,7 +146,7 @@ class TestEachPartNamesItsCause:
             microscope='LS620',
         )
         try:
-            motor = s.bring_up_record().part(Part.MOTOR)
+            motor = _status(s.bring_up_record(), Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
             assert not motor.missing
             assert s.bring_up_record().missing == ()
@@ -158,7 +165,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            led = s.bring_up_record().part(Part.LED)
+            led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             by_reason = {n.reason: n for n in faults}
@@ -181,7 +188,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            camera = s.bring_up_record().part(Part.CAMERA)
+            camera = _status(s.bring_up_record(), Part.CAMERA)
             assert (camera.up, camera.cause) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -230,37 +237,6 @@ class TestASimulatedScopeReportsNothing:
             s.shutdown()
 
 
-class TestAPartIsAskedByName:
-    def test_a_name_the_record_lacks_is_refused_offering_its_parts(self):
-        record = BringUpRecord(
-            parts=(
-                PartStatus(Part.MOTOR, up=True),
-                PartStatus(Part.LED, up=True),
-                PartStatus(Part.CAMERA, up=True),
-            )
-        )
-        assert record.part('led').part == Part.LED
-        assert type(record.part('led').part) is Part
-
-        with pytest.raises(ArgumentRefusedError) as refused:
-            record.part('MOTOR')
-        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
-            'not_offered',
-            'name',
-            ('motor', 'led', 'camera'),
-        )
-
-    def test_a_part_the_record_has_no_status_for_is_refused_offering_the_ones_it_has(self):
-        # A diagnostic scope is brought up without its camera.
-        record = BringUpRecord(
-            parts=(PartStatus(Part.MOTOR, up=True), PartStatus(Part.LED, up=True))
-        )
-        with pytest.raises(ArgumentRefusedError) as refused:
-            record.part(Part.CAMERA)
-        assert (refused.value.reason, refused.value.offered) == ('not_offered', ('motor', 'led'))
-        assert str(refused.value).endswith("'camera' is not one.")
-
-
 class TestASimulatedManualScope:
     def test_its_motor_board_is_neither_up_nor_missing(self, tmp_path, centre_posts):
         s = ScopeSession.create(
@@ -269,7 +245,7 @@ class TestASimulatedManualScope:
             warn_pre_release=False,
         )
         try:
-            motor = s.bring_up_record().part(Part.MOTOR)
+            motor = _status(s.bring_up_record(), Part.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, None)
             assert s.bring_up_record().missing == ()
             assert centre_posts == []
@@ -305,7 +281,7 @@ class TestAProblemOnAPartThatCameUp:
     ):
         s = _bring_up(monkeypatch, tmp_path, led=_SafetyOffFailedBoard(), microscope='LS850T')
         try:
-            led = s.bring_up_record().part(Part.LED)
+            led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.cause) == (True, 'safety_off_failed')
             assert led.detail == 'TimeoutError: no reply'
             assert not led.missing
@@ -324,7 +300,7 @@ class TestSubstitutions:
     ):
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', binning={'size': '8x8'})
         try:
-            sub = s.bring_up_record().substitution('binning')
+            sub = _substitution(s.bring_up_record(), 'binning')
             assert (sub.saved, sub.used) == (8, 1)
             notices = [n for n in centre_posts if n.reason == BinningSubstitutedNotice.reason]
             assert len(notices) == 1
@@ -346,7 +322,7 @@ class TestSubstitutions:
         monkeypatch.setattr(SimulatedCamera, 'get_supported_pixel_formats', lambda self: ('Mono8',))
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', image_mode='12bit_scientific')
         try:
-            assert s.bring_up_record().substitution('image_mode') is None
+            assert _substitution(s.bring_up_record(), 'image_mode') is None
             assert _outcomes(centre_posts, OutcomeKind.NOTICE) == []
             assert s.settings['image_mode'] == '12bit_scientific'
         finally:
@@ -384,7 +360,7 @@ class TestSubstitutions:
             frame={'width': 1900, 'height': 1100},
         )
         try:
-            sub = s.bring_up_record().substitution('frame')
+            sub = _substitution(s.bring_up_record(), 'frame')
             assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
             assert s.scope.camera.frame_size.to_dict() == {'width': 1700, 'height': 1100}
             assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'

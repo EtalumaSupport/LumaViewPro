@@ -35,7 +35,7 @@ from modules.lumascope_api.illumination import LedState
 from modules.protocol import Protocol, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import parse_module, production_modules, walk_defs
-from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES, channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
@@ -208,7 +208,7 @@ class TestTheMove:
 
         assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
         motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
-        assert (motion.get_target_position('X'), motion.get_target_position('Y')) == (
+        assert (motion.get_target_positions()['X'], motion.get_target_positions()['Y']) == (
             60_000.0,
             40_000.0,
         )
@@ -584,9 +584,7 @@ class TestEveryStepValueReachesTheLayer:
 
         no_motor_session.go_to_step(protocol, 0)
 
-        assert no_motor_session.scope.illumination.get_led_state(channel='BF').state is (
-            LedState.LIT
-        )
+        assert channel_reading(no_motor_session.scope.illumination, 'BF').state is (LedState.LIT)
 
 
 class TestTheSlotLookupCannotDisagreeWithTheRule:

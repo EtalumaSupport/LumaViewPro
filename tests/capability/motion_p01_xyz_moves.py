@@ -30,8 +30,8 @@ def body(s):
         check('home ALL returns', True)
     except HomingFailedError as e:
         check('home ALL returns', False, str(e))
-    check('Z position known after home', m.position_is_known('Z'))
-    check('X position known after home', m.position_is_known('X'))
+    check('Z position known after home', 'Z' not in m.axes_without_position())
+    check('X position known after home', 'X' not in m.axes_without_position())
     try:
         m.home('Z')
         check('home Z alone returns', True)

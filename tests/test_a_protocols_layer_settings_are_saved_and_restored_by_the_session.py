@@ -206,7 +206,7 @@ class TestTheBlockIsTypedAtLoad:
         protocol = session.load_protocol(tsv)
 
         assert protocol.channel_settings()[LED2].acquire is AcquireMode.VIDEO
-        assert type(protocol.step(0).acquire) is AcquireMode
+        assert type(protocol.step_records()[0].acquire) is AcquireMode
 
     def test_a_row_built_with_a_word_that_is_no_mode_is_refused(self):
         with pytest.raises(ArgumentRefusedError) as refused:
