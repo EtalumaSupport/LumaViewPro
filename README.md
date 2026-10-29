@@ -1,6 +1,6 @@
 # LumaViewPro
 
-> **PRE-RELEASE API**: the Lumascope SDK + REST API exposed by LumaViewPro is subject to breaking changes until 4.0.0 ships; see the preface of `docs/LumascopeSkills.md`. Do not build production integrations against the API yet. If you intend to use it, contact Etaluma support so we know to consult you before structural changes.
+> **PRE-RELEASE API**: the Lumascope SDK + REST API exposed by LumaViewPro is subject to breaking changes until 4.0.0 ships; see the preface of `docs/lumascope-skills.md`. Do not build production integrations against the API yet. If you intend to use it, contact Etaluma support so we know to consult you before structural changes.
 
 LumaViewPro is an open-source fluorescence microscope control application written in Python. Sponsored by [Etaluma, Inc.](https://www.etaluma.com/), it provides a full-featured GUI and a Python API for controlling Etaluma Lumascope microscopes.
 
@@ -36,7 +36,7 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 - **Simulate Mode** -- run without hardware using `python lumaviewpro.py --simulate`
 - **API** -- the scope driven from Python through a `ScopeSession`, or over REST, with or without the GUI
 
-The API is documented in `docs/`: [`LumascopeSkills.md`](docs/LumascopeSkills.md), the guide; [`API_REFERENCE.md`](docs/API_REFERENCE.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`PluginTutorial.md`](docs/PluginTutorial.md).
+The API is documented in `docs/`: [`lumascope-skills.md`](docs/lumascope-skills.md), the guide; [`api-reference.md`](docs/api-reference.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`plugin-tutorial.md`](docs/plugin-tutorial.md).
 
 ## Getting Started
 

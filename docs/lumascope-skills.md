@@ -2,7 +2,7 @@
 
 How the API that drives an Etaluma microscope fits together, and how to use it
 from Python and over REST. Every member, field, closed set and outcome class is
-in the [API reference](API_REFERENCE.md), generated from the code; this guide
+in the [API reference](api-reference.md), generated from the code; this guide
 links to it rather than repeating it. Every Python block below runs, in order,
 on the simulator in LumaViewPro's test suite, and so does the REST walkthrough.
 
@@ -113,7 +113,7 @@ refused, naming the holder (see [Who may act](#who-may-act)).
 
 **What is API.** A member is API when it carries the `@api` mark, and a field
 when its class names it in `@api_fields` (`modules.api_surface`); the
-[reference](API_REFERENCE.md) lists exactly those. A member marked *in-process*
+[reference](api-reference.md) lists exactly those. A member marked *in-process*
 is for a Python caller only -- it takes a callback, returns a live object, or
 blocks -- and has no route. Anything unmarked is not API, whatever its name: it
 may change in any release.
@@ -262,7 +262,7 @@ except PositionOutOfRangeError as refused:
 by class and reason; a member that raises nothing says `Nothing.`. The reference
 shows each member's list, and for a route the REST status of each reason. Every
 outcome class, with each reason's cause and status, is under
-[Outcomes in the reference](API_REFERENCE.md#outcomes).
+[Outcomes in the reference](api-reference.md#outcomes).
 
 **Refusals every member shares.** Three refusals are made at every member's
 door, so no member lists them:
@@ -291,7 +291,7 @@ an action; the member still decides whether it applies now.
 ### Hearing outcomes
 
 An outcome nobody asked for is delivered to every outcome listener in the
-process, as a [`Notification`](API_REFERENCE.md#Notification). `shown` is
+process, as a [`Notification`](api-reference.md#Notification). `shown` is
 whether it is for display now: an outcome muted when it happened -- during an
 unattended run, inside the duplicate window, at shutdown -- arrives with `shown`
 False, and again with the same `outcome_id` and `shown` True if it is later
@@ -401,7 +401,7 @@ member also applies it: `binning` is the camera's (`scope.camera.set_binning`),
 `'has_member'`, its `member` naming the door. The reasons a path write is refused
 -- `'has_member'`, `'host_only'`, `'installation_only'`, `'derived'`, `'not_a_setting'`,
 `'block'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
-[`SettingRefusedError`'s](API_REFERENCE.md#SettingRefusedError).
+[`SettingRefusedError`'s](api-reference.md#SettingRefusedError).
 
 ```python raises=SettingRefusedError
 session.update_settings('binning', 2)       # has_member: scope.camera.set_binning
@@ -796,7 +796,7 @@ the frame-validity judgments. An OME-TIFF keeps the exposure and position in
 its OME `Plane` and the rest in a `MapAnnotation` (namespace `etaluma.com/lvp`),
 which Bio-Formats -- Fiji, QuPath, OMERO -- shows; a plain TIFF carries the same
 keys in its `Plane` block. Every key, its unit and what a sum does to it is the
-reference's [saved-file facts](API_REFERENCE.md#saved-file-facts). A fact the
+reference's [saved-file facts](api-reference.md#saved-file-facts). A fact the
 frame did not know is absent, never a stand-in.
 
 **Derived files.** A z-projection, a stitch, a composite or a video states a
@@ -939,7 +939,7 @@ run it would read is still writing.
 
 Each change the scope makes is delivered to the listeners registered for it,
 and over REST as an event on the event stream. The
-[events table](API_REFERENCE.md#events) lists every event, the member that
+[events table](api-reference.md#events) lists every event, the member that
 delivers it, its record (the callback's arguments, in order) and how it
 reaches a REST client. Each `add_*_listener` has its `remove_*_listener`.
 
@@ -1132,7 +1132,7 @@ client corrects its request without reading the words.
 
 `GET /api/v1/events` is a server-sent event stream. Its first event is
 `status`, the scope as `GET /api/v1/status` reads it; after that every change
-is an event, named as in the [events table](API_REFERENCE.md#events), its data
+is an event, named as in the [events table](api-reference.md#events), its data
 the event's record. A run's events carry `run`, `{"job": "<id>"}`, the job of
 the run that sent them, and every job's end is a `job_ended` event, its data
 the job: a run's `files` job ends with its own, so match a `job_ended` by its
@@ -1237,7 +1237,7 @@ injected, and `clear()` removes it all.
 
 Which board can show a fault depends on how the model is simulated. Each
 member's own fault, and its arguments, are in the
-[reference](API_REFERENCE.md#SimulationAPI):
+[reference](api-reference.md#SimulationAPI):
 
 | Member | Fast | Firmware, realistic | Classic |
 |---|---|---|---|
@@ -1297,7 +1297,7 @@ A plugin extends LumaViewPro: a post-processor, a live frame processor, a
 panel in the window. It is a Python package loaded at startup, handed the
 session, and it uses the API this guide describes. How to write one, its
 lifecycle, and which plugin API level a host offers are in
-[`PluginTutorial.md`](PluginTutorial.md).
+[`plugin-tutorial.md`](plugin-tutorial.md).
 
 ## Changelog
 

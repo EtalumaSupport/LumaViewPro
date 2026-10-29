@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A docstring is read by its sections, as the reference renders it (``api_surface.entries_of``, ``markdown_of``).
 
-``docs/API_REFERENCE.md`` is rendered from these two readers, and its guard
+``docs/api-reference.md`` is rendered from these two readers, and its guard
 compares the committed file with a fresh render, so a reader that misreads
 a section would be committed with the file rather than fail it. These pin
 what each reader gives.

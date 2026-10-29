@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""``docs/API_REFERENCE.md``: the declared API, rendered from the marks and the docstrings.
+"""``docs/api-reference.md``: the declared API, rendered from the marks and the docstrings.
 
 Every owner of a marked member or published field, with how a caller
 reaches it; every member's signature, marks, route and docstring, and the
@@ -57,7 +57,7 @@ from rest.routes import routes
 from tests.ast_seams import REPO_ROOT
 from tests.marked_set import Marked
 
-REFERENCE = REPO_ROOT / 'docs' / 'API_REFERENCE.md'
+REFERENCE = REPO_ROOT / 'docs' / 'api-reference.md'
 # Set, the guard writes the render to REFERENCE instead of comparing it.
 WRITE = 'LVP_WRITE_API_REFERENCE'
 REGENERATE = f'{WRITE}=1 python3 -m pytest tests/guards/test_the_api_is_declared.py -k reference'
@@ -69,7 +69,7 @@ _PREFACE = f"""\
 
 <!-- Generated from the code; do not edit. Regenerate: {REGENERATE} -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `LumascopeSkills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 """

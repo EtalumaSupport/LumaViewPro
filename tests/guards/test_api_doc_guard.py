@@ -1,4 +1,4 @@
-"""Structural guard: LumascopeSkills.md's code is the API's, and it runs.
+"""Structural guard: lumascope-skills.md's code is the API's, and it runs.
 
 Every call form a reader could copy out of the guide must resolve on a real
 object (polarity 1) AND accept the arguments the guide passes it (polarity
@@ -54,9 +54,10 @@ A backticked path into a project package (```modules.x.y```, ``drivers.``,
 ``rest.``) names something a reader is told to import, so it must be API like
 a fenced import.
 
-A link from the guide reaches its anchor (polarity 6): one of its own
-headings, or an anchor the generated reference holds -- a member, field or
-class the generator rendered, or one of its headings.
+A relative link in a published document -- the README, ``docs/`` and the
+examples' README -- reaches its file, and its anchor in a markdown file
+(polarity 6): a heading, or an anchor the generated reference holds -- a
+member, field or class the generator rendered.
 """
 
 import ast
@@ -78,7 +79,7 @@ from lib.lumascope_error import LumascopeError
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 from tests.settings_fixtures import complete_settings
 
-DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
+DOC = REPO_ROOT / 'docs' / 'lumascope-skills.md'
 
 # Receivers the reference uses for the live objects an L2 caller holds.
 # `scope` is the Lumascope composition root, `session` the ScopeSession L2
@@ -287,7 +288,7 @@ class TestLumascopeSkillsCallFormsResolve:
                 )
 
         assert not failures, (
-            'LumascopeSkills.md documents call forms that do not resolve on the '
+            'lumascope-skills.md documents call forms that do not resolve on the '
             'live API. An L2 reader copying these lines gets AttributeError.\n'
             'Correct the DOCUMENT to match the surface -- do not add a member to '
             'satisfy a doc line.\n' + '\n'.join(sorted(set(failures)))
@@ -308,7 +309,7 @@ class TestLumascopeSkillsCallFormsResolve:
             if step:
                 unmarked.append(f'  {DOC}:{lineno}  {receiver}.{".".join(chain)}  -> {step}')
         assert not unmarked, (
-            'LumascopeSkills.md teaches call forms through members that are not API '
+            'lumascope-skills.md teaches call forms through members that are not API '
             '(no @api, not in @api_fields). Rewrite the line to the marked door, or '
             'drop it.\n' + '\n'.join(sorted(set(unmarked)))
         )
@@ -382,7 +383,7 @@ class TestLumascopeSkillsCallFormsBind:
                 failures.append(f'  {DOC}:{lineno}  {form}(...)  -> {exc}')
 
         assert not failures, (
-            'LumascopeSkills.md documents calls the live signature will not accept. '
+            'lumascope-skills.md documents calls the live signature will not accept. '
             'An L2 reader copying these lines gets TypeError.\n'
             'Correct the DOCUMENT to match the signature -- do not add a parameter '
             'to satisfy a doc line.\n' + '\n'.join(sorted(set(failures)))
@@ -611,7 +612,7 @@ class TestLumascopeSkillsTeachesOnlyApi:
     def test_every_project_name_the_reference_teaches_is_api(self, doc_text):
         failures = _doc_project_name_failures(doc_text, DOC)
         assert not failures, (
-            'LumascopeSkills.md teaches a project name that is not API (an exception, an '
+            'lumascope-skills.md teaches a project name that is not API (an exception, an '
             'enum, a class with marked members or published fields, or a marked function), '
             'or calls one with arguments it will not take. Teach the member that does the '
             'job, or say in words what the API does.\n' + '\n'.join(failures)
@@ -818,7 +819,7 @@ class TestLumascopeSkillsFencesRun:
     def test_every_python_fence_runs(self, doc_text):
         failures = guide_fence_failures(doc_text, DOC)
         assert not failures, (
-            'LumascopeSkills.md has python fences that do not run on the simulator as '
+            'lumascope-skills.md has python fences that do not run on the simulator as '
             'written. A fence that teaches a refusal states it (```python '
             'raises=<Class>) and ends in it; one that needs a board says tier= or '
             'model=; one no simulator can run is ```python norun.\n' + '\n'.join(failures)
@@ -1040,7 +1041,7 @@ class TestLumascopeSkillsWalkthroughRuns:
     def test_every_curl_line_answers_as_stated(self, doc_text):
         failures = _walk(doc_text, DOC)
         assert not failures, (
-            'LumascopeSkills.md has a curl line that does not answer as its comment '
+            'lumascope-skills.md has a curl line that does not answer as its comment '
             'states, on a simulated server. Correct the line or its comment.\n'
             + '\n'.join(failures)
         )
@@ -1200,7 +1201,7 @@ class TestLumascopeSkillsProseNamesResolve:
     def test_every_prose_name_resolves(self, doc_text, prose_owners):
         failures, _ = prose_name_failures(doc_text, DOC, prose_owners)
         assert not failures, (
-            'LumascopeSkills.md names something in its prose that does not resolve: a '
+            'lumascope-skills.md names something in its prose that does not resolve: a '
             'member or field that is not API, a route no route answers, a settings path '
             'that is no setting, or a quoted reason no published outcome carries. Correct '
             'the DOCUMENT.\n' + '\n'.join(failures)
@@ -1251,40 +1252,68 @@ def anchors_of(text):
     return ids
 
 
-def link_failures(text, label, reference_text):
-    """A line per link from ``text`` to an anchor that is not there: its own, or the reference's."""
-    targets = {'': anchors_of(text), 'API_REFERENCE.md': anchors_of(reference_text)}
+def published_docs():
+    """Every document LumaViewPro publishes: the repo's README and its ``docs/``."""
+    return [
+        REPO_ROOT / 'README.md',
+        *sorted((REPO_ROOT / 'docs').glob('*.md')),
+        REPO_ROOT / 'docs' / 'api_examples' / 'README.md',
+    ]
+
+
+def link_failures(path, root):
+    """A line per relative link in ``path`` to a file or anchor that is not there.
+
+    A link names a file beside ``path``, or none for ``path`` itself; an anchor
+    is checked in the markdown file it names. Labelled relative to ``root``.
+    """
+    label = path.relative_to(root).as_posix()
+    text = path.read_text(encoding='utf-8')
     failures = []
     for lineno, line in enumerate(text.splitlines(), 1):
         for link in _LINK.findall(line):
+            if urllib.parse.urlsplit(link).scheme:
+                continue
             page, sep, anchor = link.partition('#')
-            if sep and page in targets and anchor not in targets[page]:
+            target = (path.parent / page).resolve() if page else path
+            if not target.exists():
+                failures.append(f'  {label}:{lineno}  {link}  -> no such file')
+            elif (
+                sep
+                and target.suffix == '.md'
+                and anchor not in anchors_of(target.read_text(encoding='utf-8'))
+            ):
                 failures.append(f'  {label}:{lineno}  {link}  -> no such anchor')
     return failures
 
 
-class TestLumascopeSkillsLinksResolve:
-    """Polarity 6: a link from the guide reaches an anchor, in it or in the generated reference."""
+class TestEveryPublishedLinkResolves:
+    """Polarity 6: a link in a published document reaches its file, and its anchor."""
 
-    def test_every_link_reaches_its_anchor(self, doc_text):
-        from tests.api_reference import REFERENCE
-
-        failures = link_failures(doc_text, DOC, REFERENCE.read_text(encoding='utf-8'))
+    def test_every_link_reaches_its_file_and_anchor(self):
+        failures = [f for doc in published_docs() for f in link_failures(doc, REPO_ROOT)]
         assert not failures, (
-            'LumascopeSkills.md links to an anchor that is not there. A reference anchor '
-            'is a member, field or class the generator rendered, or one of its headings.\n'
-            + '\n'.join(failures)
+            'A published document links to a file or an anchor that is not there. A '
+            'reference anchor is a member, field or class the generator rendered, or one '
+            'of its headings.\n' + '\n'.join(failures)
         )
 
-    def test_a_dead_link_is_reported(self):
-        planted = (
-            '## Here\n'
-            'See [create](API_REFERENCE.md#ScopeSession.create), [gone](API_REFERENCE.md#'
-            'BringUpRecord.substitution), [here](#here), [there](#there) and '
-            '[events](API_REFERENCE.md#events).\n'
+    def test_a_dead_link_is_reported(self, tmp_path):
+        (tmp_path / 'sub').mkdir()
+        (tmp_path / 'api-reference.md').write_text(
+            '<a id="ScopeSession.create"></a>\n## Events\n', encoding='utf-8'
         )
-        reference = '<a id="ScopeSession.create"></a>\n## Events\n'
-        assert link_failures(planted, 'planted', reference) == [
-            '  planted:2  API_REFERENCE.md#BringUpRecord.substitution  -> no such anchor',
-            '  planted:2  #there  -> no such anchor',
+        planted = tmp_path / 'guide.md'
+        planted.write_text(
+            '## Here\n'
+            'See [create](api-reference.md#ScopeSession.create), [gone](api-reference.md#'
+            'BringUpRecord.substitution), [here](#here), [there](#there) and '
+            '[events](api-reference.md#events).\n'
+            '[moved](OldName.md), [up](sub/../api-reference.md), [site](https://etaluma.com).\n',
+            encoding='utf-8',
+        )
+        assert link_failures(planted, tmp_path) == [
+            '  guide.md:2  api-reference.md#BringUpRecord.substitution  -> no such anchor',
+            '  guide.md:2  #there  -> no such anchor',
+            '  guide.md:3  OldName.md  -> no such file',
         ]

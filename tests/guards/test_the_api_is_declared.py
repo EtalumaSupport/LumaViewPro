@@ -12,7 +12,7 @@ project class a marked annotation resolves to, a driver's record among them),
 and every marked top-level function of a project module, keyed by its dotted
 path (``rest.app.build_app``):
 
-1. **Current.** ``docs/API_REFERENCE.md`` is the render of the marked set
+1. **Current.** ``docs/api-reference.md`` is the render of the marked set
    and its docstrings (``tests.api_reference``), byte for byte, on every
    interpreter the suite runs on: a member renamed, a docstring changed, a
    mark added or a route removed without regenerating it fails, naming the

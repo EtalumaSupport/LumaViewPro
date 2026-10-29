@@ -166,13 +166,13 @@ def _wire_timing(sim_tier: str) -> str:
 
 # PRE-RELEASE warning bundle: this is the runtime FutureWarning
 # piece. The other two are the README banner and the
-# LumascopeSkills.md preface. All three retire together in one
+# lumascope-skills.md preface. All three retire together in one
 # commit at the freeze trigger; do not retire this one without the
 # bundle.
 _PRE_RELEASE_WARNING_FIRED = False
 _PRE_RELEASE_WARNING_TEXT = (
     'The Lumascope SDK API is PRE-RELEASE and subject to breaking '
-    'changes until 4.0.0 ships. See the LumaViewPro/docs/LumascopeSkills.md '
+    'changes until 4.0.0 ships. See the LumaViewPro/docs/lumascope-skills.md '
     'preface for what is still fluid. Contact Etaluma support if you '
     'depend on this API.'
 )

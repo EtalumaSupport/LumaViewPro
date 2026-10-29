@@ -18,8 +18,8 @@ and moves nothing real. Each task comes in two forms that do the same thing:
 | Holding the scope in a control session | [`control_session.py`](control_session.py) | [`control_session.sh`](control_session.sh) |
 
 What each one does and prints is at the top of its file. How the API fits
-together is the guide, [`LumascopeSkills.md`](../LumascopeSkills.md); every
-member is in [`API_REFERENCE.md`](../API_REFERENCE.md). LumaViewPro's test
+together is the guide, [`lumascope-skills.md`](../lumascope-skills.md); every
+member is in [`api-reference.md`](../api-reference.md). LumaViewPro's test
 suite runs every example, both forms, and checks what it leaves.
 
 ## Running a Python example

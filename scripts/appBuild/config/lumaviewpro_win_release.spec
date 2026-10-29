@@ -23,9 +23,9 @@ datas = [
     # The API's documents, for the reader of an installation: the guide,
     # the generated reference, the plugin tutorial the guide links to, and
     # the examples with their REST twins. The app opens none of them.
-    ('docs/LumascopeSkills.md', 'docs'),
-    ('docs/API_REFERENCE.md', 'docs'),
-    ('docs/PluginTutorial.md', 'docs'),
+    ('docs/lumascope-skills.md', 'docs'),
+    ('docs/api-reference.md', 'docs'),
+    ('docs/plugin-tutorial.md', 'docs'),
     ('docs/api_examples/*.py', 'docs/api_examples'),
     ('docs/api_examples/*.sh', 'docs/api_examples'),
     ('docs/api_examples/README.md', 'docs/api_examples'),

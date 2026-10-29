@@ -2,7 +2,7 @@
 
 <!-- Generated from the code; do not edit. Regenerate: LVP_WRITE_API_REFERENCE=1 python3 -m pytest tests/guards/test_the_api_is_declared.py -k reference -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `LumascopeSkills.md`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields` (`modules/api_surface.py`). Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is `lumascope-skills.md`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
@@ -2063,7 +2063,7 @@ Route: `GET /api/v1/plugin_api_level`.
 What this LumaViewPro does that a plugin may rely on.
 
 `modules.plugins.PLUGIN_API_LEVEL`; each level's additions are
-listed in PluginTutorial.md, "The plugin API level".
+listed in plugin-tutorial.md, "The plugin API level".
 
 **Raises**
 

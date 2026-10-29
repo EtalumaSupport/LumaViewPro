@@ -5225,7 +5225,7 @@ class ScopeSession:
         """What this LumaViewPro does that a plugin may rely on.
 
         ``modules.plugins.PLUGIN_API_LEVEL``; each level's additions are
-        listed in PluginTutorial.md, "The plugin API level".
+        listed in plugin-tutorial.md, "The plugin API level".
 
         Raises:
             Nothing.

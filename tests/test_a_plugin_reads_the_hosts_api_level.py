@@ -4,7 +4,7 @@ No version could say it: ``version.txt``'s line is the promoted release name,
 and hundreds of trunk commits share one beta number. The host carries one
 integer, raised by any commit that changes behaviour a plugin relies on; a
 plugin that needs a behaviour reads ``session.plugin_api_level`` at its own
-entry and refuses below it. Every level has its row in PluginTutorial.md
+entry and refuses below it. Every level has its row in plugin-tutorial.md
 saying what it added, so a plugin author can find which level to ask for.
 """
 
@@ -15,7 +15,7 @@ from modules.plugins import PLUGIN_API_LEVEL
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
-_TUTORIAL = Path(__file__).resolve().parents[1] / 'docs' / 'PluginTutorial.md'
+_TUTORIAL = Path(__file__).resolve().parents[1] / 'docs' / 'plugin-tutorial.md'
 
 
 def test_the_session_answers_the_hosts_level():
@@ -29,6 +29,6 @@ def test_the_session_answers_the_hosts_level():
 def test_every_level_says_what_it_added():
     rows = re.findall(r'^\| level (\d+) \|', _TUTORIAL.read_text(), flags=re.MULTILINE)
     assert [int(r) for r in rows] == list(range(1, PLUGIN_API_LEVEL + 1)), (
-        'PluginTutorial.md "The plugin API level" needs one row per level, '
+        'plugin-tutorial.md "The plugin API level" needs one row per level, '
         f'1..{PLUGIN_API_LEVEL}, in order; found {rows}'
     )

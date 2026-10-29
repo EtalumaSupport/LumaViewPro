@@ -7775,7 +7775,7 @@ class TestConnectionCheckShapeUniformOnLumascope:
 
 class TestFrameValidityIsL2Stable:
     """Freeze audit Finding #40 -- scope.imaging.frame_validity was
-    publicly accessible (no underscore prefix) but LumascopeSkills said
+    publicly accessible (no underscore prefix) but the guide said
     "internal diagnostic and not part of L2-stable API surface." Two
     options: prefix as _frame_validity OR formally promote. Promoted:
     L2 callers (plugin authors, diagnostic tooling, custom capture
@@ -8030,7 +8030,7 @@ class TestProtocolCleanupLedRestoreKey:
 class TestPreReleaseFutureWarning:
     """The pre-freeze warning bundle requires a runtime
     FutureWarning, paired with the README banner and the
-    LumascopeSkills.md preface.
+    lumascope-skills.md preface.
 
     Warning fires once-per-process: either L2 entry point
     (Lumascope() and ScopeSession.create)
@@ -8059,7 +8059,7 @@ class TestPreReleaseFutureWarning:
         assert len(future_warnings) >= 1
         msg = str(future_warnings[0].message)
         assert 'PRE-RELEASE' in msg
-        assert 'LumascopeSkills' in msg
+        assert 'lumascope-skills' in msg
 
     def test_warning_fires_once_per_process(self):
         import warnings
@@ -8120,7 +8120,7 @@ class TestPreReleaseFutureWarning:
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
 
     def test_warning_text_states_the_preface_s_horizon_and_a_support_contact(self):
-        """The live warning says what the LumascopeSkills preface says: the
+        """The live warning says what the guide's preface says: the
         API may change until 4.0.0 ships. It names no wave or plan the
         reader cannot open, and it names a support contact. The README
         banner and the preface are the other two pieces of the notice."""

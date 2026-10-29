@@ -4,7 +4,7 @@
 A member is API when it carries ``@api``; a class's published data
 attributes are the names its ``@api_fields`` lists. Whatever is unmarked
 stays callable from Python but is not documented as API and is never put
-on a wire, whatever its name. ``docs/API_REFERENCE.md`` is this set,
+on a wire, whatever its name. ``docs/api-reference.md`` is this set,
 rendered from the marks and the docstrings (``entries_of``,
 ``markdown_of``), and ``tests/guards/test_the_api_is_declared.py`` holds
 it current and the set closed: every type a marked member hands out or

@@ -20,7 +20,7 @@ Within a relocated body:
     * cross-method calls to non-motion helpers on Lumascope route via
       ``self._scope.X``.
 
-Its members are listed in the API reference, docs/API_REFERENCE.md.
+Its members are listed in the API reference, docs/api-reference.md.
 """
 
 from __future__ import annotations

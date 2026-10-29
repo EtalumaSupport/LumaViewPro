@@ -27,7 +27,7 @@ plugin's handlers; the host wraps the call in try/except so a bad
 plugin cannot crash the app. `ctx` is the `ScopeSession` hosting the
 plugin: the same session the GUI, REST and scripts drive, so a plugin
 reaches the instrument through `ctx.scope` and the session's members
-(`docs/LumascopeSkills.md`).
+(`docs/lumascope-skills.md`).
 
 Four namespaces are defined for 4.x:
 
@@ -395,7 +395,7 @@ def register(ctx):
 The handler is called `handler(frame)` with the camera's `Frame`
 record. The record's fields, the read-only frame, the per-frame time
 budget and the auto-removal of a handler that overruns it or keeps
-raising are in `LumascopeSkills.md`, **Frames and captures**. With no
+raising are in `lumascope-skills.md`, **Frames and captures**. With no
 camera connected, registration raises and nothing is registered.
 
 ### The reserved namespace
@@ -465,7 +465,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 36 | Nothing a plugin outside Etaluma relies on. |
 | level 37 | An LED's board addresses are `led_addresses`: `scope.capabilities.led_addresses` (the installed board's, None without one) and a `ChannelRecord`'s `led_addresses` (the addresses the channel drives, `()` for none). |
 | level 38 | An LED is lit by its channel's name: `scope.illumination.led_on(channel, illumination_ma)` and `led_off(channel)` take a name only, a number refused at the door (`wrong_argument_type`). `ch2color` and `color2ch` are not on the surface (no route); a channel's addresses are its record's `led_addresses`. `ScopeCapabilities.led_channels` and `ChannelRecord.led_channel` are gone, with no alias. |
-| level 39 | A fluorescence channel is named for its excitation: the release's keys are `BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex550`, `Ex589`, `Ex640` and `Lumi`, and a stock unit's are `Ex405` / `Ex488` / `Ex589` on LEDs 0 / 1 / 2, where `Blue` / `Green` / `Red` were. A fluorescence `ChannelRecord`'s `display_name` is `None` (its `label` is its excitation, `'405 nm'`). A caller's old name is refused, not translated: a channel `channel_unknown`, a settings path `not_a_setting`; a stored file's old names are read by the LED they were made with (see "Illumination" in `LumascopeSkills.md`). |
+| level 39 | A fluorescence channel is named for its excitation: the release's keys are `BF`, `PC`, `DF`, `Ex405`, `Ex488`, `Ex550`, `Ex589`, `Ex640` and `Lumi`, and a stock unit's are `Ex405` / `Ex488` / `Ex589` on LEDs 0 / 1 / 2, where `Blue` / `Green` / `Red` were. A fluorescence `ChannelRecord`'s `display_name` is `None` (its `label` is its excitation, `'405 nm'`). A caller's old name is refused, not translated: a channel `channel_unknown`, a settings path `not_a_setting`; a stored file's old names are read by the LED they were made with (see "Illumination" in `lumascope-skills.md`). |
 | level 40 | Every steady stamp the scope takes is on one clock, the scope's, read by `session.host_steady_ns()` (in-process; `scope.host_steady_ns()`): a frame's `arrived_ns`, a `Change`'s `written_ns`, `earliest_ns` and `in_force_ns`, `Owed.until_ns`, a `ClockMapping`'s `host_ns`. It resolves to a microsecond or better on every supported Python and platform (`time.perf_counter_ns`), where on Windows under Python 3.12 the stamps were `time.monotonic_ns`, a 15.6 ms step. A plugin sets its own "now" against them by this member only, never by a clock of its own. |
 | level 41 | Nothing a plugin outside Etaluma relies on. |
 | level 42 | The Session's `camera`, `wellplate_loader` and `objective_helper` are gone: each was a second name for the scope's member of that name. The camera is `session.scope.camera`; the labware and objective catalogues are the scope's `wellplate_loader` and `objective_helper`. |
@@ -548,11 +548,11 @@ run-complete dialog without normalization.
 - For hardware-side context -- LED, motion, capture, protocol APIs
   your processor can read about (post-processors operate on saved
   files, not live hardware, but understanding what produced the
-  files helps) -- see the guide, [`LumascopeSkills.md`](LumascopeSkills.md),
-  and every member in [`API_REFERENCE.md`](API_REFERENCE.md).
+  files helps) -- see the guide, [`lumascope-skills.md`](lumascope-skills.md),
+  and every member in [`api-reference.md`](api-reference.md).
 - For per-frame listeners (running on the live stream, not after a
   run), see **Live frame listeners** above and
-  [Frames and captures](LumascopeSkills.md#frames-and-captures) in the guide.
+  [Frames and captures](lumascope-skills.md#frames-and-captures) in the guide.
 - HTTP endpoints under `/plugins/<name>/` are not yet available; the
   namespace name is reserved.
 
