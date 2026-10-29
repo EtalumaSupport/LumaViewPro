@@ -250,13 +250,17 @@ def _edges(item: Marked) -> list[tuple[str, str]]:
 
 
 def outcome_classes() -> dict[str, type[LumascopeError]]:
-    """Every outcome class a project module defines at its top level, by name.
+    """Every outcome class a project module defines at its top level, by name, a private one aside.
 
     Only those: a class a test defines under the root is held by Python
-    while the suite runs, and is no part of the API.
+    while the suite runs, and is no part of the API; a private one is its
+    module's own (a driver's fault caught inside the driver, the umbrella
+    mixin).
     """
     found = {}
     for cls in defined_classes():
+        if cls.__name__.startswith('_'):
+            continue
         module = sys.modules.get(cls.__module__)
         if cls.__module__.split('.')[0] not in wire_encoding.PROJECT_PACKAGES | {'lib'}:
             continue
@@ -481,7 +485,9 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
     parts = [f'{_anchor(owner.name)}\n{level} `{owner.name}`']
     facts = []
     if outcome:
-        bases = ', '.join(f'`{b.__name__}`' for b in cls.__bases__)
+        bases = ', '.join(
+            f'`{b.__name__}`' for b in cls.__bases__ if not b.__name__.startswith('_')
+        )
         kind = _kind(cls)
         facts.append(f'{kind[0].upper()}{kind[1:]}; bases {bases}.')
     elif is_record(cls):

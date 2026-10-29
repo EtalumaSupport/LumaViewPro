@@ -704,7 +704,7 @@ class Stimulation:
 )
 @dataclasses.dataclass(frozen=True)
 class StepRecord:
-    """One step of a protocol, a field per column of its steps table (``_STEP_FIELDS``).
+    """One step of a protocol, a field per column of its steps table.
 
     Attributes:
         name: The step's name, rendered from its other fields.

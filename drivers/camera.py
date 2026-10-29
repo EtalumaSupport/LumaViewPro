@@ -105,8 +105,8 @@ class HandOver:
 class Frame:
     """One delivered frame and the facts known when it was stored.
 
-    The camera's frame store builds it once (``ImageHandlerBase._store_frame``)
-    and every reader -- a grab, a capture, the preview, each frame listener --
+    The camera's frame store builds it once, as the frame arrives, and every
+    reader -- a grab, a capture, the preview, each frame listener --
     holds that one record, so the pixels, the arrival number, the depth and
     the chunks it carries are always the same frame's. Read-only throughout:
     the pixels refuse a write and the chunks are a read-only mapping. Two

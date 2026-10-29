@@ -1323,22 +1323,61 @@ class ImagingAPI:
     ) -> np.ndarray:
         """Capture a frame-valid image on the camera worker, and wait for it.
 
-        See ``_capture_and_wait_impl`` for the argument contract, the
-        frame-drain behaviour, and what it raises for no frame; this adds
-        only the dispatch described on ``_dispatch_camera``. ``timeout_s``
-        stays the content-gate retry budget the body reads; the executor
-        wait is bounded separately and internally.
+        A frame guaranteed to reflect the hardware as it is now: the capture
+        passes over stale frames until every change since the last one (an
+        LED, the gain, the exposure, a move) is met by its source's rule
+        (``ScopeCapabilities.frame_rules``) -- a frame count, time on the
+        camera's clock, an axis settling -- and keeps only a frame that
+        counts for every change it does not exclude. A change landing while
+        the capture runs is seen, and the capture starts its wait again,
+        within a deadline; the deadline stands still while a commanded move
+        is settling. The capture is one command on the camera's lane, and
+        this returns once it has run. ``capture_still`` is the same capture,
+        returning the frame's record with it.
+
+        Args:
+            force_to_8bit: True for an 8-bit image; False for the camera's
+                own depth, in a uint16 array for a 12- or 16-bit camera.
+            accept_dark: While a channel is lit (at a current above 0 mA), a
+                frame with essentially no lit pixel is taken again until
+                ``timeout_s`` passes, then kept and recorded dark. True skips
+                that judgment, for a caller whose dark frames are legitimate
+                while lit, such as an autofocus sweep.
+            exclude_sources: Changes not to wait for, e.g.
+                ``(FrameValiditySource.Z_MOVE,)``. The frame can then predate
+                such a change, so a frame that is measured or saved never
+                excludes one.
+            all_ones_check: Measure the frame's saturation: a blown frame is
+                grabbed again once and, blown again, kept.
+            timeout_s: Seconds the grab, and each summed frame, keeps taking
+                frames for one that passes its checks, once the stale ones are
+                passed over; 0, the default, gives each one try.
+            sum_count: Frames summed into the image, for noise reduction; a
+                sum's array is uint16.
+            sum_delay_s: Seconds between summed frames.
+            sum_iteration_callback: Called after each summed frame, on the
+                camera's lane.
+
+        Returns:
+            The image: (H, W) for a mono camera, (H, W, 3) for a color one.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
                 time is not a wait from 0 to 30 days, or the wait for the
-                capture and every frame of its sum together is longer: NaN
-                would make the body's drain deadline never pass, and a wait
-                longer than the host can hold would raise out of it.
-            CaptureFailedError: ``'record_read_failed'``, a frame came but the
-                camera did not answer a read of the gain, exposure or black
-                level its record needs, so it was not kept; chained from the
-                ``CameraReadFailedError``. Its other reasons are the body's.
+                capture and every frame of its sum together is longer.
+                Nothing reached the camera.
+            CaptureFailedError: ``'no_frame'``, the camera delivered none
+                within its grab window; ``'deadline_expired'``, changes kept
+                landing until the deadline passed; ``'no_fresh_frame'``,
+                frames came but none within the grab's bound counted for the
+                ``setting`` changed; ``'chunk_rejected'``, frames counted but
+                none at the ``setting`` asked; ``'record_read_failed'``, a
+                frame came but the camera did not answer a read of the gain,
+                exposure or black level its record needs, so it was not kept,
+                chained from the ``CameraReadFailedError``.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, absent at the call or removed during the capture;
+                ``'camera_not_streaming'``, connected but not grabbing.
         """
         wait_s = self._capture_wait_s(exclude_sources, timeout_s, sum_count, sum_delay_s)
         return self._camera._dispatch_camera(
@@ -2013,9 +2052,34 @@ class ImagingAPI:
         pinned contract (introspected by tests), and a silent kwarg
         pass-through would re-open the door this split closed.
 
-        See ``_get_image_impl`` for the full argument contract; this adds
-        only the dispatch described on ``_dispatch_camera``, so the grab runs
-        on the camera lane and ``sum_iteration_callback`` is called there.
+        By default the last buffered frame is returned; ``force_new_capture``
+        waits for a fresh one. The grab is one command on the camera's lane,
+        waited for. It does not wait for frame validity, so the frame may not
+        reflect a just-changed gain, exposure, LED or stage position.
+
+        Args:
+            force_to_8bit: True for an 8-bit image; False for the camera's
+                own depth, in a uint16 array for a 12- or 16-bit camera.
+            timeout_s: Seconds to wait for a frame.
+            all_ones_check: Measure each frame's saturation: a blown frame is
+                grabbed again once, then kept.
+            sum_count: Frames summed into the image, for noise reduction; a
+                sum's array is uint16.
+            sum_delay_s: Seconds between summed frames.
+            sum_iteration_callback: Called after each summed frame, on the
+                camera's lane.
+            force_new_capture: True to wait for a frame the camera captures
+                after the call, rather than take the last buffered one.
+            new_capture_timeout_s: Seconds to wait for that new frame.
+            verify_chunk_targets: Pass over frames whose own record of
+                exposure and gain (the camera's chunk data) differs from the
+                last values asked for, until one matches or ``timeout_s``
+                passes; no effect on a camera without chunk data, or while
+                hardware auto-gain owns the values.
+
+        Returns:
+            The image: (H, W) for a mono camera, (H, W, 3) for a color one,
+            with no channel's false colour applied.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
@@ -2176,9 +2240,9 @@ class ImagingAPI:
         the FX2 does not take with the device still present raises its fault
         (``CameraStreamStartFailedError`` for a START the device refused), the
         camera left connected and not streaming; a later call tries again.
-        See ``_enable_streaming_impl``; this adds the dispatch
-        described on ``_dispatch_camera``, on the geometry timeout (a stop
-        or start of the grab has been measured near 11 s on a Pylon body).
+        The start is one command on the camera's lane, waited for up to the
+        lane's geometry bound, since a start of the grab has been measured
+        near 11 s on a Pylon body.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the

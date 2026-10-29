@@ -3892,8 +3892,8 @@ Close selection; the drain and finish continue on their own.
 Every caller of this -- the Record button, app close, an L2 client
 -- is the user stopping the recording, so its `end_reason` is
 `'user_stop'`. The controller's own enders (the duration cap, the
-disk floor, a lost camera) name theirs through `_end`, and no
-caller can write one of those into the manifest.
+disk floor, a lost camera) name their own, and no caller can write
+one of those into the manifest.
 
 **Raises**
 
@@ -4644,29 +4644,41 @@ Route: `POST /api/v1/scope/camera/apply`.
 
 Apply a gain, an exposure and an auto-gain mode in one batched call, and wait.
 
-See `_apply_settings_impl` for the contract; this adds the range
-refusals `set_gain_db` and `set_exposure_ms` make, and the
-dispatch described on `_dispatch_camera`. The batch is one
-dispatched task, so the three writes stay atomic on the camera lane.
+The batch is one command on the camera's lane, so no other camera
+command lands between its writes. Turning auto-gain off goes first
+and arming it last, so the gain and the exposure are written with
+the camera's loop off; an arm may lower the exposure to the
+channel's auto-exposure ceiling. Every write is attempted even when
+an earlier one is refused, so one refused setting does not leave the
+others at a previous channel's values; the refusal is raised once all
+have run. The range refusals are `set_gain_db`'s and
+`set_exposure_ms`'s.
 
 **Args**
 
+- `gain_db`: The gain in dB.
+- `exposure_ms`: The exposure time in milliseconds.
 - `auto_gain`: The mode the camera is left in. True arms auto-gain from `auto_gain_settings`; False turns it off; None, the default, leaves the mode as it is and writes none.
 - `auto_gain_settings`: The arm's settings, read only when `auto_gain` is True, which needs them.
-- `channel`: The channel these settings belong to, for the log line. Optional here and required on the impl: this member is the external-caller surface, where an omitted channel should not be a TypeError, and the default keeps such a call self-describing in api.log rather than anonymous.
+- `resume_after_capture`: With `auto_gain` True, whether a capture that locks the arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
+- `channel`: The channel these settings belong to, named in the log line; left out, the line says `(unspecified)`.
+
+**Returns**
+
+dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when the camera snapped it. `None` when no camera is active.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'missing_key'`, `auto_gain` is True and `auto_gain_settings` is None or lacks a key the auto-gain write reads; `'not_a_number'`, one of its values, the gain or the exposure is not a finite number; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum. Nothing was written.
 - `CameraSettingOutOfRangeError`: `'gain_db_out_of_range'` or `'exposure_ms_out_of_range'`, the gain or the exposure is outside the range the camera declares; nothing was written.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; nothing was written.
-- `CameraSettingRejected`: The camera refused the gain, the exposure or the auto-gain change, as `_apply_settings_impl` says.
+- `CameraSettingRejected`: The camera did not take the gain, the exposure or the auto-gain change. When more than one, `setting` names each, comma-separated, `requested` holds their values in that order, the message carries each sentence, and the reason is `'camera_no_answer'` when any of them got no answer.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.auto_exposure"></a>
@@ -4939,8 +4951,12 @@ Route: `POST /api/v1/scope/camera/lock_auto_gain`.
 
 Lock a standing continuous auto-gain arm and return the result.
 
-See `_lock_auto_gain_impl` for the contract; this adds only the
-dispatch described on `_dispatch_camera`. A caller leaving
+The camera's auto loop chose an exposure and a gain no caller
+asked for; the lock writes them back as manual values, so the next
+frame is held to them like any manual setting. They are read from
+the newest frame taken under the arm when the camera reports them,
+else from the camera itself. The lock is one command on the camera's
+lane, waited for. A caller leaving
 auto-gain stores `stored_exposure_ms` / `gain_db` as the manual
 setting; when no arm stands the result's `state` is None and
 nothing was written. With no camera connected no arm can stand, and
@@ -5336,10 +5352,16 @@ Marks: in-process; engineering.
 
 Restore every camera setting a saved state holds, and wait.
 
-See `_restore_camera_state_impl` for the contract; this adds the
-dispatch described on `_dispatch_camera`, so the restore is one
-task on the camera lane and its writes cannot interleave with
-another caller's. A camera already declared removed when the restore
+The binning, frame size, pixel format and black level go back
+first, each only where it differs from the camera's value now, since
+a write of an unchanged one restarts grabbing for nothing; then the
+gain, the exposure and the auto-gain arm. A setting absent from the
+snapshot, or recorded as None, is skipped and named in the log. The
+auto-gain loop goes back to the snapshot's state: re-armed when an
+arm was recorded, turned off first when none was and one stands now,
+untouched when the snapshot does not say. The restore is one command
+on the camera's lane, so its writes cannot interleave with another
+caller's. A camera already declared removed when the restore
 starts has nothing to put back: it returns with nothing written, its
 removal already told by whatever noticed it.
 
@@ -5413,12 +5435,11 @@ Route: `PUT /api/v1/scope/camera/auto_exposure`.
 
 Put the camera's auto-exposure in `mode`, and wait for it.
 
-See `_set_auto_exposure_impl` for the value contract; this
-adds the dispatch described on `_dispatch_camera` and the raise
-below.
-
-With no camera connected, turning auto-exposure off is satisfied:
-True, as a camera already in manual answers.
+One command on the camera's lane, waited for; a write the camera
+does not apply raises. With no camera connected, turning
+auto-exposure off is satisfied: True, as a camera already in manual
+answers; so is turning off a mode a camera without hardware
+auto-exposure never had, with nothing written.
 
 **Args**
 
@@ -5456,11 +5477,20 @@ Route: `POST /api/v1/scope/camera/set_auto_gain`.
 
 Enable or disable automatic gain adjustment, and wait for it.
 
-See `_set_auto_gain_impl` for the value contract; this adds the
-dispatch described on `_dispatch_camera` and the raise below.
+One command on the camera's lane, waited for. A write the camera
+does not apply raises and records no arm. With no camera connected,
+turning auto-gain off is satisfied: True, as a camera already in
+manual answers.
 
-With no camera connected, turning auto-gain off is satisfied: True,
-as a camera already in manual answers.
+**Args**
+
+- `state`: True to turn auto-gain on, False to turn it off.
+- `settings`: The arm's settings: `target_brightness`, `min_gain_db`, `max_gain_db`, and optionally `max_exposure_ms` and `min_exposure_ms`, the bounds the exposure may settle in. Read only to arm; turning auto-gain off reads none.
+- `resume_after_capture`: With `state` True, whether a capture that locks this arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
+
+**Returns**
+
+bool | None: The camera's answer, True or None; True, with nothing written, for turning off a mode a camera without hardware auto-gain never had.
 
 **Raises**
 
@@ -5563,9 +5593,13 @@ Route: `PUT /api/v1/scope/camera/exposure_ms`.
 Set the camera exposure time, wait for it, and answer with the
 exposure in effect.
 
-See `_set_exposure_ms_impl` for the value contract and the
-unit-confusion warning it carries. The raise is placed here, on the
-L2 surface, for the reason given on `set_gain_db`.
+One command on the camera's lane, waited for, as `set_gain_db`
+is; a write the camera does not apply raises. The write is a raw
+one: afterwards the camera holds no channel's stored settings.
+
+**Args**
+
+- `exposure_ms`: The exposure time in milliseconds, within the camera's declared range (`ScopeCapabilities.camera_limits`).
 
 **Returns**
 
@@ -5631,14 +5665,16 @@ Route: `PUT /api/v1/scope/camera/gain_db`.
 
 Set the camera gain, wait for it, and answer with the gain in effect.
 
-See `_set_gain_db_impl` for the value contract; this adds the
-dispatch described on `_dispatch_camera` and the raise below.
+The write is one command on the camera's lane: it waits for any
+camera command already in flight, and returns once the camera has
+taken the gain. A write the camera does not apply raises, so the
+returned value is the success and a refusal cannot pass for one. The
+write is a raw one: afterwards the camera holds no channel's stored
+settings, and a frame taken next records `held_channel` None.
 
-The raise is here rather than in the impl because this is the L2
-surface -- an SDK, headless or REST caller -- where the refusal ends
-its flight at the caller. Success is observed by the returned value; a
-refusal cannot be mistaken for one by a caller that forgets to check a
-return code.
+**Args**
+
+- `gain_db`: The gain in dB, within the camera's declared range (`ScopeCapabilities.camera_limits`).
 
 **Returns**
 
@@ -5761,9 +5797,16 @@ Route: `POST /api/v1/scope/camera/update_auto_gain_target_brightness`.
 
 Set the auto-gain target brightness, and wait for it.
 
-See `_update_auto_gain_target_brightness_impl` for the settle
-contract; this adds the dispatch described on `_dispatch_camera`
-and the raise below.
+One command on the camera's lane, waited for; a write the camera
+does not apply raises.
+
+**Args**
+
+- `target_brightness`: The brightness auto-gain settles on, as a fraction of full scale, 0.0 to 1.0.
+
+**Returns**
+
+bool | None: The camera's answer. `None` when no camera is active.
 
 **Raises**
 
@@ -6087,11 +6130,9 @@ Marks: in-process; engineering.
 
 Run an N-frame camera throughput test through the production capture path.
 
-Routes every frame grab through `Lumascope.get_image()` so the
-bandwidth numbers reflect what protocol/preview capture actually
-sees. Bypassing this method (calling `self._scope._camera_driver.get_image()`
-directly) is a Rule-1 layer violation and the resulting numbers
-are not comparable to production capture.
+Every frame is grabbed through `ImagingAPI.get_image`, so the
+numbers are those of the path a protocol and the live view capture
+through.
 
 **Args**
 
@@ -6132,10 +6173,25 @@ Marks: in-process; engineering.
 
 Characterize stop_grabbing/start_grabbing latency, on the camera lane, and wait.
 
-See `_run_grab_lifecycle_benchmark_impl` for the measurement and
-the result; this adds the dispatch described on
-`CameraAPI._dispatch_camera`, bounded per cycle. `progress_cb`
-is called on the camera lane's worker.
+Each cycle stops the camera's grab and starts it again, timing both:
+a measured floor for the interval a camera needs between a stop and
+the next start. The typical cycle is 130-150 ms; one near 11 s has
+been seen when a stop lands within about 275 ms of a start, before
+the camera produced a frame. Sweeping `inter_cycle_delay_s` across
+runs shows the smallest delay with no slow cycle. The benchmark is
+one command on the camera's lane, waited for, bounded per cycle.
+
+**Args**
+
+- `num_cycles`: Stop-and-start cycles to run, 1 to 10,000.
+- `inter_cycle_delay_s`: Seconds between a stop and the next start (and any settings change), 0 to 60.
+- `vary_settings`: True to alternate the gain (1 and 4 dB) and the exposure (10 and 50 ms) between cycles, as a protocol's steps do.
+- `slow_threshold_s`: A cycle's seconds at which it counts as slow, 0 to 600; slow cycles are counted apart.
+- `progress_cb`: Called as `callback(percent, message)` every 10 cycles, on the camera lane's worker.
+
+**Returns**
+
+dict: `num_cycles`, `inter_cycle_delay_s`, `vary_settings`, `slow_threshold_s`, `slow_cycle_count`, `slow_cycles` (each `idx`, `cycle_s`, `stop_s`, `start_s`), the 50th, 95th and 99th percentiles of the cycle, stop and start times (`cycle_p50` ...), `total_elapsed_s`, `camera_model`, `pylon_version`, `errors` and `written_to`.
 
 **Raises**
 
@@ -6164,11 +6220,25 @@ Marks: in-process; engineering.
 
 One-shot Pylon-camera diagnostic probe, on the camera lane, and wait.
 
-See `_run_pylon_diagnostic_probe_impl` for the probe and its JSON;
-this adds the dispatch described on `CameraAPI._dispatch_camera`.
-The probe pops the camera's error queue, so it is a write to the
-camera and refused while another activity holds the scope.
-`progress_cb` is called on the camera lane's worker.
+Records the camera's identity, its configuration and the change in
+its stream statistics over `duration_s`, with the host's OS, name
+and camera SDK version, in one JSON file under the log folder's
+`camera_probe/`, named for the model, serial, firmware, host and
+time so a sweep's files sort together. The grab state is not
+changed: a camera not grabbing shows counters near zero, so call it
+with the live view running. The probe is one command on the camera's
+lane, waited for. It pops the camera's error queue, so it is a write
+to the camera and refused while another activity holds the scope.
+
+**Args**
+
+- `duration_s`: The sampling window in seconds, 0 to 3,600.
+- `drain_camera_side_errors`: True to drain the camera's own error queue and record its codes, which Basler documents for its support only.
+- `progress_cb`: Called as `callback(percent, message)` at the start, mid-window and the end, on the camera lane's worker.
+
+**Returns**
+
+dict: The camera's snapshot with the host, the times and the `output_path`; `{'connected': False, 'errors': [...]}` with no camera active, and `'supported': False` besides for a camera whose driver has no probe.
 
 **Raises**
 
@@ -6280,21 +6350,27 @@ Route: `POST /api/v1/scope/illumination/led_off`.
 Turn off a channel's LED, and wait for it.
 
 The channel is darkened at its LED's address (`led_off_by_address`
-takes the address itself). See `_led_off_impl` for the off's
-contract.
+takes the address itself). An off whose end state already holds is
+satisfied with no write: a channel the API holds dark, or any off
+with no LED controller and nothing believed lit. Only an off of a
+channel believed lit asks for the controller.
+
+**Args**
+
+- `channel`: The channel to darken, by its name in this release.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; nothing was sent.
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs; nothing was sent.
-- `BoardNoReplyError`: the board did not answer; what it wrote is unknown (`_write`).
+- `HardwareCommandRefusedError`: `'not_connected'`, the channel is believed lit and no LED controller is connected to darken it; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
+- `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI.led_off_by_address"></a>
 ### `IlluminationAPI.led_off_by_address`
@@ -6308,13 +6384,18 @@ Marks: in-process; engineering.
 Darken an LED board address, and wait for it.
 
 The engineering counterpart of `led_off`, as `led_on_by_address`
-is of `led_on`. See `_led_off_impl` for the off's contract.
+is of `led_on`; an off whose end state already holds is satisfied
+with no write, as `led_off` says.
+
+**Args**
+
+- `address`: The LED board address.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'led_address_unknown'`, `address` is not on the attached board's table, offering its addresses; nothing was sent.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'exclusive_activity_running'`, as `_led_off_impl` says; nothing was sent.
-- `BoardNoReplyError`: the board did not answer; what it wrote is unknown (`_write`).
+- `HardwareCommandRefusedError`: `'not_connected'`, the address is believed lit and no LED controller is connected to darken it; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
+- `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 
 **Refusals**
 
@@ -6334,24 +6415,35 @@ Route: `POST /api/v1/scope/illumination/led_on`.
 
 Turn on a channel's LED at the specified current, and wait for it.
 
-Returns the current commanded on the board's step. The channel is
-lit at its LED's address (`led_on_by_address` takes the address
-itself). See `_led_on_impl` for the return and the errors it
-raises; this adds only the name's resolution and the dispatch
-described on `_dispatch_led`.
+The channel is lit at its LED's address (`led_on_by_address`
+takes the address itself), as one command on the LED board's lane,
+waited for. The board lights at the nearest current its step can
+deliver, and a request above zero but below one step at one step;
+that commanded current, not the request, is what is stored and
+returned. 0 mA leaves the channel on at 0 mA, which the board treats
+as off.
+
+**Args**
+
+- `channel`: The channel to light, by its name in this release.
+- `illumination_ma`: The current in mA, from 0 to the attached board's maximum (`limits`).
+
+**Returns**
+
+The commanded current in mA.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; nothing was sent.
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs; nothing was sent.
-- `BoardNoReplyError`: the board did not answer; what it wrote is unknown (`_write`).
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is outside 0 to the attached board's maximum. Nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
+- `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI.led_on_by_address"></a>
 ### `IlluminationAPI.led_on_by_address`
@@ -6368,19 +6460,28 @@ For the bench and for a model this release does not know; every
 other caller lights a channel by its name (`led_on`). The address
 is lit on the lane `led_on` lights a name's address on, judged in
 the same order, and read back and reported by its address as a
-name's is. Returns the current commanded on the board's step; see
-`_led_on_impl` for the return and the errors it raises.
+name's is. The current is commanded on the board's step, as
+`led_on` says.
+
+**Args**
+
+- `address`: The LED board address.
+- `illumination_ma`: The current in mA, from 0 to the attached board's maximum (`limits`).
+
+**Returns**
+
+The commanded current in mA.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'led_address_unknown'`, `address` is not on the attached board's table, offering its addresses; nothing was sent.
-- `HardwareCommandRefusedError`: `'not_connected'`, `'not_on_this_scope'` (`MissingPart.led_address`) or `'exclusive_activity_running'`, as `_led_on_impl` says; nothing was sent.
-- `BoardNoReplyError`: the board did not answer; what it wrote is unknown (`_write`).
+- `ArgumentRefusedError`: `'led_address_unknown'`, `address` is not on the attached board's table, offering its addresses; `'not_a_number'` or `'illumination_out_of_range'`, as `led_on` says. Nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` (`MissingPart.led_address`) for an address this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
+- `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `illumination_out_of_range`
 - [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`
 
 <a id="IlluminationAPI.leds_off"></a>
@@ -6395,12 +6496,15 @@ Route: `POST /api/v1/scope/illumination/leds_off`.
 
 Turn off all LEDs, and wait for it.
 
-Nuclear -- ignores any held lease. See `_leds_off_impl`.
+Whatever holds the LEDs, every one is turned off: any lease is
+ignored. With an LED controller connected the board's all-off is
+written whatever the API believes lit; without one, it is satisfied
+when nothing is believed lit.
 
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'`, a channel believed lit and no LED controller connected to darken it.
-- `BoardNoReplyError`: the board did not answer; every address is unknown (`_write`).
+- `BoardNoReplyError`: the board did not answer; whether each LED is lit is unknown.
 
 **Refusals by REST status**
 
@@ -6574,21 +6678,44 @@ Marks: in-process.
 
 Capture a frame-valid image on the camera worker, and wait for it.
 
-See `_capture_and_wait_impl` for the argument contract, the
-frame-drain behaviour, and what it raises for no frame; this adds
-only the dispatch described on `_dispatch_camera`. `timeout_s`
-stays the content-gate retry budget the body reads; the executor
-wait is bounded separately and internally.
+A frame guaranteed to reflect the hardware as it is now: the capture
+passes over stale frames until every change since the last one (an
+LED, the gain, the exposure, a move) is met by its source's rule
+(`ScopeCapabilities.frame_rules`) -- a frame count, time on the
+camera's clock, an axis settling -- and keeps only a frame that
+counts for every change it does not exclude. A change landing while
+the capture runs is seen, and the capture starts its wait again,
+within a deadline; the deadline stands still while a commanded move
+is settling. The capture is one command on the camera's lane, and
+this returns once it has run. `capture_still` is the same capture,
+returning the frame's record with it.
+
+**Args**
+
+- `force_to_8bit`: True for an 8-bit image; False for the camera's own depth, in a uint16 array for a 12- or 16-bit camera.
+- `accept_dark`: While a channel is lit (at a current above 0 mA), a frame with essentially no lit pixel is taken again until `timeout_s` passes, then kept and recorded dark. True skips that judgment, for a caller whose dark frames are legitimate while lit, such as an autofocus sweep.
+- `exclude_sources`: Changes not to wait for, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame can then predate such a change, so a frame that is measured or saved never excludes one.
+- `all_ones_check`: Measure the frame's saturation: a blown frame is grabbed again once and, blown again, kept.
+- `timeout_s`: Seconds the grab, and each summed frame, keeps taking frames for one that passes its checks, once the stale ones are passed over; 0, the default, gives each one try.
+- `sum_count`: Frames summed into the image, for noise reduction; a sum's array is uint16.
+- `sum_delay_s`: Seconds between summed frames.
+- `sum_iteration_callback`: Called after each summed frame, on the camera's lane.
+
+**Returns**
+
+The image: (H, W) for a mono camera, (H, W, 3) for a color one.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer: NaN would make the body's drain deadline never pass, and a wait longer than the host can hold would raise out of it.
-- `CaptureFailedError`: `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept; chained from the `CameraReadFailedError`. Its other reasons are the body's.
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing reached the camera.
+- `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept, chained from the `CameraReadFailedError`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, absent at the call or removed during the capture; `'camera_not_streaming'`, connected but not grabbing.
 
 **Refusals**
 
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `not_connected`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
-- [`CaptureFailedError`](#CaptureFailedError): `record_read_failed`
+- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
 
 <a id="ImagingAPI.disable_streaming"></a>
 ### `ImagingAPI.disable_streaming`
@@ -6638,9 +6765,9 @@ when none is connected, or when the start finds it removed. A start
 the FX2 does not take with the device still present raises its fault
 (`CameraStreamStartFailedError` for a START the device refused), the
 camera left connected and not streaming; a later call tries again.
-See `_enable_streaming_impl`; this adds the dispatch
-described on `_dispatch_camera`, on the geometry timeout (a stop
-or start of the grab has been measured near 11 s on a Pylon body).
+The start is one command on the camera's lane, waited for up to the
+lane's geometry bound, since a start of the grab has been measured
+near 11 s on a Pylon body.
 
 **Raises**
 
@@ -6741,9 +6868,26 @@ Explicit parameters, never a **kwargs forward: the signature is a
 pinned contract (introspected by tests), and a silent kwarg
 pass-through would re-open the door this split closed.
 
-See `_get_image_impl` for the full argument contract; this adds
-only the dispatch described on `_dispatch_camera`, so the grab runs
-on the camera lane and `sum_iteration_callback` is called there.
+By default the last buffered frame is returned; `force_new_capture`
+waits for a fresh one. The grab is one command on the camera's lane,
+waited for. It does not wait for frame validity, so the frame may not
+reflect a just-changed gain, exposure, LED or stage position.
+
+**Args**
+
+- `force_to_8bit`: True for an 8-bit image; False for the camera's own depth, in a uint16 array for a 12- or 16-bit camera.
+- `timeout_s`: Seconds to wait for a frame.
+- `all_ones_check`: Measure each frame's saturation: a blown frame is grabbed again once, then kept.
+- `sum_count`: Frames summed into the image, for noise reduction; a sum's array is uint16.
+- `sum_delay_s`: Seconds between summed frames.
+- `sum_iteration_callback`: Called after each summed frame, on the camera's lane.
+- `force_new_capture`: True to wait for a frame the camera captures after the call, rather than take the last buffered one.
+- `new_capture_timeout_s`: Seconds to wait for that new frame.
+- `verify_chunk_targets`: Pass over frames whose own record of exposure and gain (the camera's chunk data) differs from the last values asked for, until one matches or `timeout_s` passes; no effect on a camera without chunk data, or while hardware auto-gain owns the values.
+
+**Returns**
+
+The image: (H, W) for a mono camera, (H, W, 3) for a color one, with no channel's false colour applied.
 
 **Raises**
 
@@ -7159,9 +7303,9 @@ whose move is optional -- one that should be skipped rather than
 attempted on an axis whose position was never established -- could
 otherwise only discover the answer by provoking the refusal and
 catching it, which is indistinguishable from swallowing a real one.
-Stricter than `_pre_drive` by one state: a HOMING axis is
+Stricter than a move's own refusal by one state: a HOMING axis is
 answered here, because its reference is still being established,
-while the gate lets it drive so the home can finish.
+while a move lets it drive so the home can finish.
 
 A scope with no axes answers nothing: it has no position to lose,
 so nothing about it is unknown.
@@ -7532,23 +7676,32 @@ def move_turret(self, slot: int, restore_z: bool = True) -> None
 Marks: enters: `lane_call`.  
 Route: `POST /api/v1/scope/motion/move_turret`.
 
-Move the turret to a slot, and wait for it. See `_move_turret_impl`.
+Move the turret to a slot, and wait for it; a turret already there is not moved.
 
 Three moves -- the Z park, the turret move itself and the Z restore
 -- each judged as every move is, so the wait sets no time limit of
 its own.
 
+**Args**
+
+- `slot`: The turret slot, 1 to 4.
+- `restore_z`: True to put Z back where it was before the park once the turret has arrived; False for a caller that sets Z next anyway, such as a protocol step moving to its own Z.
+
 **Raises**
 
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no turret, refused before Z is parked, with nothing driven or recorded; or a recording holds the scope: its frames carry the pixel size of the objective it started with.
+- `AxisStateUnknownError`: The turret position is unknown.
+- `PositionOutOfRangeError`: The slot is not a whole number 1 to 4.
+- `MoveFaultError`: The Z park, the turret move or the Z restore did not arrive and its axis is UNKNOWN, as `start_move_z` lists the reasons; or `'driver_failed'`, the board did not take a command. The slot is unknown afterwards, whichever of the three it was.
+- `MoveStoppedError`: `'stopped'`, a stop ended one of the three; `'superseded'`, another move or a home took its axis first. The slot is unknown afterwards.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started.
-- `HardwareCommandRefusedError`: a recording holds the scope: its frames carry the pixel size of the objective it started with.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `not_on_this_scope`, `activity_ended`
-- 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`, `monitor_ended`, `not_connected`
+- 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="MotionAPI.move_xy"></a>
 ### `MotionAPI.move_xy`
@@ -9937,8 +10090,8 @@ Taken by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener), [`I
 
 One delivered frame and the facts known when it was stored.
 
-The camera's frame store builds it once (`ImageHandlerBase._store_frame`)
-and every reader -- a grab, a capture, the preview, each frame listener --
+The camera's frame store builds it once, as the frame arrives, and every
+reader -- a grab, a capture, the preview, each frame listener --
 holds that one record, so the pixels, the arrival number, the depth and
 the chunks it carries are always the same frame's. Read-only throughout:
 the pixels refuse a write and the chunks are a read-only mapping. Two
@@ -12156,7 +12309,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 A record: it crosses the wire as its data.  
 Returned by: [`Protocol.step_records`](#Protocol.step_records).
 
-One step of a protocol, a field per column of its steps table (`_STEP_FIELDS`).
+One step of a protocol, a field per column of its steps table.
 
 **Fields**
 
@@ -13314,7 +13467,7 @@ How a z-stack's slices are reduced to one image, pixel by pixel.
 
 Each value is its name, the word a caller sends. A projection's file
 name and derivation record carry the name lower-cased
-(`_zproj_max`), so neither depends on these values.
+(`zproj_max`), so neither depends on these values.
 
 - `Min` (`Min`)
 - `Max` (`Max`)
@@ -13511,7 +13664,7 @@ exposure check.
 <a id="AutofocusAborted"></a>
 ### `AutofocusAborted`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 An autofocus sweep cut short before it chose a focus: the subject, never raised itself.
 
@@ -13787,7 +13940,7 @@ complete: the board heard the command and said no.
 <a id="BringUpError"></a>
 ### `BringUpError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 A part of the scope did not come up as it should have; the rest of the scope runs.
 
@@ -14156,7 +14309,7 @@ The words carry the SDK's own text, so the person reads the title.
 <a id="CaptureError"></a>
 ### `CaptureError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 Image capture, save or processing: the subject, never raised itself.
 
@@ -14387,7 +14540,7 @@ raised, is a field, since each is another vocabulary's string.
 <a id="ConfigError"></a>
 ### `ConfigError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 The application's configuration or settings: the subject, never raised itself.
 
@@ -14856,7 +15009,7 @@ log.
 <a id="HardwareError"></a>
 ### `HardwareError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 A fault in the hardware (motor, LED, camera): the subject, never raised itself.
 
@@ -14866,7 +15019,7 @@ fault it was, with its own reason and title.
 <a id="HomingFailedError"></a>
 ### `HomingFailedError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 A home ended without establishing a reference position: the subject, never raised itself.
 
@@ -15263,7 +15416,7 @@ A move failed: the motor may have travelled any part of the way.
 <a id="MoveNotCompletedError"></a>
 ### `MoveNotCompletedError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 A move ended without its axis arriving at the target: the subject, never raised itself.
 
@@ -15492,7 +15645,7 @@ Parts this scope's model has did not come up; the rest of the scope runs.
 <a id="PluginError"></a>
 ### `PluginError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 A plugin failed: it did not load, or it failed after loading. The subject, never raised itself.
 
@@ -15719,7 +15872,7 @@ same request may succeed once it ends.
 <a id="ProtocolError"></a>
 ### `ProtocolError`
 
-A subject: never raised, its children are; bases `_Umbrella`, `Exception`.
+A subject: never raised, its children are; bases `Exception`.
 
 A protocol's file, steps or run: the subject, never raised itself.
 
@@ -16833,58 +16986,6 @@ reads what the person was shown.
 | Reason | Cause | REST status |
 |---|---|---|
 | `video_writer_died` | -- | 500 |
-
-<a id="_FX2AbsentError"></a>
-### `_FX2AbsentError`
-
-A fault; bases `Fault`, `RuntimeError`.
-
-No FX2 is on the bus, under either the application or the bootloader PID.
-
-Told apart from every other connection failure because it is not one: the
-registry tries the FX2 drivers on every scope, most of which have no FX2,
-and a driver that raises is ranked above one that reports found=False. So
-each FX2 driver turns this, and only this, into found=False; an FX2 that is
-present and fails (a firmware upload that does not re-enumerate) still
-raises with its own message.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `fx2_absent` | -- | 500 |
-
-<a id="_IDSAbsentError"></a>
-### `_IDSAbsentError`
-
-A fault; bases `Fault`, `RuntimeError`.
-
-No IDS camera is reachable.
-
-Told apart from every other connection failure because it is not one: the
-registry tries the IDS driver on every scope, most of which have no IDS
-camera, and a driver that raises is ranked above one that reports
-found=False. So `connect` turns this, and only this, into False; an IDS
-camera that is found and fails raises `CameraUsbOpenFailedError`.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `ids_absent` | -- | 500 |
-
-<a id="_Umbrella"></a>
-### `_Umbrella`
-
-A subject: never raised, its children are; bases `LumascopeError`.
-
-A subject several outcomes share, caught by name and never raised itself.
-
-`except ConfigError` catches every configuration outcome, whatever its
-kind; a raise of the subject alone would have no kind, reason or title
-to answer with, so constructing an umbrella itself is refused. Its
-children -- each a refusal, a notice, a quiet outcome or a fault -- are
-constructed as before.
-
-Refused in `__init__`, not `__new__`: a `__new__` here would hand a
-`TimeoutError` child's arguments to `OSError`, which reads two of
-them as an errno and its words in place of the child's message.
 
 ## Routes
 

@@ -1957,9 +1957,9 @@ class MotionAPI:
         attempted on an axis whose position was never established -- could
         otherwise only discover the answer by provoking the refusal and
         catching it, which is indistinguishable from swallowing a real one.
-        Stricter than ``_pre_drive`` by one state: a HOMING axis is
+        Stricter than a move's own refusal by one state: a HOMING axis is
         answered here, because its reference is still being established,
-        while the gate lets it drive so the home can finish.
+        while a move lets it drive so the home can finish.
 
         A scope with no axes answers nothing: it has no position to lose,
         so nothing about it is unknown.
@@ -3334,17 +3334,36 @@ class MotionAPI:
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def move_turret(self, slot: int, restore_z: bool = True) -> None:
-        """Move the turret to a slot, and wait for it. See ``_move_turret_impl``.
+        """Move the turret to a slot, and wait for it; a turret already there is not moved.
 
         Three moves -- the Z park, the turret move itself and the Z restore
         -- each judged as every move is, so the wait sets no time limit of
         its own.
 
+        Args:
+            slot: The turret slot, 1 to 4.
+            restore_z: True to put Z back where it was before the park once
+                the turret has arrived; False for a caller that sets Z next
+                anyway, such as a protocol step moving to its own Z.
+
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no turret, refused
+                before Z is parked, with nothing driven or recorded; or a
+                recording holds the scope: its frames carry the pixel size of
+                the objective it started with.
+            AxisStateUnknownError: The turret position is unknown.
+            PositionOutOfRangeError: The slot is not a whole number 1 to 4.
+            MoveFaultError: The Z park, the turret move or the Z restore did
+                not arrive and its axis is UNKNOWN, as ``start_move_z`` lists
+                the reasons; or ``'driver_failed'``, the board did not take a
+                command. The slot is unknown afterwards, whichever of the
+                three it was.
+            MoveStoppedError: ``'stopped'``, a stop ended one of the three;
+                ``'superseded'``, another move or a home took its axis first.
+                The slot is unknown afterwards.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread; nothing was started.
-            HardwareCommandRefusedError: a recording holds the scope: its
-                frames carry the pixel size of the objective it started with.
         """
         refuse_waiting_on_ui_thread('move_turret')
         return self._dispatch_motion(

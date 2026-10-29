@@ -1362,14 +1362,16 @@ class CameraAPI:
     def set_gain_db(self, gain_db: float) -> float | None:
         """Set the camera gain, wait for it, and answer with the gain in effect.
 
-        See ``_set_gain_db_impl`` for the value contract; this adds the
-        dispatch described on ``_dispatch_camera`` and the raise below.
+        The write is one command on the camera's lane: it waits for any
+        camera command already in flight, and returns once the camera has
+        taken the gain. A write the camera does not apply raises, so the
+        returned value is the success and a refusal cannot pass for one. The
+        write is a raw one: afterwards the camera holds no channel's stored
+        settings, and a frame taken next records ``held_channel`` None.
 
-        The raise is here rather than in the impl because this is the L2
-        surface -- an SDK, headless or REST caller -- where the refusal ends
-        its flight at the caller. Success is observed by the returned value; a
-        refusal cannot be mistaken for one by a caller that forgets to check a
-        return code.
+        Args:
+            gain_db: The gain in dB, within the camera's declared range
+                (``ScopeCapabilities.camera_limits``).
 
         Returns:
             float | None: The gain in dB now in effect, which differs from the
@@ -1411,9 +1413,13 @@ class CameraAPI:
         """Set the camera exposure time, wait for it, and answer with the
         exposure in effect.
 
-        See ``_set_exposure_ms_impl`` for the value contract and the
-        unit-confusion warning it carries. The raise is placed here, on the
-        L2 surface, for the reason given on ``set_gain_db``.
+        One command on the camera's lane, waited for, as ``set_gain_db``
+        is; a write the camera does not apply raises. The write is a raw
+        one: afterwards the camera holds no channel's stored settings.
+
+        Args:
+            exposure_ms: The exposure time in milliseconds, within the
+                camera's declared range (``ScopeCapabilities.camera_limits``).
 
         Returns:
             float | None: The exposure in milliseconds now in effect, which
@@ -1457,11 +1463,26 @@ class CameraAPI:
     ) -> bool | None:
         """Enable or disable automatic gain adjustment, and wait for it.
 
-        See ``_set_auto_gain_impl`` for the value contract; this adds the
-        dispatch described on ``_dispatch_camera`` and the raise below.
+        One command on the camera's lane, waited for. A write the camera
+        does not apply raises and records no arm. With no camera connected,
+        turning auto-gain off is satisfied: True, as a camera already in
+        manual answers.
 
-        With no camera connected, turning auto-gain off is satisfied: True,
-        as a camera already in manual answers.
+        Args:
+            state: True to turn auto-gain on, False to turn it off.
+            settings: The arm's settings: ``target_brightness``,
+                ``min_gain_db``, ``max_gain_db``, and optionally
+                ``max_exposure_ms`` and ``min_exposure_ms``, the bounds the
+                exposure may settle in. Read only to arm; turning auto-gain
+                off reads none.
+            resume_after_capture: With ``state`` True, whether a capture
+                that locks this arm re-arms it afterwards (live view) or
+                leaves the camera at the locked values (a protocol step).
+
+        Returns:
+            bool | None: The camera's answer, True or None; True, with
+                nothing written, for turning off a mode a camera without
+                hardware auto-gain never had.
 
         Raises:
             CameraSettingRejected: The camera refused the change. Nothing
@@ -1583,8 +1604,12 @@ class CameraAPI:
     def lock_auto_gain(self) -> AutoGainLock:
         """Lock a standing continuous auto-gain arm and return the result.
 
-        See ``_lock_auto_gain_impl`` for the contract; this adds only the
-        dispatch described on ``_dispatch_camera``. A caller leaving
+        The camera's auto loop chose an exposure and a gain no caller
+        asked for; the lock writes them back as manual values, so the next
+        frame is held to them like any manual setting. They are read from
+        the newest frame taken under the arm when the camera reports them,
+        else from the camera itself. The lock is one command on the camera's
+        lane, waited for. A caller leaving
         auto-gain stores ``stored_exposure_ms`` / ``gain_db`` as the manual
         setting; when no arm stands the result's ``state`` is None and
         nothing was written. With no camera connected no arm can stand, and
@@ -1797,12 +1822,11 @@ class CameraAPI:
     def set_auto_exposure(self, mode: CameraAutoMode) -> bool | None:
         """Put the camera's auto-exposure in ``mode``, and wait for it.
 
-        See ``_set_auto_exposure_impl`` for the value contract; this
-        adds the dispatch described on ``_dispatch_camera`` and the raise
-        below.
-
-        With no camera connected, turning auto-exposure off is satisfied:
-        True, as a camera already in manual answers.
+        One command on the camera's lane, waited for; a write the camera
+        does not apply raises. With no camera connected, turning
+        auto-exposure off is satisfied: True, as a camera already in manual
+        answers; so is turning off a mode a camera without hardware
+        auto-exposure never had, with nothing written.
 
         Args:
             mode: ``CameraAutoMode.OFF`` or ``CONTINUOUS`` (``'Off'`` or
@@ -3382,10 +3406,16 @@ class CameraAPI:
     def restore_camera_state(self, snapshot: dict) -> None:
         """Restore every camera setting a saved state holds, and wait.
 
-        See ``_restore_camera_state_impl`` for the contract; this adds the
-        dispatch described on ``_dispatch_camera``, so the restore is one
-        task on the camera lane and its writes cannot interleave with
-        another caller's. A camera already declared removed when the restore
+        The binning, frame size, pixel format and black level go back
+        first, each only where it differs from the camera's value now, since
+        a write of an unchanged one restarts grabbing for nothing; then the
+        gain, the exposure and the auto-gain arm. A setting absent from the
+        snapshot, or recorded as None, is skipped and named in the log. The
+        auto-gain loop goes back to the snapshot's state: re-armed when an
+        arm was recorded, turned off first when none was and one stands now,
+        untouched when the snapshot does not say. The restore is one command
+        on the camera's lane, so its writes cannot interleave with another
+        caller's. A camera already declared removed when the restore
         starts has nothing to put back: it returns with nothing written, its
         removal already told by whatever noticed it.
 
@@ -3710,22 +3740,34 @@ class CameraAPI:
     ) -> dict | None:
         """Apply a gain, an exposure and an auto-gain mode in one batched call, and wait.
 
-        See ``_apply_settings_impl`` for the contract; this adds the range
-        refusals ``set_gain_db`` and ``set_exposure_ms`` make, and the
-        dispatch described on ``_dispatch_camera``. The batch is one
-        dispatched task, so the three writes stay atomic on the camera lane.
+        The batch is one command on the camera's lane, so no other camera
+        command lands between its writes. Turning auto-gain off goes first
+        and arming it last, so the gain and the exposure are written with
+        the camera's loop off; an arm may lower the exposure to the
+        channel's auto-exposure ceiling. Every write is attempted even when
+        an earlier one is refused, so one refused setting does not leave the
+        others at a previous channel's values; the refusal is raised once all
+        have run. The range refusals are ``set_gain_db``'s and
+        ``set_exposure_ms``'s.
 
         Args:
+            gain_db: The gain in dB.
+            exposure_ms: The exposure time in milliseconds.
             auto_gain: The mode the camera is left in. True arms auto-gain
                 from ``auto_gain_settings``; False turns it off; None, the
                 default, leaves the mode as it is and writes none.
             auto_gain_settings: The arm's settings, read only when
                 ``auto_gain`` is True, which needs them.
-            channel: The channel these settings belong to, for the log line.
-                Optional here and required on the impl: this member is the
-                external-caller surface, where an omitted channel should not
-                be a TypeError, and the default keeps such a call
-                self-describing in api.log rather than anonymous.
+            resume_after_capture: With ``auto_gain`` True, whether a
+                capture that locks the arm re-arms it afterwards (live view)
+                or leaves the camera at the locked values (a protocol step).
+            channel: The channel these settings belong to, named in the log
+                line; left out, the line says ``(unspecified)``.
+
+        Returns:
+            dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
+                value now in effect, which differs from the request when the
+                camera snapped it. ``None`` when no camera is active.
 
         Raises:
             ArgumentRefusedError: ``'missing_key'``, ``auto_gain`` is True
@@ -3740,9 +3782,12 @@ class CameraAPI:
                 outside the range the camera declares; nothing was written.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
-            CameraSettingRejected: The camera refused the gain, the
-                exposure or the auto-gain change, as
-                ``_apply_settings_impl`` says.
+            CameraSettingRejected: The camera did not take the gain, the
+                exposure or the auto-gain change. When more than one,
+                ``setting`` names each, comma-separated, ``requested`` holds
+                their values in that order, the message carries each
+                sentence, and the reason is ``'camera_no_answer'`` when any
+                of them got no answer.
         """
         if auto_gain:
             if auto_gain_settings is None:
@@ -3904,9 +3949,16 @@ class CameraAPI:
     def update_auto_gain_target_brightness(self, target_brightness: float) -> bool | None:
         """Set the auto-gain target brightness, and wait for it.
 
-        See ``_update_auto_gain_target_brightness_impl`` for the settle
-        contract; this adds the dispatch described on ``_dispatch_camera``
-        and the raise below.
+        One command on the camera's lane, waited for; a write the camera
+        does not apply raises.
+
+        Args:
+            target_brightness: The brightness auto-gain settles on, as a
+                fraction of full scale, 0.0 to 1.0.
+
+        Returns:
+            bool | None: The camera's answer. ``None`` when no camera is
+                active.
 
         Raises:
             CameraSettingRejected: The camera refused the change; nothing is

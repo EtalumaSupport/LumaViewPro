@@ -682,8 +682,8 @@ class ManualRecordingController:
         Every caller of this -- the Record button, app close, an L2 client
         -- is the user stopping the recording, so its ``end_reason`` is
         ``'user_stop'``. The controller's own enders (the duration cap, the
-        disk floor, a lost camera) name theirs through ``_end``, and no
-        caller can write one of those into the manifest.
+        disk floor, a lost camera) name their own, and no caller can write
+        one of those into the manifest.
 
         Raises:
             Nothing.

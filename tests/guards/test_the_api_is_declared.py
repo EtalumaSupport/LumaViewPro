@@ -5,7 +5,7 @@ A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
-guard holds nine things over the declared API (``tests.marked_set``): the
+guard holds ten things over the declared API (``tests.marked_set``): the
 marked members and fields of every class the API can name
 (``wire_encoding.project_classes``: each defined under ``modules/``, and each
 project class a marked annotation resolves to, a driver's record among them),
@@ -63,8 +63,12 @@ path (``rest.app.build_app``):
    engineering member. ``LED_ADDRESS_TAKERS`` names the one exception and
    its reason. An answer keeps the address, a listener's callback's
    arguments among them.
+10. **Nothing private in the reference.** No code span of the render
+    outside a signature names a private member (``_name``, ``owner._name``):
+    a reader cannot call it, so a published docstring says what it would
+    have pointed to.
 
-Beside the nine, two hold the set itself whole. A module's function is
+Beside the ten, two hold the set itself whole. A module's function is
 never marked for the wire, since nothing routes a function: it is
 ``in_process``. And every class defined in a project module that carries a
 mark is in the table, by identity, so no mark sits where the rules cannot
@@ -84,6 +88,7 @@ import difflib
 import enum
 import inspect
 import os
+import re
 import sys
 import types
 from typing import Any
@@ -159,6 +164,27 @@ def test_the_reference_is_current(rendered: str) -> None:
     assert not changed, (
         f'{REFERENCE.name} is not the render of the marks and docstrings; regenerate it:\n'
         f'  {REGENERATE}\n' + '\n'.join(changed[:60])
+    )
+
+
+# A code span naming a private member, ``_name`` or ``owner._name``; the
+# signature blocks are left out, where a private default's name is source.
+_FENCE = re.compile(r'^```.*?^```$', re.M | re.S)
+_PRIVATE_SPAN = re.compile(r'`(?:[\w.]*\.)?(_[A-Za-z]\w*)[^`]*`')
+_ANCHOR = re.compile(r'<a id="([^"]+)"></a>')
+
+
+def test_the_reference_names_nothing_private(rendered: str) -> None:
+    named: dict[str, set[str]] = {}
+    entry = 'the preface'
+    for line in _FENCE.sub('', rendered).splitlines():
+        entry = (_ANCHOR.findall(line) or [entry])[-1]
+        for name in _PRIVATE_SPAN.findall(line):
+            named.setdefault(entry, set()).add(name)
+    assert not named, (
+        'the reference sends its reader to a name that is not API; say in the published '
+        'docstring what the private one does:\n'
+        + ''.join(f'  {entry}: {sorted(names)}\n' for entry, names in sorted(named.items()))
     )
 
 

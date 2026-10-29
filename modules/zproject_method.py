@@ -15,7 +15,7 @@ class ZProjectMethod(enum.StrEnum):
 
     Each value is its name, the word a caller sends. A projection's file
     name and derivation record carry the name lower-cased
-    (``_zproj_max``), so neither depends on these values.
+    (``zproj_max``), so neither depends on these values.
     """
 
     Min = 'Min'

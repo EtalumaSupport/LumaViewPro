@@ -1016,21 +1016,35 @@ class IlluminationAPI:
     ) -> float:
         """Turn on a channel's LED at the specified current, and wait for it.
 
-        Returns the current commanded on the board's step. The channel is
-        lit at its LED's address (``led_on_by_address`` takes the address
-        itself). See ``_led_on_impl`` for the return and the errors it
-        raises; this adds only the name's resolution and the dispatch
-        described on ``_dispatch_led``.
+        The channel is lit at its LED's address (``led_on_by_address``
+        takes the address itself), as one command on the LED board's lane,
+        waited for. The board lights at the nearest current its step can
+        deliver, and a request above zero but below one step at one step;
+        that commanded current, not the request, is what is stored and
+        returned. 0 mA leaves the channel on at 0 mA, which the board treats
+        as off.
+
+        Args:
+            channel: The channel to light, by its name in this release.
+            illumination_ma: The current in mA, from 0 to the attached
+                board's maximum (``limits``).
+
+        Returns:
+            The commanded current in mA.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel of this release, refused at the door whatever the
-                scope is doing; nothing was sent.
-            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                another activity holds the scope or the LEDs; nothing was
-                sent.
-            BoardNoReplyError: the board did not answer; what it wrote is
-                unknown (``_write``).
+                scope is doing; ``'not_a_number'``, ``illumination_ma`` is
+                not a finite number; ``'illumination_out_of_range'``, it is
+                outside 0 to the attached board's maximum. Nothing was sent.
+            HardwareCommandRefusedError: ``'not_connected'`` with no LED
+                controller connected; ``'not_on_this_scope'`` for a channel
+                whose LED this model does not drive;
+                ``'exclusive_activity_running'``, another activity holds the
+                scope or the LEDs. Nothing was sent.
+            BoardNoReplyError: the board did not answer; whether the LED
+                is lit is unknown.
         """
         refuse_unknown_layer(channel, argument='channel')
         return self._dispatch_led(
@@ -1047,18 +1061,24 @@ class IlluminationAPI:
         """Turn off a channel's LED, and wait for it.
 
         The channel is darkened at its LED's address (``led_off_by_address``
-        takes the address itself). See ``_led_off_impl`` for the off's
-        contract.
+        takes the address itself). An off whose end state already holds is
+        satisfied with no write: a channel the API holds dark, or any off
+        with no LED controller and nothing believed lit. Only an off of a
+        channel believed lit asks for the controller.
+
+        Args:
+            channel: The channel to darken, by its name in this release.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel of this release, refused at the door whatever the
                 scope is doing; nothing was sent.
-            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                another activity holds the scope or the LEDs; nothing was
-                sent.
-            BoardNoReplyError: the board did not answer; what it wrote is
-                unknown (``_write``).
+            HardwareCommandRefusedError: ``'not_connected'``, the channel is
+                believed lit and no LED controller is connected to darken it;
+                ``'exclusive_activity_running'``, another activity holds the
+                scope or the LEDs. Nothing was sent.
+            BoardNoReplyError: the board did not answer; whether the LED
+                is lit is unknown.
         """
         refuse_unknown_layer(channel, argument='channel')
         return self._dispatch_led(self._led_off_by_name_impl, 'led_off', args=(channel,))
@@ -1084,19 +1104,29 @@ class IlluminationAPI:
         other caller lights a channel by its name (``led_on``). The address
         is lit on the lane ``led_on`` lights a name's address on, judged in
         the same order, and read back and reported by its address as a
-        name's is. Returns the current commanded on the board's step; see
-        ``_led_on_impl`` for the return and the errors it raises.
+        name's is. The current is commanded on the board's step, as
+        ``led_on`` says.
+
+        Args:
+            address: The LED board address.
+            illumination_ma: The current in mA, from 0 to the attached
+                board's maximum (``limits``).
+
+        Returns:
+            The commanded current in mA.
 
         Raises:
             ArgumentRefusedError: ``'led_address_unknown'``, ``address`` is
                 not on the attached board's table, offering its addresses;
-                nothing was sent.
-            HardwareCommandRefusedError: ``'not_connected'``,
-                ``'not_on_this_scope'`` (``MissingPart.led_address``) or
-                ``'exclusive_activity_running'``, as ``_led_on_impl`` says;
-                nothing was sent.
-            BoardNoReplyError: the board did not answer; what it wrote is
-                unknown (``_write``).
+                ``'not_a_number'`` or ``'illumination_out_of_range'``, as
+                ``led_on`` says. Nothing was sent.
+            HardwareCommandRefusedError: ``'not_connected'`` with no LED
+                controller connected; ``'not_on_this_scope'``
+                (``MissingPart.led_address``) for an address this model does
+                not drive; ``'exclusive_activity_running'``, another activity
+                holds the scope or the LEDs. Nothing was sent.
+            BoardNoReplyError: the board did not answer; whether the LED
+                is lit is unknown.
         """
         self._refuse_not_a_board_address(address, 'address')
         return self._dispatch_led(
@@ -1111,17 +1141,22 @@ class IlluminationAPI:
         """Darken an LED board address, and wait for it.
 
         The engineering counterpart of ``led_off``, as ``led_on_by_address``
-        is of ``led_on``. See ``_led_off_impl`` for the off's contract.
+        is of ``led_on``; an off whose end state already holds is satisfied
+        with no write, as ``led_off`` says.
+
+        Args:
+            address: The LED board address.
 
         Raises:
             ArgumentRefusedError: ``'led_address_unknown'``, ``address`` is
                 not on the attached board's table, offering its addresses;
                 nothing was sent.
-            HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'exclusive_activity_running'``, as ``_led_off_impl`` says;
-                nothing was sent.
-            BoardNoReplyError: the board did not answer; what it wrote is
-                unknown (``_write``).
+            HardwareCommandRefusedError: ``'not_connected'``, the address is
+                believed lit and no LED controller is connected to darken it;
+                ``'exclusive_activity_running'``, another activity holds the
+                scope or the LEDs. Nothing was sent.
+            BoardNoReplyError: the board did not answer; whether the LED
+                is lit is unknown.
         """
         self._refuse_not_a_board_address(address, 'address')
         return self._dispatch_led(
@@ -1135,13 +1170,16 @@ class IlluminationAPI:
     def leds_off(self) -> None:
         """Turn off all LEDs, and wait for it.
 
-        Nuclear -- ignores any held lease. See ``_leds_off_impl``.
+        Whatever holds the LEDs, every one is turned off: any lease is
+        ignored. With an LED controller connected the board's all-off is
+        written whatever the API believes lit; without one, it is satisfied
+        when nothing is believed lit.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, a channel
                 believed lit and no LED controller connected to darken it.
-            BoardNoReplyError: the board did not answer; every address is
-                unknown (``_write``).
+            BoardNoReplyError: the board did not answer; whether each LED
+                is lit is unknown.
         """
         return self._dispatch_led(self._leds_off_impl, 'leds_off')
 

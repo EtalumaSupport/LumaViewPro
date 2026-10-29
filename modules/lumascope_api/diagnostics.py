@@ -416,11 +416,9 @@ class DiagnosticsAPI:
     ) -> dict:
         """Run an N-frame camera throughput test through the production capture path.
 
-        Routes every frame grab through ``Lumascope.get_image()`` so the
-        bandwidth numbers reflect what protocol/preview capture actually
-        sees. Bypassing this method (calling ``self._scope._camera_driver.get_image()``
-        directly) is a Rule-1 layer violation and the resulting numbers
-        are not comparable to production capture.
+        Every frame is grabbed through ``ImagingAPI.get_image``, so the
+        numbers are those of the path a protocol and the live view capture
+        through.
 
         Args:
             num_frames: Total frames to grab.
@@ -537,10 +535,34 @@ class DiagnosticsAPI:
     ) -> dict:
         """Characterize stop_grabbing/start_grabbing latency, on the camera lane, and wait.
 
-        See ``_run_grab_lifecycle_benchmark_impl`` for the measurement and
-        the result; this adds the dispatch described on
-        ``CameraAPI._dispatch_camera``, bounded per cycle. ``progress_cb``
-        is called on the camera lane's worker.
+        Each cycle stops the camera's grab and starts it again, timing both:
+        a measured floor for the interval a camera needs between a stop and
+        the next start. The typical cycle is 130-150 ms; one near 11 s has
+        been seen when a stop lands within about 275 ms of a start, before
+        the camera produced a frame. Sweeping ``inter_cycle_delay_s`` across
+        runs shows the smallest delay with no slow cycle. The benchmark is
+        one command on the camera's lane, waited for, bounded per cycle.
+
+        Args:
+            num_cycles: Stop-and-start cycles to run, 1 to 10,000.
+            inter_cycle_delay_s: Seconds between a stop and the next start
+                (and any settings change), 0 to 60.
+            vary_settings: True to alternate the gain (1 and 4 dB) and the
+                exposure (10 and 50 ms) between cycles, as a protocol's steps
+                do.
+            slow_threshold_s: A cycle's seconds at which it counts as slow,
+                0 to 600; slow cycles are counted apart.
+            progress_cb: Called as ``callback(percent, message)`` every 10
+                cycles, on the camera lane's worker.
+
+        Returns:
+            dict: ``num_cycles``, ``inter_cycle_delay_s``,
+                ``vary_settings``, ``slow_threshold_s``,
+                ``slow_cycle_count``, ``slow_cycles`` (each ``idx``,
+                ``cycle_s``, ``stop_s``, ``start_s``), the 50th, 95th and
+                99th percentiles of the cycle, stop and start times
+                (``cycle_p50`` ...), ``total_elapsed_s``, ``camera_model``,
+                ``pylon_version``, ``errors`` and ``written_to``.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -782,11 +804,29 @@ class DiagnosticsAPI:
     ) -> dict:
         """One-shot Pylon-camera diagnostic probe, on the camera lane, and wait.
 
-        See ``_run_pylon_diagnostic_probe_impl`` for the probe and its JSON;
-        this adds the dispatch described on ``CameraAPI._dispatch_camera``.
-        The probe pops the camera's error queue, so it is a write to the
-        camera and refused while another activity holds the scope.
-        ``progress_cb`` is called on the camera lane's worker.
+        Records the camera's identity, its configuration and the change in
+        its stream statistics over ``duration_s``, with the host's OS, name
+        and camera SDK version, in one JSON file under the log folder's
+        ``camera_probe/``, named for the model, serial, firmware, host and
+        time so a sweep's files sort together. The grab state is not
+        changed: a camera not grabbing shows counters near zero, so call it
+        with the live view running. The probe is one command on the camera's
+        lane, waited for. It pops the camera's error queue, so it is a write
+        to the camera and refused while another activity holds the scope.
+
+        Args:
+            duration_s: The sampling window in seconds, 0 to 3,600.
+            drain_camera_side_errors: True to drain the camera's own error
+                queue and record its codes, which Basler documents for its
+                support only.
+            progress_cb: Called as ``callback(percent, message)`` at the
+                start, mid-window and the end, on the camera lane's worker.
+
+        Returns:
+            dict: The camera's snapshot with the host, the times and the
+                ``output_path``; ``{'connected': False, 'errors': [...]}``
+                with no camera active, and ``'supported': False`` besides for
+                a camera whose driver has no probe.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
