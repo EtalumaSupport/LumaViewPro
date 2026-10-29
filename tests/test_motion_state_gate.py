@@ -22,7 +22,6 @@ which is what a dead board is to the driver. The driver's and the API's
 real error handling runs on the firmware's real failure.
 """
 
-import sys
 import time
 
 import pytest
@@ -39,10 +38,7 @@ from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 def _errors_posted(centre_posts):

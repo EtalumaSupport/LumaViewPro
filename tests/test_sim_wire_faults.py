@@ -11,7 +11,6 @@ reports every register write in order without a byte of it reaching the
 driver.
 """
 
-import sys
 import time
 
 import pytest
@@ -25,11 +24,6 @@ from drivers.sim_wire.mp import channel, tmc5072
 from drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.case_walk import failing_cases
-
-firmware_only = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
 
 
 def _motor(**kwargs) -> tmc5072.Motor:
@@ -195,7 +189,7 @@ def scope(request):
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheFirmwareMeetsTheFault:
     # parametrize-justified: each dialect boots its own firmware emulator
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
@@ -246,7 +240,7 @@ class TestTheFirmwareMeetsTheFault:
         assert 'OPEN_A OPEN_B' in board.exchange_command('DRVSTAT_Z')
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheOracle:
     @pytest.mark.parametrize('scope', [('3.0', True)], indirect=True)
     def test_every_z_home_makes_the_same_writes_before_its_reply(self, scope):

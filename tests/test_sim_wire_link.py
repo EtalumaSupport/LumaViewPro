@@ -12,7 +12,6 @@ production driver.
 
 import os
 import re
-import sys
 import threading
 import time
 from unittest.mock import MagicMock
@@ -28,10 +27,7 @@ from drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBacken
 from drivers.sim_wire.port import EmulatedPort
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 def _open(backend: SimWireBackend, timeout: float = 0.5) -> EmulatedPort:

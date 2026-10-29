@@ -35,10 +35,7 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope, led_reading
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 MODELS = load_scope_models()
 _AXES_OF = {'has_focus': 'Z', 'has_xy_stage': 'XY', 'has_turret': 'T'}

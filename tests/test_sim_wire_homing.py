@@ -14,8 +14,6 @@ real field firmware in realistic timing and read the stage the moment the
 home returns.
 """
 
-import sys
-
 import pytest
 
 from drivers.exceptions import HardwareError
@@ -24,10 +22,7 @@ from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import tmc5072
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture

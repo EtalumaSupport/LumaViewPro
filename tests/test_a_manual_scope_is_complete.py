@@ -12,8 +12,6 @@ Both simulator tiers build a model's axes from the one catalogue answer,
 so the fast tier cannot give a manual scope a Z axis that hides all this.
 """
 
-import sys
-
 import pytest
 
 import modules.lumascope_api._lumascope as lumascope_module
@@ -30,15 +28,11 @@ from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 MODELS = load_scope_models()
 MANUAL = sorted(model for model in MODELS if not model_axes(MODELS, model))
 
-firmware_runs_here = sys.platform == 'darwin' or sys.platform.startswith('linux')
 TIERS = [
     'fast',
     pytest.param(
         'firmware',
-        marks=pytest.mark.skipif(
-            not firmware_runs_here,
-            reason='the firmware-backed simulator runs on macOS and Linux only',
-        ),
+        marks=pytest.mark.firmware_tier,
     ),
 ]
 

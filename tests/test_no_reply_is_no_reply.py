@@ -12,8 +12,6 @@ Each test runs the production driver over the firmware-backed simulator
 (the field firmware) and loses one reply on the wire.
 """
 
-import sys
-
 import pytest
 
 from drivers.exceptions import BoardNoReplyError, HardwareError
@@ -26,10 +24,7 @@ from modules.lumascope_api.diagnostics import NO_REPLY, DiagnosticsAPI
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tools import firmware_tools
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture

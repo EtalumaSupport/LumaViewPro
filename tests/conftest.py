@@ -21,6 +21,7 @@ import faulthandler
 import functools
 import json
 import os
+import platform
 import sys
 import tempfile
 import threading
@@ -49,6 +50,7 @@ from tests import pypylon_stub as _pypylon_stub
 from tests import usb_stub as _usb_stub
 from tests.bench_results import bench_results_dir
 from tests.scope_fakes import build_scope
+from drivers.sim_wire.backend import runtime_platform
 
 
 # ---------------------------------------------------------------------------
@@ -851,6 +853,11 @@ def pytest_configure(config):
         'needs_display: opens a real Kivy window (skipped on a Linux host '
         'with no display, such as the GitHub runner)',
     )
+    config.addinivalue_line(
+        'markers',
+        'firmware_tier: runs the firmware-backed simulator (skipped on a '
+        'platform with no MicroPython runtime)',
+    )
 
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
@@ -1027,8 +1034,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip hardware-marked tests unless the matching opt-in flag is set, and
-    window tests on a host with no display."""
+    """Skip hardware-marked tests unless the matching opt-in flag is set,
+    window tests on a host with no display, and firmware-tier tests on a
+    platform the simulator's runtime is not built for."""
     gates = [
         ('ids_hardware', '--run-ids-hardware'),
         ('pylon_hardware', '--run-pylon-hardware'),
@@ -1047,6 +1055,13 @@ def pytest_collection_modifyitems(config, items):
         skip = pytest.mark.skip(reason='needs a display, and this Linux host has none')
         for item in items:
             if 'needs_display' in item.keywords:
+                item.add_marker(skip)
+    if runtime_platform() is None:
+        skip = pytest.mark.skip(
+            reason=f'no simulator runtime for {sys.platform}/{platform.machine()}'
+        )
+        for item in items:
+            if 'firmware_tier' in item.keywords:
                 item.add_marker(skip)
 
 

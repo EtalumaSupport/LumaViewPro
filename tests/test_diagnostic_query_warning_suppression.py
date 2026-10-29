@@ -23,7 +23,6 @@ GitHub issue #654.
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -85,10 +84,7 @@ class TestDiagnosticQueryCapabilityProbe:
         result = board._diagnostic_query('VOLTAGE')
         assert result == 'real-response-data'
 
-    @pytest.mark.skipif(
-        not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-        reason='the firmware-backed simulator runs on macOS and Linux only',
-    )
+    @pytest.mark.firmware_tier
     def test_diagnostic_query_returns_none_on_error_response(self):
         """When firmware rejects with ERROR prefix, the response is
         swallowed and None is returned (caller treats as inconclusive).

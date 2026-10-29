@@ -21,7 +21,6 @@ turns it red once the fix lands, so the marker is removed with it.
 
 import functools
 import re
-import sys
 import time
 
 import pytest
@@ -37,10 +36,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture

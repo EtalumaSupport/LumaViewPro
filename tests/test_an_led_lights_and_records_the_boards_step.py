@@ -11,7 +11,6 @@ firmware drives at its DAC offset instead of off.
 
 import functools
 import logging
-import sys
 import time
 
 import pytest
@@ -90,12 +89,6 @@ def test_the_simulated_serial_board_steps_as_the_board_does():
         session.shutdown()
 
 
-_firmware_tier = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
-
-
 @pytest.fixture
 def serial():
     """(the illumination API, the simulated LED board running the field firmware)."""
@@ -120,7 +113,7 @@ def _dac(board, channel: int) -> int:
     return code if enabled and powered else 0
 
 
-@_firmware_tier
+@pytest.mark.firmware_tier
 def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
     illumination, board = serial
     commanded = illumination.led_on_by_address(0, 0.5)
@@ -130,7 +123,7 @@ def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
     assert commanded == 1.0
 
 
-@_firmware_tier
+@pytest.mark.firmware_tier
 def test_a_blocking_serial_request_off_the_step_is_confirmed_at_once(serial):
     illumination, board = serial
     started = time.monotonic()
@@ -140,7 +133,7 @@ def test_a_blocking_serial_request_off_the_step_is_confirmed_at_once(serial):
     assert commanded == 2.0
 
 
-@_firmware_tier
+@pytest.mark.firmware_tier
 def test_a_serial_request_of_0_ma_is_dark_and_stays_on_at_0(serial):
     illumination, board = serial
     illumination.led_on_by_address(0, 10)

@@ -26,10 +26,7 @@ from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import tmc5072
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 ALL_AXES = frozenset('XYZT')
 MANIFEST = (sim_backend._PACKAGE / 'firmware' / 'MANIFEST').read_text()

@@ -37,7 +37,6 @@ marker goes with the fix.
 import ast
 import functools
 import subprocess
-import sys
 
 import pytest
 
@@ -56,15 +55,11 @@ from tests.sim_wire_bench import (
     reply_group,
 )
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
 
 # The replays are module fixtures, the realistic one about a minute; under
 # xdist each worker that draws one of these tests would run them again. One
 # group sends them all to one worker (`--dist loadgroup`, in the pytest addopts).
-pytestmark = pytest.mark.xdist_group('sim_wire_conformance')
+pytestmark = [pytest.mark.firmware_tier, pytest.mark.xdist_group('sim_wire_conformance')]
 
 
 def _unit_config() -> dict:

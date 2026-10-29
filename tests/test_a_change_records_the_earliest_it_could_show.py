@@ -10,7 +10,6 @@ judges from the record, so a frame is never accepted early.
 """
 
 import concurrent.futures
-import sys
 import threading
 import time
 
@@ -46,10 +45,7 @@ def test_a_camera_writes_change_is_earliest_at_the_writes_start(monkeypatch):
         scope.disconnect()
 
 
-@pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
+@pytest.mark.firmware_tier
 def test_an_led_writes_change_is_earliest_at_the_writes_start():
     # Answered inside the LED board's 0.3 s wait, so the write succeeds and
     # its change is recorded the answer's time after it began.

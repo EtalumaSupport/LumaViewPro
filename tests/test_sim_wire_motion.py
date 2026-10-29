@@ -8,7 +8,6 @@ ramp runs at the fitted chip clock, and a STOP mid-move stops the stage
 short, which the fast tier cannot show.
 """
 
-import sys
 import time
 
 import pytest
@@ -18,10 +17,7 @@ from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-    pytest.skip(
-        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
-    )
+pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture

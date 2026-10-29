@@ -43,10 +43,6 @@ sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
 import dac80508
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
-firmware_only = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
 
 MOTOR = MotorBoardSpec('LS850T', frozenset('XYZT'))
 LED = LedBoardSpec('LS850T')
@@ -90,7 +86,7 @@ class TestOpen:
         with pytest.raises(serial.SerialException, match='no simulated board'):
             _open(backend, LED_DEVICE)
 
-    @firmware_only
+    @pytest.mark.firmware_tier
     def test_each_device_opens_its_own_board(self):
         backend = SimWireBackend(MOTOR, led=LED)
         led_port = _open(backend, LED_DEVICE)
@@ -196,7 +192,7 @@ class TestTheDac:
             dac80508.Board(LED_ENABLE_PINS).datagram('DAC', bytes(5))
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheFirmwareBoots:
     def test_the_production_led_board_connects_to_the_shipped_firmware(self):
         board = LEDBoard(backend=SimWireBackend(None, led=LED))
@@ -238,7 +234,7 @@ def lit():
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 def test_the_first_command_after_connect_gets_its_own_reply():
     # Connect turns the LEDs off. A reply to that left unread is taken by
     # the next command as its own: INFO would read 'LED 0 has been turned off'.
@@ -250,7 +246,7 @@ def test_the_first_command_after_connect_gets_its_own_reply():
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 def test_a_multiline_exchange_ends_when_the_reply_ends():
     # The support report reads INFO up to its CALIBRATION line, and FACTORY
     # up to its Y/N prompt. Once the reply is over, waiting the call's
@@ -273,7 +269,7 @@ def test_a_multiline_exchange_ends_when_the_reply_ends():
         board.disconnect()
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestWhatTheDacDrives:
     OFF = (True, True, 0)
 
@@ -363,7 +359,7 @@ def _booted_led_port():
     return backend, port
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheConsole:
     """The field LED firmware's factory() asks with input(), which on the
     board's MicroPython 1.19 is readline.c: a line ends on a carriage return
@@ -492,7 +488,7 @@ def _console(dialect, typed):
     return result.stdout
 
 
-@firmware_only
+@pytest.mark.firmware_tier
 class TestTheConsoleByteByByte:
     """readline.c 1.19's answer to each byte the model takes, run on the
     board's runtime with nothing between the bytes and input()."""
