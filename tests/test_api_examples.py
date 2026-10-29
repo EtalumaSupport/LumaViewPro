@@ -224,6 +224,24 @@ def test_channel_settings_over_rest_takes_the_same_stills(served):
         ), s
 
 
+def test_stop_a_run_ends_it_aborted_after_its_first_scan_with_its_images_written():
+    from modules.run_outcome import FilesOutcome, RunStatus
+
+    outcome, files = _run_example('stop_a_run')
+    assert (outcome.status, outcome.reason) == (RunStatus.ABORTED, 'stopped')
+    assert outcome.captures.captured == 3 < outcome.captures.asked
+    assert (files.outcome, files.written) == (FilesOutcome.WRITTEN, 3)
+
+
+def test_stop_a_run_over_rest_ends_its_job_aborted(served):
+    client, run = served('stop_a_run')
+    job = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()
+    assert job['status'] == 'completed', job
+    outcome = job['result']
+    assert (outcome['status'], outcome['reason']) == ('aborted', 'stopped')
+    assert outcome['captures']['captured'] < outcome['captures']['asked']
+
+
 def _scope_session_calls(path):
     """Every ``ScopeSession.<member>(...)`` call an example makes, as
     (member, positional count, keyword names, line)."""
