@@ -79,7 +79,7 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     scope.illumination.leds_off()
     dark = scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0)
     # The saved 1900 x 1900 frame, refitted to 1700 on the LS560 (its lens).
-    side = {'LS620': 1900, 'LS560': 1700}[scope.capabilities.model]
+    side = {'LS620': 1900, 'LS560': 1700}[scope.channel_identity.model]
     assert dark is not None and dark.shape == (side, side)
     assert dark.max() == 0
 

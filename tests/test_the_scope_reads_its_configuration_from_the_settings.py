@@ -69,7 +69,7 @@ class TestAWriteIsWhatTheScopeActsOn:
     def test_the_scale_bar(self, session):
         for enabled in (True, False):
             session.set_scale_bar(enabled)
-            assert session.scope.imaging.scale_bar_config['enabled'] is enabled
+            assert session.scale_bar_enabled is enabled
 
 
 def test_the_live_views_colour_write_never_changes_whether_the_bar_is_drawn(session):
@@ -79,7 +79,7 @@ def test_the_live_views_colour_write_never_changes_whether_the_bar_is_drawn(sess
     session.scope.imaging.set_scale_bar_color(LED2)
     session.set_scale_bar(False)
     session.scope.imaging.set_scale_bar_color('BF')
-    assert session.scope.imaging.scale_bar_config == {'enabled': False, 'color': 'BF'}
+    assert (session.scale_bar_enabled, session.scope.imaging.scale_bar_color) == (False, 'BF')
     assert session.settings['scale_bar']['enabled'] is False
 
 
@@ -107,7 +107,5 @@ def test_a_scope_no_session_bound_refuses_each_read_by_name():
         for read in (state.get_labware, state.get_stage_offset, state.get_turret_config):
             with pytest.raises(ConfigError, match='ScopeSession'):
                 read()
-        with pytest.raises(ConfigError, match='ScopeSession'):
-            scope.imaging.scale_bar_config  # noqa: B018 -- the read is the subject
     finally:
         scope.disconnect()

@@ -174,8 +174,8 @@ class MotorBoardInfo:
 
     Attributes:
         model: The scope model the board reports (``'LS850T'``), the board's
-            own report and not ``capabilities.model``, which falls back to the
-            operator's selection.
+            own report and not ``channel_identity.model``, which falls back to
+            the operator's selection.
         serial_number: The board's serial number.
         firmware_version: The parsed version, or ``ORIGINAL_FIRMWARE``
             (``'original'``) for a board that answered INFO with no version

@@ -1862,9 +1862,9 @@ class ImagingAPI:
 
         # One snapshot for the whole overlay decision: enabled and color must
         # come from the same configuration even if the GUI toggles mid-frame.
-        scale_bar = self.scale_bar_config
+        scale_bar_enabled, scale_bar_color = self._scale_bar()
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
+        use_scale_bar = self._resolve_use_scale_bar(scale_bar_enabled, objective)
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
 
@@ -1881,7 +1881,7 @@ class ImagingAPI:
                 image=image,
                 objective=objective,
                 binning_size=self._camera.binning,
-                color=scale_bar.get('color'),
+                color=scale_bar_color,
                 significant_bits=significant_bits,
                 capabilities=self._scope.capabilities,
             )
@@ -2114,16 +2114,16 @@ class ImagingAPI:
         tmp = frame.image
 
         # Snapshot both fields together; see get_image for why.
-        scale_bar = self.scale_bar_config
+        scale_bar_enabled, scale_bar_color = self._scale_bar()
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
+        use_scale_bar = self._resolve_use_scale_bar(scale_bar_enabled, objective)
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=objective,
                 binning_size=self._camera.binning,
-                color=scale_bar.get('color'),
+                color=scale_bar_color,
                 significant_bits=frame.significant_bits,
                 capabilities=self._scope.capabilities,
             )
@@ -2368,18 +2368,13 @@ class ImagingAPI:
             )
         return False
 
-    @api(in_process=True)
-    @property
-    def scale_bar_config(self) -> dict:
-        """Whether the scale bar is drawn on captured images, and in what colour.
+    def _scale_bar(self) -> tuple[bool, str | None]:
+        """Whether the scale bar is drawn on captured images, and in what colour, in one read.
 
-        The one read for this state, taken once per capture so the overlay
-        decision uses one answer: ``enabled`` is the session's
-        ``scale_bar.enabled`` setting (``ScopeSession.set_scale_bar``
-        changes it), ``color`` the last ``set_scale_bar_color``.
-
-        Returns:
-            dict: ``{'enabled': bool, 'color': str | None}``, a copy.
+        Taken once per capture so the overlay decision uses one answer:
+        whether it is drawn is the session's ``scale_bar.enabled`` setting
+        (``ScopeSession.set_scale_bar`` changes it), and the colour is the
+        last ``set_scale_bar_color``'s.
 
         Raises:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
@@ -2387,9 +2382,22 @@ class ImagingAPI:
         """
         enabled = self._scope.read_setting('scale_bar.enabled')
         with self._state_lock:
-            return {'enabled': enabled, 'color': self._scale_bar_color}
+            return enabled, self._scale_bar_color
 
     @api
+    @property
+    def scale_bar_color(self) -> str | None:
+        """The colour the scale bar is drawn in on captured images, as ``set_scale_bar_color`` set it; None until it is set.
+
+        Whether it is drawn at all is ``ScopeSession.scale_bar_enabled``.
+
+        Raises:
+            Nothing.
+        """
+        with self._state_lock:
+            return self._scale_bar_color
+
+    @api(sets='scale_bar_color')
     def set_scale_bar_color(self, color: str) -> None:
         """The colour the scale bar is drawn in on captured images.
 

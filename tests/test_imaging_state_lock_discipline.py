@@ -109,7 +109,7 @@ def test_state_lock_attributes_are_never_touched_unguarded():
         + LOCK
         + ' is accessed without it:\n  '
         + '\n  '.join(sorted(set(violations)))
-        + '\n\nRead it through the locked accessor (e.g. scale_bar_config) or '
+        + '\n\nRead it through the locked accessor (e.g. _scale_bar) or '
         'wrap the access, and take ONE snapshot rather than reading related '
         'fields one at a time.'
     )
@@ -132,12 +132,10 @@ def test_scale_bar_readers_use_a_single_snapshot():
         assert method is not None, f'{method_name} not found on ImagingAPI'
 
         snapshots = [
-            n
-            for n in ast.walk(method)
-            if isinstance(n, ast.Attribute) and n.attr == 'scale_bar_config'
+            n for n in ast.walk(method) if isinstance(n, ast.Attribute) and n.attr == '_scale_bar'
         ]
         assert len(snapshots) == 1, (
-            f'{method_name}() reads scale_bar_config {len(snapshots)} times; '
+            f'{method_name}() reads _scale_bar {len(snapshots)} times; '
             f'it must take exactly one snapshot so that enabled and color come '
             f'from the same configuration even if the GUI toggles mid-frame'
         )

@@ -108,13 +108,13 @@ try:
     # --- scale bar: the Session's setting, which the imaging API reads ----
     im = s.scope.imaging
     s.set_scale_bar(True)
-    print('scale_bar_config      :', im.scale_bar_config)
-    _common.ok('scale bar on through API', im.scale_bar_config.get('enabled') is True)
+    print('scale_bar_enabled     :', s.scale_bar_enabled)
+    _common.ok('scale bar on through API', s.scale_bar_enabled is True)
     s.set_scale_bar(False)
-    _common.ok('scale bar off through API', im.scale_bar_config.get('enabled') is False)
+    _common.ok('scale bar off through API', s.scale_bar_enabled is False)
     try:
         im.set_scale_bar_color('chartreuse-ish')
-        print('scale bar bogus colour ->', im.scale_bar_config)
+        print('scale bar bogus colour ->', im.scale_bar_color)
     except Exception as e:
         print('scale bar bogus colour raised', type(e).__name__, e)
 

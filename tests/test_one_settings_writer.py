@@ -400,12 +400,12 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
     assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'
 
 
-def test_the_scale_bar_overlay_and_its_setting_change_together(session):
+def test_the_scale_bar_read_and_its_setting_change_together(session):
     session.set_scale_bar(True)
-    assert session.scope.imaging.scale_bar_config['enabled'] is True
+    assert session.scale_bar_enabled is True
     assert session.settings['scale_bar']['enabled'] is True
     session.set_scale_bar(False)
-    assert session.scope.imaging.scale_bar_config['enabled'] is False
+    assert session.scale_bar_enabled is False
     assert session.settings['scale_bar']['enabled'] is False
 
 

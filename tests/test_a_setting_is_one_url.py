@@ -45,6 +45,7 @@ _WRITES = {
     'scope/camera/exposure_ms': ({'exposure_ms': 20.0}, None, 20.0),
     'scope/camera/black_level': ({'level': 4.0}, None, 4.0),
     'scope/camera/auto_exposure': ({'mode': 'Continuous'}, None, 'Continuous'),
+    'scope/imaging/scale_bar_color': ({'color': LED0}, None, LED0),
 }
 _REFUSED = {
     'turret_objective': (

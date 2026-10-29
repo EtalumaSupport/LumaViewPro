@@ -627,7 +627,7 @@ class TestScaleBarObjectiveInit:
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope, scale_bar={'enabled': True})
-        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.read_setting('scale_bar.enabled') is True
         assert scope.runtime_state.get_current_objective() is None
 
     def test_scale_bar_works_with_objective(self):
@@ -637,7 +637,7 @@ class TestScaleBarObjectiveInit:
 
         scope = build_scope(simulate=True, sim_model='LS850')
         bind_settings_like_a_session(scope, objective_id='20x Oly', scale_bar={'enabled': True})
-        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.read_setting('scale_bar.enabled') is True
         assert scope.runtime_state.get_current_objective() is not None
 
 

@@ -4365,7 +4365,7 @@ class ScopeSession:
     def model(self) -> str:
         """The saved scope model: the one ``select_model`` saved, brought up at the next start.
 
-        The running scope's model is ``scope.capabilities.model``; the two
+        The running scope's model is ``scope.channel_identity.model``; the two
         differ until the next bring-up, which ``model_at_next_start`` says.
 
         Raises:

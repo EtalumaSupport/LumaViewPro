@@ -327,7 +327,6 @@ IMAGING_ONLY_METHODS = MemberNames(
         'is_focusing',
         '_log_camera_temps',
         'remove_frame_listener',
-        'scale_bar_config',
         'set_scale_bar_color',
         'start_camera_temp_logging',
         'stop_camera_temp_logging',

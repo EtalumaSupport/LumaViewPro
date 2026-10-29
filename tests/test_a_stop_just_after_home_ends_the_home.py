@@ -87,7 +87,7 @@ def _announce_the_board_homing(scope, monkeypatch, axis):
     """An Event set once the board has begun the home, before it ends."""
     driver = scope._motion_driver
     homing = threading.Event()
-    if scope.capabilities.model == 'LS720':
+    if scope.channel_identity.model == 'LS720':
         # The first step of the TMCM-6110's home after it clears the abort
         # a stop sets: a stop before it would be forgotten by design.
         name = '_set_switch_polarities'
@@ -117,7 +117,7 @@ def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
 
     home = homed.motion.start_home(axis)
     assert homing.wait(30)
-    if _STOPS_A_HOME[homed.capabilities.model]:
+    if _STOPS_A_HOME[homed.channel_identity.model]:
         home.stop()
         with pytest.raises(HomingStoppedError) as ended:
             home.result(60)

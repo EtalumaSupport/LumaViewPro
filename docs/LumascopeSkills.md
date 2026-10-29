@@ -190,7 +190,7 @@ identity.find('BF')                      # record by stable key name, or None
 
 A unit's own channels are its motor board's `Channels` block in `motorconfig.json`, beside its `Filterset`: a mapping from each channel's key to its row, `led_channel` (the LED address, null for none) and, for a fluorescence channel, `excitation_nm`, or for any other, `display_name`, each with an optional `display_color` (`'#rrggbb'`, lower case, brightest component ff). Its keys are the release's, a fluorescence channel's its excitation (`Ex<excitation_nm>`: a row whose `excitation_nm` is another number is one this release cannot read). A row this release cannot read is left out, and bring-up reports every such row in one notice, `ChannelRowsSkippedNotice` (`'channel_rows_skipped'`, `skipped`: each key and why). A block that is not a mapping, or that names one LED address twice, leaves the scope no channels, reported as `ChannelBlockUnusableNotice` (`'channel_block_unusable'`). A board carrying the old `Layers` block, or a `Filterset` with no `Channels`, resolves from its model, its channels and filterset both, reported as `ChannelBlockSupersededNotice` (`'channel_block_superseded'`).
 
-A scope's model is fixed for its lifetime: `identity.model`, `scope.capabilities.model` and the model every saved image records are one answer. A model the catalogue lacks is still carried, with no layers. To change the model of a scope that cannot report its own (the FX2 line), save the selection through the session; it applies the next time the scope is brought up, and a motor board that reports its own model still wins then:
+A scope's model is fixed for its lifetime: `identity.model` and the model every saved image records are one answer. A model the catalogue lacks is still carried, with no layers. To change the model of a scope that cannot report its own (the FX2 line), save the selection through the session; it applies the next time the scope is brought up, and a motor board that reports its own model still wins then:
 
 ```python
 session.select_model('LS560')   # saved to settings['microscope']; raises ScopeModelUnknownError if the catalogue lacks it;
@@ -1581,6 +1581,7 @@ still states the major version.
 | level 46 | The turret's slot is read through `scope.motion.turret_status()` alone: `get_turret_slot`, `is_moving` and `is_current_slot_objective_set` are gone, and `get_axis_state` is no longer declared. On a scope with a turret (`capabilities.has_turret`) whose motor board is lost or never came up, `turret_status()` answers `TurretStatus('unknown', None)`, never None; None means the scope has no turret. `get_current_position` and `get_current_positions` read X, Y and Z only: `'T'` is refused `not_offered`, and the turret is left out of the positions. |
 | level 47 | A record's time says what it is: `FrameRecord.captured_at` is a `FrameTime`, its `at` the time and its `source` the clock it came from (`TimestampSource`: `host_wallclock` for a still, read after the grab returned; `host_arrival` or `camera_rebased` for a recorded frame), so a time is never read without its source. `FrameRecord.illumination_timing` (`LightTiming`) says whether its `illumination_ma` was read before the grab or as the frame arrived. A record states an exposure or a gain only with its source (`exposure_source`, `gain_source` None exactly when the value is), and `judgments` is None for a frame that was never judged. A saved file's `Plane` names its `TimestampSource` and `IlluminationTiming`. |
 | level 48 | The camera's firmware version is a capability: `capabilities.camera_firmware_version`, read once at connect beside `camera_serial_number`; None where the camera reports none (the FX2). |
+| level 49 | One door per fact. The running model is `scope.channel_identity.model`: `ScopeCapabilities.model` is gone. Whether the scale bar is drawn is `session.scale_bar_enabled` and its colour `scope.imaging.scale_bar_color`, which `set_scale_bar_color` writes (over REST, `PUT scope/imaging/scale_bar_color`): `imaging.scale_bar_config` is gone. Gone with them, each for the read it derived: `motion.get_target_position` (`get_target_positions`), `motion.has_homed` and `position_is_known` (`axes_without_position`), `illumination.get_led_state` (`get_led_states`), `imaging.frame_is_valid` (`frames_until_valid() == 0`), `Protocol.step` (`step_records`), `Labware.get_dimensions` and `has_wells` (its fields), `BringUpRecord.part` and `substitution` (`parts`, `substitutions`). No longer declared, though still callable: the scope's `host_steady_ns` (`session.host_steady_ns`), `motor_connected`, `led_connected`, `camera_connected`, `camera.active` and `camera.camera_removed` (`unconnected_parts`), `runtime_state.get_labware` (`scope.labware[session.labware_id]`), `Protocol.steps` and `step_row`, and the post-processing `stitch`, `zproject`, `composite` and `video` (`build`). |
 
 ### Configuration queries
 
@@ -2305,8 +2306,8 @@ scope.camera.longest_exposure_ms
 # Whether it is drawn is the session's setting (session.set_scale_bar); the
 # colour is the imaging API's own.
 scope.imaging.set_scale_bar_color('Ex589')
-scope.imaging.scale_bar_config                     # (in-process) {'enabled': bool, 'color': str | None};
-                                                   # a wire client reads session.scale_bar_enabled
+scope.imaging.scale_bar_color                      # 'Ex589', what set_scale_bar_color set; None until set
+session.scale_bar_enabled                          # whether it is drawn
 ```
 
 The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. It is a driver-level control with no public API member -- described here only to explain the behavior. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
@@ -2488,7 +2489,7 @@ scope.diagnostics.get_motor_info()         # MotorBoardInfo, as the board report
                                            #   EL-0940's INFO, FULLINFO, ACTUAL_R, ...) or None (no text commands,
                                            #   e.g. the LS720's TMCM-6110). Each field None when unknown, all of
                                            #   them with no board connected (one lost since connect included).
-scope.capabilities.model                   # the model the scope runs as: the board's, else the selection
+scope.channel_identity.model               # the model the scope runs as: the board's, else the selection
 scope.diagnostics.get_led_info()           # LedBoardInfo: firmware_version, firmware_date, command_set, a LedCommandSet:
                                            #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
                                            #   'legacy' (INFO only: firmware before v2),
@@ -2589,7 +2590,6 @@ caps.axes                       # ('X', 'Y', 'Z', 'T') on LS850T; ()         on 
 caps.has_focus                  # True if Z is motorized
 caps.has_xy_stage               # True if X/Y are motorized
 caps.has_turret                 # True if the scope has a turret: 'T' in axes, or the declared model's when no board came up
-caps.model                      # e.g. 'LS850T'; the layer identity's model, '' if none
 
 # LED
 caps.led_addresses              # e.g. (0, 1, 2, 3) for FX2 scopes; (0..7) for RP2040; None when the scope came up without its LED board
@@ -3422,7 +3422,7 @@ Reached through `session.scope.imaging`.
 - `recorded_changes` (in-process)
 - `remove_frame_listener` (in-process)
 - `saturated_fraction` (in-process)
-- `scale_bar_config` (in-process)
+- `scale_bar_color`
 - `set_scale_bar_color`
 - `significant_bits`
 
@@ -3521,7 +3521,6 @@ Reached through `session.scope.capabilities`.
 - `led_colors`
 - `led_max_ma`
 - `lens_focal_length_mm`
-- `model`
 - `pixel_size_um`
 
 ### ChannelIdentity

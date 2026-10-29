@@ -305,7 +305,6 @@ class CameraShutter(enum.StrEnum):
     'led_colors',
     'led_max_ma',
     'lens_focal_length_mm',
-    'model',
     'pixel_size_um',
 )
 @dataclass(frozen=True)
@@ -330,12 +329,6 @@ class ScopeCapabilities:
     """Whether this scope has a turret: 'T' in ``axes`` when the motor board
     came up, else the declared model's catalogue entry. A turret scope whose
     board did not come up has a turret in an unknown slot."""
-
-    model: str
-    """The scope model this scope runs as: the one its layer identity
-    settled on (the board's report, else the operator's selection), or
-    empty string when there is none. Fixed for the life of the scope; a
-    new selection applies at the next start."""
 
     pixel_size_um: float | None
     """Per-scope camera pixel size in um/pixel, resolved from the first
@@ -517,8 +510,8 @@ class ScopeCapabilities:
                 NullMotionBoard).
             led: An `LEDBoardProtocol` implementation (may be NullLEDBoard).
             camera: A camera object or None.
-            channel_identity: The scope's resolved identity; its model is
-                the capabilities' model, so the two cannot disagree.
+            channel_identity: The scope's resolved identity; its model
+                picks the declared optics and the declared turret.
             scope_models: The scope's model catalogue, read once at its
                 construction; the model's declared optics come from it.
             timing_record: The camera's timing record, read and checked at
@@ -690,7 +683,6 @@ class ScopeCapabilities:
             has_focus='Z' in axes,
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret=_has_turret(axes, motion, scope_models, model),
-            model=model,
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
             led_addresses=led_addresses,
