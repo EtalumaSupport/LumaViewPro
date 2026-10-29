@@ -78,9 +78,16 @@ def run_folder(tmp_path):
     return write_run_folder(tmp_path, LED0)
 
 
-def write_run_folder(tmp_path, fluorescence: str):
+def write_run_folder(
+    tmp_path, fluorescence: str, *, bits: int = 8, fluorescence_encoding: str = 'right_aligned'
+):
     """The run folder of a 2x2 tiled, 3-slice run of BF and ``fluorescence``,
-    each slice a different scene, as a release naming it so saves it."""
+    each slice a different scene, as a release naming it so saves it.
+
+    ``bits`` is the capture depth (8, or 12 in a 16-bit container), and
+    ``fluorescence_encoding`` how the fluorescence frames were saved: 'rgb'
+    is a false-colour capture, three channels at 12 bits.
+    """
     channels = _channels(fluorescence)
     folder = tmp_path / 'live' / 'ProtocolData' / '20261018_120000'
     folder.mkdir(parents=True)
@@ -98,7 +105,8 @@ def write_run_folder(tmp_path, fluorescence: str):
         + ''.join('\t'.join(step) + '\n' for step in steps)
     )
     rng = np.random.default_rng(18)
-    scenes = {z: (rng.random((2 * _TILE_PX, 2 * _TILE_PX)) * 80).astype(np.uint8) for z in _SLICES}
+    peak, dtype = (80, np.uint8) if bits == 8 else (3000, np.uint16)
+    scenes = {z: (rng.random((2 * _TILE_PX, 2 * _TILE_PX)) * peak).astype(dtype) for z in _SLICES}
     record_rows = []
     for index, step in enumerate(steps):
         name, color, tile, z_slice = step[0], step[5], step[14], int(step[15])
@@ -119,12 +127,12 @@ def write_run_folder(tmp_path, fluorescence: str):
                 'plate_pos_mm': {'x': float(step[1]), 'y': float(step[2])},
                 'datetime': datetime.datetime(2026, 10, 18, 12, 0, 0),
                 'well_label': '',
-                'significant_bits': 8,
+                'significant_bits': bits,
             },
             ome=False,
             color=release_color(stored_key(color)),
-            significant_bits=8,
-            save_encoding='right_aligned',
+            significant_bits=bits,
+            save_encoding='right_aligned' if color == 'BF' else fluorescence_encoding,
             white_bits=None,
         )
         record_rows.append(

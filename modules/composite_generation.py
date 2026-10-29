@@ -439,13 +439,9 @@ class CompositeGeneration(ProtocolPostProcessor):
                         color=GREY,
                         significant_bits=metadata['significant_bits'],
                         # A merged composite is a viewing product, always
-                        # 8-bit RGB, so its encoding follows from that and
-                        # not from the live image mode: the merge runs
-                        # inside the engine on every run kind, headless
-                        # included, where there is no live mode to read.
-                        save_encoding=image_mode.save_encoding_for_derived_output(
-                            img, image_mode.ImageMode.EIGHT_BIT
-                        ),
+                        # 8-bit RGB; like every derived file it is encoded
+                        # from its own pixels, never from the live image mode.
+                        save_encoding=image_mode.encoding_for_array(img),
                         # Already rendered for display, shown as it is.
                         white_bits=None,
                     )

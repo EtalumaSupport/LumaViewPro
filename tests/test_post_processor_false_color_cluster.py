@@ -1,56 +1,23 @@
-"""Regression tests: post-processor outputs apply false-color (#669, #678).
+"""Post-processor outputs keep their inputs' colour (#669, #678).
 
-Bug shape: ``zprojector._zproject`` (#669 recurrence) and
-``stitcher._simple_position_stitcher`` (#678) saved their outputs via
-bare ``tifffile.imwrite``, skipping the false-color RGB widening that
-``image_utils.write_tiff`` does for fluorescence captures. A user with
-a false-color image mode selected would see colored per-slice TIFFs
-but grayscale projections + stitches -- the most-reported symptom in
-the 2026-05-25 bench bundle.
-
-Root cause: same shape at both sites. The false-color gate lived inline
-inside ``write_tiff``; post-processors that didn't route through that
-function got no gate. Fix extracts the gate to
-``image_utils.maybe_apply_false_color`` and calls it from both sinks
-before the bare imwrite.
-
-Test shape mirrors the existing
-``test_false_color_save_for_8bit_fluorescence.py`` regression matrix.
-Each test synthesizes a mono uint8 fluorescence-shape stack on disk,
-drives the post-processor, then reads the output via tifffile (not cv2)
-and asserts a 3-channel RGB result with the layer's plane populated.
+The two stitch paths and the z-projector write through
+``image_utils.write_tiff``, so an 8-bit fluorescence output carries its
+layer's colour the way a capture does (a mono plane with the layer's
+palette), and a brightfield output stays grey. Each test synthesizes a mono
+uint8 stack on disk, drives the post-processor, and reads the output with
+tifffile.
 """
 
 from __future__ import annotations
 
-import threading
-from unittest.mock import MagicMock
-
 import numpy as np
 import pandas as pd
-import pytest
 import tifffile as tf
 
-from modules import app_context as _app_ctx
 from modules.stitcher import Stitcher
 from modules.zprojector import ZProjector
 from modules.layer_record import release_colors
 from tests.stock_channels import LED1
-
-
-@pytest.fixture
-def false_color_setting_on():
-    """Replace app_context.ctx with a stub whose image_mode resolves to
-    false-color RGB. Matches the helper's one-shot settings read path."""
-    fake_ctx = MagicMock()
-    fake_ctx.settings_lock = threading.Lock()
-    fake_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
-    orig = _app_ctx.ctx
-    _app_ctx.ctx = fake_ctx
-    try:
-        yield fake_ctx
-    finally:
-        _app_ctx.ctx = orig
 
 
 def _write_mono_tiff(path, value, shape=(8, 8)):
@@ -70,7 +37,7 @@ class TestStitcherGroupAlgorithmCarriesColor:
     Color-bearing df, so they cannot catch a column-list narrowing in
     _group_algorithm. This class exercises the production-shape path."""
 
-    def test_group_algorithm_slice_preserves_color(self, tmp_path, false_color_setting_on):
+    def test_group_algorithm_slice_preserves_color(self, tmp_path):
         rows = []
         for ix, x in enumerate((0.0, 1.0)):
             for iy, y in enumerate((0.0, 1.0)):
@@ -124,7 +91,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
     in ``common_utils.get_image_layers()`` so the gate must pass
     through. Regression guard against widening the gate too far."""
 
-    def test_zproject_bf_stays_grayscale(self, tmp_path, false_color_setting_on):
+    def test_zproject_bf_stays_grayscale(self, tmp_path):
         slice_paths = []
         for i, val in enumerate((100, 150, 200)):
             p = tmp_path / f'slice_{i}.tiff'
@@ -144,7 +111,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
         out = tf.imread(str(tmp_path / 'out.tiff'))
         assert out.ndim == 2, f'BF z-projection must stay grayscale, got shape {out.shape}'
 
-    def test_stitch_bf_stays_grayscale(self, tmp_path, false_color_setting_on):
+    def test_stitch_bf_stays_grayscale(self, tmp_path):
         rows = []
         for ix, x in enumerate((0.0, 1.0)):
             for iy, y in enumerate((0.0, 1.0)):

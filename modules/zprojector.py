@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
-import modules.derived_output_encoding as derived_output_encoding
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 import modules.post_derivation as post_derivation
@@ -282,7 +282,7 @@ class ZProjector(ProtocolPostProcessor):
             ome=False,
             color=layer_record.output_color(first_slice_row['Color'], channel_colors),
             significant_bits=metadata['significant_bits'],
-            save_encoding=derived_output_encoding.resolve_output_save_encoding(result['image']),
+            save_encoding=image_mode.encoding_for_array(result['image']),
             white_bits=output_white,
         )
 

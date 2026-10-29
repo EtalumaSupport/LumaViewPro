@@ -140,9 +140,3 @@ def test_only_the_allowed_module_binds_the_settings_global():
         f'engine-set modules binding settings_init.settings: {sorted(binders)}; '
         f'allowed: {sorted(ALLOWED_SETTINGS_BINDERS)}'
     )
-
-
-def test_the_gui_encoding_resolver_stays_outside_the_engine():
-    """The one context-reading module this work created must never be
-    imported by the engine: it exists so the engine does not have to."""
-    assert 'modules.derived_output_encoding' not in engine_set()
