@@ -54,6 +54,10 @@ A backticked path into a project package (```modules.x.y```, ``drivers.``,
 ``rest.``) names something a reader is told to import, so it must be API like
 a fenced import.
 
+A link from the guide reaches its anchor (polarity 6): one of its own
+headings, or an anchor the generated reference holds -- a member, field or
+class the generator rendered, or one of its headings.
+
 ``PLUGIN_API_DESIGN_2026-05-09.md`` is deliberately NOT guarded. It is a
 design and history document; 12 of its 40 call forms name proposals that were
 never built (``scope.is_command_safe_for_rest``,
@@ -1211,3 +1215,54 @@ class TestLumascopeSkillsProseNamesResolve:
         ):
             assert expected in reported, reported
         assert len(failures) == 6, reported
+
+
+_LINK = re.compile(r'\]\(([^)\s]+)\)')
+
+
+def anchors_of(text):
+    """Every anchor a markdown file holds: its ``<a id>`` tags and its headings' slugs."""
+    ids = set(re.findall(r'<a id="([^"]+)"></a>', text))
+    for heading in re.findall(r'^#{1,6} (.+)$', text, re.MULTILINE):
+        slug = re.sub(r'[^\w\- ]', '', heading.strip().lower()).replace(' ', '-')
+        ids.add(slug)
+    return ids
+
+
+def link_failures(text, label, reference_text):
+    """A line per link from ``text`` to an anchor that is not there: its own, or the reference's."""
+    targets = {'': anchors_of(text), 'API_REFERENCE.md': anchors_of(reference_text)}
+    failures = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for link in _LINK.findall(line):
+            page, sep, anchor = link.partition('#')
+            if sep and page in targets and anchor not in targets[page]:
+                failures.append(f'  {label}:{lineno}  {link}  -> no such anchor')
+    return failures
+
+
+class TestLumascopeSkillsLinksResolve:
+    """Polarity 6: a link from the guide reaches an anchor, in it or in the generated reference."""
+
+    def test_every_link_reaches_its_anchor(self, doc_text):
+        from tests.api_reference import REFERENCE
+
+        failures = link_failures(doc_text, DOC, REFERENCE.read_text(encoding='utf-8'))
+        assert not failures, (
+            'LumascopeSkills.md links to an anchor that is not there. A reference anchor '
+            'is a member, field or class the generator rendered, or one of its headings.\n'
+            + '\n'.join(failures)
+        )
+
+    def test_a_dead_link_is_reported(self):
+        planted = (
+            '## Here\n'
+            'See [create](API_REFERENCE.md#ScopeSession.create), [gone](API_REFERENCE.md#'
+            'BringUpRecord.substitution), [here](#here), [there](#there) and '
+            '[events](API_REFERENCE.md#events).\n'
+        )
+        reference = '<a id="ScopeSession.create"></a>\n## Events\n'
+        assert link_failures(planted, 'planted', reference) == [
+            '  planted:2  API_REFERENCE.md#BringUpRecord.substitution  -> no such anchor',
+            '  planted:2  #there  -> no such anchor',
+        ]
