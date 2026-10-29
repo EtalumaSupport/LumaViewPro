@@ -516,6 +516,26 @@ def entries_of(doc: str, section: str) -> dict[str, str]:
     return found
 
 
+def own_doc(cls: type) -> str:
+    """The class's own docstring, never a base's nor the one ``dataclass`` writes from the signature."""
+    doc = vars(cls).get('__doc__') or ''
+    if doc.startswith(f'{cls.__name__}('):
+        return ''
+    return inspect.cleandoc(doc)
+
+
+def field_descriptions(cls: type) -> dict[str, str]:
+    """Each field's words, by name: its class's ``Attributes:`` entry, a subclass's over a base's.
+
+    A field has no docstring of its own, so these are its words wherever
+    it is described: the reference and the OpenAPI description alike.
+    """
+    described: dict[str, str] = {}
+    for klass in reversed(cls.__mro__):
+        described |= entries_of(own_doc(klass), 'Attributes')
+    return described
+
+
 def _inline(text: str) -> str:
     """Docstring prose as Markdown: a literal is a code span, and a ``<`` outside one is no tag."""
     return ''.join(

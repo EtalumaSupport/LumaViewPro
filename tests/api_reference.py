@@ -34,13 +34,14 @@ from modules import wire_encoding
 from modules.api_surface import (
     IN_PROCESS,
     admitted_by_of,
-    entries_of,
     event_of,
+    field_descriptions,
     field_event,
     in_process_arguments_of,
     is_engineering,
     is_record,
     markdown_of,
+    own_doc,
     reads_of,
     sets_of,
     stop_of,
@@ -154,14 +155,6 @@ def _field_annotation(cls: type, name: str) -> str | None:
         if name in annotations:
             return annotation_text(annotations[name])
     return None
-
-
-def own_doc(cls: type) -> str:
-    """The class's own docstring, never a base's nor the one ``dataclass`` writes from the signature."""
-    doc = vars(cls).get('__doc__') or ''
-    if doc.startswith(f'{cls.__name__}('):
-        return ''
-    return inspect.cleandoc(doc)
 
 
 def _parameter(parameter: inspect.Parameter) -> str:
@@ -439,9 +432,7 @@ def _fields(owner: _Owner) -> str:
     fields = [i for i in owner.items if i.field]
     if not fields:
         return ''
-    described: dict[str, str] = {}
-    for klass in reversed(owner.owner.__mro__):
-        described |= entries_of(own_doc(klass), 'Attributes')
+    described = field_descriptions(owner.owner)
     lines = []
     for item in fields:
         key = f'{owner.name}.{item.member}'

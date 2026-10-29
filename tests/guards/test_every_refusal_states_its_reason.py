@@ -24,7 +24,8 @@ explained by its docstring; a reason several classes carry as one fact
 import ast
 import re
 
-from tests.api_reference import own_doc, outcome_classes
+from modules.api_surface import own_doc
+from tests.api_reference import outcome_classes
 from tests.ast_seams import iter_package_modules, production_modules
 
 

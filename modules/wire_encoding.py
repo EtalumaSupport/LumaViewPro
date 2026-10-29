@@ -76,6 +76,7 @@ from modules.api_surface import (
     API,
     Admission,
     admitted_by_of,
+    field_descriptions,
     fields_of,
     in_process_arguments_of,
     is_record,
@@ -1020,7 +1021,9 @@ def wire_members(
         if isinstance(member, property):
             fget = member.fget
             text = _annotation_text(fget.__annotations__.get('return', inspect.Parameter.empty))
-            members.append(_read(name, text, fget, classes, aliases, handed_out))
+            members.append(
+                _read(name, text, fget, fget.__doc__ or '', classes, aliases, handed_out)
+            )
             continue
         function = inspect.unwrap(getattr(member, '__func__', member))
         parameters = []
@@ -1068,8 +1071,10 @@ def wire_members(
                 run_events=run_events,
             )
         )
+    described = field_descriptions(cls)
     members += [
-        _read(f, _field_text(cls, f), None, classes, aliases, handed_out) for f in _fields(cls)
+        _read(f, _field_text(cls, f), None, described.get(f, ''), classes, aliases, handed_out)
+        for f in _fields(cls)
     ]
     return sorted(members, key=lambda m: m.name)
 
@@ -1078,11 +1083,16 @@ def _read(
     name: str,
     text: str | None,
     function: object,
+    doc: str,
     classes: dict[str, type],
     aliases: dict[str, str],
     handed_out: frozenset[type] | None,
 ) -> WireMember:
-    """A read member, with the live object's class it leads to when it is a sub-object."""
+    """A read member, with the live object's class it leads to when it is a sub-object.
+
+    *doc* is its words: a property's docstring, a field's ``Attributes:``
+    entry; a field has no function to read them from.
+    """
     segment = _segment(text, classes) if text else None
     return WireMember(
         name,
@@ -1090,7 +1100,7 @@ def _read(
         # A sub-object is a path segment, never an answer.
         returns=() if segment is not None else outbound(text, classes, aliases),
         segment=segment,
-        doc=getattr(function, '__doc__', '') or '',
+        doc=doc,
         admitted_by=admitted_by_of(function) if function is not None else (),
         hands_out=_hands_out(text, handed_out, aliases),
         returns_job=_returns_job(text, classes, aliases),

@@ -189,6 +189,26 @@ def test_every_member_route_declares_its_answer_and_its_job(built):
     assert not wrong, '\n'.join(wrong)
 
 
+def test_every_route_is_described_in_its_own_words(built):
+    """A route's description is its member's docstring or its field's own entry.
+
+    A field has no docstring of its own: its words are its class's
+    ``Attributes:`` entry, the reference's too. Read off a function the
+    field does not have, the description was ``NoneType``'s, "The type of
+    the None singleton."
+    """
+    described, member_routes, _events, _records = built
+    borrowed = {t.__doc__ for t in (type(None), object, bool, int, float, str, dict, list, tuple)}
+    wrong = [
+        _url(route)
+        for route in member_routes
+        if _operation(described, route).get('description') in borrowed
+    ]
+    assert not wrong, '\n'.join(wrong)
+    columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
+    assert columns['description'].startswith('The columns of the steps table'), columns
+
+
 def test_a_route_that_is_not_json_declares_what_it_is(built):
     described, _routes, events, _records = built
     sent = {
