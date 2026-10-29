@@ -22,4 +22,4 @@ JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\", \"sequence_name\": \"stopped
 curl -s $API/jobs/$JOB                                      # 200: running, its progress
 # DELETE on a running job is its stop: it only asks, and the run ends on its own.
 curl -s -X DELETE $API/jobs/$JOB                            # 202
-curl -s -H 'Prefer: wait=60' $API/jobs/$JOB                 # 200: "status": "aborted", "reason": "stopped"
+curl -s -H 'Prefer: wait=60' $API/jobs/$JOB                 # 200: the job completed, its "result" the run aborted, "reason" stopped
