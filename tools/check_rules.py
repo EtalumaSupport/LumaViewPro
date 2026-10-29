@@ -29,8 +29,7 @@ Checks implemented (universal -- both repos):
                 Source-text scan (not AST), so escape sequences like
                 '\\r\\n' read as ASCII source even though the resolved
                 string value contains U+000D. File-level exempt:
-                test_check_rules*.py. Line-level exempt registry:
-                _RULE_24_LINE_EXEMPT (load-bearing literals only).
+                test_check_rules*.py.
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
     rule_27d -- same patterns as 27b but applied to docstrings
@@ -275,16 +274,6 @@ def _arg_string_constants(call: ast.Call) -> list[tuple[str, int, int]]:
     return results
 
 
-_RULE_24_LINE_EXEMPT: dict[str, frozenset[int]] = {
-    # CLI progress-bar block glyphs (U+2588 / U+2591) -- functional
-    # output; intentionally non-ASCII for terminal rendering.
-    'modules/tech_support_report.py': frozenset({2475}),
-    # Test asserts LumascopeSkills.md handles both U+2026 and '...';
-    # the unicode literal IS the test fixture, replacing it tautologizes.
-    'tests/test_audit_fixes.py': frozenset({9716}),
-}
-
-
 def _is_rule_24_exempt(path: str) -> bool:
     """File-level exempt: test files whose purpose is to construct
     synthetic non-ASCII fixtures for the rule_24 check itself. Pattern
@@ -293,11 +282,6 @@ def _is_rule_24_exempt(path: str) -> bool:
     norm = path.replace('\\', '/')
     basename = norm.rsplit('/', 1)[-1]
     return basename.startswith('test_check_rules')
-
-
-def _rule_24_line_exempt(path: str, line: int) -> bool:
-    norm = path.replace('\\', '/')
-    return line in _RULE_24_LINE_EXEMPT.get(norm, frozenset())
 
 
 def _check_rule_24(source: str, path: str) -> list[Violation]:
@@ -309,9 +293,7 @@ def _check_rule_24(source: str, path: str) -> list[Violation]:
     correctly excludes escape sequences like '\\r\\n' (the source bytes
     are ASCII even though the resolved string value contains U+000D).
 
-    Exemptions:
-      - File-level for `test_check_rules*.py` (synthetic fixtures).
-      - Line-level via `_RULE_24_LINE_EXEMPT` (load-bearing literals).
+    Exemption: file-level for `test_check_rules*.py` (synthetic fixtures).
     """
     if _is_rule_24_exempt(path):
         return []
@@ -319,8 +301,6 @@ def _check_rule_24(source: str, path: str) -> list[Violation]:
     for ln, line in enumerate(source.splitlines(), start=1):
         m = _NON_ASCII.search(line)
         if not m:
-            continue
-        if _rule_24_line_exempt(path, ln):
             continue
         ch = m.group(0)
         violations.append(
