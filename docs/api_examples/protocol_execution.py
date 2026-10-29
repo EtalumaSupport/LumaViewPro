@@ -41,14 +41,17 @@ def main():
     # The factory is the one door to a scope: it wires the simulated
     # drivers on the installation's data folder, configures the scope from
     # the settings, starts the camera feed and the executor lanes.
-    session = ScopeSession.create(settings, simulate=True)
-    try:
-        # A real script names its own folder; this one leaves nothing behind.
-        with tempfile.TemporaryDirectory() as live:
+    #
+    # A real script names its own folder; this one leaves nothing behind.
+    # The folder outlives the session: a run's result is in before its files
+    # are written, and shutdown waits for them.
+    with tempfile.TemporaryDirectory() as live:
+        session = ScopeSession.create(settings, simulate=True)
+        try:
             run_one_scan(session, live)
-    finally:
-        # The factory built the scope, so shutdown disconnects it.
-        session.shutdown()
+        finally:
+            # The factory built the scope, so shutdown disconnects it.
+            session.shutdown()
     print('Session shut down')
 
 
