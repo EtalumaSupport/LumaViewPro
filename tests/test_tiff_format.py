@@ -1008,7 +1008,7 @@ class TestAddFalseColor:
 
 
 class TestOmeMetadataReadback:
-    """read_postproc_input_metadata recovers acquisition context from an
+    """read_file_record recovers acquisition context from an
     OME-TIFF input (which carries no shaped_metadata) via the OME-XML
     fallback, instead of returning None and dropping all context on the
     derived output."""
@@ -1029,7 +1029,7 @@ class TestOmeMetadataReadback:
             assert not t.shaped_metadata, 'OME write should carry no shaped_metadata'
             assert t.ome_metadata, 'OME write should carry an OME-XML description'
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
         assert recovered is not None, 'OME-TIFF input must recover via the OME fallback'
         assert recovered['plate_pos_mm']['x'] == pytest.approx(metadata['plate_pos_mm']['x'])
         assert recovered['plate_pos_mm']['y'] == pytest.approx(metadata['plate_pos_mm']['y'])
@@ -1066,7 +1066,7 @@ class TestStructuredReadbackOptionalGainExposure:
         del md['gain_db']
         self._write(img_8bit, md, path)
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
         assert recovered is not None, (
             'A plane missing only the optional gain/exposure fields must '
             'not be discarded wholesale (positions + pixel size lost)'
@@ -1086,7 +1086,7 @@ class TestStructuredReadbackOptionalGainExposure:
         path = tmp_tiff()
         self._write(img_8bit, metadata, path)
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
         assert recovered is not None
         assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
         assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
@@ -1096,10 +1096,10 @@ class TestStructuredReadbackOptionalGainExposure:
     ):
         stated = tmp_tiff()
         self._write(img_8bit, {**metadata, 'black_level': 4.0}, stated)
-        assert image_utils.read_postproc_input_metadata(stated)['black_level'] == 4.0
+        assert image_utils.read_file_record(stated)['black_level'] == 4.0
         unstated = tmp_tiff()
         self._write(img_8bit, metadata, unstated)
-        assert 'black_level' not in image_utils.read_postproc_input_metadata(unstated)
+        assert 'black_level' not in image_utils.read_file_record(unstated)
 
 
 # Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF
@@ -1254,7 +1254,7 @@ class TestReportedDepthMatchesFile:
 
 
 class TestPostprocMetadataRoundTrip:
-    """read_postproc_input_metadata must recover acquisition context from every
+    """read_file_record must recover acquisition context from every
     container write_tiff can emit -- shaped JSON (8-bit), ImageJ (16-bit mono),
     and OME-XML. A 16-bit non-OME scan tile lands in the ImageJ container; if the
     reader cannot parse that container, pixel_size comes back None and stitching
@@ -1283,7 +1283,7 @@ class TestPostprocMetadataRoundTrip:
     def test_shaped_8bit(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         self._write(img_8bit, metadata, path, ome=False, significant_bits=8, save_encoding='8bit')
-        self._assert_full(image_utils.read_postproc_input_metadata(path))
+        self._assert_full(image_utils.read_file_record(path))
 
     def test_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
         # 16-bit mono non-OME routes through tifffile's ImageJ container -- the
@@ -1292,7 +1292,7 @@ class TestPostprocMetadataRoundTrip:
         self._write(
             img_16bit, metadata, path, ome=False, significant_bits=16, save_encoding='right_aligned'
         )
-        self._assert_full(image_utils.read_postproc_input_metadata(path))
+        self._assert_full(image_utils.read_file_record(path))
 
     def test_imagej_16bit_numpy_positions(self, img_16bit, metadata, tmp_tiff):
         # Real scan tiles keep stage positions as numpy scalars, which the ImageJ
@@ -1308,14 +1308,14 @@ class TestPostprocMetadataRoundTrip:
         self._write(
             img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'
         )
-        self._assert_full(image_utils.read_postproc_input_metadata(path))
+        self._assert_full(image_utils.read_file_record(path))
 
     def test_ome_16bit(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         self._write(
             img_16bit, metadata, path, ome=True, significant_bits=16, save_encoding='right_aligned'
         )
-        result = image_utils.read_postproc_input_metadata(path)
+        result = image_utils.read_file_record(path)
         # tifffile's auto-OME serializer keeps pixel size, positions, and channel;
         # objective is dropped (documented OME lossiness, out of scope for this fix).
         assert result is not None
@@ -1334,7 +1334,7 @@ class TestPostprocMetadataRoundTrip:
         self._write(
             img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'
         )
-        ts = image_utils.read_frame_timestamp(path)
+        ts = image_utils.load_pixels_with_timestamp(path)[3]
         assert ts == datetime.datetime.fromisoformat('2026-03-16T12:00:00')
 
 
@@ -1451,7 +1451,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
     )
 
     assert sorted(set(recorded) - set(image_utils.FILE_FACTS)) == [], 'a recorded key has no row'
-    read = image_utils.read_postproc_input_metadata(path)
+    read = image_utils.read_file_record(path)
     not_held = _NOT_IN_AN_OME_FILE if output_format == 'OME-TIFF' else set()
     lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS) - not_held)
     assert lost == [], f'recorded but not in the file: {lost}'
@@ -1499,7 +1499,7 @@ def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_laye
             save_encoding='right_aligned',
             white_bits=None,
         )
-        read = image_utils.read_postproc_input_metadata(path)
+        read = image_utils.read_file_record(path)
         lost = sorted(set(metadata) - set(read) - set(_IN_THE_FILE_AS))
         assert lost == [], f'the {name} kept but its file does not state: {lost}'
 
@@ -1520,14 +1520,14 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
         output_format='OME-TIFF',
     )
     catalogue = sim_scope.objectives['4x Oly']
-    stated = image_utils.read_postproc_input_metadata(still)['objective']
+    stated = image_utils.read_file_record(still)['objective']
     assert (stated['id'], stated['working_distance_mm']) == (
         '4x Oly',
         catalogue.working_distance_mm,
     )
     rendered = image_utils.generate_tiff_data(
         data=np.zeros((8, 8), dtype=np.uint8),
-        metadata={**image_utils.read_postproc_input_metadata(still), 'significant_bits': 8},
+        metadata={**image_utils.read_file_record(still), 'significant_bits': 8},
         image_type='ome',
         color=GREY,
         white_bits=None,
@@ -1553,7 +1553,7 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
         save_encoding='8bit',
         white_bits=None,
     )
-    assert image_utils.read_postproc_input_metadata(older)['objective'] == {
+    assert image_utils.read_file_record(older)['objective'] == {
         'numerical_aperture': 0.16,
         'working_distance_mm': 13.0,
         'depth_of_field_um': 40.0,
@@ -1629,9 +1629,7 @@ def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_s
         assert value is not None and re.fullmatch(r'\d{4}:\d\d:\d\d \d\d:\d\d:\d\d', value), (
             f'the {name} states its time as {value!r}'
         )
-    assert isinstance(
-        image_utils.read_postproc_input_metadata(derived)['datetime'], datetime.datetime
-    )
+    assert isinstance(image_utils.read_file_record(derived)['datetime'], datetime.datetime)
 
 
 # ---------------------------------------------------------------------------

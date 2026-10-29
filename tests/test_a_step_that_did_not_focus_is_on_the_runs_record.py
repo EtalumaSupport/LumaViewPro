@@ -15,7 +15,7 @@ import pytest
 
 import modules.autofocus_functions as autofocus_functions
 from modules.exceptions import AutofocusFailedError
-from modules.image_utils import read_postproc_input_metadata
+from modules.image_utils import read_file_record
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_a_late_write_records_its_frame import _step
@@ -86,7 +86,7 @@ def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
 
     def _saved(name):
         [path] = [p for p in runs.rglob('*.tiff') if name in p.name]
-        return read_postproc_input_metadata(path)
+        return read_file_record(path)
 
     assert _saved('C0')['fallback_focus'] == FLAT
     assert 'fallback_focus' not in _saved('C1')
@@ -112,7 +112,7 @@ def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_sc
     def _frames(name):
         frames = [p for p in runs.rglob('*_Frame_*.tiff') if name in p.parent.name]
         assert frames, f'step {name} wrote no frame files'
-        return [read_postproc_input_metadata(path) for path in frames]
+        return [read_file_record(path) for path in frames]
 
     assert {written.get('fallback_focus') for written in _frames('V0')} == {FLAT}
     assert all('fallback_focus' not in written for written in _frames('V1'))

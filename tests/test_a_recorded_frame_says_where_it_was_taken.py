@@ -27,7 +27,7 @@ from modules.lumascope_api.frame_record import (
     SettingSource,
     TimestampSource,
 )
-from modules.image_utils import read_postproc_input_metadata
+from modules.image_utils import read_file_record
 from modules.recording_frames import (
     CameraTickRebaser,
     FrameFact,
@@ -266,7 +266,7 @@ def _written(scope, tmp_path, arrived, *, frame_number=0):
         channel_colors=release_colors(),
         save_encoding='8bit',
     )
-    return read_postproc_input_metadata(path)
+    return read_file_record(path)
 
 
 class TestTheLight:
@@ -461,7 +461,7 @@ class TestARecordingOnTheSimulator:
             p for p in folder.glob('ManualVideo_Frame_*.tiff') if 'HyperStack' not in p.name
         )
         assert frames
-        written = read_postproc_input_metadata(frames[0])
+        written = read_file_record(frames[0])
         assert written['channel'] == LED1
         assert written['exposure_time_ms'] > 0 and 'gain_db' in written
         assert written['objective'] == objective

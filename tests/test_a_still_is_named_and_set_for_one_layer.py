@@ -143,7 +143,7 @@ def test_a_raw_camera_write_stands_and_the_record_says_no_layer(session):
 def test_the_saved_file_states_the_layer_the_camera_held(session):
     """The file, not only the frame's record: a reader of the image knows
     whether its settings were a layer's, and whose."""
-    from modules.image_utils import read_postproc_input_metadata
+    from modules.image_utils import read_file_record
 
     session.scope.illumination.led_on(LED0, 100.0)
     held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
@@ -151,8 +151,8 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     session.scope.camera.set_exposure_ms(30.0)
     raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
 
-    held_saved = read_postproc_input_metadata(held)
-    raw_saved = read_postproc_input_metadata(raw)
+    held_saved = read_file_record(held)
+    raw_saved = read_file_record(raw)
     assert (held_saved.get('camera_held_a_channel'), held_saved.get('camera_held_channel')) == (
         True,
         LED0,
@@ -164,27 +164,27 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
 
 
 def test_a_still_two_leds_lit_is_named_for_the_first_and_its_file_states_both(session):
-    from modules.image_utils import read_postproc_input_metadata
+    from modules.image_utils import read_file_record
 
     session.scope.illumination.led_on(LED0, 100.0)
     session.scope.illumination.led_on(LED1, 50.0)
 
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
-    saved = read_postproc_input_metadata(still.file)
+    saved = read_file_record(still.file)
     assert f'_{LED0}_' in still.file.name, 'the first lit LED in address order names it'
     assert saved.get('illumination_by_channel_ma') == {LED0: 100.0, LED1: 50.0}, saved
     assert saved.get('illumination_ma') == 100.0, 'Illumination is the named channel alone'
 
 
 def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
-    from modules.image_utils import read_postproc_input_metadata
+    from modules.image_utils import read_file_record
 
     session.scope.illumination.led_on(LED1, 75.0)
 
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
-    saved = read_postproc_input_metadata(still.file)
+    saved = read_file_record(still.file)
     assert saved.get('illumination_by_channel_ma') == {LED1: 75.0}, saved
     assert saved.get('illumination_ma') == 75.0
 
@@ -192,14 +192,14 @@ def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
 def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
     """The board takes 0 mA as off, and so does the frame's record: the
     still is named for the LED that lit it, which its file states."""
-    from modules.image_utils import read_postproc_input_metadata
+    from modules.image_utils import read_file_record
 
     session.scope.illumination.led_on(LED0, 0.0)
     session.scope.illumination.led_on(LED1, 100.0)
 
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
-    saved = read_postproc_input_metadata(still.file)
+    saved = read_file_record(still.file)
     assert f'_{LED1}_' in still.file.name, still.file.name
     assert saved.get('channel') == LED1
     assert saved.get('illumination_by_channel_ma') == {LED1: 100.0}, saved

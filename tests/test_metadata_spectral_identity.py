@@ -159,7 +159,7 @@ class TestWrittenFileRoundTrip:
     def test_16bit_imagej_tile_round_trips_the_trio(self, metadata_scope, tmp_path):
         metadata = _metadata(metadata_scope, LED1)
         path = self._write_tile(tmp_path, metadata, ome=False)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
         assert back['channel'] == LED1
         assert back['channel_display'] == '488 nm'
@@ -176,7 +176,7 @@ class TestWrittenFileRoundTrip:
         # shaped container above is the primary still path and lossless.
         metadata = _metadata(metadata_scope, LED1)
         path = self._write_tile(tmp_path, metadata, ome=True)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
         assert back['channel'] == LED1
         assert back['excitation_nm'] == 488.0
@@ -191,7 +191,7 @@ class TestWrittenFileRoundTrip:
         metadata = _metadata(metadata_scope, LED1)
         assert 'illumination_ma' not in metadata
         path = self._write_tile(tmp_path, metadata, ome=False)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
         assert back['plate_pos_mm'] is not None
         assert 'illumination_ma' not in back
@@ -199,7 +199,7 @@ class TestWrittenFileRoundTrip:
     def test_lit_capture_round_trips_illumination(self, metadata_scope, tmp_path):
         metadata = _metadata(metadata_scope, LED1, lit={_GREEN.led_addresses[0]: 55.0})
         path = self._write_tile(tmp_path, metadata, ome=False)
-        back = image_utils.read_postproc_input_metadata(path)
+        back = image_utils.read_file_record(path)
         assert back is not None
         assert back['illumination_ma'] == pytest.approx(55.0)
 

@@ -1437,10 +1437,10 @@ class TestEachFrameRecordsItsOwnMoment:
 
     @staticmethod
     def _described_frames(tmp_path):
-        from modules.image_utils import read_postproc_input_metadata
+        from modules.image_utils import read_file_record
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
-        described = [read_postproc_input_metadata(path) for path in folder.glob('*.tiff')]
+        described = [read_file_record(path) for path in folder.glob('*.tiff')]
         return sorted(described, key=lambda d: d['recording_frame'])
 
     def test_a_stage_move_between_frames_is_in_each_frames_file(self, tmp_path):

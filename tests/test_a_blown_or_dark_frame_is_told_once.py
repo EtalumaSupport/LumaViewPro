@@ -160,7 +160,7 @@ def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
 
 
 def test_a_saved_file_states_what_its_frame_was(tmp_path, monkeypatch):
-    from modules.image_utils import read_postproc_input_metadata
+    from modules.image_utils import read_file_record
     from tests.test_manual_capture_member import _files, _open_session, _settings
 
     with _open_session(_settings(tmp_path)) as session:
@@ -169,5 +169,5 @@ def test_a_saved_file_states_what_its_frame_was(tmp_path, monkeypatch):
         _frames_made(monkeypatch, session.scope._camera_driver, _dark)
         paths = _files(session)
 
-    saved = read_postproc_input_metadata(paths[0])
+    saved = read_file_record(paths[0])
     assert (saved.get('dark'), saved.get('saturated_fraction')) == (True, 0.0), saved

@@ -30,7 +30,7 @@ from modules.exceptions import (
     LaneCallStillRunningError,
 )
 from modules.image_mode import OutputFormat
-from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
+from modules.image_utils import read_file_record, read_tiff_with_legacy_collapse
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
@@ -164,7 +164,7 @@ class TestWhereTheFileLands:
         (path,) = _files(session)
 
         assert f'_{LED0}_' in path.name
-        assert read_postproc_input_metadata(path)['channel'] == LED0
+        assert read_file_record(path)['channel'] == LED0
 
     def test_a_lit_led_outranks_the_shown_channel(self, still_session):
         session, _ = still_session
@@ -174,7 +174,7 @@ class TestWhereTheFileLands:
         (path,) = _files(session)
 
         assert f'_{LED1}_' in path.name
-        assert read_postproc_input_metadata(path)['channel'] == LED1
+        assert read_file_record(path)['channel'] == LED1
 
     def test_a_second_still_takes_the_next_number(self, still_session):
         session, _ = still_session
@@ -423,7 +423,7 @@ class TestTheRecordIsTheCapturesMoment:
         path = still.file
         writer.join(RESULT_TIMEOUT_S)
 
-        assert read_postproc_input_metadata(path)['gain_db'] == pytest.approx(1.0)
+        assert read_file_record(path)['gain_db'] == pytest.approx(1.0)
 
 
 class TestTheStillIsMadeAfterThePendingWrites:

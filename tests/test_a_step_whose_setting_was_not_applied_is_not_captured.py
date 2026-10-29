@@ -24,7 +24,7 @@ which in a run with no live-view arm is its first step's.
 
 import pathlib
 
-from modules.image_utils import read_postproc_input_metadata
+from modules.image_utils import read_file_record
 from modules.notification_center import Severity
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
@@ -80,7 +80,7 @@ def test_a_manual_step_writes_its_gain_and_exposure_and_no_auto_gain_mode(tmp_pa
     assert (outcome.status, outcome.captures.captured) == ('completed', 2), outcome
     taken = {}
     for path in (tmp_path / 'runs').rglob('*.tiff'):
-        metadata = read_postproc_input_metadata(path) or {}
+        metadata = read_file_record(path) or {}
         taken[path.name.split('_')[0]] = (metadata.get('gain_db'), metadata.get('exposure_time_ms'))
     assert taken == {'C0': (3.0, 10.0), 'C1': (5.0, 10.0)}
 

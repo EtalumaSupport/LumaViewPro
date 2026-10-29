@@ -117,28 +117,28 @@ def _make_manual_folder(scope, tmp_path, n_frames=3, include_hyperstack=True, ch
 
 
 # ---------------------------------------------------------------------------
-# read_frame_timestamp -- recovers the per-frame time from each metadata shape
+# A frame's time, as Create Video reads it, from each metadata shape
 # ---------------------------------------------------------------------------
 
 
-def test_read_frame_timestamp_manual_iso(sim_scope, tmp_path):
+def test_a_frames_time_reads_manual_iso(sim_scope, tmp_path):
     file_loc, ts = _write_manual_frame(sim_scope, tmp_path, 0)
-    assert image_utils.read_frame_timestamp(file_loc) == ts
+    assert image_utils.load_pixels_with_timestamp(file_loc)[3] == ts
 
 
-def test_read_frame_timestamp_protocol_video_no_iso(tmp_path):
+def test_a_frames_time_reads_protocol_video_no_iso(tmp_path):
     # Protocol video-step frames written before the shared writer carry
     # 'timestamp' / 'datetime' but no iso key.
     file_loc, ts = _write_legacy_protocol_frame(tmp_path, 7)
-    recovered = image_utils.read_frame_timestamp(file_loc)
+    recovered = image_utils.load_pixels_with_timestamp(file_loc)[3]
     # 'timestamp' is microsecond precision; the recovered value matches exactly.
     assert recovered == ts
 
 
-def test_read_frame_timestamp_no_metadata_returns_none(tmp_path):
+def test_a_frames_time_reads_no_metadata_returns_none(tmp_path):
     bare = tmp_path / 'bare.tiff'
     tf.imwrite(str(bare), np.zeros((8, 8), dtype=np.uint16))
-    assert image_utils.read_frame_timestamp(bare) is None
+    assert image_utils.load_pixels_with_timestamp(bare)[3] is None
 
 
 # ---------------------------------------------------------------------------

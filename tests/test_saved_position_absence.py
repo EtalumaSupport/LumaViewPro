@@ -154,7 +154,7 @@ class TestAFileWithNoPositionIsStillReadable:
         pixel size of 1.0 -- a scale, measured off the derived output forever."""
         path = _save(positioned_scope, tmp_path)
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
 
         assert recovered is not None, (
             'a file that honestly states no position was discarded entirely'
@@ -170,7 +170,7 @@ class TestAFileWithNoPositionIsStillReadable:
             positioned_scope, tmp_path, plate_x_mm=15.38, plate_y_mm=11.24, stage_z_um=4950.0
         )
 
-        recovered = image_utils.read_postproc_input_metadata(path)
+        recovered = image_utils.read_file_record(path)
 
         assert recovered['plate_pos_mm']['x'] == pytest.approx(15.38)
         assert recovered['plate_pos_mm']['y'] == pytest.approx(11.24)

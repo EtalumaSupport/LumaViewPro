@@ -60,7 +60,7 @@ def test_an_input_with_no_metadata_gives_an_output_that_claims_nothing(tmp_path)
     out = _write(tmp_path / 'enhanced.tiff', metadata)
     assert image_utils.read_pixel_size_um(out) is None
     assert _resolution_unit(out) == tf.RESUNIT.NONE
-    back = image_utils.read_postproc_input_metadata(out)
+    back = image_utils.read_file_record(out)
     for field in _ACQUISITION_FIELDS:
         assert field not in back
 
@@ -82,7 +82,7 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
         },
     )
 
-    back = image_utils.read_postproc_input_metadata(capture)
+    back = image_utils.read_file_record(capture)
 
     assert back is not None, 'a capture with no scale was read as having no metadata (#810)'
     assert back['pixel_size_um'] is None
@@ -107,7 +107,7 @@ def test_an_ome_input_states_only_what_its_xml_carries():
         '</Pixels></Image></OME>'
     )
 
-    back = image_utils._read_ome_input_metadata(ome, None)
+    back = image_utils._read_ome_input_metadata(ome)
 
     assert back['pixel_size_um'] is None
     for field in _ACQUISITION_FIELDS:
@@ -121,7 +121,7 @@ def test_an_ome_input_keeps_the_scale_and_exposure_it_states():
         '</Pixels></Image></OME>'
     )
 
-    back = image_utils._read_ome_input_metadata(ome, None)
+    back = image_utils._read_ome_input_metadata(ome)
 
     assert back['pixel_size_um'] == 0.65
     assert back['exposure_time_ms'] == 50.0
@@ -171,7 +171,7 @@ def test_an_ome_file_stating_a_zero_scale_reads_as_no_scale(tmp_path):
         },
     )
 
-    back = image_utils.read_postproc_input_metadata(path)
+    back = image_utils.read_file_record(path)
 
     assert back['pixel_size_um'] is None
     assert back['exposure_time_ms'] == 5.0

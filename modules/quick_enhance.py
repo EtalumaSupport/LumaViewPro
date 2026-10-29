@@ -98,7 +98,7 @@ class QuickEnhancer:
         source_pixels: np.ndarray | None = None,
         source_metadata: dict | None = None,
     ) -> str | None:
-        metadata = source_metadata or image_utils.read_postproc_input_metadata(source_path) or {}
+        metadata = source_metadata or image_utils.read_file_record(source_path) or {}
         channel = metadata.get('channel')
         if isinstance(channel, str) and channel:
             return channel
@@ -372,7 +372,7 @@ class QuickEnhancer:
         temp_output = output_path.with_name(f'.{output_path.stem}.{uuid.uuid4().hex}.tmp.tif')
         temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
         try:
-            source_metadata = image_utils.read_postproc_input_metadata(source_path) or {}
+            source_metadata = image_utils.read_file_record(source_path) or {}
             channel = str(
                 self._source_channel(
                     source_path,

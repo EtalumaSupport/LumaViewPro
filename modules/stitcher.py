@@ -130,7 +130,7 @@ class Stitcher(ProtocolPostProcessor):
         # the objective focal length hardcoded binning_size=1, so a binned
         # (2x/4x) capture got half/quarter the true scale -- doubling the tile
         # pixel spacing and pulling the registered montage apart.
-        first_tile_meta = image_utils.read_postproc_input_metadata(path / df.iloc[0]['Filepath'])
+        first_tile_meta = image_utils.read_file_record(path / df.iloc[0]['Filepath'])
         pixel_size_um = first_tile_meta['pixel_size_um'] if first_tile_meta else None
         if pixel_size_um is None or pixel_size_um <= 0:
             # No PhysicalSizeX on the tiles (older / third-party / pre-metadata

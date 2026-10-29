@@ -325,7 +325,7 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
         white_bits=None,
     )
 
-    saved = image_utils.read_postproc_input_metadata(path)
+    saved = image_utils.read_file_record(path)
 
     assert saved['frame_validity'] == [j.fields() for j in record.judgments]
     assert _judgment(record, 'exposure').counts
@@ -363,7 +363,7 @@ def test_a_full_depth_file_carries_the_judgments_as_plain_words(sim_scope, tmp_p
         white_bits=None,
     )
 
-    saved = image_utils.read_postproc_input_metadata(path)
+    saved = image_utils.read_file_record(path)
 
     assert saved['frame_validity'] == [j.fields() for j in record.judgments]
     assert {type(j['source']) for j in saved['frame_validity']} == {str}

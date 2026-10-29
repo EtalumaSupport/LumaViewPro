@@ -741,7 +741,7 @@ def load_pixels_with_timestamp(
     timestamp is None.
 
     See load_pixels for the pixel + depth + white contract (the three are
-    identical to what load_pixels returns) and read_frame_timestamp for the
+    identical to what load_pixels returns) and read_file_record for the
     metadata shapes the timestamp is recovered from.
 
     Returns:
@@ -791,10 +791,7 @@ def _load_pixels_and_timestamp(
             sig = _significant_bits_from_open(tif)
             white = _white_bits_from_open(tif)
             if read_timestamp:
-                try:
-                    timestamp = _timestamp_from_structured(_structured_metadata(tif))
-                except Exception:
-                    timestamp = None
+                timestamp = _frame_time(_record_from_open(tif))
         if collapse_legacy_false_color:
             image = _collapse_legacy_false_color(image, path)
         # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
@@ -955,7 +952,7 @@ def summed_full_scale(frames_summed: int, frame_bits: int) -> int:
     return min(frames_summed * ((1 << frame_bits) - 1), int(np.iinfo(np.uint16).max))
 
 
-def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
+def _read_ome_input_metadata(ome_xml: str) -> dict | None:
     """Recover the flat metadata dict from a tifffile-auto-OME description.
 
     The Plane is the schema's Plane attributes (the position and the exposure)
@@ -968,9 +965,10 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     does a file written before the annotation state its Plane's other facts:
     a derived output states only what its input did. Returns None on a parse
     failure, an annotated value that is not JSON among them, or when there is
-    no Pixels / Plane element to read at all. A Plane that simply states no
-    position is NOT a parse failure: the position is optional here because it
-    is optional at the writer.
+    no Pixels element to read at all. tifffile writes no Plane element when
+    the frame states none of its schema attributes (no position, no
+    exposure), and the scale, the channel and the annotation are read all the
+    same.
     """
     try:
         root = ET.fromstring(ome_xml)
@@ -990,8 +988,6 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
         return None
     plane = next((el for el in pixels if _local(el.tag) == 'Plane'), None)
     channel = next((el for el in pixels if _local(el.tag) == 'Channel'), None)
-    if plane is None:
-        return None
 
     def _float(attrs: dict, key: str):
         raw = attrs.get(key)
@@ -1001,7 +997,9 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
             return None
 
     plane_block = {
-        key: value for key in _OME_PLANE_VALUES if (value := _float(plane.attrib, key)) is not None
+        key: value
+        for key in _OME_PLANE_VALUES
+        if plane is not None and (value := _float(plane.attrib, key)) is not None
     }
     referenced = {el.get('ID') for el in image if _local(el.tag) == 'AnnotationRef'}
     for annotation in root.iter():
@@ -1020,7 +1018,7 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
                 return None
 
     # The scale is a hard key whose None the writer reads as no PhysicalSize.
-    flat: dict = {'pixel_size_um': _float(pixels.attrib, 'PhysicalSizeX')}
+    flat: dict = {'pixel_size_um': _stated_scale(_float(pixels.attrib, 'PhysicalSizeX'))}
     flat |= _plane_facts(plane_block)
     if channel is not None and channel.attrib.get('Name'):
         flat['channel'] = channel.attrib['Name']
@@ -1030,8 +1028,6 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
         excitation = _float(channel.attrib, 'ExcitationWavelength')
         if excitation is not None:
             flat['excitation_nm'] = excitation
-    if datetime_value is not None:
-        flat['datetime'] = datetime_value
     return flat
 
 
@@ -1125,48 +1121,66 @@ def _structured_metadata(tif: 'tf.TiffFile') -> dict | None:
     return None
 
 
-def read_pixel_size_um(path: pathlib.Path) -> float | None:
-    """Image scale from one TIFF, in um/pixel, or None if it declares none.
+def read_file_record(path: pathlib.Path) -> dict | None:
+    """A saved frame's record, read from its file whatever container holds it.
 
-    Separate from read_postproc_input_metadata because scale is its own
-    question: that reader rebuilds the full acquisition context and returns
-    None for any file without an OME Plane block, which is every video frame.
-    A consumer that needs only the scale should not be denied it because the
-    file carries no stage position.
+    The one reader of a saved file's record, for every consumer: a shaped
+    (8-bit, colour) or ImageJ (16-bit mono) TIFF's structured block, an OME
+    TIFF's schema attributes with its LVP MapAnnotation, and every recorded
+    frame LVP has shipped (v2.3 to v4.0.0-beta30 wrote a flat dict), each
+    read into the record's keys (``FILE_FACTS``), so a fact a file states is
+    found whichever container it landed in. A PNG or JPEG carries no record.
 
-    Reads the value the writer stored rather than inverting the TIFF
-    resolution tag: the stored number is what LVP measured, and the tag is a
-    derived encoding of it for external readers.
+    Returns:
+        The record, as ``write_tiff``'s ``metadata`` names its facts, or
+        None when the file opens and carries no LVP record (a bare
+        ``tifffile.imwrite``, another producer's file, a PNG). A scale the
+        file does not state reads back as ``pixel_size_um`` None.
 
-    Args:
-        path: TIFF to read.
+    Raises:
+        InputFramesUnusableError: ``'unreadable'``, the path does not exist
+            or the file cannot be opened or decoded (a ValueError).
     """
-    try:
-        with tf.TiffFile(str(path)) as tif:
-            structured = _structured_metadata(tif)
-            ome_xml = tif.ome_metadata
-    except Exception:
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise _unreadable(path, 'no such file')
+    if not is_tiff(path):
         return None
-    return _stated_pixel_size_um(structured, ome_xml)
+    with _open_saved_tiff(path) as tif:
+        return _record_from_open(tif)
 
 
-def _stated_pixel_size_um(structured: dict | None, ome_xml: str | None) -> float | None:
-    """The scale a file states, in um/pixel, or None when it states none.
+def _record_from_open(tif: 'tf.TiffFile') -> dict | None:
+    """The record one open TIFF states, or None when it states none.
 
-    The one reading of a file's scale, for every reader. The writer omits
-    PhysicalSizeX when it measured no scale, so a file without one is a file
-    saying "no scale", and None is how the metadata dict says the same:
-    write_tiff takes it as no PhysicalSize and no absolute resolution unit.
+    Split out from read_file_record so a reader that decodes the pixels reads
+    the record from the same handle instead of opening the file twice.
     """
-    stated = None
-    if structured is not None:
-        # Stills serialize the OME spelling; video frames pass the flat dict
-        # through untouched, so the same fact arrives under either name.
-        stated = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
-    elif ome_xml:
-        flat = _read_ome_input_metadata(ome_xml, None)
-        stated = flat['pixel_size_um'] if flat else None
+    structured = _structured_metadata(tif)
+    if structured is not None and 'Plane' in structured:
+        record = _structured_record(structured)
+    elif structured is not None:
+        record = _legacy_frame_record(structured)
+    elif tif.ome_metadata:
+        record = _read_ome_input_metadata(tif.ome_metadata)
+    else:
+        record = None
+    tag = tif.pages[0].tags.get('DateTime')
+    if record is not None and tag is not None:
+        stated = _parsed_tiff_datetime(tag.value)
+        if stated is not None:
+            record['datetime'] = stated
+    return record
 
+
+def _stated_scale(stated) -> float | None:
+    """A file's scale, in um/pixel, or None when it states none.
+
+    The writer omits PhysicalSizeX when it measured no scale, so a file
+    without one is a file saying "no scale", and None is how the record says
+    the same: write_tiff takes it as no PhysicalSize and no absolute
+    resolution unit.
+    """
     if stated is None:
         return None
     stated = float(stated)
@@ -1175,67 +1189,21 @@ def _stated_pixel_size_um(structured: dict | None, ome_xml: str | None) -> float
     return stated if stated > 0 else None
 
 
-def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
-    """Reverse the write_tiff metadata serialization for one input TIFF.
+def _structured_record(structured: dict) -> dict | None:
+    """The record a shaped or ImageJ structured block states.
 
-    Reads a TIFF written by ``write_tiff`` and reconstructs the flat
-    metadata dict that the caller originally passed in. Used by
-    post-processing modules (stitcher, zprojector) to propagate
-    acquisition context from inputs to derived outputs.
-
-    Returns None when the input has no recoverable structured metadata
-    (bare ``tifffile.imwrite`` outputs that carry only ``{'shape': ...}``,
-    or files written by a non-LumaViewPro pipeline). Returns None on any
-    parse failure, and the caller's output then states nothing it read.
-    A scale the input does not state reads back as ``pixel_size_um`` None.
-
-    Args:
-        path: TIFF file path.
-
-    Returns:
-        Flat dict matching ``write_tiff``'s ``metadata`` parameter shape,
-        or None if the input carries no structured metadata.
+    None when the block lacks the channel every LVP still names (another
+    producer's file, or a non-acquisition frame type): the derived output then
+    states nothing it read.
     """
     try:
-        with tf.TiffFile(str(path)) as tif:
-            structured = _structured_metadata(tif)
-            ome_xml = tif.ome_metadata
-            datetime_tag = tif.pages[0].tags.get('DateTime')
-            datetime_value = _parsed_tiff_datetime(datetime_tag.value) if datetime_tag else None
-    except Exception:
-        return None
-
-    if structured is None:
-        # No shaped or ImageJ structured block: an OME-only tile carries its
-        # context in the auto-OME ImageDescription XML instead. Recover what
-        # tifffile's serializer preserved so an OME tile still forwards
-        # acquisition context to derived outputs.
-        if not ome_xml:
-            return None
-        flat = _read_ome_input_metadata(ome_xml, datetime_value)
-        if flat is not None:
-            flat['pixel_size_um'] = _stated_pixel_size_um(None, ome_xml)
-        return flat
-    if 'Plane' not in structured:
-        # Bare tifffile.imwrite (only carries 'shape') or other non-LVP
-        # producer; no acquisition context to forward.
-        return None
-
-    try:
         flat: dict = {
-            'pixel_size_um': _stated_pixel_size_um(structured, None),
+            'pixel_size_um': _stated_scale(structured.get('PhysicalSizeX')),
             'channel': structured['Channel']['Name'][0],
         }
     except (KeyError, IndexError, TypeError):
-        # Structured TIFF present but missing required acquisition keys
-        # (older LVP file, third-party producer, or a non-acquisition
-        # frame type); the derived output then states nothing it read,
-        # rather than crashing the post-processing job, per this
-        # function's documented contract.
         return None
     flat |= _plane_facts(structured['Plane'])
-    if datetime_value is not None:
-        flat['datetime'] = datetime_value
 
     # Spectral identity, written by the same producer: per-channel fields
     # from the Channel block, the unit-level filterset from its own key.
@@ -1277,6 +1245,59 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     return flat
 
 
+# A recorded frame's flat dict before a recorded frame was written as a still
+# is: v2.3 and v3.0.0 wrote ``timestamp`` (with microseconds) and
+# ``frame_num``; v4.0.0-beta29 and beta30 added ``timestamp_iso``, the scale
+# and the camera's ticks and frame id. Each key as the record names it.
+_LEGACY_FRAME_KEYS = {
+    'frame_num': 'recording_frame',
+    'timestamp_iso': 'timestamp_iso',
+    'timestamp_camera_ticks': 'timestamp_camera_ticks',
+    'timestamp_camera_tick_hz': 'timestamp_camera_tick_hz',
+    'frame_id': 'frame_id',
+}
+_LEGACY_FRAME_TIMESTAMP = '%Y:%m:%d %H:%M:%S.%f'
+
+
+def _legacy_frame_record(flat: dict) -> dict | None:
+    """The record a recorded frame written before v4.0.0-beta31 states, or None
+    when the flat dict is no recorded frame's (a bare tifffile.imwrite's
+    ``{'shape': ...}``)."""
+    record = {
+        key: flat[legacy]
+        for legacy, key in _LEGACY_FRAME_KEYS.items()
+        if flat.get(legacy) is not None
+    }
+    if 'timestamp_iso' not in record and flat.get('timestamp'):
+        record['timestamp_iso'] = datetime.datetime.strptime(
+            flat['timestamp'], _LEGACY_FRAME_TIMESTAMP
+        ).isoformat(timespec='microseconds')
+    if not record:
+        return None
+    record['pixel_size_um'] = _stated_scale(flat.get('pixel_size_um'))
+    return record
+
+
+def read_pixel_size_um(path: pathlib.Path) -> float | None:
+    """A saved file's scale, in um/pixel, or None when it states none.
+
+    Reads the value the writer stored rather than inverting the TIFF
+    resolution tag: the stored number is what LVP measured, and the tag is a
+    derived encoding of it for external readers.
+
+    Raises:
+        InputFramesUnusableError: ``'unreadable'``, as read_file_record.
+    """
+    record = read_file_record(path)
+    return record.get('pixel_size_um') if record is not None else None
+
+
+def _frame_time(record: dict | None) -> datetime.datetime | None:
+    """The time a record states its frame was taken, or None when it states none."""
+    stated = record.get('timestamp_iso') if record is not None else None
+    return datetime.datetime.fromisoformat(stated) if stated else None
+
+
 def _parsed_tiff_datetime(stated: str) -> datetime.datetime | None:
     """The time a file's DateTime tag states, or None when it states none LVP can read.
 
@@ -1299,84 +1320,14 @@ def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.da
 
     One open serves both facts; the pixel data is never decoded, so a
     pre-scan over hundreds of recorded frames costs one IFD parse each.
-    See read_tiff_significant_bits for the depth resolution order and
-    read_frame_timestamp for the timestamp metadata shapes. The timestamp
-    is None when the file carries no readable capture time (both helpers
-    resolve absent / unparseable metadata to None by contract).
+    See read_tiff_significant_bits for the depth resolution order. The
+    timestamp is the record's (read_file_record), None when the file states
+    no capture time.
     """
     with _open_saved_tiff(path) as tif:
         sig = _significant_bits_from_open(tif)
-        timestamp = _timestamp_from_structured(_structured_metadata(tif))
+        timestamp = _frame_time(_record_from_open(tif))
     return sig, timestamp
-
-
-def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
-    """Recover the per-frame capture timestamp from one recorded TIFF.
-
-    Used by the video builder to draw a per-frame timestamp overlay at
-    build time instead of burning it into the pixels at capture time, so
-    the Create-Video timestamp toggle controls whether the timestamp
-    appears. Tolerates the differing metadata shapes the capture paths
-    write:
-
-    - manual "Frames" recordings carry a flat ``timestamp_iso`` key;
-    - protocol video-step frames carry a flat ``timestamp`` (and
-      ``datetime``) key in ``%Y:%m:%d %H:%M:%S.%f`` form;
-    - protocol scan images carry the timestamp under ``Plane.Timestamp``
-      (ISO) in the structured metadata.
-
-    Args:
-        path: TIFF file path.
-
-    Returns:
-        The frame's capture time, or None when no readable timestamp is
-        present (caller falls back to its own source or skips the overlay).
-    """
-    try:
-        with tf.TiffFile(str(path)) as tif:
-            structured = _structured_metadata(tif)
-    except Exception:
-        return None
-
-    return _timestamp_from_structured(structured)
-
-
-def _timestamp_from_structured(structured) -> datetime.datetime | None:
-    """Recover a per-frame capture time from a resolved structured metadata dict.
-
-    Split out from read_frame_timestamp so the video loader can recover the
-    timestamp from the same handle it decodes the pixels with, instead of
-    opening the file a second time. See read_frame_timestamp for the metadata
-    shapes and the ISO -> capture-format resolution order. Takes the dict
-    resolved by _structured_metadata (shaped or ImageJ container) so a 16-bit
-    ImageJ tile forwards its timestamp the same as an 8-bit shaped tile.
-    """
-    if not structured:
-        return None
-
-    # Structured scan images nest the timestamp under Plane; frame
-    # recordings keep a flat dict. Check both, ISO first then the
-    # colon-separated capture format.
-    candidates = []
-    plane = structured.get('Plane') if isinstance(structured, dict) else None
-    if isinstance(plane, dict) and plane.get('Timestamp'):
-        candidates.append(('iso', plane['Timestamp']))
-    if structured.get('timestamp_iso'):
-        candidates.append(('iso', structured['timestamp_iso']))
-    if structured.get('timestamp'):
-        candidates.append(('%Y:%m:%d %H:%M:%S.%f', structured['timestamp']))
-    if structured.get('datetime'):
-        candidates.append(('%Y:%m:%d %H:%M:%S', structured['datetime']))
-
-    for fmt, value in candidates:
-        try:
-            if fmt == 'iso':
-                return datetime.datetime.fromisoformat(value)
-            return datetime.datetime.strptime(value, fmt)
-        except (ValueError, TypeError):
-            continue
-
-    return None
 
 
 def build_postproc_output_metadata(
@@ -1434,7 +1385,7 @@ def build_postproc_output_metadata(
         Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
     """
     # An input with no record gives the writer's hard key in its "none" form.
-    read = read_postproc_input_metadata(input_path) or {'pixel_size_um': None}
+    read = read_file_record(input_path) or {'pixel_size_um': None}
     # A layer's settings travel only while the layer does: a derived output
     # on another channel (a composite) must not pair another layer's
     # exposure, light or display name with its own channel.
@@ -1616,7 +1567,7 @@ def build_hyperstack_output_metadata(
     Returns:
         OME-shaped metadata dict; pass to ``tf.imwrite(..., metadata=)``.
     """
-    inflat = read_postproc_input_metadata(reference_input_path) or {}
+    inflat = read_file_record(reference_input_path) or {}
 
     num_planes = len(plane_positions['PositionX'])
 

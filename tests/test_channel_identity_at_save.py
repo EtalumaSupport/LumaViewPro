@@ -449,7 +449,7 @@ def test_video_frame_render_colour_cannot_reach_an_identity_field(sim_scope, tmp
             false_color_on=false_color_on,
             save_encoding='right_aligned',
         )
-        written = image_utils.read_postproc_input_metadata(path)
+        written = image_utils.read_file_record(path)
         stated[false_color_on] = (written['channel'], written.get('channel_display'))
 
     assert stated[True] == stated[False]

@@ -130,12 +130,8 @@ def test_the_ome_file_keeps_the_plane_an_imagej_file_keeps(tmp_path):
 
 def test_lvp_reads_an_ome_file_as_it_reads_an_imagej_file(tmp_path):
     metadata = _every_plane_field()
-    ome = image_utils.read_postproc_input_metadata(
-        _write(tmp_path / 'frame.ome.tiff', metadata, ome=True)
-    )
-    imagej = image_utils.read_postproc_input_metadata(
-        _write(tmp_path / 'frame.tiff', metadata, ome=False)
-    )
+    ome = image_utils.read_file_record(_write(tmp_path / 'frame.ome.tiff', metadata, ome=True))
+    imagej = image_utils.read_file_record(_write(tmp_path / 'frame.tiff', metadata, ome=False))
 
     assert ome == imagej
     assert ome['frames_summed'] == 4
@@ -150,9 +146,7 @@ def test_a_numpy_value_is_kept_as_its_number(tmp_path):
         'dark': np.bool_(False),
         'saturated_fraction': np.float32(0.5),
     }
-    back = image_utils.read_postproc_input_metadata(
-        _write(tmp_path / 'frame.ome.tiff', metadata, ome=True)
-    )
+    back = image_utils.read_file_record(_write(tmp_path / 'frame.ome.tiff', metadata, ome=True))
 
     assert (back['frames_summed'], back['dark'], back['saturated_fraction']) == (4, False, 0.5)
 
@@ -170,4 +164,4 @@ def test_an_ome_file_whose_annotation_will_not_parse_states_nothing(tmp_path):
         },
     )
 
-    assert image_utils.read_postproc_input_metadata(path) is None
+    assert image_utils.read_file_record(path) is None

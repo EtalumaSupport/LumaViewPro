@@ -301,7 +301,7 @@ def test_composite_tiff_stays_rgb_and_retains_composite_channel_metadata(tmp_pat
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
     output, significant_bits, _ = image_utils.load_pixels(exported['output_path'])
-    metadata = image_utils.read_postproc_input_metadata(exported['output_path'])
+    metadata = image_utils.read_file_record(exported['output_path'])
 
     assert output.shape == source_data.shape
     assert output.dtype == np.uint16
@@ -379,7 +379,7 @@ def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     output, significant_bits, _ = image_utils.load_pixels(
         first['output_path'], collapse_legacy_false_color=False
     )
-    metadata = image_utils.read_postproc_input_metadata(first['output_path'])
+    metadata = image_utils.read_file_record(first['output_path'])
 
     assert output.shape == (8, 8, 3)
     assert output.dtype == np.uint16
@@ -403,7 +403,7 @@ def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_pa
     output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
-    metadata = image_utils.read_postproc_input_metadata(exported['output_path'])
+    metadata = image_utils.read_file_record(exported['output_path'])
 
     assert source.read_bytes() == original
     assert output.shape == source_data.shape

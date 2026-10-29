@@ -26,10 +26,9 @@ import threading
 import time
 import traceback
 
-import tifffile
-
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report, void
+from modules.image_utils import read_file_record
 from tests.stock_channels import LED0
 
 # A camera writes exposure in its own steps and reads gain back in its own;
@@ -41,13 +40,6 @@ TRAVEL_UM = 5000.0
 TRAVEL_DELAYS_S = (0.0, 0.05, 0.15)
 
 
-def _file_record(path):
-    from modules.image_utils import _structured_metadata
-
-    with tifffile.TiffFile(str(path)) as tif:
-        return _structured_metadata(tif)
-
-
 def _still(session):
     stills = session.manual_capture.capture(false_color_on=False).result(timeout=60)
     return stills[0].file
@@ -55,14 +47,13 @@ def _still(session):
 
 def judge(session, label, path, expect=None):
     """Check one saved still: one layer's name, settings and held layer."""
-    meta = _file_record(path)
+    meta = read_file_record(path)
     if meta is None:
         check(f'{label}: the file carries its record', False, str(path))
         return None
-    plane = meta.get('Plane', {})
-    channel = (meta.get('Channel', {}).get('Name') or [None])[0]
-    held = plane.get('CameraHeldChannel')
-    got = (plane.get('ExposureTime'), plane.get('Gain'))
+    channel = meta.get('channel')
+    held = meta.get('camera_held_channel')
+    got = (meta.get('exposure_time_ms'), meta.get('gain_db'))
     stored = session.get_settings_snapshot()[channel]
     figure(f'{label}: file', {'name': path.name, 'channel': channel, 'held': held, 'file': got})
     figure(f'{label}: {channel} stored', (stored['exposure_ms'], stored['gain_db']))

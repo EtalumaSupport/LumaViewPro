@@ -28,7 +28,7 @@ import pandas as pd
 import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
-from modules.image_utils import read_postproc_input_metadata
+from modules.image_utils import read_file_record
 from modules.run_events import RunEvents
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -146,7 +146,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
     for step in steps:
         [path] = [p for p in run_parent.rglob('*.tiff') if step['Name'] in p.name]
         [started] = [t for append, t in write_started.items() if step['Name'] in append]
-        files[step['Name']] = (read_postproc_input_metadata(path) or {}, started)
+        files[step['Name']] = (read_file_record(path) or {}, started)
     return files
 
 
@@ -285,7 +285,7 @@ class TestAManualStillRecordsItsFrame:
             session.scope.illumination.led_on('BF', 40.0)
             (path,) = _files(session)
 
-        metadata = read_postproc_input_metadata(path)
+        metadata = read_file_record(path)
         assert metadata.get('illumination_ma') == 40.0, metadata.get('illumination_ma')
         assert metadata.get('well_label') == well, (well, metadata.get('well_label'))
         assert metadata.get('frames_summed') == 1

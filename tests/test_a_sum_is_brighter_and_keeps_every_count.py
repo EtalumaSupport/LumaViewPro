@@ -303,7 +303,7 @@ def _project_summed_slices(tmp_path: pathlib.Path, method: str) -> dict:
         output_file_loc=pathlib.Path('projected.tiff'),
         channel_colors=release_colors(),
     )
-    return image_utils.read_postproc_input_metadata(tmp_path / 'projected.tiff')
+    return image_utils.read_file_record(tmp_path / 'projected.tiff')
 
 
 def test_a_sum_projection_states_no_frame_count(tmp_path):

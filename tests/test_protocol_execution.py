@@ -683,7 +683,7 @@ class TestSingleScanVideo:
         steps on the protocol's plate, so its frames state their positions
         there: the step's own plate X and Y, not the same stage point read
         on the selected plate."""
-        from modules.image_utils import read_postproc_input_metadata
+        from modules.image_utils import read_file_record
         from tests.scope_fakes import bind_settings_like_a_session
 
         bind_settings_like_a_session(scope)['protocol']['labware'] = 'Four-Slide Holder'
@@ -696,7 +696,7 @@ class TestSingleScanVideo:
         assert completed
         frames = list(tmp_path.rglob('*_Frame_*.tiff'))
         assert frames, 'the frames leg must write per-frame TIFF artifacts'
-        described = read_postproc_input_metadata(frames[0])
+        described = read_file_record(frames[0])
         step = protocol.step_row(step_index=0)
         assert described['plate_pos_mm']['x'] == pytest.approx(step['X'], abs=0.01)
         assert described['plate_pos_mm']['y'] == pytest.approx(step['Y'], abs=0.01)

@@ -60,9 +60,7 @@ class TestStitchLoudDegradeOnMissingPixelSize:
         st = stitcher_mod.Stitcher.__new__(stitcher_mod.Stitcher)
         df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1'], 'Channel Group ID': [0]})
         with (
-            mock.patch.object(
-                stitcher_mod.image_utils, 'read_postproc_input_metadata', return_value=None
-            ),
+            mock.patch.object(stitcher_mod.image_utils, 'read_file_record', return_value=None),
             mock.patch.object(
                 stitcher_mod, 'channel_aware_stitcher', return_value=mock.MagicMock()
             ),
@@ -1166,7 +1164,7 @@ class TestPositionAwareStitcher:
             page = t.pages[0]
             assert page.photometric == tifffile.PHOTOMETRIC.PALETTE
             assert page.colormap is not None
-        assert image_utils.read_postproc_input_metadata(written) is not None
+        assert image_utils.read_file_record(written) is not None
 
 
 def _reference_blend_float64(registered, sample):
