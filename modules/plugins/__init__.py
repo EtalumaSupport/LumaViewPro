@@ -241,17 +241,12 @@ class _BaseNamespace:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._loaded: dict[str, PluginStatus] = {}
+        # The one record of who is registered here: plugin name -> (its spec,
+        # what it registered). health() and the namespace's reads all come
+        # from it, so a plugin is listed as loaded exactly while its
+        # registration is held.
+        self._entries: dict[str, tuple[PluginSpec, Any]] = {}
         self._runtime_errors: list[PluginRuntimeError] = []
-        self._handlers: dict[str, Any] = {}
-
-    def _record_loaded(self, spec: PluginSpec) -> None:
-        status = PluginStatus(
-            name=spec.name,
-            version=spec.version,
-            namespace=self.NAMESPACE,
-        )
-        self._loaded[spec.name] = status
 
     def _record_runtime_error(
         self, plugin_name: str, hook: str, exc_type: str, message: str
@@ -270,12 +265,15 @@ class _BaseNamespace:
         with self._lock:
             return NamespaceHealth(
                 namespace=self.NAMESPACE,
-                loaded=tuple(self._loaded.values()),
+                loaded=tuple(
+                    PluginStatus(name=spec.name, version=spec.version, namespace=self.NAMESPACE)
+                    for spec, _registered in self._entries.values()
+                ),
                 last_runtime_errors=tuple(self._runtime_errors),
             )
 
     def _assert_unique(self, spec: PluginSpec) -> None:
-        if spec.name in self._loaded:
+        if spec.name in self._entries:
             raise PluginRegistrationError(
                 'name_taken', f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
             )
@@ -302,15 +300,16 @@ class UIRegistry(_BaseNamespace):
             )
         with self._lock:
             self._assert_unique(spec)
-            self._handlers[spec.name] = (mount_point, builder)
-            self._record_loaded(spec)
+            self._entries[spec.name] = (spec, (mount_point, builder))
 
     def mounts(self) -> tuple[tuple[str, str, Callable[[], Any]], ...]:
         """Return (plugin_name, mount_point, builder) tuples for the host
         to attach during widget-tree construction. Returned list is a
         snapshot; subsequent registrations don't appear here."""
         with self._lock:
-            return tuple((name, mp, builder) for name, (mp, builder) in self._handlers.items())
+            return tuple(
+                (name, mp, builder) for name, (_spec, (mp, builder)) in self._entries.items()
+            )
 
 
 class PostProcessingRegistry(_BaseNamespace):
@@ -336,17 +335,16 @@ class PostProcessingRegistry(_BaseNamespace):
             self._assert_unique(spec)
             # Store (spec, processor) so .handlers() can hand the spec
             # back to consumers that need its flags (e.g. auto-run gate).
-            self._handlers[spec.name] = (spec, processor)
-            self._record_loaded(spec)
+            self._entries[spec.name] = (spec, processor)
 
     def get(self, name: str) -> Callable | None:
         with self._lock:
-            entry = self._handlers.get(name)
+            entry = self._entries.get(name)
             return entry[1] if entry is not None else None
 
     def names(self) -> tuple[str, ...]:
         with self._lock:
-            return tuple(self._handlers.keys())
+            return tuple(self._entries.keys())
 
     def handlers(self) -> tuple[tuple[PluginSpec, Callable], ...]:
         """Return (spec, processor) tuples for every registered plugin.
@@ -356,7 +354,7 @@ class PostProcessingRegistry(_BaseNamespace):
         gates (e.g. spec.auto_run_on_protocol_complete).
         """
         with self._lock:
-            return tuple(self._handlers.values())
+            return tuple(self._entries.values())
 
 
 class LiveProcessingRegistry(_BaseNamespace):
@@ -399,13 +397,12 @@ class LiveProcessingRegistry(_BaseNamespace):
             # duplicate. The name= param surfaces in the log and the
             # auto-remove warning so L1 can identify which plugin misbehaved.
             self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
-            self._handlers[spec.name] = (spec, frame_handler)
-            self._record_loaded(spec)
+            self._entries[spec.name] = (spec, frame_handler)
 
     def unregister(self, name: str) -> None:
         """Remove the listener registered by plugin `name`. No-op if not registered."""
         with self._lock:
-            entry = self._handlers.pop(name, None)
+            entry = self._entries.pop(name, None)
         if entry is None:
             return
         _spec, handler = entry
@@ -414,7 +411,7 @@ class LiveProcessingRegistry(_BaseNamespace):
     def names(self) -> tuple[str, ...]:
         """Return the names of all currently-registered live_processing plugins."""
         with self._lock:
-            return tuple(self._handlers.keys())
+            return tuple(self._entries.keys())
 
 
 class RESTRegistry(_BaseNamespace):
@@ -437,9 +434,6 @@ class RESTRegistry(_BaseNamespace):
     def __init__(self) -> None:
         super().__init__()
         self._stub_mode: bool = False
-        # Stored router objects in stub mode -- not mounted; available
-        # for tests / health-introspection only.
-        self._stubbed_routers: dict[str, Any] = {}
 
     def enable_stub_mode(self) -> None:
         """Opt into accepting REST registrations as stubs.
@@ -468,10 +462,10 @@ class RESTRegistry(_BaseNamespace):
 
     def register(self, spec: PluginSpec, router: Any) -> None:
         if self._stub_mode:
-            self._assert_unique(spec)
-            self._record_loaded(spec)
+            # The router is held, not mounted: it serves nothing.
             with self._lock:
-                self._stubbed_routers[spec.name] = router
+                self._assert_unique(spec)
+                self._entries[spec.name] = (spec, router)
             return
         raise PluginRegistrationError(
             'rest_namespace_reserved',
@@ -864,7 +858,7 @@ class PluginRegistry:
             self.live_processing,
             self.rest,
         ):
-            if plugin_name in ns._loaded:
+            if plugin_name in ns._entries:
                 return ns
         return None
 

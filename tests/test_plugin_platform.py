@@ -24,6 +24,7 @@ from modules.exceptions import PluginNotLoadedError, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.plugins import (
     PluginRegistrationError,
+    PluginRegistry,
     PluginSpec,
     ProcessorResult,
     UI_MOUNT_POINTS,
@@ -323,6 +324,15 @@ def test_live_processing_unregister_forwards_to_imaging(harness_ctx):
     assert harness_ctx.plugins.live_processing.names() == ()
 
 
+def test_a_plugin_that_unregisters_its_listener_is_no_longer_listed_as_loaded(sim_scope):
+    """After live_processing.unregister(name), the namespace's health no
+    longer lists the plugin: it is listed exactly while it is registered."""
+    registry = PluginRegistry(sim_scope)
+    registry.live_processing.register(_make_spec(name='live_demo'), lambda frame: None)
+    registry.live_processing.unregister('live_demo')
+    assert registry.live_processing.health().loaded == ()
+
+
 def test_live_processing_unregister_unknown_name_is_noop(harness_ctx):
     """unregister(name) for an un-registered plugin is a silent no-op."""
     harness_ctx.plugins.live_processing.unregister('not_registered')
@@ -375,10 +385,7 @@ def test_rest_stub_mode_accepts_registration(harness_ctx):
 
 
 def test_rest_stub_mode_does_not_mount_route(harness_ctx):
-    """Stub-mode registration records the spec but does not mount a route.
-
-    The router object is stored for introspection but never called/mounted.
-    """
+    """Stub-mode registration records the spec but does not mount a route."""
     harness_ctx.plugins.rest.enable_stub_mode()
     spec = _make_spec(name='stubbed_no_mount')
     router = MagicMock(name='router')
@@ -386,8 +393,6 @@ def test_rest_stub_mode_does_not_mount_route(harness_ctx):
     # Router is never invoked: no .include_router / .add_api_route / etc.
     router.include_router.assert_not_called()
     router.add_api_route.assert_not_called()
-    # But it is stored, for tests/introspection.
-    assert 'stubbed_no_mount' in harness_ctx.plugins.rest._stubbed_routers
 
 
 def test_rest_stub_mode_duplicate_registration_raises(harness_ctx):
