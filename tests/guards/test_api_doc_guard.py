@@ -909,8 +909,9 @@ def _curl_request(command, variables):
     """``(method, path, headers, body, output)`` of a ``curl`` command, its variables expanded.
 
     Reads the flags the guide and the examples use: ``-s``, ``-X``, ``-H``,
-    ``--json`` and ``-o``; any other is refused, so a line the runner cannot
-    send is never read as sent.
+    ``--json``, ``-o`` and ``-w`` (what curl prints after the answer, which
+    sends nothing); any other is refused, so a line the runner cannot send
+    is never read as sent.
     """
     words = shlex.split(command)
     if words[0] != 'curl':
@@ -920,7 +921,9 @@ def _curl_request(command, variables):
     for word in rest:
         if word == '-s':
             continue
-        if word == '-X':
+        if word == '-w':
+            next(rest)
+        elif word == '-X':
             method = next(rest)
         elif word == '-o':
             output = _expand(next(rest), variables)

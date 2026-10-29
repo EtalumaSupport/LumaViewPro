@@ -7,19 +7,19 @@
 
 API=http://127.0.0.1:8000/api/v1
 
-curl -s -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
+curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
 
 # The stack's extent and step, and where the stage sits in it.
-curl -s --json '{"path": "zstack.range", "value": 20.0}' $API/update_settings        # 200
-curl -s --json '{"path": "zstack.step_size", "value": 5.0}' $API/update_settings     # 200
-curl -s --json '{"path": "zstack.position", "value": "center"}' $API/update_settings # 200
-curl -s --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings     # 200
+curl -s -w '\n' --json '{"path": "zstack.range", "value": 20.0}' $API/update_settings        # 200
+curl -s -w '\n' --json '{"path": "zstack.step_size", "value": 5.0}' $API/update_settings     # 200
+curl -s -w '\n' --json '{"path": "zstack.position", "value": "center"}' $API/update_settings # 200
+curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings     # 200
 
 # A z-stack is a run: its job, then its files' job once the slices are on disk.
 RUNNER=$(curl -s --json '{}' $API/create_protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json '{"channel": "BF", "sequence_name": "example_stack"}' $API/handles/ProtocolRunner/$RUNNER/start_zstack | jq -r .id)   # 202
 FILES=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r .files.id)   # 200: "result" the RunOutcome
-curl -s -H 'Prefer: wait=60' $API/jobs/$FILES               # 200: "result" the RunFiles, once the slices are on disk
+curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$FILES               # 200: "result" the RunFiles, once the slices are on disk
 
 RUN_DIR=$(curl -s $API/jobs/$JOB | jq -r .progress.run_dir.name)   # 200
-curl -s "$API/live_folder_listing?name=$RUN_DIR"            # 200: a file per slice
+curl -s -w '\n' "$API/live_folder_listing?name=$RUN_DIR"            # 200: a file per slice

@@ -87,7 +87,8 @@ installed app, or a server started from the source. You need `bash`, `curl`
    bash <LumaViewPro folder>/docs/api_examples/first_still.sh
    ```
 
-Each line's comment says the status it answers. The server is
+Each line prints its answer on a line of its own, and its comment says the
+status it answers. The server is
 `http://127.0.0.1:8000`, this computer only; with another `port`, change
 `API=` at the top of the example. The interactive reference of every route is
 at `http://127.0.0.1:8000/docs` while the server runs.
