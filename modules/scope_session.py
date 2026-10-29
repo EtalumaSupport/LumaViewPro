@@ -3608,7 +3608,7 @@ class ScopeSession:
                 controller is not and the step's preview would light; or a
                 run, a diagnostic or a home holds the
                 scope, or a manual recording runs and the step's layer is not
-                the shown one. Nothing changes.
+                the shown one or its preview would light. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
             MoveFaultError: ``'driver_failed'``, the board did not take an
@@ -3689,8 +3689,15 @@ class ScopeSession:
         lit = self.settings['protocol_led_on'] if shows else self._shown_channel.lit
         if moves_light and lit and self._led_address(step['Color']) is not None:
             # A preview that would light needs the LED controller, asked
-            # before anything moves; a dark one needs no board.
+            # before anything moves; a dark one needs no board. A recording
+            # refuses the light, so it is asked here too, before the stage
+            # is sent anywhere.
             self.scope.illumination.refuse_controller_not_connected('go_to_step')
+            refusing = self.activity_claim.refusing_holder(
+                current_taking(), falsifies_recording=True
+            )
+            if refusing is not None:
+                raise command_refused(refusing, 'go_to_step')
         # The turret included: a failed turret home leaves T unknown
         # while the stage axes still know theirs. One command, so a capture
         # asked while the turret turns waits for the step's moves rather
@@ -3860,8 +3867,9 @@ class ScopeSession:
                 controller the light needs or the camera; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
                 home holds the scope, or a manual recording runs and
-                ``channel`` is not the shown one (a recording keeps one
-                layer; nothing is changed).
+                ``channel`` is not the shown one or the shown channel is lit
+                (a recording keeps one layer and the light it started under;
+                nothing is changed).
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
@@ -3933,7 +3941,9 @@ class ScopeSession:
                 no shown layer; ``'not_connected'``, naming the LED
                 controller the light needs; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
-                home holds the scope.
+                home holds the scope, or ``lit`` is True while a manual
+                recording runs (a recording keeps the light it started
+                under; nothing is changed).
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
@@ -4164,7 +4174,8 @@ class ScopeSession:
         auto-gain, to the auto-gain bounds) is on the camera, and to its
         illumination on its lit LED, when this returns; a write to a hidden
         layer, or one made while a run, a diagnostic or a home holds the
-        scope, is stored only. Such a write waits on the camera or LED lane,
+        scope, is stored only, and so is an illumination written while a
+        manual recording runs. Such a write waits on the camera or LED lane,
         so a caller on the UI thread hands it to a worker. Each auto-gain
         bound is stored alone; a minimum left above the maximum is refused
         when auto-gain is armed with them (``ArgumentRefusedError``,
@@ -4214,7 +4225,8 @@ class ScopeSession:
         LED while it is lit. Any other write, a hidden layer's included, is
         stored only. While a run, a diagnostic or a home holds the scope the
         write is stored only, and the run's end puts the shown layer back on
-        the camera from the store.
+        the camera from the store. While a manual recording runs its
+        illumination is stored only: the recording refuses every light.
         """
         layer = self._shown_channel.channel
         with self.settings_lock:
@@ -4222,7 +4234,12 @@ class ScopeSession:
         camera = path in (f'{layer}.gain_db', f'{layer}.exposure_ms') or (
             auto_gain and path.startswith(('protocol.autogain.', 'ag_ae_max_exposure_ms'))
         )
-        led = path == f'{layer}.illumination_ma' and self._shown_channel.lit
+        holder = self.activity_claim.holder
+        led = (
+            path == f'{layer}.illumination_ma'
+            and self._shown_channel.lit
+            and (holder is None or holder.kind != WorkKind.RECORDING)
+        )
         if not (camera or led):
             return
         if self._an_activity_holds_the_scope():

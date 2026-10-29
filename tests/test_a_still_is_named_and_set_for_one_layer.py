@@ -227,14 +227,17 @@ def test_a_composite_states_no_lit_layer_of_its_inputs(session):
 def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
     recording = session.manual_recording.start(false_color_on=False)
     try:
-        session.scope.illumination.led_on(LED0, 100.0)
+        # Camera settings stay open during a recording; another layer's put
+        # on the camera means a still of the shown layer would change them.
+        session.apply_layer_camera(LED0)
+        assert session.scope.camera.get_held_layer() == LED0
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.manual_capture.capture(false_color_on=False).result(timeout=30)
 
         assert refused.value.reason == 'exclusive_activity_running'
         assert refused.value.holder == 'recording'
-        assert session.scope.camera.get_held_layer() == 'BF'
+        assert session.scope.camera.get_held_layer() == LED0
     finally:
         recording.stop()
         recording.result(timeout=60)

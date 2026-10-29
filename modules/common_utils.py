@@ -542,11 +542,11 @@ def read_light(illumination: 'IlluminationAPI', shown_layer: str) -> Light:
     """The channel a frame was imaged in, and every lit layer's current, from one read.
 
     The channel is the lit LED, else ``shown_layer``: the shown layer for a
-    still and for a manual recording's start, the channel a recording
-    started on for each of its frames. A lit LED is direct
-    evidence of what is illuminating the sample, so it outranks the shown
-    channel -- a caller can light an LED through the illumination API
-    without showing its layer, and the light is the truth. The shown layer
+    still, and for each frame of a recording the layer it is named for. A
+    lit LED is direct evidence of what is illuminating the sample, so it
+    outranks the shown channel -- a caller can light an LED through the
+    illumination API without showing its layer, and the light is the
+    truth. The shown layer
     is the tiebreak for luminescence, which images with no LED lit at all
     and would otherwise be unnameable. With more than one LED lit, the
     first in address order wins; a lit address the identity names no layer
@@ -559,9 +559,11 @@ def read_light(illumination: 'IlluminationAPI', shown_layer: str) -> Light:
     get_led_states() answers None when no LED board is installed: nothing
     is lit, so a board-less scope falls through to the layer.
 
-    The one naming rule: the manual still, the manual recording and every
-    recorded frame (``recording_frames.arrival_facts``) read it, so no two
-    outputs can disagree about what one frame is.
+    The one naming rule: the manual still and every recorded frame
+    (``recording_frames.arrival_facts``) read it, so no two outputs can
+    disagree about what one frame is. A recording itself is named for the
+    shown layer, and refuses to start with another LED lit
+    (``ManualRecordingController.start``), so its frames agree with it.
     """
     return light_of(illumination.get_led_states(), shown_layer)
 

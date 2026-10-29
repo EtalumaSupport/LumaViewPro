@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import channel_reading, home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -138,6 +139,29 @@ class TestGoingToAStep:
                 'recording',
             )
             assert session.shown_channel.channel == 'BF'
+        finally:
+            recording.stop()
+            recording.result(timeout=60)
+
+    def test_going_to_a_step_whose_preview_would_light_during_a_recording_is_refused_unmoved(
+        self, session
+    ):
+        protocol, bf_idx, _blue_idx = _two_step_protocol(session)
+        session.update_settings('protocol_led_on', True)
+        motion = session.scope.motion
+        # Away from the step's Z, so a move to it would show.
+        motion.move_z(motion.get_current_position('Z') + 50.0)
+        away = motion.get_current_position('Z')
+        recording = session.manual_recording.start(false_color_on=False)
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.go_to_step(protocol, bf_idx)
+            assert (refused.value.reason, refused.value.holder) == (
+                'exclusive_activity_running',
+                'recording',
+            )
+            assert motion.get_current_position('Z') == away
+            assert channel_reading(session.scope.illumination, 'BF').state == LedState.DARK
         finally:
             recording.stop()
             recording.result(timeout=60)

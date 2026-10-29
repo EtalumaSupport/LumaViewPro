@@ -1614,7 +1614,7 @@ The shown channel now.
 **Raises**
 
 - `ArgumentRefusedError`: `'illumination_out_of_range'`, the layer's stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown layer; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown layer; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs (a recording keeps the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'layers_unresolved'`, this scope's layers could not be resolved.
 - `CameraSettingRejected`: the camera refused a setting of the layer; its LED is already lit or dark.
 
@@ -3215,7 +3215,7 @@ The shown channel now.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs or the camera; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one (a recording keeps one layer; nothing is changed).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs or the camera; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one or the shown channel is lit (a recording keeps one layer and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'layers_unresolved'`, this scope's layers could not be resolved.
 - `CameraSettingRejected`: the camera refused a setting of the layer; its LEDs are already shown.
 
@@ -3481,7 +3481,7 @@ it is refused on the UI thread; a click calls it from a worker.
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its layers is outside its layer setting's range, each named by column and bound. Nothing changes.
 - `ArgumentRefusedError`: `'channel_unknown'`, the step's stimulation names a layer this release has not. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's layer is not the shown one. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's layer is not the shown one or its preview would light. Nothing changes.
 - `ConfigurationDefectError`: `'layers_unresolved'`, this scope's layers could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
@@ -3732,7 +3732,8 @@ A write to the shown layer's gain or exposure (or, while it is on
 auto-gain, to the auto-gain bounds) is on the camera, and to its
 illumination on its lit LED, when this returns; a write to a hidden
 layer, or one made while a run, a diagnostic or a home holds the
-scope, is stored only. Such a write waits on the camera or LED lane,
+scope, is stored only, and so is an illumination written while a
+manual recording runs. Such a write waits on the camera or LED lane,
 so a caller on the UI thread hands it to a worker. Each auto-gain
 bound is stored alone; a minimum left above the maximum is refused
 when auto-gain is armed with them (`ArgumentRefusedError`,
@@ -3907,7 +3908,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 
 - `scope`: The Lumascope instance (frame listener, camera identity, exposure, stage position).
 - `settings`: The live settings dict; read ONLY at `start` -- the recording runs from its immutable snapshot.
-- `shown_layer`: Reads the layer of the session's shown channel, once, at `start`: it names the channel when no LED is lit.
+- `shown_layer`: Reads the layer of the session's shown channel, once, at `start`, once the recording holds the scope: it names the recording.
 - `channel_colors`: Reads every layer's colour, from the Session's one read of it, once, at `start`.
 - `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
 - `scheduler`: The session's scheduler; the controller arms its own periodic health check on it at `start` and disarms at finish. Required: a controller that can start a recording but has no armed health bound is the trap this parameter exists to make unconstructible.
@@ -4066,9 +4067,10 @@ Channel IDENTITY (what was imaged) and false-color RENDERING (how
 it is displayed) are independent. Identity is recorded on every
 frame; only rendering is conditional. Collapsing the two is what
 made a brightfield hyperstack impossible to build, since the
-toggle being off left the channel unnamed. The channel is the lit
-LED's, else the shown channel's layer (`session.show_channel`),
-read once here.
+toggle being off left the channel unnamed. The channel is the shown
+channel's layer (`session.show_channel`), read once the recording
+holds the scope, when no light can change and the shown layer cannot
+move; a start that would make the name false is refused.
 
 **Args**
 
@@ -4080,7 +4082,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 
 **Raises**
 
-- `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret or frame change is under way; `'camera_exposure_unknown'`, the camera has no known exposure; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
+- `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret, frame or light change is under way; `'other_led_lit'`, an LED other than the shown layer's is lit; `'camera_holds_another_layer'`, the camera holds another layer's settings than the shown one's; `'camera_exposure_unknown'`, the camera has no known exposure; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
 - `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. Nothing is committed.
@@ -4088,7 +4090,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 
 **Refusals by REST status**
 
-- 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `camera_exposure_unknown`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
+- 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_layer`, `camera_exposure_unknown`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 - 500: [`CaptureFailedError`](#CaptureFailedError): `recording_not_started`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6747,7 +6749,7 @@ The commanded current in mA.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is outside 0 to the attached board's maximum. Nothing was sent.
-- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA. Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 
 **Refusals by REST status**
@@ -6787,7 +6789,7 @@ The commanded current in mA.
 **Raises**
 
 - `ArgumentRefusedError`: `'led_address_unknown'`, `address` is not on the attached board's table, offering its addresses; `'not_a_number'` or `'illumination_out_of_range'`, as `led_on` says. Nothing was sent.
-- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` (`MissingPart.led_address`) for an address this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` (`MissingPart.led_address`) for an address this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA. Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 
 **Refusals**
@@ -6868,7 +6870,7 @@ the addresses it has lit at a positive current.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the snapshot has an LED lit, raised before any change.
 - `BoardNoReplyError`: the board did not answer a write; that channel is unknown and the writes after it are not made.
 
 **Refusals by REST status**
@@ -16691,7 +16693,7 @@ asked for the recording reports it where its flight ends.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'insufficient_disk'` -- free disk at the save location is below the floor a recording needs to start. `'falsifying_change_in_flight'` -- an objective or camera frame change is under way, which a recording would capture through.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'insufficient_disk'` -- free disk at the save location is below the floor a recording needs to start. `'falsifying_change_in_flight'` -- an objective, camera frame or light change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown layer's is lit, and the recording is named for the shown layer. `'camera_holds_another_layer'` -- the camera holds another layer's settings than the shown layer's, which the recording is named for.
 - `title`: Short user-facing refusal title, the reason's.
 - `message`: One-sentence user-facing refusal body; the same text as the exception's message.
 - `holder`: The exclusive-activity claim owner at refusal time, or None when the refusal is not claim-shaped.
@@ -16707,11 +16709,13 @@ asked for the recording reports it where its flight ends.
 | Reason | Cause | REST status |
 |---|---|---|
 | `camera_exposure_unknown` | state | 409 |
+| `camera_holds_another_layer` | state | 409 |
 | `capture_location_unusable` | state | 409 |
 | `exclusive_activity_running` | state | 409 |
 | `falsifying_change_in_flight` | state | 409 |
 | `insufficient_disk` | state | 409 |
 | `names_exhausted` | state | 409 |
+| `other_led_lit` | state | 409 |
 | `post_processing_running` | state | 409 |
 | `recording_active` | state | 409 |
 

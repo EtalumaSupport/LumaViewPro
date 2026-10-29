@@ -45,7 +45,6 @@ from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_REQUIRED_DISK_MB,
     check_disk_space_ok,
-    read_light,
 )
 from modules.coord_transformations import PlatePosition
 from modules.labware import Labware
@@ -69,6 +68,7 @@ from modules.exceptions import (
     VideoWriterFailedError,
 )
 from modules.lumascope_api.frame_record import FrameTime
+from modules.lumascope_api.illumination import snapshot_lit_pairs
 from modules.notification_center import notifications
 from modules.operation import Operation
 from modules.recording_frames import (
@@ -148,7 +148,8 @@ class ManualRecordingController:
         settings: The live settings dict; read ONLY at ``start`` -- the
             recording runs from its immutable snapshot.
         shown_layer: Reads the layer of the session's shown channel, once,
-            at ``start``: it names the channel when no LED is lit.
+            at ``start``, once the recording holds the scope: it names the
+            recording.
         channel_colors: Reads every layer's colour, from the Session's one
             read of it, once, at ``start``.
         activity_claim: The session's compare-and-claim handle; passed
@@ -302,9 +303,10 @@ class ManualRecordingController:
         it is displayed) are independent. Identity is recorded on every
         frame; only rendering is conditional. Collapsing the two is what
         made a brightfield hyperstack impossible to build, since the
-        toggle being off left the channel unnamed. The channel is the lit
-        LED's, else the shown channel's layer (``session.show_channel``),
-        read once here.
+        toggle being off left the channel unnamed. The channel is the shown
+        channel's layer (``session.show_channel``), read once the recording
+        holds the scope, when no light can change and the shown layer cannot
+        move; a start that would make the name false is refused.
 
         Args:
             false_color_on: Whether the shown layer is displayed in false colour.
@@ -324,7 +326,10 @@ class ManualRecordingController:
                 ``'exclusive_activity_running'``, another exclusive activity
                 is running; ``'post_processing_running'``, a build is on
                 the post-processing lane; ``'falsifying_change_in_flight'``, a
-                turret or frame change is under way;
+                turret, frame or light change is under way;
+                ``'other_led_lit'``, an LED other than the shown layer's is
+                lit; ``'camera_holds_another_layer'``, the camera holds
+                another layer's settings than the shown one's;
                 ``'camera_exposure_unknown'``, the camera has no known
                 exposure; ``'capture_location_unusable'``, the save
                 location cannot be used; ``'names_exhausted'``, the recording's
@@ -452,15 +457,12 @@ class ManualRecordingController:
                 # is a different fact from a location that is not there.
                 raise RecordingRefusedError(reason=exc.reason, message=str(exc)) from exc
 
-        resolved_layer = read_light(scope.illumination, self._shown_layer()).channel
-
         manifest_extra = {
-            # The channel the frames are of, and, as a separate RENDERING
-            # fact, whether they were shown in false colour: the video
-            # builder colours a rebuild only when it was on, so frames the
-            # user deliberately saved gray stay gray, in the colour of the
-            # day.
-            'channel': resolved_layer,
+            # As a separate RENDERING fact from the channel the frames are
+            # of, whether they were shown in false colour: the video builder
+            # colours a rebuild only when it was on, so frames the user
+            # deliberately saved gray stay gray, in the colour of the day.
+            # The channel is set once the recording holds the scope.
             'false_color': false_color_on,
             'camera': {
                 'model': camera.camera_model,
@@ -484,6 +486,9 @@ class ManualRecordingController:
         claimed = {}
 
         def _make_config() -> RecordingConfig:
+            claimed['layer'] = layer = self._shown_layer()
+            _refuse_a_name_that_would_be_false(scope, layer)
+            manifest_extra['channel'] = layer
             # The size the file is made at: held, else read, so an unknown one is
             # asked for (CameraReadFailedError when the camera does not answer).
             frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
@@ -553,7 +558,7 @@ class ManualRecordingController:
             plan = _RecordingPlan(
                 video_as_frames=video_as_frames,
                 save_folder=save_folder,
-                layer=resolved_layer,
+                layer=claimed['layer'],
                 false_color_on=false_color_on,
                 channel_colors=self._channel_colors(),
                 save_encoding=capture_config.save_encoding,
@@ -575,9 +580,7 @@ class ManualRecordingController:
                     height=claimed['frame_size'].height,
                     # Rendering: grey keeps the encoder gray, which is what a
                     # recording with the toggle off must produce.
-                    color=layer_record.shown_color(
-                        resolved_layer, false_color_on, plan.channel_colors
-                    ),
+                    color=layer_record.shown_color(plan.layer, false_color_on, plan.channel_colors),
                     include_timestamp_overlay=config.timestamp_overlay,
                     vfr=True,
                 )
@@ -1090,6 +1093,48 @@ def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
         solicited=False,
         category='Recording',
     )
+
+
+def _refuse_a_name_that_would_be_false(scope, layer: str) -> None:
+    """Refuse a recording named for ``layer`` that would be lit or set for another.
+
+    Read once the recording holds the scope: from then on no light can be
+    turned on and the shown layer cannot change, so what is read here holds
+    for every frame. A recording is named for the shown layer, so another
+    LED lit would image the frames in a channel they are not named for, and
+    a camera holding another layer's settings would shoot them at settings
+    that are not the named layer's. A camera that holds no layer whole (a
+    raw camera write came after one) names no other layer.
+
+    Raises:
+        RecordingRefusedError: ``'other_led_lit'``, an LED other than
+            ``layer``'s is lit; ``'camera_holds_another_layer'``, the camera
+            holds another layer's settings.
+    """
+    readings = scope.illumination.get_led_states() or ()
+    lit = {address for address, _ma in snapshot_lit_pairs(readings)}
+    others = [
+        r.name or f'LED address {r.address}'
+        for r in readings
+        if r.address in lit and r.name != layer
+    ]
+    if others:
+        raise RecordingRefusedError(
+            reason='other_led_lit',
+            message=(
+                f'{", ".join(others)} is lit while {layer} is shown, and a recording is '
+                'named for the shown layer. Turn it off, or show its layer, then record.'
+            ),
+        )
+    held = scope.camera.get_held_layer()
+    if held is not None and held != layer:
+        raise RecordingRefusedError(
+            reason='camera_holds_another_layer',
+            message=(
+                f"The camera holds {held}'s settings while {layer} is shown. Show "
+                f'{layer} again to put its settings on the camera, then record.'
+            ),
+        )
 
 
 def _discard_if_empty(frames_folder: Path | None) -> None:

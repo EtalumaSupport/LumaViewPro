@@ -9,9 +9,9 @@ channel than the open drawer, the file was named for the drawer while the light
 was the truth -- the rule the manual recording already follows.
 
 These tests pin the rule and the seam: the channel is resolved once, by the one
-function both manual outputs share (a lit LED wins, else the Session's shown
-channel); every widget read happens on the button, before the capture guard
-is armed; and the open-layer scan has one implementation.
+function a still and each recorded frame share (a lit LED wins, else the
+Session's shown channel); every widget read happens on the button, before the
+capture guard is armed; and the open-layer scan has one implementation.
 """
 
 import ast
@@ -159,9 +159,9 @@ def test_resolver_clauses():
 
 
 def test_both_manual_outputs_share_the_resolver():
-    """The recording controller no longer carries its own copy; both the
-    still capture and the recording call the one function, and the default
-    layer lives with it."""
+    """The recording controller no longer carries its own copy; the still
+    capture and each recorded frame call the one function (``read_light``
+    answers through ``light_of``), and the default layer lives with it."""
     recording = parse_module('modules/manual_recording.py')
     private = [
         n.name
@@ -170,17 +170,20 @@ def test_both_manual_outputs_share_the_resolver():
     ]
     assert private == [], 'the recording controller still carries a private resolver'
 
-    for rel in ('modules/manual_recording.py', 'modules/manual_capture.py'):
+    for rel, resolver in (
+        ('modules/manual_capture.py', 'read_light'),
+        ('modules/recording_frames.py', 'light_of'),
+    ):
         calls = [
             n
             for n in ast.walk(parse_module(rel))
             if isinstance(n, ast.Call)
             and (
-                (isinstance(n.func, ast.Name) and n.func.id == 'read_light')
-                or (isinstance(n.func, ast.Attribute) and n.func.attr == 'read_light')
+                (isinstance(n.func, ast.Name) and n.func.id == resolver)
+                or (isinstance(n.func, ast.Attribute) and n.func.attr == resolver)
             )
         ]
-        assert calls, f'{rel} does not call read_light'
+        assert calls, f'{rel} does not call {resolver}'
 
     defined_in = []
     dead = []

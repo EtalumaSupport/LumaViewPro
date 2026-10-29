@@ -2144,9 +2144,13 @@ class RecordingRefusedError(Refusal, CaptureError):
             reported its exposure time, from which the recording's
             dead-feed bound derives. ``'insufficient_disk'`` -- free disk
             at the save location is below the floor a recording needs to
-            start. ``'falsifying_change_in_flight'`` -- an objective or
-            camera frame change is under way, which a recording would
-            capture through.
+            start. ``'falsifying_change_in_flight'`` -- an objective,
+            camera frame or light change is under way, which a recording
+            would capture through. ``'other_led_lit'`` -- an LED other than
+            the shown layer's is lit, and the recording is named for the
+            shown layer. ``'camera_holds_another_layer'`` -- the camera
+            holds another layer's settings than the shown layer's, which
+            the recording is named for.
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body; the same text as
             the exception's message.
@@ -2171,6 +2175,8 @@ class RecordingRefusedError(Refusal, CaptureError):
         'names_exhausted': 'Cannot Save Recording',
         'insufficient_disk': 'Insufficient Disk Space',
         'falsifying_change_in_flight': 'Microscope Changing',
+        'other_led_lit': 'Another Light Is On',
+        'camera_holds_another_layer': 'Camera On Another Layer',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
     same_fact_as = (ProtocolRunRefusedError,)

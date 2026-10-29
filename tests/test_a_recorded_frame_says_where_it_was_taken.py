@@ -442,6 +442,7 @@ class TestARecordingOnTheSimulator:
         try:
             # Homed, so every frame knows where it was taken.
             home_sim_scope(session.scope)
+            session.show_channel(LED1)
             session.scope.illumination.led_on(LED1, 100.0)
             operation = session.manual_recording.start()
             session.scope.imaging.add_frame_listener(_count, name='test_count')

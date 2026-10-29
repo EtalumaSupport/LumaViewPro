@@ -984,7 +984,7 @@ class IlluminationAPI:
     # they hold the scope. From a task already on the lane's worker the lane
     # runs the body inline.
 
-    def _dispatch_led(self, impl, name, args=(), kwargs=None):
+    def _dispatch_led(self, impl, name, args=(), kwargs=None, *, lights=False):
         """Run one LED command for an external caller, on the right thread.
 
         The body runs on the scope's io lane, serialized against every other
@@ -995,7 +995,10 @@ class IlluminationAPI:
 
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run, a diagnostic or a home holds the scope and this
-        call is not made under its taking. The body asks for the LED
+        call is not made under its taking, or ``lights`` is set and a
+        recording holds the scope: a recording keeps the one light it was
+        started under, so any write that would light an LED would falsify
+        its frames, and an off never does. The body asks for the LED
         controller on the lane (``refuse_controller_not_connected``), so a
         lane refusal is never hidden behind the presence question, and asks
         again when its write finds the controller gone
@@ -1003,7 +1006,12 @@ class IlluminationAPI:
         """
         kwargs = kwargs or {}
         return self._scope._io_executor.call(
-            IOTask(action=self._asked_again_after_a_fault(impl), args=args, kwargs=kwargs),
+            IOTask(
+                action=self._asked_again_after_a_fault(impl),
+                args=args,
+                kwargs=kwargs,
+                falsifies_recording=lights,
+            ),
             name,
             _LED_WRITE_TIMEOUT_S,
         )
@@ -1042,13 +1050,17 @@ class IlluminationAPI:
                 controller connected; ``'not_on_this_scope'`` for a channel
                 whose LED this model does not drive;
                 ``'exclusive_activity_running'``, another activity holds the
-                scope or the LEDs. Nothing was sent.
+                scope or the LEDs, or a manual recording runs and
+                ``illumination_ma`` is above 0 mA. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
         """
         refuse_unknown_layer(channel, argument='channel')
         return self._dispatch_led(
-            self._led_on_by_name_impl, 'led_on', args=(channel, illumination_ma)
+            self._led_on_by_name_impl,
+            'led_on',
+            args=(channel, illumination_ma),
+            lights=illumination_ma > 0,
         )
 
     def _led_on_by_name_impl(self, channel: str, illumination_ma: float) -> float:
@@ -1124,7 +1136,8 @@ class IlluminationAPI:
                 controller connected; ``'not_on_this_scope'``
                 (``MissingPart.led_address``) for an address this model does
                 not drive; ``'exclusive_activity_running'``, another activity
-                holds the scope or the LEDs. Nothing was sent.
+                holds the scope or the LEDs, or a manual recording runs and
+                ``illumination_ma`` is above 0 mA. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
         """
@@ -1134,6 +1147,7 @@ class IlluminationAPI:
             'led_on_by_address',
             args=(address, illumination_ma),
             kwargs={'member': 'led_on_by_address'},
+            lights=illumination_ma > 0,
         )
 
     @api(in_process=True, engineering=True)
@@ -1191,12 +1205,14 @@ class IlluminationAPI:
 
         See ``_apply_transition_impl`` for what a transition is and when it
         is refused for lease reasons, which is separate from the dispatch
-        refusal here.
+        refusal here; a transition whose target lights anything is refused
+        whole while a manual recording runs.
         """
         return self._dispatch_led(
             self._apply_transition_impl,
             'apply_transition',
             args=(transition, ctx),
+            lights=bool(LedLease.target_leds(transition, ctx)),
         )
 
     def _leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
@@ -1315,12 +1331,16 @@ class IlluminationAPI:
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs, raised at the
-                first channel it would change.
+                first channel it would change; or a manual recording runs
+                and the snapshot has an LED lit, raised before any change.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
         """
         return self._dispatch_led(
-            self._restore_led_state_impl, 'restore_led_state', args=(snapshot,)
+            self._restore_led_state_impl,
+            'restore_led_state',
+            args=(snapshot,),
+            lights=bool(snapshot_lit_pairs(snapshot.readings)),
         )
 
     def _restore_led_state_impl(self, snapshot: LedSnapshot) -> None:

@@ -7,8 +7,16 @@ pixel format or turret change from REST, a script or the GUI landed in the
 middle of one and the file went on claiming the start values. Those writes
 now carry a mark the lane refuses while a recording holds -- at submit and
 again when a queued one reaches the worker -- and everything else (X/Y/Z,
-LED, gain, exposure) stays open to anyone. A home of any axis is refused:
-it holds the whole scope, as a run does, and a recording already holds it.
+an LED off, gain, exposure) stays open to anyone. A home of any axis is
+refused: it holds the whole scope, as a run does, and a recording already
+holds it.
+
+A recording is named for the shown layer and keeps the light it started
+under. An LED lit mid-recording -- ``led_on('Ex405')`` over REST while the
+recording was named Ex488 -- left frames lit by one channel and shot at
+another's camera settings, under a manifest and an MP4 naming the first;
+every write that would light now carries the same mark, and a start with
+another LED lit, or with the camera on another layer, is refused.
 """
 
 import copy
@@ -19,10 +27,16 @@ from unittest.mock import patch
 import pytest
 
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import HardwareCommandRefusedError, RecordingRefusedError
+from modules.lumascope_api.illumination import (
+    LedTransition,
+    LedTransitionCtx,
+    snapshot_lit_pairs,
+)
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 from tests.case_walk import failing_cases
+from tests.stock_channels import LED0
 
 _WAIT_S = 2.0
 
@@ -201,6 +215,139 @@ class TestTheMembers:
         assert refused.value.holder == 'recording'
         assert str(refused.value) == 'A recording is using the microscope. Try again when it ends.'
         assert calls == []
+
+
+class TestTheLights:
+    """While a recording holds, a write that would light an LED is refused
+    before anything changes, from any caller; an off is not."""
+
+    @pytest.fixture
+    def lit_bf(self, sim_session):
+        """BF shown and lit, the LEDs as they are when a recording is held."""
+        sim_session.scope.motion.home('ALL')
+        sim_session.show_channel('BF')
+        sim_session.light_shown_channel(True)
+        return sim_session
+
+    def test_every_write_that_would_light_is_refused_and_the_leds_stay(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        led0 = illumination.color2ch(LED0)
+        illumination.led_on(LED0, 80.0)
+        lit_led0 = illumination.save_led_state('led0 and bf lit')
+        illumination.led_off(LED0)
+        before = illumination.get_led_states()
+        lights = [
+            ('led_on, the shown layer at its own current', lambda: illumination.led_on('BF', 50.0)),
+            ('led_on, another layer', lambda: illumination.led_on(LED0, 100.0)),
+            ('led_on_by_address', lambda: illumination.led_on_by_address(led0, 90.0)),
+            ('restore_led_state', lambda: illumination.restore_led_state(lit_led0)),
+            (
+                'apply_transition',
+                lambda: illumination.apply_transition(
+                    LedTransition.MANUAL_STEP,
+                    LedTransitionCtx(channel=led0, illumination_ma=60.0, preview_on=True),
+                ),
+            ),
+            ('light_shown_channel', lambda: session.light_shown_channel(True)),
+        ]
+        held = session.activity_claim.try_claim('recording')
+        try:
+
+            def check(name, call):
+                with pytest.raises(HardwareCommandRefusedError) as refused:
+                    call()
+                assert (refused.value.reason, refused.value.holder) == (
+                    'exclusive_activity_running',
+                    'recording',
+                )
+                assert illumination.get_led_states() == before
+
+            failed = failing_cases(lights, check, label=lambda case: case[0])
+        finally:
+            held.release()
+        assert not failed, failed
+
+    def test_every_off_is_admitted(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        offs = [
+            ('led_off', lambda: illumination.led_off('BF')),
+            (
+                'led_off_by_address',
+                lambda: illumination.led_off_by_address(illumination.color2ch('BF')),
+            ),
+            ('leds_off', illumination.leds_off),
+            ('light_shown_channel(False)', lambda: session.light_shown_channel(False)),
+        ]
+
+        def check(name, call):
+            session.light_shown_channel(True)
+            held = session.activity_claim.try_claim('recording')
+            try:
+                call()
+            finally:
+                held.release()
+            assert snapshot_lit_pairs(illumination.get_led_states()) == frozenset()
+
+        failed = failing_cases(offs, check, label=lambda case: case[0])
+        assert not failed, failed
+
+    def test_a_shown_layers_illumination_is_stored_and_the_led_is_left(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        before = illumination.get_led_states()
+        stored = session.settings['BF']['illumination_ma']
+        written = stored - 10.0 if stored > 10.0 else stored + 10.0
+        held = session.activity_claim.try_claim('recording')
+        try:
+            session.update_settings('BF.illumination_ma', written)
+        finally:
+            held.release()
+        assert session.settings['BF']['illumination_ma'] == written
+        assert illumination.get_led_states() == before
+
+
+class TestTheStartKeepsItsName:
+    """A recording is named for the shown layer, and does not start when the
+    name would be false: another LED lit, or the camera on another layer."""
+
+    @pytest.fixture
+    def sim_session(self, tmp_path):
+        # A model with no turret: the still below needs a known objective.
+        from modules.scope_session import ScopeSession
+        from tests.scope_fakes import home_sim_scope
+        from tests.settings_fixtures import complete_settings
+
+        s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+        try:
+            home_sim_scope(s.scope)
+            yield s
+        finally:
+            s.shutdown()
+
+    def test_a_start_with_another_led_lit_is_refused(self, sim_session):
+        sim_session.show_channel('BF')
+        sim_session.scope.illumination.led_on(LED0, 50.0)
+        with pytest.raises(RecordingRefusedError) as refused:
+            sim_session.manual_recording.start(false_color_on=False)
+        assert refused.value.reason == 'other_led_lit'
+        assert LED0 in str(refused.value)
+        assert not sim_session.manual_recording.is_recording
+        assert sim_session.activity_claim.holder is None
+
+    def test_a_start_with_the_camera_on_another_layer_is_refused(self, sim_session):
+        sim_session.show_channel('BF')
+        # A still under a raw light leaves the camera on that light's layer.
+        sim_session.scope.illumination.led_on(LED0, 50.0)
+        sim_session.manual_capture.capture(false_color_on=False).result(timeout=30)
+        sim_session.scope.illumination.led_off(LED0)
+        assert sim_session.scope.camera.get_held_layer() == LED0
+        with pytest.raises(RecordingRefusedError) as refused:
+            sim_session.manual_recording.start(false_color_on=False)
+        assert refused.value.reason == 'camera_holds_another_layer'
+        assert not sim_session.manual_recording.is_recording
+        assert sim_session.activity_claim.holder is None
 
 
 class TestTheSessionStores:
