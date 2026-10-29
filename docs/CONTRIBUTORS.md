@@ -10,3 +10,4 @@ The following people have contributed to LumaViewPro:
 - Eric Weiner
 - Daniel Book
 - Dovydas Vabaliene
+- Jordan Corey
