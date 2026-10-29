@@ -108,10 +108,11 @@ blocks -- and has no route. Anything unmarked is not API, whatever its name: it
 may change in any release.
 
 **REST is the same API.** Each route is one `@api` member, at a path that
-follows how you reach it from the session: `session.select_labware` is
-`POST /api/v1/select_labware`, `scope.motion.move_z` is
+follows how you reach it from the session: `session.take_control` is
+`POST /api/v1/take_control`, `scope.motion.move_z` is
 `POST /api/v1/scope/motion/move_z`. A read is a `GET`, a setting is a `PUT` on
-its read's URL, and every other call is a `POST`. The same refusals, faults and
+its read's URL (`session.select_labware` writes `PUT /api/v1/labware_id`), and
+every other call is a `POST`. The same refusals, faults and
 events reach a REST client as reach a Python caller ([REST](#rest)).
 
 ## Bringing a session up
@@ -141,12 +142,12 @@ scope = session.scope
 stored objective, plate, frame, binning and image mode applied -- and whose
 camera is streaming, so a capture works at once. It does **not** move anything.
 The scope's position is unknown until it is homed, and a move or a run before
-that is refused (`position_unknown`). `run_application_session()` is the
+that is refused (`'position_unknown'`). `run_application_session()` is the
 startup motion LumaViewPro itself runs at launch: every axis homed, then the
 turret moved to slot 1. `start_application_session()` starts the same motion
 and returns its [`Operation`](#protocols-and-runs) without waiting. While the
 home runs, it holds the scope like a run: other requests are refused naming the
-home (`home_in_flight`).
+home (`'home_in_flight'`).
 
 **What `create` reads from the settings.** A dict you build yourself is
 completed from the template, and each of its values is judged as a write of it
@@ -194,14 +195,14 @@ print(session.objective_id, scope.runtime_state.get_pixel_size_um())
 
 **One session per scope.** A real scope is opened by one process at a time:
 while LumaViewPro, a REST server or another script drives the microscope,
-`create(..., simulate=False)` is refused `ScopeInUseError` (`scope_in_use`)
+`create(..., simulate=False)` is refused `ScopeInUseError` (`'scope_in_use'`)
 with nothing opened. A simulated scope takes no such lock.
 
 **Shutting down.** `session.shutdown()` finishes what the session is doing --
 it stops a live run and recording, then waits for their files and any
 post-processing to be written -- and then turns the LEDs off, stops motion and
 disconnects the scope. From its first step, new work is refused
-(`session_closing`). A second call does nothing.
+(`'session_closing'`). A second call does nothing.
 
 ```python
 session.shutdown()
@@ -256,12 +257,12 @@ outcome class, with each reason's cause and status, is under
 door, so no member lists them:
 
 - An argument of another type than the member declares is refused
-  `ArgumentTypeRefusedError` (`wrong_argument_type`).
+  `ArgumentTypeRefusedError` (`'wrong_argument_type'`).
 - A value outside a closed set -- an axis name, an image mode, an output
-  format -- is refused `ArgumentRefusedError` (`not_offered`), its `offered`
+  format -- is refused `ArgumentRefusedError` (`'not_offered'`), its `offered`
   listing what is.
-- A number that is not a number (NaN) is refused (`not_a_number`; a setting
-  written by path, `wrong_kind`).
+- A number that is not a number (NaN) is refused (`'not_a_number'`; a setting
+  written by path, `'wrong_kind'`).
 
 ```python raises=ArgumentTypeRefusedError
 scope.motion.move_z('5000')                 # a str where a float is declared
@@ -306,7 +307,7 @@ Over REST every outcome is an `outcome` event on the event stream
 reader running a long experiment, an integration that owns the scope -- takes
 the control session. While it is held, only work in it writes to the scope:
 every other caller's command, setting, file, run, recording, home or diagnostic
-is refused `ControlSessionRefusedError` (`control_session_held`), naming the
+is refused `ControlSessionRefusedError` (`'control_session_held'`), naming the
 session. A stop is never refused, and the display preferences stay open to
 everyone. The session is taken only while nothing of anyone else's is under
 way.
@@ -329,12 +330,12 @@ assert session.control is None
 
 Over REST, work in the session is a request carrying the `Control-Session`
 header with the id. A request naming a session that has ended, or was never
-issued, is refused `control_session_ended`. The person at the scope can take it
+issued, is refused `'control_session_ended'`. The person at the scope can take it
 back without the id (`take_back_control`, in-process only).
 
 **The holders.** A run, an autofocus, a recording, a diagnostic and a home each
 hold the scope for their length. A command that would change what one is doing
-is refused `HardwareCommandRefusedError` (`exclusive_activity_running`), its
+is refused `HardwareCommandRefusedError` (`'exclusive_activity_running'`), its
 `holder` naming the work and `holder_trigger` the host that started it (`gui`,
 `rest` or `api`). A recording refuses only what would falsify its frames -- a
 change of frame size, binning or image mode -- and leaves gain and exposure
@@ -348,9 +349,9 @@ refused before anything moves, lights or is written, and its `missing`
 
 | Reason | Means |
 |---|---|
-| `axis_absent` | The scope has no such motion part: an axis, the turret, or no motors at all on a manual model. |
-| `not_on_this_scope` | The scope has no such part: an LED, a channel, fan control. |
-| `not_connected` | The part exists but is not connected: never came up, or its cable was pulled. |
+| `'axis_absent'` | The scope has no such motion part: an axis, the turret, or no motors at all on a manual model. |
+| `'not_on_this_scope'` | The scope has no such part: an LED, a channel, fan control. |
+| `'not_connected'` | The part exists but is not connected: never came up, or its cable was pulled. |
 
 ```python raises=HardwareCommandRefusedError
 scope.motion.move_turret(2)                 # this scope has no turret: axis_absent
@@ -358,8 +359,8 @@ scope.motion.move_turret(2)                 # this scope has no turret: axis_abs
 
 **A lost part stays lost.** Nothing reconnects a part during a session. A part
 that is not connected is named by `scope.unconnected_parts()` until LumaViewPro
-restarts, so `not_connected` is a restart refusal (REST 503), and a run that
-loses a part ends at once (`hardware_disconnected`).
+restarts, so `'not_connected'` is a restart refusal (REST 503), and a run that
+loses a part ends at once (`'hardware_disconnected'`).
 
 ## State and settings
 
@@ -386,9 +387,9 @@ session.update_settings('video.max_fps', 300)    # out_of_range: at most 200
 A setting that a member owns is written only through that member, since the
 member also applies it: `binning` is the camera's (`scope.camera.set_binning`),
 `microscope` the session's `select_model`. Writing it by path is refused
-`has_member`, its `member` naming the door. The reasons a path write is refused
--- `has_member`, `host_only`, `installation_only`, `derived`, `not_a_setting`,
-`block`, `wrong_kind`, `out_of_range`, `not_offered` -- are
+`'has_member'`, its `member` naming the door. The reasons a path write is refused
+-- `'has_member'`, `'host_only'`, `'installation_only'`, `'derived'`, `'not_a_setting'`,
+`'block'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
 [`SettingRefusedError`'s](API_REFERENCE.md#SettingRefusedError).
 
 ```python raises=SettingRefusedError
@@ -414,7 +415,7 @@ exposure, so `set_gain_db` and `set_exposure_ms` answer the value now in
 effect. A stored gain above the camera's ceiling stays stored; what the camera
 would be given for it is `scope.camera.applied_gain_db_for(gain)`, and a gain
 asked of the camera directly outside its range is refused
-(`gain_db_out_of_range`).
+(`'gain_db_out_of_range'`).
 
 ```python
 assert scope.illumination.led_on('BF', 10.37) == 10.0      # the board's step
@@ -468,8 +469,8 @@ print(session.get_current_plate_position())                 # X, Y in plate mm; 
 
 **A position to keep is read at rest.** A position you will act on later -- a
 step, a bookmark, a sweep's centre -- is read while its axes are still, by
-`scope.motion.positions_to_keep`. It is refused `axis_moving` while an axis it
-names moves, and `position_unknown` while one is unhomed: a number is never
+`scope.motion.positions_to_keep`. It is refused `'axis_moving'` while an axis it
+names moves, and `'position_unknown'` while one is unhomed: a number is never
 answered for a position the controller cannot vouch for.
 
 ```python
@@ -481,7 +482,7 @@ print(kept['Z'])
 
 **Homing is required.** An axis's position is unknown until it is homed, and
 again after a fault loses it. A move, a run or a kept position on an unhomed
-axis is refused `position_unknown`; `axes_without_position()` names each axis
+axis is refused `'position_unknown'`; `axes_without_position()` names each axis
 that has none, and why (`unknown` or `homing`). A session starts unhomed; the
 startup motion ([Bringing a session up](#bringing-a-session-up)) homes it.
 
@@ -491,8 +492,8 @@ assert scope.motion.axes_without_position() == {}
 ```
 
 A home holds the scope like a run: other requests are refused naming it
-(`home_in_flight`). On the EL-0940 a home cannot be stopped once its board has
-begun it (`home_not_stoppable`); it runs to its end.
+(`'home_in_flight'`). On the EL-0940 a home cannot be stopped once its board has
+begun it (`'home_not_stoppable'`); it runs to its end.
 
 **Moves.** A move is asked for by what it moves, in stage micrometres:
 `move_xy(x_um, y_um)` moves X and Y as one request, an axis given as None left
@@ -525,17 +526,17 @@ moving.result(timeout=30)                   # None once the move has ended
 
 **How a move ends.** A move that does not end where asked raises a
 `MoveNotCompletedError`: `MoveStoppedError`, a notice, when someone stopped it
-or a newer move superseded it (`stopped`, `superseded`); `MoveFaultError`, a
+or a newer move superseded it (`'stopped'`, `'superseded'`); `MoveFaultError`, a
 fault, when the board failed, stalled or lost the axis, which leaves the axis
 unknown until homed again.
 
 **Stopping.** `stop_motion()` halts every axis at once, whoever started the
-move, and ends the live run (`stage_stopped`). No holder and no control session
-refuses a stop; only a scope with no motor controller does (`axis_absent`,
-`not_connected`).
+move, and ends the live run (`'stage_stopped'`). No holder and no control session
+refuses a stop; only a scope with no motor controller does (`'axis_absent'`,
+`'not_connected'`).
 
 **Interlocks.** A Classic scope's stage refuses to move with its lid open or
-its stage unpowered (`lid_open_before_motion`, `stage_unpowered_before_motion`);
+its stage unpowered (`'lid_open_before_motion'`, `'stage_unpowered_before_motion'`);
 `interlocks()` answers which are tripped now. The EL-0940 has none.
 
 **The turret.** A scope with a turret (`scope.capabilities.has_turret`) moves
@@ -569,14 +570,14 @@ for channel in scope.channel_identity.channels:
 
 A file written before fluorescence channels were named for their excitation
 (`Blue`, `Green`, `Red`) is read by the LED each old name lit; a caller's old
-name is refused, as any unknown one is (`channel_unknown`, or `not_a_setting`
+name is refused, as any unknown one is (`'channel_unknown'`, or `'not_a_setting'`
 in a settings path).
 
 **LEDs.** `led_on(channel, illumination_ma)` lights a channel's LEDs and
 answers the current commanded ([State and settings](#state-and-settings));
 `led_off(channel)` and `leds_off()` turn them off. A channel this scope lacks
-is refused `not_on_this_scope`; one the release does not know,
-`channel_unknown`. The ceiling is `scope.capabilities.led_max_ma`.
+is refused `'not_on_this_scope'`; one the release does not know,
+`'channel_unknown'`. The ceiling is `scope.capabilities.led_max_ma`.
 
 ```python
 scope.illumination.led_on('Ex405', 50)
@@ -587,7 +588,7 @@ scope.illumination.leds_off()
 **The API holds the truth.** Which LED is lit, at what current, and who holds
 it is held by the illumination API; the drivers hold nothing. A run, an
 autofocus, a diagnostic or a home holds the LEDs for its length, and a write
-from anyone else is refused `exclusive_activity_running`. Work that borrows the
+from anyone else is refused `'exclusive_activity_running'`. Work that borrows the
 light and gives it back saves it first and restores it after
 (`save_led_state` / `restore_led_state`).
 
@@ -615,7 +616,7 @@ it.
 a value outside the camera's declared range is refused before it reaches the
 camera (`CameraSettingOutOfRangeError`, its `limits` the range), and a value
 the camera refused or did not answer is the fault `CameraSettingRejected`
-(`camera_rejected`, `camera_no_answer`). Each setter answers what the camera
+(`'camera_rejected'`, `'camera_no_answer'`). Each setter answers what the camera
 now runs, which may differ from what was asked.
 
 ```python
@@ -662,7 +663,7 @@ scope.camera.set_image_mode(ImageMode.EIGHT_BIT)
 ```
 
 A camera setting changed while a run, a diagnostic or a home holds the scope is
-refused (`exclusive_activity_running`). During a recording only what would
+refused (`'exclusive_activity_running'`). During a recording only what would
 falsify its frames -- binning, frame size, image mode -- is refused.
 
 ## Frames and captures
@@ -677,7 +678,7 @@ the change. `scope.capabilities.frame_rules` answers each source's rule, and
 `scope.imaging.frames_until_valid()` how many frames the capture would still
 wait. A capture never infers validity from pixel content; when the scope keeps
 changing longer than its budget, it raises `CaptureFailedError`
-(`deadline_expired`).
+(`'deadline_expired'`).
 
 **Which channel a still is.** A still is named for the lit LED -- the first in
 address order when more than one is lit -- else for the shown channel. The
@@ -876,8 +877,8 @@ print(started.files.result(timeout=60))     # the run's images: written, or how 
 ```
 
 A run that cannot start is refused before it takes the scope:
-`ProtocolRunRefusedError`, its `reason` naming why (`position_unknown`,
-`zstack_not_configured`, `exclusive_activity_running`, ...). Once started, a run
+`ProtocolRunRefusedError`, its `reason` naming why (`'position_unknown'`,
+`'zstack_not_configured'`, `'exclusive_activity_running'`, ...). Once started, a run
 always ends with a `RunOutcome` -- it does not raise -- whose `status` is one of
 `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`, with a
 `reason` and the words a person reads.
@@ -968,7 +969,7 @@ startup home, the plugins -- and serves on `127.0.0.1` at the port in
 LumaViewPro, so it will not start while LumaViewPro or another server drives
 the scope. A failed startup home is reported and the server still serves, so a
 client can home again. Ctrl-C closes it: new calls are refused
-(`server_closing`), the session shuts down with the event stream open, the
+(`'server_closing'`), the session shuts down with the event stream open, the
 stream's last event is `closing`, and the process exits `0`, or `1` when the
 session did not close cleanly.
 
@@ -992,7 +993,7 @@ and faults its member declares, under the status each answers.
 
 ### Routes
 
-The session is the root: its member `m` is `/api/v1/m`, and each sub-object is
+The session is the root: its member `<member>` is `/api/v1/<member>`, and each sub-object is
 a path segment, so `session.scope.motion.move_xy` is
 `POST /api/v1/scope/motion/move_xy`.
 
@@ -1015,11 +1016,11 @@ a path segment, so `session.scope.motion.move_xy` is
   for None.
 - **Arguments are checked before the member runs**: a key it does not take, a
   value of the wrong type, a missing one, or a number that is not finite is
-  refused `422` (`invalid_request`), its `errors` naming each argument. A
-  number where a channel is named is refused here too, as `invalid_request`.
+  refused `422` (`'invalid_request'`), its `errors` naming each argument. A
+  number where a channel is named is refused here too, as `'invalid_request'`.
 - **Paths are names in the live folder**, `/`-separated
   (`"ProtocolData/run1"`). A name that leaves it is refused
-  (`outside_live_folder`); `"."` is the live folder itself. An answered path is
+  (`'outside_live_folder'`); `"."` is the live folder itself. An answered path is
   `{"name": ..., "host_path": ...}`.
 - **Units are the API's**: an axis position crosses as
   `{"position_um": ..., "state": ...}`, and a duration as a number of seconds.
@@ -1038,7 +1039,7 @@ and a parameter that takes it is sent its id (`{"protocol": "1"}`).
 `GET /api/v1/handles` lists every handle held, oldest first.
 `DELETE /api/v1/handles/<type>/<id>` forgets the id, never the object; the
 session's protocol runner is every client's and is kept (`422`,
-`handle_shared`). At most 1000 handles are held.
+`'handle_shared'`). At most 1000 handles are held.
 
 ### Jobs
 
@@ -1071,8 +1072,8 @@ with the same key, it runs nothing and is answered what the first was, with
 
 While a control session is held, every write carries its id in the
 `Control-Session` header; any other write is refused `409`
-(`control_session_held`), and a request naming an ended session `422`
-(`control_session_ended`). `POST /api/v1/take_control` with `{"name": ...}`
+(`'control_session_held'`), and a request naming an ended session `422`
+(`'control_session_ended'`). `POST /api/v1/take_control` with `{"name": ...}`
 answers the id; `POST /api/v1/end_control` with `{"session_id": ...}` ends it.
 
 ### Problems
@@ -1096,11 +1097,11 @@ client corrects its request without reading the words.
 | Status | Means |
 |---|---|
 | `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`). |
-| `422` | A refusal of the request as sent: change it. Also `invalid_request` and `handle_shared`. |
+| `422` | A refusal of the request as sent: change it. Also `'invalid_request'` and `'handle_shared'`. |
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
 | `405` / `415` | The wrong method; a body that is not JSON. |
-| `503` | With `Retry-After`, try again later (`overloaded`, `no_frame_yet`). Without it, nothing succeeds until the application restarts (`not_connected`, `scope_disconnected`, `session_closing`, `server_closing`). |
+| `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'scope_disconnected'`, `'session_closing'`, `'server_closing'`). |
 
 ### The event stream
 
@@ -1124,7 +1125,7 @@ event is `closing`.
 - `GET /api/v1/files/<name>` -- a file in the live folder, as an attachment; a
   `Range` request resumes a large download.
 - `PUT /api/v1/files/<name>` -- a new file in the live folder; a file already
-  at the name is refused (`file_exists`), so an upload never replaces a
+  at the name is refused (`'file_exists'`), so an upload never replaces a
   capture.
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
   display (`max_width`).
@@ -1200,8 +1201,8 @@ the FX2 camera and LED board, and on the LS720 the TMCM-6110 motor board.
 **Faults.** `scope.simulation` injects what the hardware can do wrong, through
 the same production driver path a real fault takes: a board that drops replies,
 a camera unplugged, a home that never trips its switch, an open lid. Each is a
-guarded write, refused on a real scope (`needs_simulated_scope`) and on a board
-that cannot show it (`not_injectable_on_board`). `injected()` answers what is
+guarded write, refused on a real scope (`'needs_simulated_scope'`) and on a board
+that cannot show it (`'not_injectable_on_board'`). `injected()` answers what is
 injected, and `clear()` removes it all.
 
 Which board can show a fault depends on how the model is simulated. Each

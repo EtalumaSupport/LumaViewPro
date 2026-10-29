@@ -37,18 +37,22 @@ job's id is read from an earlier answer (``NAME=$(curl ... | jq -r .id)``),
 never typed: ids count every call held as a job, so a typed one names another
 call's job as soon as the server's history differs.
 
-Scope, and why prose is not resolved
-------------------------------------
-Only fenced code blocks are resolved and bound -- ``python``-labelled and
-unlabelled. The guide's Changelog names, by design, surfaces that do NOT
-resolve: its ``removal`` and ``rename`` entries against the frozen 4.x
-surface. A whole-file resolution check would need a hand-maintained
-allowlist of those mentions -- a mirror requiring manual sync, which is the
-defect class this guard is meant to close, not reproduce.
+Prose, checked by kind
+----------------------
+A name the prose states is checked by its kind, each kind at its owner
+(polarity 5): a ``session.`` / ``scope.`` / ``caps.`` form or a
+``Class.member`` of a class the API names resolves to API; a route
+(``/api/...``, with or without its method) is answered by the app's routes; a
+dotted path whose first part is a setting is one (``get_setting``); and a
+quoted reason (``'not_offered'``) is one a published outcome, the server or a
+run's ending carries. Every other backticked token is not checked. The
+Changelog names, by design, surfaces that do NOT resolve -- its ``removal``
+and ``rename`` entries -- so its section is left out by its heading, a rule
+rather than a list of exceptions to keep in step.
 
-One prose form is checked too: a backticked path into a project package
-(```modules.x.y```, ``drivers.``, ``rest.``) names something a reader is
-told to import, so it must be API like a fenced import.
+A backticked path into a project package (```modules.x.y```, ``drivers.``,
+``rest.``) names something a reader is told to import, so it must be API like
+a fenced import.
 
 ``PLUGIN_API_DESIGN_2026-05-09.md`` is deliberately NOT guarded. It is a
 design and history document; 12 of its 40 call forms name proposals that were
@@ -58,6 +62,7 @@ accuracy is maintained by review, not by resolution.
 """
 
 import ast
+import collections
 import enum
 import importlib
 import inspect
@@ -1034,3 +1039,175 @@ class TestLumascopeSkillsWalkthroughRuns:
         assert 'answered 422, not the 200 it states' in reported['a wrong status'][0]
         assert "answered reason 'not_offered', not the axis_absent" in reported['a wrong reason'][0]
         assert 'answered 404' in reported['an unstated failure'][0]
+
+
+# The names the guide's prose is held to, each kind by its owner; every other
+# backticked token is not checked. The Changelog names what no longer
+# resolves, by design, so its section is left out by its heading.
+_RECEIVER_FORM = re.compile(r'^(scope|session|caps)((?:\.[A-Za-z_]\w*)+)(?:\(.*\))?$')
+_CLASS_MEMBER = re.compile(r'^([A-Z]\w*)\.([A-Za-z_]\w*)(?:\(.*\))?$')
+_ROUTE = re.compile(r'^(?:(GET|POST|PUT|DELETE) )?(/api(?:/[^\s?]*)?)(?:\?\S*)?$')
+_DOTTED = re.compile(r'^([A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)+$')
+_QUOTED_REASON = re.compile(r"^'([a-z][a-z0-9_]*)'$")
+_UNCHECKED_SECTION = 'Changelog'
+
+
+def prose_tokens(text):
+    """``(token, lineno)`` per backticked token in ``text``'s prose: outside fences and the Changelog."""
+    fence, section = None, ''
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.startswith('```'):
+            fence = fence_info(line)[0] if fence is None else None
+            continue
+        if fence is not None:
+            continue
+        if line.startswith('## '):
+            section = line[3:].strip()
+        if section == _UNCHECKED_SECTION:
+            continue
+        for token in re.findall(r'`([^`\n]+)`', line):
+            yield token, lineno
+
+
+def _route_matches(route_path, asked):
+    """Whether the app's ``route_path`` answers the guide's ``asked`` path.
+
+    A guide's ``<name>`` segment stands for any one segment, as the app's
+    ``{name}`` does; the app's ``{name:path}`` takes the rest.
+    """
+    have, want = route_path.strip('/').split('/'), asked.strip('/').split('/')
+    for i, segment in enumerate(have):
+        if segment.endswith(':path}'):
+            return len(want) > i
+        if i >= len(want):
+            return False
+        if not (segment.startswith('{') or want[i].startswith('<') or segment == want[i]):
+            return False
+    return len(have) == len(want)
+
+
+class _ProseOwners:
+    """What each kind of prose name is resolved against: the owner of that kind."""
+
+    def __init__(self, live_objects, app):
+        from modules import run_outcome, wire_encoding
+        from rest.problems import _SERVER_STATUS
+        from tests.api_reference import outcome_classes
+        from tests.marked_set import marked_set
+
+        self.live = live_objects
+        self.universe = wire_encoding.project_classes()
+        self.marked = marked_set(self.universe)
+        self.routes = [
+            (route.path, getattr(route, 'methods', None) or set()) for route in app.routes
+        ]
+        self.settings = live_objects['session'].get_settings_snapshot().keys()
+        self.reasons = (
+            # A kind itself (Refusal, Fault, ...) carries no reasons; its classes do.
+            {r for cls in outcome_classes().values() for r in getattr(cls, 'causes', ())}
+            | set(_SERVER_STATUS)
+            | set(run_outcome.ENDINGS)
+        )
+
+    def judge(self, token):
+        """``(kind, why it is wrong or None)``, or None for a token of no checked kind."""
+        if match := _RECEIVER_FORM.match(token):
+            receiver, chain = match.group(1), tuple(match.group(2).lstrip('.').split('.'))
+            root = self.live[receiver]
+            missing = _first_missing_attr(root, receiver, chain)
+            if missing:
+                return 'member', f'no attribute {missing}'
+            unmarked = _first_unmarked_step(root, receiver, chain)
+            return 'member', unmarked and f'{unmarked} is not API'
+        if (match := _ROUTE.match(token)) and match.group(2).startswith('/api'):
+            method, path = match.group(1), match.group(2)
+            answering = [m for p, m in self.routes if _route_matches(p, path)]
+            if not answering:
+                return 'route', 'no route answers it'
+            if method and not any(method in m for m in answering):
+                return 'route', f'no route answers it to {method}'
+            return 'route', None
+        if (match := _CLASS_MEMBER.match(token)) and match.group(1) in self.universe:
+            cls, name = self.universe[match.group(1)], match.group(2)
+            if f'{cls.__name__}.{name}' in self.marked:
+                return 'member', None
+            if issubclass(cls, enum.Enum) and name in cls.__members__:
+                return 'member', None
+            return 'member', f'{cls.__name__}.{name} is not API'
+        if (match := _DOTTED.match(token)) and match.group(1) in self.settings:
+            try:
+                self.live['session'].get_setting(token)
+            except LumascopeError as refused:
+                if getattr(refused, 'reason', None) == 'not_a_setting':
+                    return 'setting', 'not a setting'
+            return 'setting', None
+        if match := _QUOTED_REASON.match(token):
+            reason = match.group(1)
+            return 'reason', None if reason in self.reasons else 'no published outcome carries it'
+        return None
+
+
+@pytest.fixture(scope='module')
+def prose_owners(live_objects):
+    from rest.app import build_app
+
+    return _ProseOwners(live_objects, build_app(live_objects['session']))
+
+
+def prose_name_failures(text, label, owners):
+    """``(failures, counts)``: a line per prose name that does not resolve, and each kind's count."""
+    failures, counts = [], collections.Counter()
+    for token, lineno in prose_tokens(text):
+        judged = owners.judge(token)
+        if judged is None:
+            continue
+        kind, why = judged
+        counts[kind] += 1
+        if why:
+            failures.append(f'  {label}:{lineno}  `{token}`  -> {why}')
+    return failures, counts
+
+
+class TestLumascopeSkillsProseNamesResolve:
+    """Polarity 5: a name the guide's prose states resolves, by its kind, at its owner."""
+
+    def test_every_prose_name_resolves(self, doc_text, prose_owners):
+        failures, _ = prose_name_failures(doc_text, DOC, prose_owners)
+        assert not failures, (
+            'LumascopeSkills.md names something in its prose that does not resolve: a '
+            'member or field that is not API, a route no route answers, a settings path '
+            'that is no setting, or a quoted reason no published outcome carries. Correct '
+            'the DOCUMENT.\n' + '\n'.join(failures)
+        )
+
+    def test_the_check_reaches_every_kind(self, doc_text, prose_owners):
+        _, counts = prose_name_failures(doc_text, DOC, prose_owners)
+        kinds = {'member', 'route', 'setting', 'reason'}
+        assert kinds <= counts.keys(), (
+            f'prose names found by kind: {dict(counts)}; a kind with none means the '
+            'token patterns have regressed'
+        )
+
+    def test_a_wrong_name_of_each_kind_is_reported(self, prose_owners):
+        planted = (
+            '## A chapter\n'
+            'Read `scope.motion.get_turret_slot()` and `session.controls_locked`.\n'
+            "The record is `BringUpRecord.substitution`, its reason `'merge_timeout'`.\n"
+            'Read `GET /api/v1/handles/Protocol/<id>/period` and `video.max_fsp`.\n'
+            'Every right one: `scope.motion.turret_status()`, `BringUpRecord.substitutions`,\n'
+            "`'not_offered'`, `GET /api/v1/handles/Protocol/<id>/period_s`, `video.max_fps`.\n"
+            '## Changelog\n'
+            '`session.retired_member` was removed.\n'
+        )
+        failures, _ = prose_name_failures(planted, 'planted', prose_owners)
+        reported = '\n'.join(failures)
+        for expected in (
+            'planted:2  `scope.motion.get_turret_slot()`  -> no attribute',
+            'planted:2  `session.controls_locked`  -> no attribute',
+            'planted:3  `BringUpRecord.substitution`  -> BringUpRecord.substitution is not API',
+            "planted:3  `'merge_timeout'`  -> no published outcome carries it",
+            'planted:4  `GET /api/v1/handles/Protocol/<id>/period`  -> no route answers it',
+            'planted:4  `video.max_fsp`  -> not a setting',
+        ):
+            assert expected in reported, reported
+        assert len(failures) == 6, reported
