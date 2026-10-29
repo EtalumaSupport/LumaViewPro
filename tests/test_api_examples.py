@@ -260,6 +260,20 @@ def test_refusals_and_faults_over_rest_answers_each_problem(served):
     assert (job['error']['reason'], job['error']['status']) == ('not_connected', 503)
 
 
+def test_control_session_acts_in_it_and_refuses_outside_it_and_after_it():
+    still, held, ended = _run_example('control_session')
+    assert still.file.is_file() and still.channel == 'BF'
+    assert (held.reason, ended.reason) == ('control_session_held', 'control_session_ended')
+
+
+def test_control_session_over_rest_acts_in_it_and_refuses_outside_it_and_after_it(served):
+    client, run = served('control_session')
+    job = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()
+    assert job['status'] == 'completed', job
+    assert job['result'][0]['channel'] == 'BF'
+    assert client.get('/api/v1/control').json() is None
+
+
 def _scope_session_calls(path):
     """Every ``ScopeSession.<member>(...)`` call an example makes, as
     (member, positional count, keyword names, line)."""
