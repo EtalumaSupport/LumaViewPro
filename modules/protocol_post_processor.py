@@ -288,13 +288,20 @@ class ProtocolPostProcessor(abc.ABC):
 
         A group's images share one derivation (every build groups by it), so
         the output's is theirs extended by this build, and its name and
-        folder are rendered from that.
+        folder are rendered from that. Its format is the one its images
+        share (``image_utils.derived_file_format``), whenever it is built;
+        the name states it, and the build writes the format its name states.
         """
+        output_format = image_utils.derived_file_format(group['Filepath'])
         derivation = post_derivation.extended(
-            group.iloc[0]['Derivation'], self._derivation_step(group, **kwargs)
+            group.iloc[0]['Derivation'],
+            self._derivation_step(group, output_format=output_format, **kwargs),
         )
         output_filename = self._generate_filename(
-            df=group, post=post_derivation.name_tokens(derivation), **kwargs
+            df=group,
+            post=post_derivation.name_tokens(derivation),
+            output_format=output_format,
+            **kwargs,
         )
         output_subfolder = self._post_processing_helper.generate_output_dir_name(
             record=pd.Series(post_derivation.kinds(derivation))

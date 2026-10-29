@@ -2432,11 +2432,6 @@ class SequencedCaptureRunner:
         write_batch = self._write_batch
         thresholds = self._composite_thresholds_percent
         channel_colors = self._channel_colors
-        output_format = (
-            self._image_capture_config.output_format_sequenced
-            if self._image_capture_config is not None
-            else image_mode.OutputFormat.TIFF
-        )
         # A composite missing a channel is told by the merge, once, as its
         # own notice after what became of the merge, whether it merged or
         # not, and before the outcome settles.
@@ -2528,7 +2523,6 @@ class SequencedCaptureRunner:
         try:
             merge = self._post_processing.run_composite(
                 run_dir,
-                output_format=output_format,
                 thresholds=thresholds,
                 channel_colors=channel_colors,
                 written=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),

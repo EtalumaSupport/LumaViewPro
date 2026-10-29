@@ -15,6 +15,7 @@ from modules.stitching_core import (
 )
 
 from modules.common_utils import PostFunction
+from modules.image_mode import OutputFormat
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
@@ -61,17 +62,24 @@ class Stitcher(ProtocolPostProcessor):
             dropna=False,
         )
 
-    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+    def _derivation_step(
+        self, group: pd.DataFrame, output_format: OutputFormat, **kwargs
+    ) -> post_derivation.Step:
         return post_derivation.Step(
             PostFunction.STITCHED,
-            (('mode', kwargs.get('stitching_mode', StitchMode.QUALITY)),),
+            (
+                ('mode', kwargs.get('stitching_mode', StitchMode.QUALITY)),
+                *post_derivation.format_settings(output_format),
+            ),
         )
 
     def _places(self, group: pd.DataFrame) -> pd.Series:
         # By stage position, not tile name: an inserted step has none.
         return group['X'].astype(str) + ',' + group['Y'].astype(str)
 
-    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
+    def _generate_filename(
+        self, df: pd.DataFrame, post: tuple[str, ...], output_format: OutputFormat, **kwargs
+    ) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
@@ -94,8 +102,7 @@ class Stitcher(ProtocolPostProcessor):
         )
 
         prefix = self._prepend_capture_root(name, kwargs)
-        outfile = f'{prefix}.tiff'
-        return outfile
+        return f'{prefix}{image_utils.derived_file_suffix(output_format)}'
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 

@@ -96,21 +96,16 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
     assert told == [(42, 'Image 42')]
 
 
-def test_the_composite_takes_the_users_format_and_thresholds(session, monkeypatch, tmp_path):
+def test_the_composite_takes_the_users_thresholds(session, monkeypatch, tmp_path):
+    # Its format is its channels', never the settings'
+    # (tests/test_a_derived_file_follows_its_inputs_format.py).
     import modules.config_helpers as config_helpers
     from modules.composite_generation import CompositeGeneration
 
-    from modules import image_mode
-
     seen = _spy_build(monkeypatch, CompositeGeneration, 'load_folder')
-    # Not the default, so a build that ignores the user's choice is caught.
-    with session.settings_lock:
-        session.settings['image_output_format']['sequenced'] = image_mode.OutputFormat.OME_TIFF
     session.post_processing.composite(tmp_path)
 
     settings = session.get_settings_snapshot()
-    assert seen['output_format'] == settings['image_output_format']['sequenced']
-    assert seen['output_format'] == image_mode.OutputFormat.OME_TIFF
     assert seen['brightness_thresholds_percent'] == (
         config_helpers.get_composite_blend_thresholds(settings)
     )

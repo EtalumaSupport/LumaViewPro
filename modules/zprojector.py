@@ -57,14 +57,28 @@ class ZProjector(ProtocolPostProcessor):
             dropna=False,
         )
 
-    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
-        return post_derivation.Step(PostFunction.ZPROJECT, (('method', kwargs['method'].lower()),))
+    def _derivation_step(
+        self, group: pd.DataFrame, output_format: image_mode.OutputFormat, **kwargs
+    ) -> post_derivation.Step:
+        return post_derivation.Step(
+            PostFunction.ZPROJECT,
+            (
+                ('method', kwargs['method'].lower()),
+                *post_derivation.format_settings(output_format),
+            ),
+        )
 
     def _places(self, group: pd.DataFrame) -> pd.Series:
         # By the slice's Z, not its index: an inserted step's index is -1.
         return group['Z']
 
-    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
+    def _generate_filename(
+        self,
+        df: pd.DataFrame,
+        post: tuple[str, ...],
+        output_format: image_mode.OutputFormat,
+        **kwargs,
+    ) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
@@ -83,8 +97,8 @@ class ZProjector(ProtocolPostProcessor):
             )
         )
 
-        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
-        return outfile
+        prefix = self._prepend_capture_root(name, kwargs)
+        return f'{prefix}{image_utils.derived_file_suffix(output_format)}'
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -279,7 +293,8 @@ class ZProjector(ProtocolPostProcessor):
             data=result['image'],
             file_loc=output_file_loc_abs,
             metadata=metadata,
-            ome=False,
+            # The format its name states, the one its slices share.
+            ome=image_utils.is_ome_tiff(output_file_loc),
             color=layer_record.output_color(first_slice_row['Color'], channel_colors),
             significant_bits=metadata['significant_bits'],
             save_encoding=image_mode.encoding_for_array(result['image']),

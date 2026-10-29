@@ -1156,6 +1156,38 @@ def read_file_record(path: pathlib.Path) -> dict | None:
         return _record_from_open(tif)
 
 
+def is_ome_tiff(path: pathlib.Path | str) -> bool:
+    """True when this path names an OME-TIFF: ``.ome.tif`` or ``.ome.tiff``, case-blind.
+
+    LVP names every file it writes by its format, an OME file ``.ome.tiff``
+    and a plain one ``.tiff``, so the name answers which it is, as the
+    suffix answers ``is_tiff``.
+    """
+    return [suffix.lower() for suffix in pathlib.Path(path).suffixes[-2:]] in (
+        ['.ome', '.tif'],
+        ['.ome', '.tiff'],
+    )
+
+
+def derived_file_suffix(output_format: image_mode.OutputFormat) -> str:
+    """The suffix a derived file of *output_format* is named with: ``.ome.tiff`` or ``.tiff``."""
+    return '.ome.tiff' if output_format == image_mode.OutputFormat.OME_TIFF else '.tiff'
+
+
+def derived_file_format(paths: Iterable[pathlib.Path | str]) -> image_mode.OutputFormat:
+    """The format a file derived from *paths* is written in: the one its inputs share.
+
+    OME-TIFF only when every input is an OME-TIFF (``is_ome_tiff``);
+    otherwise plain TIFF -- a group mixing the two, or a PNG or JPEG. A
+    derived file states a fact only when every input states the same, and
+    its container is one.
+    """
+    paths = list(paths)
+    if paths and all(is_ome_tiff(path) for path in paths):
+        return image_mode.OutputFormat.OME_TIFF
+    return image_mode.OutputFormat.TIFF
+
+
 def _record_from_open(tif: 'tf.TiffFile') -> dict | None:
     """The record one open TIFF states, or None when it states none.
 

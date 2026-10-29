@@ -350,7 +350,6 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
         CompositeGeneration(has_turret=False).load_folder(
             path=run_dir,
             tiling_grids=shipped_grids(),
-            output_format='TIFF',
             brightness_thresholds_percent={LED1: 50},
             channel_colors=release_colors(),
         )

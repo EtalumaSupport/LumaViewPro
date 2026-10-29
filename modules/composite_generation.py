@@ -67,13 +67,18 @@ class CompositeGeneration(ProtocolPostProcessor):
             dropna=False,
         )
 
-    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+    def _derivation_step(
+        self, group: pd.DataFrame, output_format: image_mode.OutputFormat, **kwargs
+    ) -> post_derivation.Step:
         # What decides a composite's pixels: its container, and each colour
         # channel's colour and, over a transmitted base, its blend threshold.
+        # The container is stated first and for every format, as it always
+        # was: the step's code names the file, so a composite already built
+        # keeps its name.
         transmitted = common_utils.get_transmitted_layers()
         blended = group['Color'].isin(transmitted).any()
         thresholds = kwargs['brightness_thresholds_percent']
-        settings = [('format', kwargs.get('output_format', image_mode.OutputFormat.TIFF))]
+        settings = [('format', output_format)]
         for layer in sorted(set(group['Color']) - set(transmitted)):
             # Named as the run stored it; an old name's colour and threshold
             # are its stock key's.
@@ -87,7 +92,13 @@ class CompositeGeneration(ProtocolPostProcessor):
                 settings.append((f'{layer}.threshold', str(thresholds.get(key))))
         return post_derivation.Step(PostFunction.COMPOSITE, tuple(settings))
 
-    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
+    def _generate_filename(
+        self,
+        df: pd.DataFrame,
+        post: tuple[str, ...],
+        output_format: image_mode.OutputFormat,
+        **kwargs,
+    ) -> str:
         row0 = df.iloc[0]
 
         objective_short_name = self._get_objective_short_name_if_has_turret(
@@ -108,16 +119,12 @@ class CompositeGeneration(ProtocolPostProcessor):
             )
         )
 
-        # The extension follows the run's chosen container, matching what the
-        # capture path writes: an OME composite named plain .tiff reads as a
-        # different format than it is, and the readers that branch on the
-        # double extension would take the wrong path.
-        if kwargs.get('output_format') == image_mode.OutputFormat.OME_TIFF:
-            extension = '.ome.tiff'
-        else:
-            extension = '.tiff'
-        outfile = f'{self._prepend_capture_root(name, kwargs)}{extension}'
-        return outfile
+        # The extension follows the container its channels share, matching
+        # what the capture path writes: an OME composite named plain .tiff
+        # reads as a different format than it is, and the readers that
+        # branch on the double extension would take the wrong path.
+        prefix = self._prepend_capture_root(name, kwargs)
+        return f'{prefix}{image_utils.derived_file_suffix(output_format)}'
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -150,7 +157,6 @@ class CompositeGeneration(ProtocolPostProcessor):
         # tells the base class to skip its cv2.imwrite (which would swap
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
-        output_format = kwargs.get('output_format', image_mode.OutputFormat.TIFF)
         if 'brightness_thresholds_percent' not in kwargs:
             raise ConfigurationDefectError(
                 'composite_thresholds_missing',
@@ -164,7 +170,6 @@ class CompositeGeneration(ProtocolPostProcessor):
                 df=df[['Filepath', 'Color']],
                 brightness_thresholds_percent=kwargs['brightness_thresholds_percent'],
                 output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
-                output_format=output_format,
                 channel_colors=kwargs['channel_colors'],
             )
         )
@@ -214,11 +219,13 @@ class CompositeGeneration(ProtocolPostProcessor):
         df: pd.DataFrame,
         brightness_thresholds_percent: dict,
         output_file_loc: pathlib.Path | None = None,
-        output_format: image_mode.OutputFormat = image_mode.OutputFormat.TIFF,
         *,
         channel_colors: layer_record.ChannelColors,
     ):
         """Merge one group's per-channel frames into a single composite.
+
+        Written to *output_file_loc*, when one is given, in the format its
+        name states (``image_utils.is_ome_tiff``).
 
         brightness_thresholds_percent maps each fluorescence layer to the
         percentage below which its pixels are not composited onto a
@@ -424,17 +431,11 @@ class CompositeGeneration(ProtocolPostProcessor):
                         significant_bits=composite_significant_bits,
                         adds_frames=False,
                     )
-                    # Honor the run's output format. The composite is a
-                    # single 2D RGB image, so only plain OME-TIFF applies --
-                    # the hyperstack has no per-frame meaning here and
-                    # falls through to a plain TIFF, matching the per-frame
-                    # hyperstack downgrade.
-                    ome = output_format == image_mode.OutputFormat.OME_TIFF
                     image_utils.write_tiff(
                         data=img,
                         file_loc=output_file_loc,
                         metadata=metadata,
-                        ome=ome,
+                        ome=image_utils.is_ome_tiff(output_file_loc),
                         # An RGB composite: a colour image's colour is its own.
                         color=GREY,
                         significant_bits=metadata['significant_bits'],

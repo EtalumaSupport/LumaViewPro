@@ -43,7 +43,6 @@ from modules.activity_claim import ActivityHolder, the_holder_named
 from modules.cell_count_method import CellCountMethod
 from modules.finite_number import is_finite_number
 from modules.graph_analysis import Trendline
-from modules.image_mode import OutputFormat
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
@@ -534,8 +533,8 @@ class PostProcessingAPI:
             has_turret: Whether the scope has a turret, which decides how a
                 folder's images are grouped by objective.
             settings_snapshot: The live user configuration, read when a
-                build needs a user setting (the composite's output format
-                and blend thresholds).
+                build needs a user setting (the composite's blend
+                thresholds).
             channel_colors: Every layer's colour, from the Session's one
                 read of it, read as each build is asked for.
             scope_holder: What holds the scope now -- a run, a recording, a
@@ -690,9 +689,10 @@ class PostProcessingAPI:
     ) -> BuildResult:
         """Merge each multi-channel position in *folder* into one composite.
 
-        The output format and each channel's blend threshold are the user's
-        configuration -- the same settings a run's own merge uses -- read
-        when the build is asked for.
+        Each channel's blend threshold is the user's configuration -- the
+        same setting a run's own merge uses -- read when the build is asked
+        for. A composite is OME-TIFF when every channel it merges is, plain
+        TIFF otherwise, whatever the settings say when it is built.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
@@ -798,8 +798,8 @@ class PostProcessingAPI:
                 z-projection.
             stitch: The stitch's settings, or None for no stitch.
             composite: True to merge each multi-channel position into one
-                composite, its format and thresholds the user's
-                configuration; False for no composite.
+                composite, its thresholds the user's configuration and its
+                format its channels'; False for no composite.
             video: The video's settings, or None for no video.
             on_progress: Called with the percentage of the whole call and a
                 line naming the build running (that build's own detail on
@@ -926,7 +926,6 @@ class PostProcessingAPI:
         self,
         run_dir: pathlib.Path,
         *,
-        output_format: OutputFormat,
         thresholds: dict,
         channel_colors: ChannelColors,
         written: Callable[[], None],
@@ -934,8 +933,9 @@ class PostProcessingAPI:
         """Put a finished composite run's merge on the lane, without waiting.
 
         Not on the wire: the merge is the composite run's own, made from the
-        format, thresholds and colours the run took at its start, never the
-        live settings a caller's composite reads. *written* is
+        thresholds and colours the run took at its start, never the live
+        settings a caller's composite reads, and in the format its frames
+        were saved in, as every composite is. *written* is
         ``run_hyperstack``'s.
 
         Returns:
@@ -946,9 +946,7 @@ class PostProcessingAPI:
             HardwareCommandRefusedError: the lane is closed.
         """
         return self._on_lane(
-            self._composite_build(
-                output_format=output_format, thresholds=thresholds, channel_colors=channel_colors
-            ),
+            self._composite_build(thresholds=thresholds, channel_colors=channel_colors),
             'run_composite',
             run_dir,
             admit=written,
@@ -1026,7 +1024,7 @@ class PostProcessingAPI:
         )
 
     def _live_composite_build(self) -> Callable[..., dict]:
-        """A caller's composite, its format and thresholds read from the live settings now.
+        """A caller's composite, its thresholds read from the live settings now.
 
         Nothing is checked here: the stored values are kept in range where
         they are written and loaded.
@@ -1035,21 +1033,19 @@ class PostProcessingAPI:
 
         live = self._settings_snapshot()
         return self._composite_build(
-            output_format=OutputFormat(live['image_output_format']['sequenced']),
             thresholds=config_helpers.get_composite_blend_thresholds(live),
             channel_colors=self._channel_colors(),
         )
 
     def _composite_build(
-        self, *, output_format: OutputFormat, thresholds: dict, channel_colors: ChannelColors
+        self, *, thresholds: dict, channel_colors: ChannelColors
     ) -> Callable[..., dict]:
-        """The composite of the format, thresholds and colours it is handed: one source per call."""
+        """The composite of the thresholds and colours it is handed: one source per call."""
         from modules.composite_generation import CompositeGeneration
 
         return functools.partial(
             CompositeGeneration(has_turret=self._has_turret()).load_folder,
             tiling_grids=self._tiling_grids,
-            output_format=output_format,
             brightness_thresholds_percent=thresholds,
             channel_colors=channel_colors,
         )

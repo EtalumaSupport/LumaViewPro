@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
-from modules import image_utils
+from modules import image_mode, image_utils
 from modules.layer_record import GREY, ChannelColors, Color, stored_key
 from modules.exceptions import (
     PostProcessingFailedError,
@@ -364,8 +364,7 @@ class QuickEnhancer:
             else source_pixels
         )
         output = self.apply(image, settings, significant_bits)
-        output_path = self._next_output_path(source_path)
-        recipe_path = output_path.with_suffix('.recipe.json')
+        output_path, recipe_path = self._next_output_paths(source_path)
 
         temp_output = output_path.with_name(f'.{output_path.stem}.{uuid.uuid4().hex}.tmp.tif')
         temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
@@ -405,7 +404,8 @@ class QuickEnhancer:
                 data=output_for_write,
                 file_loc=temp_output,
                 metadata=metadata,
-                ome=False,
+                # The format its name states, its source's.
+                ome=image_utils.is_ome_tiff(output_path),
                 color=render_color,
                 significant_bits=significant_bits,
                 save_encoding='right_aligned',
@@ -530,14 +530,30 @@ class QuickEnhancer:
         return pathlib.Path(output_path).parent if output_path is not None else None
 
     @staticmethod
-    def _next_output_path(source_path: pathlib.Path) -> pathlib.Path:
-        base = source_path.with_name(f'{source_path.stem}_enhanced.tif')
-        if not base.exists():
-            return base
-        for index in range(2, 10_002):
-            candidate = source_path.with_name(f'{source_path.stem}_enhanced_{index}.tif')
-            if not candidate.exists():
-                return candidate
+    def _next_output_paths(source_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+        """Where an enhance of *source_path* is written, and its recipe.
+
+        In its source's format: ``a.ome.tiff`` gives ``a_enhanced.ome.tiff``,
+        anything else ``<name>_enhanced.tif``. The name is the source's
+        without its format's suffix -- ``.ome.tiff`` taken off whole, else
+        only the last suffix, so ``exp1.5uM_BF.tiff`` keeps its ``.5uM``. A
+        name is taken while the image in either format or the recipe exists,
+        so ``a.tiff`` and ``a.ome.tiff`` in one folder never share a recipe.
+        """
+        if image_utils.is_ome_tiff(source_path):
+            base = source_path.name[: -len(''.join(source_path.suffixes[-2:]))]
+            suffix = image_utils.derived_file_suffix(image_mode.OutputFormat.OME_TIFF)
+        else:
+            base = source_path.stem
+            suffix = '.tif'
+        for index in range(1, 10_002):
+            stem = f'{base}_enhanced' if index == 1 else f'{base}_enhanced_{index}'
+            taken = (f'{stem}.ome.tiff', f'{stem}.tif', f'{stem}.recipe.json')
+            if not any(source_path.with_name(name).exists() for name in taken):
+                return (
+                    source_path.with_name(f'{stem}{suffix}'),
+                    source_path.with_name(f'{stem}.recipe.json'),
+                )
         raise FileExistsError(
             f'Could not choose a derived filename for {source_path.name}: too many existing exports.'
         )

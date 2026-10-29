@@ -79,15 +79,25 @@ def run_folder(tmp_path):
 
 
 def write_run_folder(
-    tmp_path, fluorescence: str, *, bits: int = 8, fluorescence_encoding: str = 'right_aligned'
+    tmp_path,
+    fluorescence: str,
+    *,
+    bits: int = 8,
+    fluorescence_encoding: str = 'right_aligned',
+    ome: bool = False,
+    plated: bool = False,
 ):
     """The run folder of a 2x2 tiled, 3-slice run of BF and ``fluorescence``,
     each slice a different scene, as a release naming it so saves it.
 
     ``bits`` is the capture depth (8, or 12 in a 16-bit container), and
     ``fluorescence_encoding`` how the fluorescence frames were saved: 'rgb'
-    is a false-colour capture, three channels at 12 bits.
+    is a false-colour capture, three channels at 12 bits. ``ome`` saves
+    every frame OME-TIFF, as an OME-TIFF run does, else plain TIFF.
+    ``plated`` records each frame's 96-well plate and its well, A1, as a
+    well-plate run does; else no plate and no well.
     """
+    plate = {'well_label': 'A1', 'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12}}
     channels = _channels(fluorescence)
     folder = tmp_path / 'live' / 'ProtocolData' / '20261018_120000'
     folder.mkdir(parents=True)
@@ -112,7 +122,7 @@ def write_run_folder(
         name, color, tile, z_slice = step[0], step[5], step[14], int(step[15])
         column, row = _TILES[tile]
         y0, x0 = row * (_TILE_PX - 10), column * (_TILE_PX - 10)
-        filename = f'{name}_0000.tiff'
+        filename = f'{name}_0000{".ome.tiff" if ome else ".tiff"}'
         image_utils.write_tiff(
             data=scenes[z_slice][y0 : y0 + _TILE_PX, x0 : x0 + _TILE_PX].copy(),
             file_loc=folder / filename,
@@ -128,8 +138,9 @@ def write_run_folder(
                 'datetime': datetime.datetime(2026, 10, 18, 12, 0, 0),
                 'well_label': '',
                 'significant_bits': bits,
+                **(plate if plated else {}),
             },
-            ome=False,
+            ome=ome,
             color=release_color(stored_key(color)),
             significant_bits=bits,
             save_encoding='right_aligned' if color == 'BF' else fluorescence_encoding,

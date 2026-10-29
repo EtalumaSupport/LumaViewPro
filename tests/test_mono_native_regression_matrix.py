@@ -198,8 +198,12 @@ def session(tmp_path):
 
 @pytest.fixture
 def rgb_run_folder(tmp_path):
+    return _write_rgb_run_folder(tmp_path, ome=False)
+
+
+def _write_rgb_run_folder(tmp_path, *, ome: bool):
     """One position imaged in LED 2, LED 1 and LED 0 (red, green, blue), each a flat 8-bit frame
-    of its own value, as a run of this release saves it."""
+    of its own value, as a run of this release saves it: OME-TIFF when ``ome``, else plain."""
     from modules import image_utils
 
     folder = tmp_path / 'live' / 'ProtocolData' / '20261013_120000'
@@ -215,7 +219,7 @@ def rgb_run_folder(tmp_path):
     record_rows = []
     for index, step in enumerate(steps):
         name, color = step[0], step[5]
-        filename = f'{name}_0000.tiff'
+        filename = f'{name}_0000{".ome.tiff" if ome else ".tiff"}'
         image_utils.write_tiff(
             data=np.full((16, 16), _CHANNEL_VALUES[color], dtype=np.uint8),
             file_loc=folder / filename,
@@ -232,7 +236,7 @@ def rgb_run_folder(tmp_path):
                 'well_label': '',
                 'significant_bits': 8,
             },
-            ome=False,
+            ome=ome,
             color=release_color(color),
             significant_bits=8,
             save_encoding='right_aligned',
@@ -308,14 +312,12 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
 # ---------------------------------------------------------------------------
 
 
-def test_a_composite_from_a_folder_in_ome_tiff_has_yxs_axes(session, rgb_run_folder):
-    """A composite built with the run output format OME-TIFF carries OME
-    metadata and axes 'YXS' (Y, X, Sample) for its 3-channel image.
-    ``cefdfcb`` was a crash on that axes mismatch.
+def test_a_composite_from_a_folder_in_ome_tiff_has_yxs_axes(session, tmp_path):
+    """A composite of an OME-TIFF run's channels carries OME metadata and
+    axes 'YXS' (Y, X, Sample) for its 3-channel image. ``cefdfcb`` was a
+    crash on that axes mismatch.
     """
-    session.update_settings('image_output_format.sequenced', 'OME-TIFF')
-
-    built = session.post_processing.composite(rgb_run_folder)
+    built = session.post_processing.composite(_write_rgb_run_folder(tmp_path, ome=True))
 
     assert built.new_count == 1
     with tf.TiffFile(str(built.artifact_paths[0])) as t:
@@ -323,10 +325,10 @@ def test_a_composite_from_a_folder_in_ome_tiff_has_yxs_axes(session, rgb_run_fol
         assert t.series[0].axes == 'YXS'
 
 
-def test_composite_sequenced_path_honors_output_format(tmp_path):
-    """The sequenced composite path (_create_composite_image) must honor the
-    run output_format -- 'OME-TIFF' writes OME, 'TIFF' writes plain. It
-    previously hardcoded ome=False and ignored the setting.
+def test_composite_sequenced_path_writes_the_format_its_name_states(tmp_path):
+    """The sequenced composite path (_create_composite_image) writes the
+    format its output's name states -- ``.ome.tiff`` writes OME, ``.tiff``
+    plain. It once hardcoded ome=False.
     """
     import pandas as pd
     from modules.composite_generation import CompositeGeneration
@@ -341,13 +343,12 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
         ]
     )
 
-    ome_out = tmp_path / 'comp_ome.tiff'
+    ome_out = tmp_path / 'comp.ome.tiff'
     CompositeGeneration._create_composite_image(
         path=tmp_path,
         df=df,
         brightness_thresholds_percent={},
         output_file_loc=ome_out,
-        output_format='OME-TIFF',
         channel_colors=release_colors(),
     )
     with tf.TiffFile(str(ome_out)) as t:
@@ -359,7 +360,6 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
         df=df,
         brightness_thresholds_percent={},
         output_file_loc=plain_out,
-        output_format='TIFF',
         channel_colors=release_colors(),
     )
     with tf.TiffFile(str(plain_out)) as t:

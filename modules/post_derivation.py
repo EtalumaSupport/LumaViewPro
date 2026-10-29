@@ -21,6 +21,7 @@ import hashlib
 from collections.abc import Mapping
 
 from modules.common_utils import POST_TOKEN_VIDEO, PostFunction
+from modules.image_mode import OutputFormat
 from modules.stitch_mode import StitchMode
 
 _STEP_SEPARATOR = '>'
@@ -156,3 +157,14 @@ def name_tokens(derivation: str) -> tuple[str, ...]:
 def color_text(color: tuple[float, float, float]) -> str:
     """A colour as a setting's value: ``#rrggbb``."""
     return '#' + ''.join(f'{round(channel * 255):02x}' for channel in color)
+
+
+def format_settings(output_format: OutputFormat) -> tuple[tuple[str, str], ...]:
+    """A stitch's or a z-projection's format setting: stated for OME-TIFF only.
+
+    A plain build states none, as every one built before OME builds were
+    made, so a folder built then is never built again; an OME build states
+    its format, so it never shares a group or a name with a plain one of
+    the same images.
+    """
+    return (('format', output_format),) if output_format == OutputFormat.OME_TIFF else ()

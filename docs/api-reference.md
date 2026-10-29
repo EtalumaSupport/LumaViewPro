@@ -4183,7 +4183,7 @@ the members one by one.
 - `folder`: The folder of a protocol's captures; the builds read it and write their files into it.
 - `zproject`: The z-projection's settings, or None for no z-projection.
 - `stitch`: The stitch's settings, or None for no stitch.
-- `composite`: True to merge each multi-channel position into one composite, its format and thresholds the user's configuration; False for no composite.
+- `composite`: True to merge each multi-channel position into one composite, its thresholds the user's configuration and its format its channels'; False for no composite.
 - `video`: The video's settings, or None for no video.
 - `on_progress`: Called with the percentage of the whole call and a line naming the build running (that build's own detail on the line below it), from the thread the builds run on; None for no progress.
 

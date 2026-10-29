@@ -120,7 +120,8 @@ def _write_output(
         data=image,
         file_loc=output_file_loc_abs,
         metadata=metadata,
-        ome=False,
+        # The format its name states, the one its tiles share.
+        ome=image_utils.is_ome_tiff(output_file_loc),
         color=layer_record.output_color(color, channel_colors),
         significant_bits=metadata['significant_bits'],
         save_encoding=image_mode.encoding_for_array(image),
