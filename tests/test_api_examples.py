@@ -31,6 +31,7 @@ so a slow CI box cannot flake the suite on wall clock.
 
 import ast
 import inspect
+import itertools
 import pathlib
 import runpy
 import subprocess
@@ -47,11 +48,6 @@ EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'api_examp
 # nobody checked. A new file under api_examples/ is covered the day it
 # lands.
 EXAMPLES = sorted(path.stem for path in EXAMPLES_DIR.glob('*.py'))
-
-# The examples written before each had a task, a twin and an outcome test:
-# they are only run. Each leaves this set when the example for its task
-# replaces it, and the set and test_example_runs_in_suite go with the last.
-_NOT_YET_REWRITTEN = frozenset({'z_stack'})
 
 _SENTINEL = object()
 
@@ -113,18 +109,10 @@ def served(prepared_settings):
     session.shutdown()
 
 
-@pytest.mark.slow
-# parametrize-justified: each example runs its own __main__ in-process
-@pytest.mark.parametrize('name', sorted(_NOT_YET_REWRITTEN))
-def test_example_runs_in_suite(name):
-    """Run the example's __main__ path in-process under the suite mocks."""
-    runpy.run_path(str(EXAMPLES_DIR / f'{name}.py'), run_name='__main__')
-
-
 def test_every_example_has_its_twin_and_its_outcome_test():
     """An example is run by a test of what it leaves, and has its REST twin."""
     tested = {name for name in EXAMPLES if any(t.startswith(f'test_{name}_') for t in globals())}
-    for name in sorted(set(EXAMPLES) - _NOT_YET_REWRITTEN):
+    for name in EXAMPLES:
         assert (EXAMPLES_DIR / f'{name}.sh').is_file(), f'{name}.py has no REST twin {name}.sh'
         assert name in tested, f'{name}.py has no test_{name}_... asserting what it leaves'
 
@@ -250,6 +238,31 @@ def test_scan_over_rest_completes_and_keeps_its_images(served, tmp_path):
     downloaded.write_bytes(run.written['first.tiff'])
     record = read_file_record(downloaded)
     assert (record['channel'], record['well_label'], record['dark']) == ('BF', 'B2', False)
+
+
+def _slice_steps_um(paths):
+    from modules.image_utils import read_file_record
+
+    z = sorted(read_file_record(p)['z_pos_um'] for p in paths)
+    return [round(b - a, 1) for a, b in itertools.pairwise(z)]
+
+
+def test_z_stack_saved_writes_a_slice_per_step_of_its_range():
+    from modules.run_outcome import FilesOutcome, RunStatus
+
+    outcome, files, slices = _run_example('z_stack_saved')
+    assert outcome.status is RunStatus.COMPLETED, outcome.message
+    assert (files.outcome, files.written, len(slices)) == (FilesOutcome.WRITTEN, 5, 5)
+    assert _slice_steps_um(slices) == [5.0] * 4
+
+
+def test_z_stack_saved_over_rest_writes_the_same_slices(served, prepared_settings):
+    client, run = served('z_stack_saved')
+    files = client.get(f'/api/v1/jobs/{run.variables["FILES"]}').json()
+    assert files['status'] == 'completed', files
+    assert (files['result']['outcome'], files['result']['written']) == ('written', 5)
+    run_dir = pathlib.Path(prepared_settings['live_folder']) / run.variables['RUN_DIR']
+    assert _slice_steps_um(sorted(run_dir.glob('*.tiff'))) == [5.0] * 4
 
 
 def test_stop_a_run_ends_it_aborted_after_its_first_scan_with_its_images_written():
