@@ -33,7 +33,6 @@ from modules.exceptions import (
     CameraStreamStalledError,
     CaptureFailedError,
     FrameHandlerRemovedError,
-    FrameListenerNotRegisteredError,
     HardwareCommandRefusedError,
 )
 from modules.frame_validity import Change, Counter, FrameValidity, FrameValiditySource, Judgment
@@ -2791,9 +2790,6 @@ class ImagingAPI:
         name are kept).
 
         Raises:
-            FrameListenerNotRegisteredError: The camera driver refused the
-                registration, chained from its error. Nothing is left
-                registered, so a later call can retry.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera. Nothing is registered.
         """
@@ -2807,11 +2803,11 @@ class ImagingAPI:
             self._frame_listener_wrappers[cb] = wrapper
         try:
             self._driver.register_frame_callback(wrapper)
-        except Exception as ex:
+        except BaseException:
             # Rolled back so a later registration can retry.
             with self._frame_listener_lock:
                 self._frame_listener_wrappers.pop(cb, None)
-            raise FrameListenerNotRegisteredError(name) from ex
+            raise
 
     @api(in_process=True)
     def remove_frame_listener(self, cb: Callable[[Frame], None]) -> None:

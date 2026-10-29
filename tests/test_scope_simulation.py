@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from drivers import tmcm6110
-from drivers.exceptions import CameraReadFailedError, HardwareError
+from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, HardwareError
 from modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
@@ -156,7 +156,7 @@ def test_a_raising_binning_write_is_a_chained_rejection(scope):
     with pytest.raises(CameraSettingRejected) as rejected:
         scope.camera.set_binning(2)
     assert rejected.value.setting == 'binning'
-    assert isinstance(rejected.value.__cause__, RuntimeError)
+    assert isinstance(rejected.value.__cause__, CameraWriteFailedError)
 
 
 def test_a_refused_write_is_one_write(scope):

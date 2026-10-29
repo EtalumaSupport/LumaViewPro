@@ -742,7 +742,7 @@ CapturedStill: The image and the instrument's record of its frame.
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `channel_not_shown`, `other_led_lit`, `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `layers_unresolved`
-- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `chunk_rejected`, `no_fresh_frame`, `record_read_failed`, `recording_not_started`, `unknown_save_encoding`
+- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `chunk_rejected`, `no_fresh_frame`, `record_read_failed`, `unknown_save_encoding`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`
 
 <a id="ScopeSession.channel_acquire"></a>
@@ -4102,12 +4102,10 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
 - `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. Nothing is committed.
-- `CaptureFailedError`: `'recording_not_started'`, the camera did not accept the frame listener; the start is unwound.
 
 **Refusals by REST status**
 
 - 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_layer`, `camera_exposure_unknown`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
-- 500: [`CaptureFailedError`](#CaptureFailedError): `recording_not_started`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ManualRecordingController.stop"></a>
@@ -6516,12 +6514,10 @@ name are kept).
 
 **Raises**
 
-- `FrameListenerNotRegisteredError`: The camera driver refused the registration, chained from its error. Nothing is left registered, so a later call can retry.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera. Nothing is registered.
 
 **Refusals**
 
-- [`FrameListenerNotRegisteredError`](#FrameListenerNotRegisteredError): `frame_listener_refused`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ImagingAPI.capture_and_wait"></a>
@@ -8917,7 +8913,7 @@ The camera's next `count` writes of `node` answer `answer` and move nothing.
 **Args**
 
 - `node`: The setting written: `'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, `'auto_gain_once'` or `'auto_gain_target_brightness'`.
-- `answer`: What the node write answers: `'false'`, `'none'` (no confirmation), `'true'` (a bare True that confirms no value; not for `'frame_size'`, whose write answers the window it delivers), `'raise'`, or `'removed'` (False, with the camera gone from the bus during the write; it stays removed for the session, as after `remove_camera`), or `'no_answer'` (`CameraNoAnswerError`: the write timed out, and the camera stays on the bus).
+- `answer`: What the node write answers: `'false'`, `'none'` (no confirmation), `'true'` (a bare True that confirms no value; not for `'frame_size'`, whose write answers the window it delivers), `'raise'` (`CameraWriteFailedError`, the driver's failed node write), or `'removed'` (False, with the camera gone from the bus during the write; it stays removed for the session, as after `remove_camera`), or `'no_answer'` (`CameraNoAnswerError`: the write timed out, and the camera stays on the bus).
 - `count`: How many writes in a row meet it, 1 or more: the API sends a write the camera did not answer once more, so a second unanswered write takes 2.
 
 **Raises**
@@ -14350,7 +14346,7 @@ not be read; a camera that is not there is refused instead
 
 **Attributes**
 
-- `reason`: One of: - `'no_frame'` -- the camera delivered no new frame within its grab window, whether the capture was draining, grabbing or waiting for a sum's next frame. - `'deadline_expired'` -- the scope's state kept changing for longer than the capture's budget. - `'chunk_rejected'` -- frames came, but none was exposed at the `source` setting asked. - `'no_fresh_frame'` -- frames came, but none within the capture's bound counted for the `source` change: each was exposed, by its source's rule, before that change reached it. - `'record_read_failed'` -- a frame came, but the camera did not answer a read its record needs (the gain, exposure or black level), so it was not kept; chained from the `CameraReadFailedError`. - `'recording_not_started'` -- the camera did not take the recording's frame listener. - `'unknown_save_encoding'` -- a frame was handed an encoding no writer knows, which the program, not the person, got wrong.
+- `reason`: One of: - `'no_frame'` -- the camera delivered no new frame within its grab window, whether the capture was draining, grabbing or waiting for a sum's next frame. - `'deadline_expired'` -- the scope's state kept changing for longer than the capture's budget. - `'chunk_rejected'` -- frames came, but none was exposed at the `source` setting asked. - `'no_fresh_frame'` -- frames came, but none within the capture's bound counted for the `source` change: each was exposed, by its source's rule, before that change reached it. - `'record_read_failed'` -- a frame came, but the camera did not answer a read its record needs (the gain, exposure or black level), so it was not kept; chained from the `CameraReadFailedError`. - `'unknown_save_encoding'` -- a frame was handed an encoding no writer knows, which the program, not the person, got wrong.
 - `source`: The source the capture failed for: for `'chunk_rejected'` the setting no frame matched, `EXPOSURE` or `GAIN`; for `'no_fresh_frame'` the change no frame came after (`Z_MOVE`, `LED`); None otherwise.
 
 **Fields**
@@ -14364,7 +14360,6 @@ not be read; a camera that is not there is refused instead
 | `no_frame` | -- | 500 |
 | `no_fresh_frame` | -- | 500 |
 | `record_read_failed` | -- | 500 |
-| `recording_not_started` | -- | 500 |
 | `unknown_save_encoding` | -- | 500 |
 
 <a id="CaptureLocationError"></a>
@@ -14902,26 +14897,6 @@ declining to go on calling the handler, which the plugin's author can fix
 |---|---|---|
 | `over_budget` | state | 409 |
 | `raised` | state | 409 |
-
-<a id="FrameListenerNotRegisteredError"></a>
-### `FrameListenerNotRegisteredError`
-
-A fault; bases `Fault`, `CaptureError`.
-
-The camera driver would not take a frame listener, so it will receive no frames.
-
-Raised by `add_frame_listener` to whoever registered it -- a plugin, a
-recording, a script -- because each of them has something to undo or to
-refuse: a recording that started without its frames records nothing, and
-a plugin listed as loaded never runs. The driver's error is the cause.
-
-**Attributes**
-
-- `name`: The listener's display name.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `frame_listener_refused` | -- | 500 |
 
 <a id="FrameRefittedNotice"></a>
 ### `FrameRefittedNotice`

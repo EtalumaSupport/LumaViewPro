@@ -121,7 +121,9 @@ def test_a_failed_black_level_read_raises_at_the_save(sim_scope):
 )
 def test_a_failed_read_of_an_offered_setting_raises_at_the_save(sim_scope, reader, setting):
     with (
-        patch.object(sim_scope._camera_driver, reader, side_effect=RuntimeError('node read')),
+        patch.object(
+            sim_scope._camera_driver, reader, side_effect=CameraReadFailedError('node read')
+        ),
         pytest.raises(HardwareError, match=setting),
     ):
         sim_scope.camera.save_camera_state('test')

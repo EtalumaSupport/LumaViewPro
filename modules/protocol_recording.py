@@ -50,7 +50,6 @@ from modules.coord_transformations import PlatePosition
 from modules.labware import Labware
 from modules.exceptions import (
     CaptureFailedError,
-    FrameListenerNotRegisteredError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
     VideoFramesDroppedError,
@@ -373,15 +372,6 @@ class ProtocolVideoStep:
             scope.imaging.add_frame_listener(
                 self._on_camera_frame, name=f'protocol_video:{self._name}'
             )
-        except FrameListenerNotRegisteredError as refused:
-            # The camera will deliver nothing to this step: the same end as a
-            # dead feed, so the step ends with no frames and takes the strike
-            # a capture failure takes. Its flight ends here; unsolicited, so
-            # an unattended run logs it without a popup.
-            self._unwind_failed_start(engine)
-            self._end_progress()
-            notifications.report_outcome(refused, solicited=False, category='Protocol')
-            return NO_FRAMES
         except BaseException:
             # The nested claim leaks nothing to the session, but a step left
             # recording never satisfies the runner's end-of-run wait, so the

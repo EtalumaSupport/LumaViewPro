@@ -24,7 +24,12 @@ from lvp_logger import logger
 from drivers import host_clock
 from drivers.camera import Camera, Frame, FrameGrid, HandOver, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
-from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, PartAbsentError
+from drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    PartAbsentError,
+)
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import DRIFT_STEPS, Specimen
 
@@ -663,7 +668,8 @@ class SimulatedCamera(Camera):
             node: One of ``WRITABLE_NODES``.
             answer: One of ``REFUSED_WRITE_ANSWERS``: ``'false'``,
                 ``'none'`` or ``'true'`` is returned; ``'raise'`` raises
-                ``RuntimeError`` as a failed node write; ``'removed'``
+                ``CameraWriteFailedError``, as a real driver's failed node
+                write does; ``'removed'``
                 takes the camera off the bus and returns False, as a
                 camera pulled during the write does; ``'no_answer'``
                 raises ``CameraNoAnswerError`` as a write the camera did
@@ -693,7 +699,7 @@ class SimulatedCamera(Camera):
                 vars(self).pop(setter, None)
             logger.warning(f'[CAM Sim   ] {node} write refused ({answer}, simulated)')
             if answer == 'raise':
-                raise RuntimeError(f'simulated {node} node write failed')
+                raise CameraWriteFailedError(f'simulated {node} node write failed')
             if answer == 'removed':
                 self.leave_bus()
                 return False

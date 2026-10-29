@@ -1684,8 +1684,6 @@ class CaptureFailedError(Fault, CaptureError):
               not answer a read its record needs (the gain, exposure or
               black level), so it was not kept; chained from the
               ``CameraReadFailedError``.
-            - ``'recording_not_started'`` -- the camera did not take the
-              recording's frame listener.
             - ``'unknown_save_encoding'`` -- a frame was handed an encoding
               no writer knows, which the program, not the person, got wrong.
         source: The source the capture failed for: for
@@ -1746,11 +1744,6 @@ class CaptureFailedError(Fault, CaptureError):
             'The camera did not answer a read of a setting the frame is saved '
             'with (its gain, exposure or black level), so nothing was captured. '
             "Try again; if it repeats, check the camera's USB cable.",
-        ),
-        'recording_not_started': (
-            'Recording Not Started',
-            'The recording did not start: the camera did not accept its frame '
-            'listener. Check the log for the camera driver error.',
         ),
         'unknown_save_encoding': (
             'Capture Failed',
@@ -3221,30 +3214,6 @@ class FileWriterStalledError(Fault, CaptureError):
             confirm_text=f'Discard {unsaved} unsaved and unlock',
             cancel_text='Keep waiting',
         )
-
-
-class FrameListenerNotRegisteredError(Fault, CaptureError):
-    """The camera driver would not take a frame listener, so it will receive no frames.
-
-    Raised by ``add_frame_listener`` to whoever registered it -- a plugin, a
-    recording, a script -- because each of them has something to undo or to
-    refuse: a recording that started without its frames records nothing, and
-    a plugin listed as loaded never runs. The driver's error is the cause.
-
-    Attributes:
-        name: The listener's display name.
-    """
-
-    title = 'Frame Listener Not Registered'
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'frame_listener_refused': None}
-
-    def __init__(self, name: str) -> None:
-        super().__init__(
-            f"The camera did not accept the frame listener '{name}', so it will "
-            'receive no frames. Check the log for the camera driver error.',
-            'frame_listener_refused',
-        )
-        self.name = name
 
 
 class FrameHandlerRemovedError(Refusal, Exception):

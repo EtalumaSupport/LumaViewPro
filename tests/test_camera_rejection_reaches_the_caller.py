@@ -8,20 +8,22 @@ failure, so a caller that handled one met the other unhandled.
 
 Now every setting write applied or raises ``CameraSettingRejected``, from
 ``_camera_write``, the one path every write takes: ``'camera_rejected'``
-when the camera refused it (an explicit ``False``) or its driver raised,
-``'camera_no_answer'`` when the camera answered neither the write nor the
+when the camera refused it (an explicit ``False``) or its driver raised a
+hardware fault, ``'camera_no_answer'`` when the camera answered neither the write nor the
 write sent again at once. A refusal is not resent. The API's own callers
 that carry on with the camera as it is -- the auto-gain lock, the exposure
 clamp, the restore, the re-arm -- catch the one type and report it; the layer
 apply runs every write and raises one rejection at the end.
 
 A driver with no confirmation signal answers ``None``, which is not a refusal
-and does not raise. A camera that is not there, before or during the write,
+and does not raise. Anything a write raises that is not a hardware fault is
+our own defect and leaves as itself, never named the camera's refusal. A camera that is not there, before or during the write,
 is refused naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py``).
 """
 
 import pytest
 
+from drivers.exceptions import CameraWriteFailedError
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
 from modules.notification_center import Severity
 from modules.lumascope_api.camera import CameraAutoMode
@@ -182,11 +184,12 @@ class TestOneChannel:
 
 
 class TestARaisingWriteIsARejection:
-    """A driver that raises from a node write is refused like one that
-    answers ``False``: every public setter raises ``CameraSettingRejected``
-    with the driver's exception as its cause, never the driver's own, and the
+    """A driver whose node write raises a hardware fault is refused like one
+    that answers ``False``: every public setter raises ``CameraSettingRejected``
+    with the driver's fault as its cause, never the driver's own, and the
     write still marks readiness stale. ``_camera_write`` is the one place it
-    is done, so no setter can let a driver's exception out of the API."""
+    is done, so no setter can let a driver's fault out of the API; anything
+    else the write raises is our own defect and leaves as itself."""
 
     def test_every_setter_raises_a_chained_rejection(self, sim_scope):
         camera = sim_scope.camera
@@ -208,7 +211,7 @@ class TestARaisingWriteIsARejection:
             try:
                 setter()
             except CameraSettingRejected as rejected:
-                if not isinstance(rejected.__cause__, RuntimeError):
+                if not isinstance(rejected.__cause__, CameraWriteFailedError):
                     escaped[node] = f'unchained: cause {rejected.__cause__!r}'
             except Exception as other:  # the defect under test: anything else escaped
                 escaped[node] = repr(other)
@@ -226,6 +229,23 @@ class TestARaisingWriteIsARejection:
             sim_scope.camera.set_gain_db(9.0)
 
         assert validity.invalidation_counts.get('gain', 0) == before + 1
+
+    def test_a_defect_in_the_write_leaves_as_itself(self, sim_scope, monkeypatch):
+        def defect(*_a, **_kw):
+            # a stand-in by design: our own defect inside a driver's write,
+            # which no simulated fault produces, since it is not the camera's
+            raise TypeError('scripted defect')
+
+        monkeypatch.setattr(sim_scope._camera_driver, 'gain', defect)
+        validity = sim_scope.imaging.frame_validity
+        before = validity.invalidation_counts.get('gain', 0)
+
+        with pytest.raises(TypeError, match='scripted defect'):
+            sim_scope.camera.set_gain_db(9.0)
+
+        assert validity.invalidation_counts.get('gain', 0) == before + 1, (
+            'the write may have landed, so readiness is stale whatever it raised'
+        )
 
 
 class TestAWriteTheCameraDidNotAnswer:

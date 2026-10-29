@@ -55,8 +55,6 @@ from modules.config_helpers import (
 )
 from modules.exceptions import (
     POST_PROCESSING_RUNNING_MESSAGE,
-    CaptureFailedError,
-    FrameListenerNotRegisteredError,
     HyperstackRefusedError,
     InputFramesUnusableError,
     RecordingDetailsNotSavedError,
@@ -344,8 +342,6 @@ class ManualRecordingController:
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 Nothing is committed.
-            CaptureFailedError: ``'recording_not_started'``, the camera did not
-                accept the frame listener; the start is unwound.
         """
         # Exclusivity has to span the finish, not just the drain. The
         # engine frees its claim before the finish thread stops reading
@@ -613,11 +609,6 @@ class ManualRecordingController:
             self._health_handle = self._scheduler.schedule_interval(
                 self._health_check, HEALTH_CHECK_INTERVAL_S
             )
-        except FrameListenerNotRegisteredError as refused:
-            self._unwind_failed_start(engine, writer, frames_folder)
-            # Said as what the person pressed Record for: the recording, not
-            # the listener it would have needed.
-            raise CaptureFailedError('recording_not_started') from refused
         except BaseException:
             # Past the commit point the engine holds the claim, and this is
             # the only frame holding the writer -- the engine is handed a

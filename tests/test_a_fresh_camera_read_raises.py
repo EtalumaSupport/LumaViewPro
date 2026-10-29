@@ -22,6 +22,7 @@ import os
 import pytest
 
 from drivers.exceptions import CameraReadFailedError
+from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
 from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
@@ -73,6 +74,32 @@ def test_every_fresh_read_raises_naming_its_setting_when_the_camera_does_not_ans
         if getattr(camera, read)() is None:
             unraised.append(f'{read} answered None from an answering camera')
     assert unraised == [], '\n'.join(unraised)
+
+
+def test_a_defect_in_any_fresh_read_leaves_as_itself(sim_scope, monkeypatch):
+    """Only the driver's hardware fault is the camera's failed read; anything
+    else is our own defect and is never named the camera's."""
+    camera = sim_scope.camera
+    relabelled = {}
+    for read, node in _READS:
+        getter, _failure = SimulatedCamera.FAILED_READS[node]
+
+        def defect(*_a, **_kw):
+            # a stand-in by design: our own defect inside a driver's read,
+            # which no simulated fault produces, since it is not the camera's
+            raise TypeError('scripted defect')
+
+        with monkeypatch.context() as m:
+            m.setattr(sim_scope._camera_driver, getter, defect)
+            try:
+                getattr(camera, read)()
+            except TypeError:
+                pass
+            except Exception as other:  # the defect under test: relabelled
+                relabelled[read] = repr(other)
+            else:
+                relabelled[read] = 'answered'
+    assert relabelled == {}
 
 
 def test_with_no_camera_every_fresh_read_is_refused_naming_it(diagnostic_scope):

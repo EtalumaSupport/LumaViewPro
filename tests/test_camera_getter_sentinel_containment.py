@@ -33,6 +33,7 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from drivers.camera import Camera
+from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import HardwareCommandRefusedError
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.camera import CameraAPI
@@ -71,8 +72,9 @@ class ScriptedCameraDriver:
     """Driver double whose every value read follows a per-method script.
 
     Each script is a list of per-call results; calls pop from the front and
-    the final entry repeats forever. A RAISE entry raises RuntimeError (the
-    raising-driver failure class the API boundary must contain).
+    the final entry repeats forever. A RAISE entry raises
+    ``CameraReadFailedError``, as a real driver's failed read does (the
+    failure the API boundary must contain).
 
     The depth surface reuses the REAL base-class rule
     (Camera.format_significant_bits / significant_bits_for_format), so the
@@ -104,7 +106,7 @@ class ScriptedCameraDriver:
         values = self._scripts[name]
         value = values.pop(0) if len(values) > 1 else values[0]
         if value is RAISE:
-            raise RuntimeError('transient read failure')
+            raise CameraReadFailedError('transient read failure')
         return value
 
     def get_gain(self):

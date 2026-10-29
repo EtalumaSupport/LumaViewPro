@@ -18,6 +18,7 @@ import numpy as np
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
+from drivers.exceptions import CameraWriteFailedError
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
@@ -1757,7 +1758,7 @@ class TestTheCamerasFaultDoors:
     def test_a_raising_write_raises(self):
         cam = SimulatedCamera()
         cam.refuse_write('exposure', 'raise')
-        with pytest.raises(RuntimeError, match='exposure node write failed'):
+        with pytest.raises(CameraWriteFailedError, match='exposure node write failed'):
             cam.exposure_t(5.0)
 
     def test_a_write_the_camera_does_not_answer_raises_and_keeps_the_camera(self):

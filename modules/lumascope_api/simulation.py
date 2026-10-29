@@ -642,7 +642,8 @@ class SimulationAPI:
             answer: What the node write answers: ``'false'``, ``'none'``
                 (no confirmation), ``'true'`` (a bare True that confirms no
                 value; not for ``'frame_size'``, whose write answers the
-                window it delivers), ``'raise'``, or ``'removed'`` (False, with the camera
+                window it delivers), ``'raise'`` (``CameraWriteFailedError``,
+                the driver's failed node write), or ``'removed'`` (False, with the camera
                 gone from the bus during the write; it stays removed for the
                 session, as after ``remove_camera``), or ``'no_answer'``
                 (``CameraNoAnswerError``: the write timed out, and the

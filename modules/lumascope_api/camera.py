@@ -31,7 +31,7 @@ from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
 from drivers import host_clock
 from drivers.camera import Frame
-from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
+from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lib.lumascope_error import Fault
 from lvp_logger import logger
@@ -857,9 +857,11 @@ class CameraAPI:
         next captures settle by frame count), each value it would have held
         is held as None, its applied-only invalidations fire, and the
         refusal is raised as ``'camera_no_answer'``. A write
-        that raises anything else is refused as ``refusal()``; each raise
-        carries the driver's exception as its cause, so no setter lets a
-        driver's own exception out of the API.
+        whose driver raises any other hardware fault (``HardwareError``) is
+        refused as ``refusal()``; each raise carries the driver's exception
+        as its cause, so no setter lets a driver's own fault out of the API.
+        Anything else is our own defect and leaves as itself, never named
+        the camera's refusal.
 
         A camera declared removed by the time a sent write returns is refused
         as an absent one, whatever the driver answered: a camera that is gone
@@ -877,7 +879,7 @@ class CameraAPI:
             member: The public command the write belongs to, named by the
                 refusal when the camera is found gone.
             refusal: Builds the ``CameraSettingRejected`` this write raises
-                when the driver raises, in the words of the setting's
+                when the driver refuses it, in the words of the setting's
                 refusal. Required, so a new setter states it; ``None`` only
                 for a write that sends nothing to the camera.
             invalidates: Sources to invalidate only when the write was applied.
@@ -919,9 +921,9 @@ class CameraAPI:
                 camera: it was declared removed by the time the write
                 returned. Chained to the driver's exception when it raised.
             CameraSettingRejected: The camera still present, the driver
-                refused the write (``'camera_rejected'``), raised from it
-                (``'camera_rejected'``, chained), or answered neither try
-                (``'camera_no_answer'``, chained).
+                refused the write (``'camera_rejected'``), raised a hardware
+                fault from it (``'camera_rejected'``, chained), or answered
+                neither try (``'camera_no_answer'``, chained).
         """
         # The register may change anywhere from the first try's start: a
         # try the camera did not answer may still have taken it.
@@ -947,7 +949,7 @@ class CameraAPI:
             if self.camera_removed:
                 raise _camera_not_connected(member) from ex
             raise _no_answer_rejection(refusal()) from ex
-        except Exception as ex:
+        except HardwareError as ex:
             if refusal is None:
                 raise
             if self.camera_removed:
@@ -2807,8 +2809,9 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
                 ``disconnect()``.
-            CameraReadFailedError: The read raised, or answered the driver's
-                failed-read value; the value held is left as it was.
+            CameraReadFailedError: The driver raised a hardware fault, or
+                answered its failed-read value; the value held is left as it
+                was.
         """
         self.refuse_camera_not_connected(f'read_{key}')
         driver = self._driver
@@ -2820,7 +2823,7 @@ class CameraAPI:
         def read():
             try:
                 live = reader(driver)
-            except Exception as ex:
+            except HardwareError as ex:
                 raise CameraReadFailedError(f"The camera's {noun} could not be read: {ex}") from ex
             if not is_valid(live):
                 raise CameraReadFailedError(
@@ -2876,13 +2879,13 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected (``member`` refused);
                 ``'scope_disconnected'`` after ``disconnect()``.
-            CameraReadFailedError: The read raised.
+            CameraReadFailedError: The driver raised a hardware fault.
         """
         self.refuse_camera_not_connected(member)
         driver = self._driver
         try:
             return reader(driver)
-        except Exception as ex:
+        except HardwareError as ex:
             raise CameraReadFailedError(f"The camera's {noun} could not be read: {ex}") from ex
 
     def _grab_sizing_exposure_s(self) -> float:

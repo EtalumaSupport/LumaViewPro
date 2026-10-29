@@ -34,6 +34,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from drivers.exceptions import CameraWriteFailedError
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
 from modules.notification_center import Severity
 from tests.test_camera_getter_sentinel_containment import (
@@ -204,14 +205,14 @@ def test_set_binning_driver_raise_becomes_typed_rejection(centre_posts):
     camera = _build_camera(driver)
 
     def _boom(size):
-        raise RuntimeError('SDK sulked')
+        raise CameraWriteFailedError('SDK sulked')
 
     driver.apply_binning = _boom
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         _apply(camera, 'set_binning', 4)
 
-    assert isinstance(excinfo.value.__cause__, RuntimeError), (
+    assert isinstance(excinfo.value.__cause__, CameraWriteFailedError), (
         'the driver exception must be chained onto the typed rejection'
     )
     # A raise reads as a refusal does; the driver's words stay on the cause,
@@ -228,7 +229,7 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
     camera = _build_camera(driver)
 
     def _boom(fmt):
-        raise RuntimeError('SDK sulked')
+        raise CameraWriteFailedError('SDK sulked')
 
     driver.apply_pixel_format = _boom
 
@@ -477,7 +478,7 @@ def _refuses():
 
 
 def _raises():
-    raise RuntimeError('node write failed')
+    raise CameraWriteFailedError('node write failed')
 
 
 @pytest.mark.parametrize('answer', [_refuses, _raises], ids=['refuses', 'raises'])

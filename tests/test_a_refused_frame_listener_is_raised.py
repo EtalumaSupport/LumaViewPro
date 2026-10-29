@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A frame listener the camera refuses is raised to whoever registered it.
+"""A frame listener registration that raised reaches whoever registered it, as itself.
 
 ``add_frame_listener`` used to show a popup and return normally when the
-camera driver refused a listener, so every registrant's own handling was
-dead: a protocol video step's unwind never ran, a manual recording started
-with no frames, and a plugin was listed as loaded with a handler that never
-ran. Each registrant now hears the refusal and ends it its own way.
+registration raised, so every registrant's own handling was dead: a protocol
+video step's unwind never ran, a manual recording started with no frames, and
+a plugin was listed as loaded with a handler that never ran. Registering asks
+nothing of the camera (a lock and a list append in the driver), so whatever
+it raises is our own defect: it leaves as itself, never named the camera's,
+and each registrant unwinds before letting it go on.
 
 Beside it, the rest of the listener surface: a handler that raises on every
 frame is bounded like a slow one (it logged a traceback per frame, 80 in
@@ -24,10 +26,6 @@ import pytest
 import modules.lumascope_api.imaging as imaging_mod
 import modules.protocol_recording as protocol_recording
 from modules import notification_center
-from modules.exceptions import (
-    CaptureError,
-    FrameListenerNotRegisteredError,
-)
 from modules.lumascope_api.imaging import HANDLER_BUDGET_MS, HANDLER_DROP_K, _BudgetedHandler
 from modules.notification_center import OutcomeKind, Severity
 from modules.run_events import RunEvents
@@ -38,7 +36,9 @@ from tests.video_step_drives import video_step_on
 
 
 def _refuse(*_a, **_kw):
-    raise RuntimeError('scripted driver refusal')
+    # a stand-in by design: our own defect inside the driver's registration,
+    # which the simulator has no member to produce, since no driver raises there
+    raise RuntimeError('scripted defect')
 
 
 @pytest.fixture
@@ -52,8 +52,8 @@ def sim_scope():
     scope.disconnect()
 
 
-class TestTheRegistrantHearsTheRefusal:
-    def test_a_refused_registration_raises_posts_nothing_and_can_be_retried(
+class TestTheRegistrantHearsTheFailure:
+    def test_a_registration_that_raised_leaves_as_itself_and_can_be_retried(
         self, sim_scope, centre_posts, monkeypatch
     ):
         def handler(*_a):
@@ -61,10 +61,10 @@ class TestTheRegistrantHearsTheRefusal:
 
         with monkeypatch.context() as m:
             m.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)
-            with pytest.raises(FrameListenerNotRegisteredError) as raised:
+            with pytest.raises(RuntimeError, match='scripted defect') as raised:
                 sim_scope.imaging.add_frame_listener(handler, name='probe')
 
-        assert isinstance(raised.value.__cause__, RuntimeError)
+        assert raised.value.__cause__ is None, 'our defect, not relabelled as the camera'
         assert centre_posts == [], 'the registrant reports it; the API shows nothing itself'
         assert handler not in sim_scope.imaging._frame_listener_wrappers
 
@@ -89,7 +89,7 @@ class TestTheRegistrantHearsTheRefusal:
 
         with monkeypatch.context() as m:
             m.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)
-            with pytest.raises(FrameListenerNotRegisteredError):
+            with pytest.raises(RuntimeError, match='scripted defect'):
                 registry.live_processing.register(spec, handler)
 
         assert 'refused_plugin' not in registry.live_processing.names()
@@ -99,28 +99,23 @@ class TestTheRegistrantHearsTheRefusal:
         registry.live_processing.unregister('refused_plugin')
 
     @pytest.mark.parametrize('video_as_frames', [True, False])
-    def test_a_record_press_is_told_the_recording_did_not_start_and_nothing_is_left(
+    def test_a_record_press_whose_registration_raised_leaves_nothing(
         self, tmp_path, video_as_frames, post_processing
     ):
         controller, scope, _ = make_controller(
             tmp_path, video_as_frames=video_as_frames, post_processing=post_processing
         )
-        scope.imaging.add_frame_listener = MagicMock(
-            side_effect=FrameListenerNotRegisteredError('manual_recording')
-        )
+        scope.imaging.add_frame_listener = MagicMock(side_effect=_refuse)
 
-        with pytest.raises(CaptureError) as raised:
+        with pytest.raises(RuntimeError, match='scripted defect'):
             controller.start()
 
-        assert raised.value.reason == 'recording_not_started'
-        assert 'did not start' in str(raised.value)
-        assert isinstance(raised.value.__cause__, FrameListenerNotRegisteredError)
         assert not controller.is_recording and not controller.is_draining
         manual = tmp_path / 'Manual'
         leftovers = sorted(p.name for p in manual.iterdir()) if manual.exists() else []
         assert leftovers == [], f'a start that never happened left {leftovers}'
 
-    def test_a_video_step_whose_listener_is_refused_ends_with_no_frames(
+    def test_a_video_step_whose_registration_raised_unwinds_and_lets_it_go_on(
         self, sim_scope, tmp_path, monkeypatch
     ):
         recorder = video_step_on(sim_scope, tmp_path, video_as_frames=False)
@@ -132,15 +127,14 @@ class TestTheRegistrantHearsTheRefusal:
             lambda exc, **kw: reported.append((exc, kw)),
         )
 
-        with patch.object(recorder, '_prologue', return_value=None):
-            outcome = recorder.run_blocking()
+        with (
+            patch.object(recorder, '_prologue', return_value=None),
+            pytest.raises(RuntimeError, match='scripted defect'),
+        ):
+            recorder.run_blocking()
 
-        assert outcome == protocol_recording.NO_FRAMES, (
-            'a refused listener is a step with no frames, taking its strike -- not a run crash'
-        )
         assert recorder._engine is None
-        assert [type(exc) for exc, _ in reported] == [FrameListenerNotRegisteredError]
-        assert reported[0][1]['solicited'] is False
+        assert reported == [], 'the run reports our defect where it ends, not the step'
 
 
 class TestAFailingHandlerIsBounded:
@@ -341,16 +335,18 @@ class TestTheUnwindAndRemovalEdges:
         def write_then_refuse(*_a, **_kw):
             folder = max((tmp_path / 'Manual').glob('Video_*'))
             (folder / 'frame_0001.tiff').write_bytes(b'x')
-            raise FrameListenerNotRegisteredError('manual_recording')
+            _refuse()
 
         scope.imaging.add_frame_listener = write_then_refuse
-        with pytest.raises(CaptureError):
+        with pytest.raises(RuntimeError, match='scripted defect'):
             controller.start()
         kept = list((tmp_path / 'Manual').glob('Video_*/frame_0001.tiff'))
         assert len(kept) == 1, 'a folder holding anything is kept'
 
-    def test_a_refused_video_step_sends_no_progress(self, sim_scope, tmp_path, monkeypatch):
-        # Refused before it records, the step sent no phase, so it owes no
+    def test_a_video_step_that_never_began_sends_no_progress(
+        self, sim_scope, tmp_path, monkeypatch
+    ):
+        # Stopped before it records, the step sent no phase, so it owes no
         # 'ended': 'ended' follows a recording or writing phase only.
         progress = MagicMock()
         recorder = video_step_on(
@@ -360,10 +356,10 @@ class TestTheUnwindAndRemovalEdges:
             events=RunEvents(video_progress=progress),
         )
         monkeypatch.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)
-        monkeypatch.setattr(
-            protocol_recording.notifications, 'report_outcome', lambda *a, **k: None
-        )
 
-        with patch.object(recorder, '_prologue', return_value=None):
-            assert recorder.run_blocking() == protocol_recording.NO_FRAMES
+        with (
+            patch.object(recorder, '_prologue', return_value=None),
+            pytest.raises(RuntimeError, match='scripted defect'),
+        ):
+            recorder.run_blocking()
         progress.assert_not_called()

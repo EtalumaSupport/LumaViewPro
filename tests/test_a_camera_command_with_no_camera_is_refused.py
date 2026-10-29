@@ -26,6 +26,7 @@ import logging
 
 import pytest
 
+from drivers.exceptions import CameraWriteFailedError
 from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
@@ -547,14 +548,14 @@ def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(
     # write that raises as its camera leaves is a fault it does not offer.
     def leaves_and_raises(*args, **kwargs):
         session.scope.simulation.remove_camera()
-        raise RuntimeError('simulated node write lost its device')
+        raise CameraWriteFailedError('simulated node write lost its device')
 
     monkeypatch.setattr(driver, 'gain', leaves_and_raises)
 
     refusal = _refused(lambda: session.scope.camera.set_gain_db(9.0))
 
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.CAMERA)
-    assert isinstance(refusal.__cause__, RuntimeError)
+    assert isinstance(refusal.__cause__, CameraWriteFailedError)
 
 
 def test_turning_auto_gain_off_as_the_camera_leaves_stores_it_off(make_session):

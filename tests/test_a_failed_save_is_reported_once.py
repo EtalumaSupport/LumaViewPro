@@ -14,7 +14,7 @@ import pathlib
 
 import pytest
 
-from drivers.exceptions import CameraWriteFailedError, HardwareError
+from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, HardwareError
 from modules import image_save, image_utils
 from modules.exceptions import CaptureError, ImageSaveError
 from modules.lumascope_api.runtime_state import RuntimeState
@@ -107,6 +107,18 @@ class _FailingCamera:
             raise CameraWriteFailedError(f'{method} failed: RuntimeException: node write timed out')
 
         setattr(self, method, fail)
+
+    def __getattr__(self, name):
+        # A camera whose every read goes unanswered: the API's cache fill at
+        # construction asks the getters, and only the camera's read fault is
+        # a read the camera did not answer.
+        if name.startswith('get_'):
+
+            def unanswered(*args, **kwargs):
+                raise CameraReadFailedError(f'{name}: the camera did not answer')
+
+            return unanswered
+        raise AttributeError(name)
 
 
 @pytest.mark.parametrize(('setter', 'method', 'args'), SDK_SETTERS)

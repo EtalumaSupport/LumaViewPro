@@ -27,6 +27,7 @@ import ast
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
+from drivers.exceptions import CameraWriteFailedError
 from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
@@ -374,7 +375,7 @@ class TestSdkPerfSetterSequences:
         """A toggle whose write raised invalidates nothing. Pins today's
         applied-only invalidation; flips with ruling K12's build."""
         before = camera_capable.frame_validity.invalidation_counts
-        fault = RuntimeError('node write failed')
+        fault = CameraWriteFailedError('node write failed')
 
         def raising(*a, **k):
             raise fault

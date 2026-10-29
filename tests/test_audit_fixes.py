@@ -3587,10 +3587,13 @@ class TestDeviceLinkThroughputLimitSetter:
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = fake_camera
+        scope._camera_driver = None
         give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
+        # Attached once the camera is built: the fake answers only the
+        # setter under test, not the reads a camera's construction makes.
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_method_exists(self):
@@ -5732,10 +5735,13 @@ class TestAcquisitionStopModeSetter:
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = fake_camera
+        scope._camera_driver = None
         give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
+        # Attached once the camera is built: the fake answers only the
+        # setter under test, not the reads a camera's construction makes.
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_method_exists(self):
@@ -5869,10 +5875,13 @@ class TestGigeSetters:
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = fake_camera
+        scope._camera_driver = None
         give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
+        # Attached once the camera is built: the fake answers only the
+        # setter under test, not the reads a camera's construction makes.
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_methods_exist(self):
@@ -6112,10 +6121,13 @@ class TestStreamGrabberSetters:
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = fake_camera
+        scope._camera_driver = None
         give_stub_lanes(scope)
         give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
+        # Attached once the camera is built: the fake answers only the
+        # setter under test, not the reads a camera's construction makes.
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_methods_exist(self):
