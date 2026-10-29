@@ -104,8 +104,9 @@ class TurretSlotQuestion:
 class ProtocolsAPI:
     """Protocol-construction sub-API on a Lumascope.
 
-    Hosts the two public constructors (`load_protocol`, `create_protocol`)
-    and the installation data root both resolve against.
+    Hosts the in-process protocol builders (`load_protocol`,
+    `create_protocol`) the session's ``new_protocol`` and ``load_protocol``
+    call, and the installation data root both resolve against.
     """
 
     def __init__(self, scope: Lumascope) -> None:

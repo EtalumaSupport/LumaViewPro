@@ -299,12 +299,8 @@ class Lumascope:
     # There is no LED current cap on this class: the connected LED driver
     # publishes its own through `scope.capabilities.led_max_ma`, and a
     # constant here would be a second copy that drifts.
-    # LED channel set comes from self._led_driver.available_channels() -- varies by
-    # Canonical home for this is `_constants.py`; alias on the class so
-    # existing callers (`Lumascope._MOTOR_POSITION_LIMIT`) keep working.
-    # Sub-API modules import from `_constants.py` directly to avoid a
-    # circular dep with this file.
-    _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
+    # Nor a channel set: the LED driver's available_channels() answers it, and
+    # it varies by board.
 
     # How long the exit hook waits for a disconnect already in flight -- the
     # session's close, on its own thread -- before the process exits without
@@ -1446,10 +1442,12 @@ class Lumascope:
         L2 caller reads settings through its session.
 
         Raises:
-            ConfigError: No session has bound this scope, so it has no
-                settings to act on: a bare scope that would capture, convert
-                a plate position or draw a scale bar is composed into a
-                ``ScopeSession`` first.
+            ArgumentRefusedError: ``'not_a_setting'``, ``path`` names no
+                setting.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has
+                bound this scope, so it has no settings to act on: a bare
+                scope that would capture, convert a plate position or draw a
+                scale bar is composed into a ``ScopeSession`` first.
         """
         if self._settings_reader is None:
             raise ConfigurationDefectError(

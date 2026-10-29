@@ -1,23 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""RuntimeState -- runtime-mutable scope state, split from ScopeCapabilities.
+"""RuntimeState -- the configuration the scope acts on, split from ScopeCapabilities.
 
 Design doc sec 2.5 splits the capabilities surface into TWO:
 
 - `scope.capabilities`: IMMUTABLE per Lumascope instance. Reconnect =
   new Lumascope = new capabilities.
-- `scope.runtime_state`: MUTABLE, refreshed on driver events (reflash,
-  reconnect, etc.). Also answers for the configuration the scope acts
-  on: labware, objective, turret config, stage offset, and the
-  coordinate transformer that operates on those values. It holds none of
-  them: the session's settings are their one store, read through the
-  scope's ``read_setting`` on every answer. The objective catalogue is
+- `scope.runtime_state`: answers for the configuration the scope acts
+  on, which changes while the scope is up: labware, objective, turret
+  config, stage offset, and the coordinate transformer that operates on
+  those values. It holds none of them: the session's settings are their
+  one store, read through the scope's ``read_setting`` on every answer. The objective catalogue is
   the scope's own (`scope.objective_helper`), read at each use.
-
-The split exists because firmware version legitimately mutates mid-
-session when boards are reflashed; a single frozen surface would lie
-post-flash. Sub-APIs read from BOTH surfaces as needed -- capability-
-probe gates use the immutable surface, recovery / version gates use
-the runtime surface.
 
 The answers for labware / objective / turret / stage live here because
 they are user configuration that callers adjust during a session;
@@ -51,12 +44,8 @@ def slots_holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
 
 
 class RuntimeState:
-    """Mutable runtime state on a Lumascope, and the answers for the user
-    configuration the scope acts on (labware / objective / turret / stage),
-    read from the session's settings.
-
-    Fields land per design doc sec 2.5 as the underlying firmware +
-    driver hooks ship.
+    """The answers for the user configuration a Lumascope acts on
+    (labware / objective / turret / stage), read from the session's settings.
     """
 
     def __init__(self, scope: Lumascope) -> None:

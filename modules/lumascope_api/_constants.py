@@ -6,9 +6,8 @@ sub-API modules (motion.py, etc.) need to read. Lifting them here
 breaks the import cycle that would otherwise force lazy imports in
 the sub-API files.
 
-Other modules in the package alias these onto their classes for
-back-compat (e.g. `Lumascope._MOTOR_POSITION_LIMIT = MOTOR_POSITION_LIMIT`)
-so existing callers (tests reading the class attribute) keep working.
+`_lumascope` re-exports `AxisState` under its own module, where
+callers import it from.
 """
 
 import dataclasses
@@ -32,7 +31,7 @@ from modules.api_surface import api_fields
 SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
 
 # Absolute position bounds in um -- generous outer limits. Per-axis
-# travel limits are enforced by the motor board itself.
+# travel is the API's to refuse (MotionAPI.get_axis_limits).
 MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
 # The turret's four positions. Unlike X/Y/Z this is not travel and not um:

@@ -8736,12 +8736,8 @@ monitor sets; no serial I/O from the calling thread.
 Reached through `session.scope.runtime_state`; on the wire, `/api/v1/scope/runtime_state/`.  
 Held in: [`Lumascope.runtime_state`](#Lumascope.runtime_state).
 
-Mutable runtime state on a Lumascope, and the answers for the user
-configuration the scope acts on (labware / objective / turret / stage),
-read from the session's settings.
-
-Fields land per design doc sec 2.5 as the underlying firmware +
-driver hooks ship.
+The answers for the user configuration a Lumascope acts on
+(labware / objective / turret / stage), read from the session's settings.
 
 <a id="RuntimeState.get_field_of_view"></a>
 ### `RuntimeState.get_field_of_view`
