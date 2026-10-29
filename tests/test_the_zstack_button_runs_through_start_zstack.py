@@ -23,38 +23,15 @@ from unittest.mock import MagicMock
 import pytest
 
 
-import modules.app_context as _app_ctx
 import ui.zstack as zs
 from ui.protocol_settings import ProtocolSettings
 from modules.caller import Caller, current_caller
-from modules.exceptions import ProtocolRunRefusedError
-from modules.run_outcome import PendingRunOutcome
-from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import EngineRun, RunProgress
+from modules.protocol_runner import ProtocolRunner
 from tests.pool_fakes import run_task_now
-from modules.scope_session import ShownChannel
-from tests.stock_channels import LED1
+from tests.scope_fakes import home_sim_scope
 
-
-def _progress(
-    run: EngineRun,
-    *,
-    live: bool,
-    stopping: bool = False,
-    step_index: int | None = None,
-    steps: int | None = None,
-) -> RunProgress:
-    """The engine's record of *run*: its folder always, its step and count only while live."""
-    return RunProgress(
-        is_live=live,
-        is_stopping=stopping,
-        is_last_run=True,
-        run_dir=run._run_dir,
-        step_index=step_index if live else None,
-        num_steps=steps if live else None,
-        scans_remaining=1 if live else None,
-        period_s=None,
-    )
+_HOLD_WAIT_S = 10.0
+_END_WAIT_S = 60.0
 
 
 class _SavingSwitch(ProtocolSettings):
@@ -73,74 +50,94 @@ class _Starter(zs.ZStack):
         self.button = SimpleNamespace(state='down', text='Acquire')
         self.ids = {'zstack_aqr_btn': self.button}
         self.zstack_pending = False
+        self._zstack_run = None
 
 
 @pytest.fixture
-def clicked(monkeypatch, centre_posts):
-    """Click Acquire with nothing running; return what the member was asked."""
+def held():
+    """Pool tasks, when a test holds them instead of running them at once."""
+    return []
+
+
+@pytest.fixture
+def clicked(gui_ctx, monkeypatch, held, centre_posts):
+    """The GUI over an unhomed simulated session on the shipped template, whose
+    stack has no range; the pool runs each request at once, and each start the
+    member is asked for is recorded with who asked, then made."""
     from modules.sequential_io_executor import ENQUEUED
-    import ui.ui_helpers as ui_helpers
 
     pool = MagicMock()
 
-    def _run_now(task):
-        run_task_now(task)
+    def _put(task):
+        if held == ['hold']:
+            held.append(task)
+        else:
+            run_task_now(task)
         return ENQUEUED
 
-    pool.put.side_effect = _run_now
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    member_runner = MagicMock()
-    engine = MagicMock()
-    run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
-    run._run_dir = '/runs/zstack_1'
-    starters = []
-
-    def _start_zstack(**_kwargs):
-        starters.append(current_caller())
-        return run.operation
-
-    member_runner.start_zstack.side_effect = _start_zstack
-    # The run has ended by the time anything reads it, unless a test says otherwise.
-    engine._progress_of.side_effect = lambda asked: _progress(asked, live=False)
-    session = MagicMock()
-    session.create_protocol_runner.return_value = member_runner
+    pool.put.side_effect = _put
     switch = _SavingSwitch()
-    # Nothing holds the scope; a MagicMock's own answer would be truthy.
-    session.held_by_other.return_value = False
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(
-            session=session,
-            sequenced_capture_runner=engine,
-            image_settings=MagicMock(),
-            scope_display=SimpleNamespace(start=lambda: None, stop=lambda: None),
-            motion_settings=SimpleNamespace(ids={'protocol_settings_id': switch}),
-            worker_pool=pool,
-        ),
-    )
+    gui_ctx.worker_pool = pool
+    gui_ctx.image_settings = MagicMock()
+    gui_ctx.scope_display = SimpleNamespace(start=lambda: None, stop=lambda: None)
+    gui_ctx.motion_settings = SimpleNamespace(ids={'protocol_settings_id': switch})
+    monkeypatch.setattr('ui.ui_helpers._schedule_ui', lambda fn, timeout=0: fn(0))
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
-    session.shown_channel = ShownChannel(LED1, lit=False)
     linked = []
     monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))
+    asked = []
+    started = []
+    real_start = ProtocolRunner.start_zstack
+
+    def _start_zstack(self, **kwargs):
+        asked.append((kwargs, current_caller()))
+        run = real_start(self, **kwargs)
+        started.append(run)
+        return run
+
+    monkeypatch.setattr(ProtocolRunner, 'start_zstack', _start_zstack)
     return SimpleNamespace(
-        runner=member_runner,
-        engine=engine,
-        run=run,
+        session=gui_ctx.session,
+        pool=pool,
+        asked=asked,
+        started=started,
         linked=linked,
-        starters=starters,
         posts=centre_posts,
         starter=_Starter(),
         saving_box=switch.box,
     )
 
 
-def test_the_button_states_only_what_the_gui_knows(clicked):
-    clicked.starter.run_zstack_acquire_from_ui()
+@pytest.fixture
+def stacked(clicked):
+    """``clicked`` homed, Z mid-travel, a seven-slice stack stored (60 um in
+    10 um steps); any run left live is stopped at teardown."""
+    scope = clicked.session.scope
+    home_sim_scope(scope)
+    scope.motion.move_z(5000.0)
+    clicked.session.update_settings('zstack.step_size', 10.0)
+    clicked.session.update_settings('zstack.range', 60.0)
+    yield clicked
+    scope.simulation.clear()
+    scope.motion.stop_motion()
+    for run in clicked.started:
+        run.result(timeout=_END_WAIT_S)
 
-    clicked.runner.start_zstack.assert_called_once()
-    kwargs = clicked.runner.start_zstack.call_args.kwargs
-    assert kwargs['channel'] == LED1
+
+def _click_held(stacked):
+    """Click Acquire with Z's next move held: the stack it starts stays live at
+    its first slice until the test or the teardown ends it."""
+    reached = stacked.session.scope.simulation.hold_axis('Z')
+    stacked.starter.run_zstack_acquire_from_ui()
+    assert reached.wait(_HOLD_WAIT_S), "the stack's first move never started"
+    return stacked.starter._zstack_run
+
+
+def test_the_button_states_only_what_the_gui_knows(stacked):
+    _click_held(stacked)
+
+    ((kwargs, starter),) = stacked.asked
+    assert kwargs['channel'] == stacked.session.shown_channel.channel
     assert kwargs['enable_image_saving'] is True, 'an unticked box saves images'
     # Nothing else about the run is the button's to say; who started it is
     # the GUI's stamp on the thread that starts it.
@@ -149,84 +146,78 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
         'events',
         'enable_image_saving',
     }
-    assert clicked.starters == [Caller.GUI]
+    assert starter is Caller.GUI
 
 
-def test_a_ticked_disable_image_saving_box_starts_a_stack_that_saves_none(clicked):
-    clicked.saving_box.active = True
+def test_a_ticked_disable_image_saving_box_starts_a_stack_that_saves_none(stacked):
+    stacked.saving_box.active = True
 
-    clicked.starter.run_zstack_acquire_from_ui()
+    _click_held(stacked)
 
-    assert clicked.runner.start_zstack.call_args.kwargs['enable_image_saving'] is False
-
-
-def test_the_button_starts_no_run_of_its_own(clicked):
-    clicked.starter.run_zstack_acquire_from_ui()
-
-    assert not clicked.engine.prepare.called
-    assert not clicked.engine.start.called
+    ((kwargs, _starter),) = stacked.asked
+    assert kwargs['enable_image_saving'] is False
 
 
-def test_the_stop_names_the_handle_the_member_returned(clicked):
-    clicked.starter.run_zstack_acquire_from_ui()
+def test_the_stop_names_the_handle_the_member_returned(stacked):
+    run = _click_held(stacked)
 
-    assert clicked.starter._zstack_run is clicked.run.operation
-    assert clicked.linked == ['/runs/zstack_1']
+    assert stacked.started == [run]
+    assert stacked.linked == [run.progress().run_dir]
+    assert stacked.linked[0] is not None
 
 
 def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
-    clicked.runner.start_zstack.side_effect = ProtocolRunRefusedError(
-        reason='zstack_not_configured', message='m'
-    )
+    """Homed, on the template, whose stored stack has no range: the member refuses."""
+    home_sim_scope(clicked.session.scope)
 
     clicked.starter.run_zstack_acquire_from_ui()
 
     assert [n.title for n in clicked.posts] == ['Z-Stack Not Configured']
+    assert clicked.started == []
     assert clicked.starter.button.state == 'normal'
     assert clicked.starter.button.text == 'Acquire'
     assert clicked.starter.zstack_pending is False, 'the button must come back for the next press'
     assert clicked.linked == []
 
 
-def test_progress_reads_the_runs_own_step_and_count(clicked):
-    clicked.engine._progress_of.side_effect = lambda run: _progress(
-        run, live=run is clicked.run, step_index=2, steps=7
-    )
+def test_progress_reads_the_runs_own_step_and_count(stacked):
+    _click_held(stacked)
 
-    clicked.starter.run_zstack_acquire_from_ui()
-    step_started = clicked.runner.start_zstack.call_args.kwargs['events'].step_started
-    step_started(2)
-
-    # The run counts its steps from 0; a person reads the third as 3.
-    assert clicked.starter.button.text == 'Z 3/7'
+    # The run counts its steps from 0; a person reads the first as 1.
+    assert stacked.starter.button.text == 'Z 1/7'
     # Any other edge mid-run draws the same label: there is one writer.
-    clicked.starter.draw_zstack_button()
-    assert clicked.starter.button.text == 'Z 3/7'
+    stacked.starter.draw_zstack_button()
+    assert stacked.starter.button.text == 'Z 1/7'
 
 
-def test_progress_after_the_run_ended_draws_idle(clicked):
-    clicked.starter.run_zstack_acquire_from_ui()
-    step_started = clicked.runner.start_zstack.call_args.kwargs['events'].step_started
-    step_started(2)
+def test_progress_after_the_run_ended_draws_idle(stacked):
+    run = _click_held(stacked)
+    ((kwargs, _starter),) = stacked.asked
+    stacked.session.scope.simulation.clear()
+    stacked.session.scope.motion.stop_motion()
+    run.result(timeout=_END_WAIT_S)
 
-    assert (clicked.starter.button.state, clicked.starter.button.text) == ('normal', 'Acquire')
+    kwargs['events'].step_started(2)
+
+    assert (stacked.starter.button.state, stacked.starter.button.text) == ('normal', 'Acquire')
 
 
-def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(clicked):
+def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(stacked):
     from modules.sequential_io_executor import PRIORITY_HIGH
 
-    clicked.starter._zstack_run = clicked.run.operation
-    clicked.engine._progress_of.side_effect = lambda run: _progress(
-        run, live=run is clicked.run, stopping=clicked.engine._stop_run.called
-    )
+    run = _click_held(stacked)
 
-    clicked.starter.run_zstack_acquire_from_ui()
+    stacked.starter.run_zstack_acquire_from_ui()
 
-    task = _app_ctx.ctx.worker_pool.put.call_args.args[0]
+    task = stacked.pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    clicked.engine._stop_run.assert_called_once_with(clicked.run)
-    assert not clicked.runner.start_zstack.called, 'a Stop is not a start'
-    assert clicked.starter.button.text == 'Stopping...'
+    assert len(stacked.asked) == 1, 'a Stop is not a start'
+    # A Stop only asks: the run ends once the move it is in arrives, so the
+    # held move keeps it stopping until it is let go.
+    assert stacked.starter.button.text == 'Stopping...'
+    stacked.session.scope.simulation.clear()
+    outcome = run.result(timeout=_END_WAIT_S)
+    assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
 
 
 def test_a_press_is_a_start_whatever_the_toggle_reads(clicked):
@@ -236,22 +227,18 @@ def test_a_press_is_a_start_whatever_the_toggle_reads(clicked):
 
     clicked.starter.run_zstack_acquire_from_ui()
 
-    assert not clicked.engine._stop_run.called, "a toggle reading 'normal' is not a Stop"
-    clicked.runner.start_zstack.assert_called_once()
+    assert len(clicked.asked) == 1, "a toggle reading 'normal' is not a Stop"
 
 
-def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked):
-    from modules.sequential_io_executor import ENQUEUED
-
-    held = []
-    _app_ctx.ctx.worker_pool.put.side_effect = lambda task: held.append(task) or ENQUEUED
+def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked, held):
+    held.append('hold')
 
     clicked.starter.run_zstack_acquire_from_ui()
 
     assert clicked.starter.zstack_pending is True, (
         'a second press must not race the first to the pool'
     )
-    run_task_now(held[0])
+    run_task_now(held[1])
     assert clicked.starter.zstack_pending is False, "the request's own redraw brings it back"
 
 
@@ -286,20 +273,19 @@ class TestTheMemberCarriesWhatTheGuiStates:
         assert prepared['enable_image_saving'] is True
 
 
-def test_the_button_greys_while_anything_else_holds_the_scope(clicked):
+def test_the_button_greys_while_anything_else_holds_the_scope(stacked):
     """The Session answers for this button's own run: another holder greys it,
     its own run leaves it live as that run's Stop."""
-    import modules.app_context as app_context
+    stacked.starter.draw_zstack_button()
+    assert stacked.starter.zstack_held is False
 
-    own = EngineRun(
-        app_context.ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
-    ).operation
-    clicked.starter._zstack_run = own
-    asked = []
+    diagnostic = stacked.session.activity_claim.try_claim('diagnostic')
+    try:
+        stacked.starter.draw_zstack_button()
+        assert stacked.starter.zstack_held is True
+    finally:
+        diagnostic.release()
 
-    for held in (True, False):
-        app_context.ctx.session.held_by_other = lambda run, held=held: asked.append(run) or held
-        clicked.starter.draw_zstack_button()
-        assert clicked.starter.zstack_held is held
-
-    assert asked == [own, own], 'the button must ask about the run it started'
+    _click_held(stacked)
+    stacked.starter.draw_zstack_button()
+    assert stacked.starter.zstack_held is False, 'its own run is not another holder'

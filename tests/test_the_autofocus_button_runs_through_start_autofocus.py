@@ -17,24 +17,21 @@ button's to show.
 
 from __future__ import annotations
 
-import concurrent.futures
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 
-import modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers
 import ui.vertical_control as vc
 from modules.caller import Caller, current_caller
-from modules.exceptions import ProtocolRunRefusedError
-from modules.run_outcome import PendingRunOutcome
-from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import EngineRun, RunProgress
+from modules.protocol_runner import ProtocolRunner
 from tests.pool_fakes import run_task_now
-from modules.scope_session import ControlsLock, ShownChannel
-from tests.stock_channels import LED1
+from tests.scope_fakes import home_sim_scope
+
+_HOLD_WAIT_S = 10.0
+_END_WAIT_S = 60.0
 
 
 class _Button(vc.VerticalControl):
@@ -55,8 +52,10 @@ def held():
 
 
 @pytest.fixture
-def pressed(monkeypatch, held, centre_posts):
-    """A GUI with nothing running; the pool runs each request at once."""
+def pressed(gui_ctx, monkeypatch, held, centre_posts):
+    """The GUI over an unhomed simulated session in engineering mode, nothing
+    running; the pool runs each request at once, and each start the member
+    is asked for is recorded with who asked, then made."""
     from modules.sequential_io_executor import ENQUEUED
 
     pool = MagicMock()
@@ -69,71 +68,63 @@ def pressed(monkeypatch, held, centre_posts):
         return ENQUEUED
 
     pool.put.side_effect = _put
+    gui_ctx.worker_pool = pool
+    gui_ctx.image_settings = MagicMock()
+    gui_ctx.session.engineering_mode = True
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    member = MagicMock()
-    engine = MagicMock()
-    run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
-    starters = []
-
-    def _start_autofocus(**_kwargs):
-        starters.append(current_caller())
-        return run.operation
-
-    member.start_autofocus.side_effect = _start_autofocus
-    _live(engine)
-    session = MagicMock()
-    session.create_protocol_runner.return_value = member
-    # Nothing holds the scope; a MagicMock's own answer would be truthy.
-    session.held_by_other.return_value = False
-    session.engineering_mode = True
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(
-            session=session,
-            sequenced_capture_runner=engine,
-            image_settings=MagicMock(),
-            worker_pool=pool,
-        ),
-    )
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
-    session.shown_channel = ShownChannel(LED1, lit=False)
+    asked = []
+    started = []
+    real_start = ProtocolRunner.start_autofocus
+
+    def _start_autofocus(self, **kwargs):
+        asked.append((kwargs, current_caller()))
+        run = real_start(self, **kwargs)
+        started.append(run)
+        return run
+
+    monkeypatch.setattr(ProtocolRunner, 'start_autofocus', _start_autofocus)
     return SimpleNamespace(
-        member=member,
-        engine=engine,
-        run=run,
-        starters=starters,
+        session=gui_ctx.session,
+        asked=asked,
+        started=started,
         posts=centre_posts,
         pool=pool,
         button=_Button(),
     )
 
 
-def _progress(*, live: bool, stopping: bool = False) -> RunProgress:
-    """The engine's record of one autofocus run: live or ended, stopping or not."""
-    return RunProgress(
-        is_live=live,
-        is_stopping=live and stopping,
-        is_last_run=True,
-        run_dir=None,
-        step_index=0 if live else None,
-        num_steps=1 if live else None,
-        scans_remaining=1 if live else None,
-        period_s=None,
-    )
+@pytest.fixture
+def homed(pressed):
+    """``pressed`` homed, Z mid-travel; any run left live is stopped at teardown."""
+    scope = pressed.session.scope
+    home_sim_scope(scope)
+    scope.motion.move_z(5000.0)
+    yield pressed
+    scope.simulation.clear()
+    scope.motion.stop_motion()
+    for run in pressed.started:
+        run.result(timeout=_END_WAIT_S)
 
 
-def _live(engine, *runs):
-    """The engine reports each of *runs* live, and every other run ended."""
-    engine._progress_of.side_effect = lambda run: _progress(live=any(run is r for r in runs))
+def _press_held(homed, button):
+    """Press ``button`` with Z's next move held: the run it starts stays live at
+    its go-to-step until the test or the teardown ends it."""
+    reached = homed.session.scope.simulation.hold_axis('Z')
+    button.run_autofocus_from_ui()
+    assert reached.wait(_HOLD_WAIT_S), "the autofocus run's first move never started"
+    return button._autofocus_run
 
 
-def test_the_button_states_only_what_the_gui_knows(pressed):
-    pressed.button.run_autofocus_from_ui()
+def _drawn(button):
+    return (button.button.state, button.button.text)
 
-    pressed.member.start_autofocus.assert_called_once()
-    kwargs = pressed.member.start_autofocus.call_args.kwargs
-    assert kwargs['channel'] == LED1
+
+def test_the_button_states_only_what_the_gui_knows(homed):
+    _press_held(homed, homed.button)
+
+    ((kwargs, starter),) = homed.asked
+    assert kwargs['channel'] == homed.session.shown_channel.channel
     assert kwargs['save_characterization_data'] is True, (
         'in engineering mode the sweep saves its characterization data'
     )
@@ -144,33 +135,31 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
         'save_characterization_data',
         'events',
     }
-    assert pressed.starters == [Caller.GUI]
+    assert starter is Caller.GUI
 
 
-def test_the_button_starts_no_run_of_its_own(pressed):
-    pressed.button.run_autofocus_from_ui()
+def test_the_button_holds_the_run_the_member_started(homed):
+    run = _press_held(homed, homed.button)
 
-    assert not pressed.engine.prepare.called
-    assert not pressed.engine.start.called
-    assert pressed.button._autofocus_run is pressed.run.operation, (
-        'the operation is what its Stop names'
-    )
+    assert homed.started == [run], 'the operation is what its Stop names'
 
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(pressed):
-    pressed.member.start_autofocus.side_effect = ProtocolRunRefusedError(
-        reason='autofocus_running', message='m'
-    )
-
+    # Unhomed, the member refuses an autofocus: Z does not know where it is.
     pressed.button.run_autofocus_from_ui()
 
-    assert [n.title for n in pressed.posts] == ['Autofocus Running']
-    assert (pressed.button.button.state, pressed.button.button.text) == ('normal', 'Autofocus')
+    assert [n.title for n in pressed.posts] == ['Scope Not Homed']
+    assert pressed.started == []
+    assert _drawn(pressed.button) == ('normal', 'Autofocus')
     assert pressed.button.autofocus_pending is False, 'the button must come back for the next press'
 
 
-def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(pressed):
-    pressed.member.start_autofocus.side_effect = TypeError('bad call')
+def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(pressed, monkeypatch):
+    def _fails(self, **kwargs):
+        raise TypeError('bad call')
+
+    # a stand-in by design: a member raising a type no session raises, a fault the simulator cannot produce
+    monkeypatch.setattr(ProtocolRunner, 'start_autofocus', _fails)
 
     pressed.button.run_autofocus_from_ui()
 
@@ -179,47 +168,43 @@ def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(pressed):
     assert pressed.button.autofocus_pending is False
 
 
-def test_a_started_run_draws_focusing(pressed):
-    _live(pressed.engine, pressed.run)
+def test_a_started_run_draws_focusing(homed):
+    _press_held(homed, homed.button)
 
-    pressed.button.run_autofocus_from_ui()
-
-    assert (pressed.button.button.state, pressed.button.button.text) == ('down', 'Focusing...')
+    assert _drawn(homed.button) == ('down', 'Focusing...')
 
 
-def test_a_second_press_stops_its_own_run_ahead_of_queued_work(pressed):
+def test_a_second_press_stops_its_own_run_ahead_of_queued_work(homed):
     from modules.sequential_io_executor import PRIORITY_HIGH
 
-    pressed.button._autofocus_run = pressed.run.operation
-    pressed.engine._progress_of.side_effect = lambda run: _progress(
-        live=run is pressed.run, stopping=pressed.engine._stop_run.called
-    )
+    run = _press_held(homed, homed.button)
 
-    pressed.button.run_autofocus_from_ui()
+    homed.button.run_autofocus_from_ui()
 
-    task = pressed.pool.put.call_args.args[0]
+    task = homed.pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    pressed.engine._stop_run.assert_called_once_with(pressed.run)
-    assert not pressed.member.start_autofocus.called, 'a Stop is not a start'
-    assert pressed.button.button.text == 'Stopping...'
+    assert len(homed.asked) == 1, 'a Stop is not a start'
+    outcome = run.result(timeout=_END_WAIT_S)
+    assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
 
 
-def test_a_stop_that_finds_its_run_already_ended_shows_nothing(pressed, held):
+def test_a_stop_that_finds_its_run_already_ended_shows_nothing(homed, held):
     # The press reads its run live and hands a Stop to the pool; the run
     # ends before the pool runs it. A Stop of an ended run does nothing and
-    # raises nothing, so there is nothing to show and nothing is stopped.
+    # raises nothing, so there is nothing to show.
+    run = _press_held(homed, homed.button)
     held.append('hold')
-    pressed.button._autofocus_run = pressed.run.operation
-    _live(pressed.engine, pressed.run)
 
-    pressed.button.run_autofocus_from_ui()
-    _live(pressed.engine)
-    concurrent.futures.Future.set_result(pressed.run.operation, None)
+    homed.button.run_autofocus_from_ui()
+    homed.session.scope.simulation.clear()
+    homed.session.scope.motion.stop_motion()
+    ended = run.result(timeout=_END_WAIT_S)
+    homed.posts.clear()
     run_task_now(held[1])
 
-    assert pressed.posts == []
-    assert not pressed.engine._stop_run.called, 'a Stop of an ended run reached the engine'
-    assert (pressed.button.button.state, pressed.button.button.text) == ('normal', 'Autofocus')
+    assert homed.posts == []
+    assert ended.reason == 'stage_stopped', 'the STOP ended it, not the button'
+    assert _drawn(homed.button) == ('normal', 'Autofocus')
 
 
 def test_the_button_is_disabled_while_its_own_request_is_in_flight(pressed, held):
@@ -230,25 +215,24 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(pressed, held
     assert pressed.button.autofocus_pending is True, (
         'a second press must not race the first to the pool'
     )
-    task = held[1]
-    run_task_now(task)
+    run_task_now(held[1])
     assert pressed.button.autofocus_pending is False, (
         "the request's own redraw brings the button back"
     )
-    assert pressed.member.start_autofocus.call_count == 1
+    assert len(pressed.asked) == 1
 
 
-def test_a_protocols_autofocus_is_not_this_buttons_to_show(pressed):
-    """Another run is live -- a protocol with autofocus steps -- and this
-    button started nothing: it draws idle."""
-    _live(
-        pressed.engine, EngineRun(pressed.engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
-    )
-    pressed.button.button.state = 'normal'
+def test_a_protocols_autofocus_is_not_this_buttons_to_show(homed):
+    """Another run is live -- an autofocus this button did not start -- and
+    this button started nothing: it draws idle."""
+    reached = homed.session.scope.simulation.hold_axis('Z')
+    homed.session.create_protocol_runner().start_autofocus(channel='BF')
+    assert reached.wait(_HOLD_WAIT_S)
+    homed.button.button.state = 'normal'
 
-    pressed.button.draw_autofocus_button()
+    homed.button.draw_autofocus_button()
 
-    assert (pressed.button.button.state, pressed.button.button.text) == ('normal', 'Autofocus')
+    assert _drawn(homed.button) == ('normal', 'Autofocus')
 
 
 def test_the_panels_runs_register_no_autofocus_indicator():
@@ -301,18 +285,17 @@ def test_a_new_button_holds_no_run(real):
     assert real.button._autofocus_run is None
 
 
-def test_a_live_autofocus_is_never_stopped_by_the_button_on_its_own(pressed, real):
+def test_a_live_autofocus_is_never_stopped_by_the_button_on_its_own(homed, real):
     """The button puts no time limit on the sweep it started: every wait
     inside a sweep is a move the motion monitor judges or a bounded capture.
     Before, a 15 s timer stopped any sweep still live, and a far-from-focus
     sweep was cut short and its Z put back (#703)."""
-    _live(pressed.engine, pressed.run)
-    real.button.run_autofocus_from_ui()
+    run = _press_held(homed, real.button)
 
     for scheduled in list(real.clock.scheduled):
         scheduled(0)
 
-    assert not pressed.engine._stop_run.called
+    assert run.progress().is_live
 
 
 def test_the_button_is_disabled_while_its_request_is_in_flight_in_the_kv():
@@ -327,33 +310,34 @@ def test_the_button_is_disabled_while_its_request_is_in_flight_in_the_kv():
     assert 'root.autofocus_held or root.autofocus_pending' in disabled[0]
 
 
-def test_the_button_greys_while_anything_else_holds_the_scope(pressed):
+def test_the_button_greys_while_anything_else_holds_the_scope(homed):
     """The Session answers for this button's own run: another holder greys it,
     its own run leaves it live as that run's Stop."""
-    import modules.app_context as app_context
+    homed.button.draw_autofocus_button()
+    assert homed.button.autofocus_held is False
 
-    own = EngineRun(
-        app_context.ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
-    ).operation
-    pressed.button._autofocus_run = own
-    asked = []
+    diagnostic = homed.session.activity_claim.try_claim('diagnostic')
+    try:
+        homed.button.draw_autofocus_button()
+        assert homed.button.autofocus_held is True
+    finally:
+        diagnostic.release()
 
-    for held in (True, False):
-        app_context.ctx.session.held_by_other = lambda run, held=held: asked.append(run) or held
-        pressed.button.draw_autofocus_button()
-        assert pressed.button.autofocus_held is held
-
-    assert asked == [own, own], 'the button must ask about the run it started'
+    _press_held(homed, homed.button)
+    homed.button.draw_autofocus_button()
+    assert homed.button.autofocus_held is False, 'its own run is not another holder'
 
 
-def test_a_press_during_a_finished_runs_drain_reaches_the_api(pressed):
-    """A finished run's files draining is the API's to refuse, not the button's."""
-    import modules.app_context as app_context
+def test_a_press_while_the_controls_are_locked_reaches_the_api(homed):
+    """A lock on the controls is the Session's editing policy; whether the
+    press may run is the API's refusal, not the button's."""
+    diagnostic = homed.session.activity_claim.try_claim('diagnostic')
+    try:
+        assert homed.session.controls_lock.run_lockout
+        homed.button.run_autofocus_from_ui()
+    finally:
+        diagnostic.release()
 
-    app_context.ctx.session.controls_lock = ControlsLock(
-        run_named="A protocol's files are still being written.", control_named=None, recording=False
-    )
-
-    pressed.button.run_autofocus_from_ui()
-
-    pressed.member.start_autofocus.assert_called_once()
+    assert len(homed.asked) == 1
+    assert len(homed.posts) == 1, [n.title for n in homed.posts]
+    assert homed.started == []
