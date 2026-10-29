@@ -117,6 +117,7 @@ class TestScopeCapabilitiesIntegration:
         cam = SimpleNamespace(
             model_name='STUB',
             device_serial=None,
+            device_firmware=None,
             active=None,
             get_binning_size=lambda: 1,
             timestamp_tick_frequency_hz=None,

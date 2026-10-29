@@ -222,6 +222,7 @@ class SimulatedCamera(Camera):
     _SENSOR = simulated_profile().native_resolution
     MODEL_NAME = simulated_profile().model_name
     SERIAL_NUMBER = 'SIM-CAM-001'
+    FIRMWARE_VERSION = 'SIM-FW-1.0'
 
     TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
@@ -512,6 +513,7 @@ class SimulatedCamera(Camera):
             self.active = True
             self.model_name = self.MODEL_NAME
             self._device_serial = self.SERIAL_NUMBER
+            self._device_firmware = self.FIRMWARE_VERSION
             self._device_removed = False
 
             self._load_profile()

@@ -2,10 +2,11 @@
 """The scope's capabilities hold what the camera is, read once at connect.
 
 `scope.capabilities` is the one door for the camera's static facts: its
-model, its serial number, its timestamp clock and the largest frame the
-scope delivers. An unknown fact is None, never a plausible value: an
-unrecognised camera is not named after the placeholder profile it was
-given, and an unknown frame maximum is not a size.
+model, its serial number, its firmware version, its timestamp clock and
+the largest frame the scope delivers. An unknown fact is None, never a
+plausible value: an unrecognised camera is not named after the
+placeholder profile it was given, and an unknown frame maximum is not a
+size.
 """
 
 from __future__ import annotations
@@ -67,6 +68,7 @@ def test_the_camera_identity_is_what_the_camera_reported():
     caps = _capabilities(camera)
     assert caps.camera_model == SimulatedCamera.MODEL_NAME
     assert caps.camera_serial_number == SimulatedCamera.SERIAL_NUMBER
+    assert caps.camera_firmware_version == SimulatedCamera.FIRMWARE_VERSION
     assert caps.camera_timestamp_tick_hz == SimulatedCamera.TIMESTAMP_TICK_HZ
 
 
@@ -74,10 +76,12 @@ def test_a_camera_that_did_not_say_what_it_is_is_unnamed():
     camera = SimulatedCamera()
     camera.model_name = None
     camera._device_serial = None
+    camera._device_firmware = None
     camera.timestamp_tick_frequency_hz = None
     caps = _capabilities(camera)
     assert caps.camera_model is None
     assert caps.camera_serial_number is None
+    assert caps.camera_firmware_version is None
     assert caps.camera_timestamp_tick_hz is None
 
 
@@ -85,4 +89,5 @@ def test_no_camera_has_no_identity():
     caps = _capabilities(None)
     assert caps.camera_model is None
     assert caps.camera_serial_number is None
+    assert caps.camera_firmware_version is None
     assert caps.camera_timestamp_tick_hz is None

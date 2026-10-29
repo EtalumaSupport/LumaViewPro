@@ -1307,6 +1307,7 @@ class PylonCamera(Camera):
                 )
 
             # Store device identity if possible
+            self._device_firmware = None
             try:
                 dev_info = camera.GetDeviceInfo()
                 self.model_name = dev_info.GetModelName()
@@ -1348,8 +1349,10 @@ class PylonCamera(Camera):
                     device_serial = nm.GetNode('DeviceSerialNumber').ToString()
                     _log_cam('info', f'[CAM Class ] Camera Serial Number: {device_serial}')
 
-                    firmware = nm.GetNode('DeviceFirmwareVersion').ToString()
-                    _log_cam('info', f'[CAM Class ] Camera Firmware Version: {firmware}')
+                    self._device_firmware = nm.GetNode('DeviceFirmwareVersion').ToString()
+                    _log_cam(
+                        'info', f'[CAM Class ] Camera Firmware Version: {self._device_firmware}'
+                    )
 
                     # Current pixel format + resolution + binning drive
                     # the DMA buffer footprint -- critical context for

@@ -1585,6 +1585,7 @@ still states the major version.
 | level 45 | A capture's record comes back with its frame and nowhere else: `session.capture_still` (the scope's `imaging.capture_still` beneath it) returns a `CapturedStill`, its `record` the frame's `FrameRecord`, whose `exposure_source` / `gain_source` say whether each is the frame's own or read beside the grab and whose `auto_gain` is a locked arm's outcome. `imaging.last_capture_info` keeps only how the latest capture waited, frame or not (`hold_ms`, `drained`, `rechecks`, `deadline_s`, `n_entry`, `active_s`): its `frame_record`, `chunk_exposure_us`, `chunk_gain_db` and `auto_gain*` keys are gone. |
 | level 46 | The turret's slot is read through `scope.motion.turret_status()` alone: `get_turret_slot`, `is_moving` and `is_current_slot_objective_set` are gone, and `get_axis_state` is no longer declared. On a scope with a turret (`capabilities.has_turret`) whose motor board is lost or never came up, `turret_status()` answers `TurretStatus('unknown', None)`, never None; None means the scope has no turret. `get_current_position` and `get_current_positions` read X, Y and Z only: `'T'` is refused `not_offered`, and the turret is left out of the positions. |
 | level 47 | A record's time says what it is: `FrameRecord.captured_at` is a `FrameTime`, its `at` the time and its `source` the clock it came from (`TimestampSource`: `host_wallclock` for a still, read after the grab returned; `host_arrival` or `camera_rebased` for a recorded frame), so a time is never read without its source. `FrameRecord.illumination_timing` (`LightTiming`) says whether its `illumination_ma` was read before the grab or as the frame arrived. A record states an exposure or a gain only with its source (`exposure_source`, `gain_source` None exactly when the value is), and `judgments` is None for a frame that was never judged. A saved file's `Plane` names its `TimestampSource` and `IlluminationTiming`. |
+| level 48 | The camera's firmware version is a capability: `capabilities.camera_firmware_version`, read once at connect beside `camera_serial_number`; None where the camera reports none (the FX2). |
 
 ### Configuration queries
 
@@ -2431,8 +2432,9 @@ The last three rows are not registered on the scope. **Settings** is registered 
 ```python
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} no sensor, None no camera, a failed read raises
-scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
-                                                   # timestamp clock (camera_timestamp_tick_hz), read at connect
+scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number), firmware
+                                                   # (camera_firmware_version) and timestamp clock
+                                                   # (camera_timestamp_tick_hz), read at connect
 scope.capabilities.camera_sensor                   # 'Aptina MT9P031', and camera_shutter, a CameraShutter ('rolling' or 'global'), from
                                                    # the camera's datasheet entry; None for a camera none describes
 scope.capabilities.camera_sdk_version              # the vendor SDK's version, read at connect; None without one
@@ -2616,6 +2618,7 @@ caps.lens_focal_length_mm       # tube lens focal length mm, or None if unavaila
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'daA3840-45um', etc.; None if no camera or it did not say
 caps.camera_serial_number       # the camera's serial number, or None
+caps.camera_firmware_version    # the camera's firmware version, or None (the FX2 reports none)
 caps.camera_timestamp_tick_hz   # the camera's frame-timestamp clock in Hz, or None (no timestamps)
 caps.camera_has_clock_latch     # the host can latch that clock: each capture's frame_record.clock_mapping
 caps.is_color_native            # True for color-native sensors; False for mono-native (default)
@@ -3515,6 +3518,7 @@ Reached through `session.scope.capabilities`.
 - `axes`
 - `buffer_bit_depth`
 - `camera_binning_sizes`
+- `camera_firmware_version`
 - `camera_has_clock_latch`
 - `camera_limits`
 - `camera_max_significant_bits`

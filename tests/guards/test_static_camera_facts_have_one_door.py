@@ -29,6 +29,8 @@ _DRIVER_FACTS = MemberNames(
         'get_model_name',
         '_device_serial',
         'device_serial',
+        '_device_firmware',
+        'device_firmware',
         'timestamp_tick_frequency_hz',
         'get_supported_pixel_formats',
         'get_max_frame_size',

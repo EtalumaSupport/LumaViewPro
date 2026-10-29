@@ -278,6 +278,7 @@ class CameraShutter(enum.StrEnum):
     'axes',
     'camera_binning_sizes',
     'buffer_bit_depth',
+    'camera_firmware_version',
     'camera_has_clock_latch',
     'camera_limits',
     'camera_max_significant_bits',
@@ -379,6 +380,10 @@ class ScopeCapabilities:
 
     camera_serial_number: str | None
     """The serial number the camera reports at connect, or None."""
+
+    camera_firmware_version: str | None
+    """The firmware version the camera reports at connect, or None (the FX2
+    reports none)."""
 
     camera_sensor: str | None
     """The camera's sensor (``'Sony IMX334LLR-C'``), from the camera's
@@ -560,6 +565,7 @@ class ScopeCapabilities:
         # Camera
         camera_model: str | None = None
         camera_serial_number: str | None = None
+        camera_firmware_version: str | None = None
         camera_sensor: str | None = None
         camera_shutter: str | None = None
         camera_sdk_version: str | None = None
@@ -582,6 +588,7 @@ class ScopeCapabilities:
         if camera is not None:
             camera_model = camera.model_name or None
             camera_serial_number = camera.device_serial or None
+            camera_firmware_version = camera.device_firmware or None
             camera_sdk_version = camera.get_sdk_info()['version']
             tick_hz = camera.timestamp_tick_frequency_hz
             camera_timestamp_tick_hz = int(tick_hz) if tick_hz is not None else None
@@ -692,6 +699,7 @@ class ScopeCapabilities:
             has_firmware_stim=has_firmware_stim,
             camera_model=camera_model,
             camera_serial_number=camera_serial_number,
+            camera_firmware_version=camera_firmware_version,
             camera_sensor=camera_sensor,
             camera_shutter=camera_shutter,
             camera_sdk_version=camera_sdk_version,

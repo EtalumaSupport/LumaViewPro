@@ -23,6 +23,7 @@ def _capabilities(profile):
     camera = SimpleNamespace(
         model_name='STUB',
         device_serial=None,
+        device_firmware=None,
         # The limits are read from a connected camera.
         active=True,
         get_binning_size=lambda: 1,

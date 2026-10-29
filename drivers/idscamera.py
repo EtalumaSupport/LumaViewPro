@@ -470,6 +470,7 @@ class IDSCamera(Camera):
             # device we have not opened yet.
             self._register_device_callbacks()
 
+            self._device_firmware = None
             try:
                 self.model_name = self.active.ModelName()
                 # Read the serial from the DESCRIPTOR (the same surface the
@@ -479,9 +480,10 @@ class IDSCamera(Camera):
                 self._device_serial = descriptor.SerialNumber()
                 logger.info(f'[CAM Class ] Camera Model: {self.model_name}')
                 logger.info(f'[CAM Class ] Camera Serial Number: {self._device_serial}')
-                logger.info(
-                    f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode("DeviceFirmwareVersion").Value()}'
-                )
+                self._device_firmware = self.remote_nodemap.FindNode(
+                    'DeviceFirmwareVersion'
+                ).Value()
+                logger.info(f'[CAM Class ] Camera Firmware Version: {self._device_firmware}')
             except Exception:
                 _cam_log.warning('[CAM Class ] Could not read all IDS camera information')
 

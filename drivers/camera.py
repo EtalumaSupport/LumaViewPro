@@ -534,6 +534,7 @@ class Camera(ABC):
         self._device_removed = False
         self._async_teardown_started = False
         self._device_serial = None
+        self._device_firmware = None
         # Camera-side timestamp tick rate (Hz). Set by the driver at init
         # if the camera supports a Timestamp chunk; None for cameras
         # without chunk timestamps (downstream code skips per-frame
@@ -1206,6 +1207,11 @@ class Camera(ABC):
     def device_serial(self) -> str | None:
         """The serial number the camera reported at connect, or None."""
         return self._device_serial
+
+    @property
+    def device_firmware(self) -> str | None:
+        """The firmware version the camera reported at connect, or None."""
+        return self._device_firmware
 
     def get_model_name(self) -> str | None:
         """Return the cached camera model name.
