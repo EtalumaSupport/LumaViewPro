@@ -43,7 +43,6 @@ from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
-from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 from modules.scope_capabilities import FrameSize
@@ -160,30 +159,20 @@ def test_auto_gain_forwards_cap_to_bound_helper():
 # --------------------------------------------------------------------------
 
 
-def test_api_set_auto_gain_forwards_cap_from_settings_dict():
-    from drivers.simulated_camera import SimulatedCamera
-    from modules.lumascope_api import Lumascope
-
-    cam = SimulatedCamera()
-    cam.connect()
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    give_camera_capabilities(scope, cam)
-    camera = give_camera_and_imaging(scope)
-
+def test_api_set_auto_gain_forwards_cap_from_settings_dict(sim_camera, monkeypatch):
+    camera, cam = sim_camera
     recorded = {}
     orig_auto_gain = cam.auto_gain
 
+    # a stand-in by design: the simulated camera takes the AE ceiling for
+    # interface parity and keeps nothing of it (a Goal 5 gap), so the arm is
+    # recorded at the driver's door and passed through.
     def recording_auto_gain(state, **kwargs):
         recorded.update(kwargs)
         return orig_auto_gain(state, **kwargs)
 
-    cam.auto_gain = recording_auto_gain
-    # The impl seam: this harness builds a bare CameraAPI with no scope
-    # composition, and the forwarding contract under test lives in the
-    # body, not the dispatcher.
-    camera._set_auto_gain_impl(
+    monkeypatch.setattr(cam, 'auto_gain', recording_auto_gain)
+    camera.set_auto_gain(
         True,
         {
             'target_brightness': 0.5,

@@ -365,26 +365,18 @@ def bare_ids_camera():
 
 
 def bare_fx2_camera():
-    """FX2Camera analog of bare_pylon_camera.
+    """The real FX2Camera over the simulated FX2 device, as the scope builds it.
 
-    Built via ``__new__`` with the base state seeded by ``_base_state``,
-    plus the FX2 streaming-state flags that ``is_grabbing()`` /
-    ``start_grabbing()`` read.
-    The connection is a MagicMock so ``start_grabbing()`` is observable
-    without touching USB.
+    Constructed, not connected through a scope: its start gate is closed and
+    it is not grabbing until ``open_and_start()``. Disconnected when the test
+    ends.
     """
     from drivers import fx2driver
+    from drivers.simulated_fx2 import SimulatedFX2
+    from tests.scope_fakes import disconnect_when_the_test_ends
 
-    cam = _base_state(fx2driver.FX2Camera.__new__(fx2driver.FX2Camera))
-    cam.active = MagicMock()
-    cam._mark_disconnected = MagicMock()
-    cam._grabbing = False
-    cam._grab_thread = None
-    cam.stream_stats = MagicMock()
-    cam._fx2 = MagicMock()
-    # start_grabbing() unconditionally spawns a _grab_loop daemon thread;
-    # keep it inert so a fake that reaches the start path leaks no work.
-    cam._grab_loop = MagicMock()
+    cam = fx2driver.FX2Camera(connection=SimulatedFX2().connection)
+    disconnect_when_the_test_ends(cam)
     return cam
 
 

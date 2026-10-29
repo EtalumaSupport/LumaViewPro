@@ -10,9 +10,8 @@ preview owns a single buffer (the histogram, on another thread, passes
 none, so there is no cross-thread sharing). tobytes() copies before the
 next frame overwrites the buffer, so a single slot is safe.
 
-Tests cover the convert reuse / fallback semantics directly and lock the
-get_image_from_buffer wiring structurally (the API needs a full scope to
-instantiate).
+Tests cover the convert reuse / fallback semantics directly and the
+get_image_from_buffer wiring on the simulated scope.
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from modules import image_utils
-from tests.scope_fakes import bind_settings_like_a_session
 
 
 def test_convert_reuses_provided_out_buffer():
@@ -54,28 +52,12 @@ def test_convert_8bit_passthrough_ignores_out():
     assert result is img, '8-bit input returns the input unchanged; out unused'
 
 
-def test_get_image_from_buffer_reuses_caller_buffer():
+def test_get_image_from_buffer_reuses_caller_buffer(sim_scope):
     # The preview path must write each converted frame into the caller's
     # buffer instead of allocating a fresh array per frame.
-    from drivers.simulated_camera import SimulatedCamera
-    from modules.lumascope_api import Lumascope
-    from tests.camera_fakes import grab_a_frame_made_after_now
-    from modules.lumascope_api.runtime_state import RuntimeState
-    from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
-
-    cam = SimulatedCamera()
-    cam.connect()
-    cam.open_and_start()
-    assert cam.set_pixel_format('Mono12')
-    scope = Lumascope.__new__(Lumascope)
-    bind_settings_like_a_session(scope)
-    scope._camera_driver = cam
-    scope.runtime_state = RuntimeState(scope)
-    give_stub_lanes(scope)
-    give_camera_capabilities(scope, cam)
-    give_camera_and_imaging(scope)
-    imaging = scope.imaging
-    grab_a_frame_made_after_now(cam)
+    sim_scope.camera.set_image_mode('12bit_scientific')
+    imaging = sim_scope.imaging
+    imaging.get_image(force_new_capture=True)
 
     first, _ts = imaging.get_image_from_buffer(force_to_8bit=False)
     assert first is not None and first.dtype == np.uint16, (

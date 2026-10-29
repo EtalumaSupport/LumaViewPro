@@ -11,9 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
 import pytest
 from drivers import host_clock
+from modules.exceptions import CaptureFailedError
 from modules.frame_validity import Counter, FrameValidity
-from tests.camera_fakes import delivered_frame
-from tests.scope_fakes import bind_settings_like_a_session
 
 
 class _Frames:
@@ -426,144 +425,88 @@ class TestAutoGainSettle:
 
 
 class TestCaptureTimeChunkVerification:
-    """The grab (``_get_image_impl``) with ``verify_chunk_targets=True`` rejects
-    and re-grabs a frame whose chunk metadata disagrees with the recorded gain
-    / exposure target. The grab is driven directly: its public member runs it
-    on the camera lane, which this shell has none of.
+    """The grab with ``verify_chunk_targets=True`` passes over a frame whose
+    chunk metadata disagrees with the recorded gain / exposure target.
 
     Readiness is settled by frame count for every camera; the chunk check
     runs after it and may only REJECT a frame. A chunk reports the register
     in force when the frame was tagged, not the light integrated into it, so
     a chunk that disagrees proves the frame predates the write, while one
     that agrees proves nothing (FrameValidity.CHUNK_VALIDATABLE_SOURCES).
+
+    The simulated camera tags each frame with the exposure and gain it was
+    made under; a frame made before a write and stored after it
+    (``simulation.delay_delivery``) carries the old values.
     """
 
-    class _ChunkStubDriver:
-        """Stub camera delivering a scripted sequence of frames, each with its chunks.
+    def test_stale_chunk_frame_rejected_until_match(self, sim_scope):
+        """Frames made before an exposure write are passed over; the grab
+        returns the first whose chunk names the new exposure."""
+        sim_scope.simulation.delay_delivery(3)
+        # The first frame stored after the delay says the backlog stands: from
+        # here, three frames made before the write are on their way.
+        sim_scope.imaging.get_image(force_new_capture=True)
+        new_ms = sim_scope.camera.exposure_ms / 2
+        sim_scope.camera.set_exposure_ms(new_ms)
 
-        Each grab hands back the next scripted frame (the last repeats), as a
-        ``Frame`` carrying that frame's own chunks; None scripts a camera
-        that stamps none.
-        """
-
-        def __init__(self, frames):
-            self.active = True
-            self._frames = frames
-            self._i = -1
-            self.grabs = 0
-
-        @property
-        def frames_delivered(self):
-            return self.grabs
-
-        def grab_new_capture(self, timeout_s):
-            self.grabs += 1
-            if self._i < len(self._frames) - 1:
-                self._i += 1
-            return delivered_frame(
-                np.full((4, 4), 128, dtype=np.uint8),
-                chunks=self._frames[self._i],
-                seq=self.grabs,
-                significant_bits=8,
-            )
-
-        def is_device_removed(self):
-            return False
-
-        def is_connected(self):
-            return True
-
-    @staticmethod
-    def _make_imaging(driver):
-        from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.runtime_state import RuntimeState
-        from tests.scope_fakes import (
-            give_camera_and_imaging,
-            give_stub_lanes,
-            give_capabilities_of_a_camera_without_auto_modes,
-        )
-
-        # a stand-in by design: the subject is the capture path's handling of a
-        # scripted chunk sequence (stale, stale, fresh), and the SimulatedCamera
-        # produces no scripted chunk sequence; that simulator gap is what keeps
-        # this shell and its _ChunkStubDriver.
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = driver
-        give_stub_lanes(scope)
-        give_capabilities_of_a_camera_without_auto_modes(scope)
-        give_camera_and_imaging(scope)
-        return scope.imaging
-
-    def test_stale_chunk_frame_rejected_until_match(self):
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        fresh = {'Gain': 0.0, 'ExposureTime': 3730.0}
-        driver = self._ChunkStubDriver([stale, stale, fresh])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('gain', 0.0)
-        imaging.frame_validity.set_target('exposure', 3730.0)
-
-        image = imaging._get_image_impl(
+        # The private grab, for the frame it returns: the public get_image
+        # hands back the pixels alone.
+        grabbed = sim_scope.imaging._get_image_impl(
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=5.0,
-        ).image
-        assert isinstance(image, np.ndarray)
-        # Two stale frames rejected, third (matching) frame accepted.
-        assert driver.grabs == 3
+        )
+        assert grabbed.frame.chunks['ExposureTime'] == pytest.approx(new_ms * 1000.0)
 
-    def test_persistent_stale_chunks_end_chunk_rejected_naming_the_setting(self):
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        driver = self._ChunkStubDriver([stale])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('exposure', 3730.0)
+    def test_persistent_stale_chunks_end_chunk_rejected_naming_the_setting(self, sim_scope):
+        # Every frame names the exposure the camera runs at; a target it
+        # never reaches makes each one stale.
+        assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
+        sim_scope.imaging.frame_validity.set_target('exposure', 3730.0)
 
-        failed = imaging._get_image_impl(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=0.01,
-        ).error('get_image')
-        assert (failed.reason, failed.source) == ('chunk_rejected', 'exposure')
+        with pytest.raises(CaptureFailedError) as refused:
+            sim_scope.imaging.get_image(
+                force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
+            )
+        assert (refused.value.reason, refused.value.source) == ('chunk_rejected', 'exposure')
 
-    def test_no_targets_means_no_verification(self):
+    def test_no_targets_means_no_verification(self, sim_scope):
         """Hardware auto-gain clears targets; chunk mismatch must not block."""
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        driver = self._ChunkStubDriver([stale])
-        imaging = self._make_imaging(driver)
+        fv = sim_scope.imaging.frame_validity
+        fv.set_target('gain', None)
+        fv.set_target('exposure', None)
 
-        image = imaging._get_image_impl(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=1.0,
-        ).image
+        image = sim_scope.imaging.get_image(
+            force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
+        )
         assert isinstance(image, np.ndarray)
-        assert driver.grabs == 1
 
     def test_chunkless_camera_skips_verification(self):
         """Cameras without chunk support rely on skip-count settling alone."""
-        driver = self._ChunkStubDriver([None])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('exposure', 3730.0)
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        image = imaging._get_image_impl(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=1.0,
-        ).image
+        # The Classic's FX2 frames carry no chunks.
+        session = ScopeSession.create(
+            complete_settings(microscope='LS620'), simulate=True, warn_pre_release=False
+        )
+        try:
+            session.scope.imaging.frame_validity.set_target('exposure', 3730.0)
+
+            image = session.scope.imaging.get_image(
+                force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
+            )
+        finally:
+            session.shutdown()
         assert isinstance(image, np.ndarray)
-        assert driver.grabs == 1
 
-    def test_default_get_image_unverified(self):
+    def test_default_get_image_unverified(self, sim_scope):
         """Without the flag the primitive stays ungated (live preview path)."""
-        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
-        driver = self._ChunkStubDriver([stale])
-        imaging = self._make_imaging(driver)
-        imaging.frame_validity.set_target('exposure', 3730.0)
+        assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
+        sim_scope.imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging._get_image_impl(force_new_capture=True, timeout_s=1.0).image
+        image = sim_scope.imaging.get_image(force_new_capture=True, timeout_s=0.5)
         assert isinstance(image, np.ndarray)
-        assert driver.grabs == 1
 
 
 class TestInvalidationCounts:

@@ -18,7 +18,6 @@ import pytest
 from pypylon import genicam
 
 from drivers.exceptions import CameraReadFailedError, HardwareError
-from drivers.fx2driver import FX2Camera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.test_ids_diagnostics import _Nodemap, _temp_nodemap, _TempNode, _TempSelector
 
@@ -132,16 +131,15 @@ def test_the_ids_snapshot_raises_a_failed_temperature_read():
         cam.read_diagnostic_snapshot(duration_s=0)
 
 
-# --- The other drivers --------------------------------------------------------
+# --- The API and its callers ------------------------------------------------
 
 
 def test_the_classic_camera_has_no_sensor():
-    cam = FX2Camera.__new__(FX2Camera)
-    assert cam.supports_temperature() is False
-    assert cam.get_all_temperatures() == {}
+    from tests.scope_fakes import build_scope
 
-
-# --- The API and its callers ------------------------------------------------
+    scope = build_scope(simulate=True, sim_model='LS620')
+    assert scope.capabilities.camera_reports_temperature is False
+    assert scope.diagnostics.get_camera_temperatures_degc() == {}
 
 
 def test_the_simulated_camera_reports_temperature(sim_scope):

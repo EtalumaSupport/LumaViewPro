@@ -23,7 +23,6 @@ import sys
 
 import numpy as np
 from tests.camera_fakes import delivered_frame
-from tests.scope_fakes import bind_settings_like_a_session
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -74,19 +73,9 @@ class TestGetImageFromBufferUsesFrameDepth:
     """The preview downconvert uses the FRAME's depth, not a live driver query --
     the direct regression for the image-mode-switch crash."""
 
-    def test_downconvert_uses_frame_depth_not_live_driver(self, monkeypatch):
-        from drivers.simulated_camera import SimulatedCamera
-        from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.runtime_state import RuntimeState
-        from tests.scope_fakes import (
-            give_camera_and_imaging,
-            give_camera_capabilities,
-            give_stub_lanes,
-        )
-
-        cam = SimulatedCamera()
-        cam.connect()
-        cam.start_grabbing()
+    def test_downconvert_uses_frame_depth_not_live_driver(self, monkeypatch, sim_scope, sim_camera):
+        camera, cam = sim_camera
+        camera.set_image_mode('8bit')
 
         # The switch race: the buffered frame is a 12-bit white frame (stamped 12
         # at capture), but the camera is already in Mono8, its format's depth 8.
@@ -98,14 +87,7 @@ class TestGetImageFromBufferUsesFrameDepth:
         monkeypatch.setattr(cam, 'grab', lambda: mono12_white)
         assert cam.get_pixel_format() == 'Mono8'
 
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope._camera_driver = cam
-        scope.runtime_state = RuntimeState(scope)
-        give_stub_lanes(scope)
-        give_camera_capabilities(scope, cam)
-        give_camera_and_imaging(scope)
-        imaging = scope.imaging
+        imaging = sim_scope.imaging
 
         img, _ts = imaging.get_image_from_buffer(force_to_8bit=True)
 
