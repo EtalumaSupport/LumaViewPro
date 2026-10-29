@@ -34,7 +34,7 @@ def test_removal_skip_burst_is_silent(handler_and_log):
     they are teardown artifacts, not grab-strategy drops."""
     handler, parent, cam_log = handler_and_log
     parent._device_removed = True
-    handler.OnImagesSkipped(camera=MagicMock(), countOfSkippedImages=16)
+    handler.OnImagesSkipped(camera=None, countOfSkippedImages=16)
     cam_log.info.assert_not_called()
     cam_log.warning.assert_not_called()
 
@@ -43,12 +43,12 @@ def test_live_skip_is_logged(handler_and_log):
     """With the device present, a real grab-strategy drop logs once so
     the skip distribution stays visible in camera.log."""
     handler, _parent, cam_log = handler_and_log
-    handler.OnImagesSkipped(camera=MagicMock(), countOfSkippedImages=3)
+    handler.OnImagesSkipped(camera=None, countOfSkippedImages=3)
     assert cam_log.info.call_count == 1
 
 
 def test_zero_count_skip_is_silent(handler_and_log):
     """The SDK can fire with countOfSkippedImages=0; nothing to report."""
     handler, _parent, cam_log = handler_and_log
-    handler.OnImagesSkipped(camera=MagicMock(), countOfSkippedImages=0)
+    handler.OnImagesSkipped(camera=None, countOfSkippedImages=0)
     cam_log.info.assert_not_called()

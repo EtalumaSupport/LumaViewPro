@@ -30,8 +30,7 @@ class TestStageA:
         result = MagicMock()
         result.GrabSucceeded.side_effect = _raising
 
-        # a stand-in by design: the SDK's camera argument, read by nothing here
-        handler.OnImageGrabbed(camera=MagicMock(), grabResult=result)
+        handler.OnImageGrabbed(camera=None, grabResult=result)
 
         assert not parent.is_device_removed()
         kinds = [c.args[0] for c in handler._worker.enqueue.call_args_list]

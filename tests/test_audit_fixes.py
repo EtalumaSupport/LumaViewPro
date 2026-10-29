@@ -3251,7 +3251,7 @@ class TestPylonDeviceNotFoundClassification:
         gr = MagicMock()
         gr.GrabSucceeded.return_value = False
         gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
-        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        handler.OnImageGrabbed(camera=None, grabResult=gr)
         parent._mark_disconnected.assert_called_once()
         parent._schedule_async_teardown.assert_called_once()
 
@@ -3267,7 +3267,7 @@ class TestPylonDeviceNotFoundClassification:
         gr = MagicMock()
         gr.GrabSucceeded.return_value = False
         gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
-        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        handler.OnImageGrabbed(camera=None, grabResult=gr)
         handler._worker.enqueue.assert_not_called()
 
     def test_other_grab_failures_hand_off_to_stage_b(self):
@@ -3277,7 +3277,7 @@ class TestPylonDeviceNotFoundClassification:
         gr = MagicMock()
         gr.GrabSucceeded.return_value = False
         gr.GetErrorCode.return_value = 0xDEAD
-        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        handler.OnImageGrabbed(camera=None, grabResult=gr)
         parent._mark_disconnected.assert_not_called()
         assert handler._worker.enqueue.call_count == 1
         assert handler._worker.enqueue.call_args[0][0] == 'fail'
@@ -3832,7 +3832,7 @@ class TestPylonStateMutationViaMarkDisconnected:
         frame to Stage B."""
         handler, parent = _bare_image_handler()
         parent.active = None
-        handler.OnImageGrabbed(camera=MagicMock(), grabResult=MagicMock())
+        handler.OnImageGrabbed(camera=None, grabResult=MagicMock())
         assert parent._mark_disconnected.called, (
             'OnImageGrabbed inactive-branch must call '
             'self._parent._mark_disconnected() to preserve the '
@@ -3850,7 +3850,7 @@ class TestPylonStateMutationViaMarkDisconnected:
         parent = _bare_pylon_camera()
         parent._schedule_async_teardown = MagicMock()
         handler = pyloncamera._CameraRemovalHandler(parent)
-        handler.OnCameraDeviceRemoved(camera=MagicMock())
+        handler.OnCameraDeviceRemoved(camera=None)
         assert parent._mark_disconnected.called, (
             'OnCameraDeviceRemoved must call self._parent._mark_disconnected() '
             'to atomically clear _active under _state_lock.'
@@ -4005,7 +4005,7 @@ class TestPylonOnImageGrabbedExceptionContext:
             handler._worker.enqueue.side_effect = ValueError('boom')
             gr = MagicMock()
             gr.GrabSucceeded.return_value = True
-            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+            handler.OnImageGrabbed(camera=None, grabResult=gr)
         finally:
             pyloncamera._log_safely = original
         assert any('OnImageGrabbed' in m for m in logged), (
@@ -4052,7 +4052,7 @@ class TestPylonOnImageGrabbedOwningCopy:
         with mock.patch.object(
             pyloncamera.pylon, 'GrabResult', side_effect=lambda source: ('owned', source)
         ):
-            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+            handler.OnImageGrabbed(camera=None, grabResult=gr)
         assert handler._worker.enqueue.called, 'expected an enqueue to Stage B'
         return gr, handler._worker.enqueue.call_args.args
 

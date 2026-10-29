@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 191
+ALLOWED_ENTRIES = 181
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -225,14 +225,7 @@ ALLOWED = frozenset(
         'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_returns_true_when_already_idle',
         'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_returns_true_when_inactive',
         'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_times_out_when_stuck_active',
-        'tests/test_audit_fixes.py::TestPylonDeviceNotFoundClassification.test_device_not_found_marks_disconnected_immediately',
-        'tests/test_audit_fixes.py::TestPylonDeviceNotFoundClassification.test_device_not_found_skips_stage_b_and_failure_counter',
-        'tests/test_audit_fixes.py::TestPylonDeviceNotFoundClassification.test_other_grab_failures_hand_off_to_stage_b',
         'tests/test_audit_fixes.py::TestPylonDiagnosticProbe._make_scope_with_fake_camera',
-        'tests/test_audit_fixes.py::TestPylonOnImageGrabbedExceptionContext.test_on_image_grabbed_outer_except_uses_contextual_message',
-        'tests/test_audit_fixes.py::TestPylonOnImageGrabbedOwningCopy._grab_with_copy_recorder',
-        'tests/test_audit_fixes.py::TestPylonStateMutationViaMarkDisconnected.test_on_camera_device_removed_uses_mark_disconnected',
-        'tests/test_audit_fixes.py::TestPylonStateMutationViaMarkDisconnected.test_on_image_grabbed_inactive_branch_uses_mark_disconnected',
         'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_handles_missing_node_gracefully',
         'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_handles_runtime_exception',
         'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_no_op_when_active_none',
@@ -271,9 +264,6 @@ ALLOWED = frozenset(
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',
         'tests/test_issue_239_first_interval_anchor.py::_make_parent',
         'tests/test_issue_653_skip_guard.py::handler_and_log',
-        'tests/test_issue_653_skip_guard.py::test_live_skip_is_logged',
-        'tests/test_issue_653_skip_guard.py::test_removal_skip_burst_is_silent',
-        'tests/test_issue_653_skip_guard.py::test_zero_count_skip_is_silent',
         'tests/test_issue_655_ag_ae_exposure_cap.py::_video_session_autogain_call',
         'tests/test_issue_655_ag_ae_exposure_cap.py::test_api_set_auto_gain_forwards_cap_from_settings_dict',
         'tests/test_issue_679_exposure_cache_after_auto.py::sim_camera',
