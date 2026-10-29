@@ -6600,7 +6600,7 @@ class TestPylonPublicMethodAnnotationsAndDocstrings:
 
 
 class TestManualVideoSpinners:
-    """Issue #633 Stage 2D: video FPS + duration UI binding.
+    """Issue #633 Stage 2D: video duration UI binding.
 
     Static-source assertions: the kv ids and their handlers exist, and the
     Advanced Settings modal pushes the stored video values into its widgets
@@ -6628,17 +6628,6 @@ class TestManualVideoSpinners:
         # Advanced Settings modal, not the microscope panel.
         return pathlib.Path('ui/advanced_settings.py').read_text()
 
-    def test_kv_has_max_fps_textinput(self):
-        kv = self._advanced_text()
-        assert 'id: video_max_fps_input' in kv, (
-            'ui/advanced_settings.py must define a TextInput with id '
-            'video_max_fps_input bound to '
-            "settings['video']['max_fps']."
-        )
-        assert 'root.update_video_max_fps()' in kv, (
-            'video_max_fps_input must call root.update_video_max_fps() on edit.'
-        )
-
     def test_kv_has_max_duration_textinput(self):
         kv = self._advanced_text()
         assert 'id: video_max_duration_input' in kv, (
@@ -6652,10 +6641,6 @@ class TestManualVideoSpinners:
 
     def test_advanced_settings_has_handlers(self):
         body = self._advanced_text()
-        assert 'def update_video_max_fps' in body, (
-            'AdvancedSettings must define update_video_max_fps '
-            'to write the value back to the settings dict.'
-        )
         assert 'def update_video_max_duration' in body, (
             'AdvancedSettings must define update_video_max_duration.'
         )
@@ -6672,18 +6657,13 @@ class TestManualVideoSpinners:
         # The settings writer owns the limit's range and refuses past it;
         # the refusal reaches the researcher through run_reported, and the
         # box shows the stored value again rather than silently keeping garbage.
-        for handler in ('update_video_max_fps', 'update_video_max_duration'):
-            assert '_commit_video_limit(' in section(handler), handler
+        assert '_commit_video_limit(' in section('update_video_max_duration')
         commit = section('_commit_video_limit')
         assert 'run_reported(' in commit and 'update_settings(path, value)' in commit
         assert 'widget.text =' in commit
 
     def test_on_open_pushes_video_settings_into_widgets(self):
         body = self._advanced_text()
-        assert 'video_max_fps_input' in body, (
-            "AdvancedSettings.on_open must push settings['video']['max_fps'] "
-            'into the video_max_fps_input widget when the modal opens.'
-        )
         assert 'video_max_duration_input' in body, (
             'AdvancedSettings.on_open must push '
             "settings['video']['max_duration_s'] into the "

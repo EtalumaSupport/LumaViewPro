@@ -8,10 +8,10 @@ kv (line numbers are file-absolute); lumaviewpro.kv never mentions them.
   stimulation enable     ui/advanced_settings.py:556 -> :268
   high conversion gain   ui/advanced_settings.py:587 -> :131
   line noise reduction   ui/advanced_settings.py:608 -> :147
-  video max fps          ui/advanced_settings.py:632 -> :161
+  recording max fps      ui/advanced_settings.py:632 -> :161
   video time limit       ui/advanced_settings.py:656 -> :196
   video timestamp ovl    ui/advanced_settings.py:675 -> :225
-  live view fps          ui/advanced_settings.py:700 -> :237
+  display max fps        ui/advanced_settings.py:700 -> :237
   protocol LED on        ui/advanced_settings.py:741 -> :256
   keep LED between steps ui/advanced_settings.py:764 -> :262
   tiling overlap         ui/advanced_settings.py:792 -> :277

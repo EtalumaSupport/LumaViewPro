@@ -9,7 +9,7 @@ The two halves of that split on whether the write dispatches:
 
 - A TEXT box does not. Assigning ``.text`` rebuilds the lines and the cursor
   and never touches ``focus``, so the ``on_focus`` binding these handlers hang
-  from cannot fire from an app write. The three text boxes are driven through
+  from cannot fire from an app write. The two text boxes are driven through
   their REAL handlers here, one commit per test, and what is pinned is that the
   attempt and the correction are BOTH recorded and the reverted value is never
   reported as typed.
@@ -64,27 +64,6 @@ def _advanced_panel(monkeypatch, widget_id, widget, stored):
     )()
     monkeypatch.setattr(advanced_settings._app_ctx, 'ctx', context)
     return _Panel()
-
-
-def test_a_refused_fps_limit_records_the_attempt_not_the_revert(emitted, monkeypatch):
-    """Type 500 into a box that caps at 200: the bundle must not claim 30."""
-    from ui.advanced_settings import AdvancedSettings
-
-    widget = _Widget('500')
-    stored = {'video': {'max_fps': 30}}
-    panel = _advanced_panel(monkeypatch, 'video_max_fps_input', widget, stored)
-
-    AdvancedSettings.update_video_max_fps(panel)  # one commit -- refused
-
-    assert ('VIDEO_MAX_FPS', '500') in emitted, (
-        f'the refused entry left no record of what was typed: {emitted}'
-    )
-    assert ('VIDEO_MAX_FPS_APPLIED', '30') in emitted, (
-        f'the revert was not reported as the correction: {emitted}'
-    )
-    assert ('VIDEO_MAX_FPS', '30') not in emitted, (
-        f'the reverted value was recorded as the one the user typed: {emitted}'
-    )
 
 
 def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypatch):

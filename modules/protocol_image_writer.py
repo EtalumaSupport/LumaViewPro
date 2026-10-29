@@ -675,7 +675,7 @@ class ProtocolImageWriter:
         # frame. The user's choice, snapshotted at run start like the rest
         # of the run config; required so no writer can silently decide it.
         timestamp_overlay: bool,
-        # The run's snapshot of the global "Video max FPS" cap (0 =
+        # The run's snapshot of the global "Recording max FPS" cap (0 =
         # uncapped). Required so video-step sizing and the recording rate
         # can never read live settings mid-run.
         video_max_fps: float,

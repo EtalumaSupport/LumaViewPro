@@ -38,7 +38,7 @@ import modules.app_context as _app_ctx
 import ui.main_display as main_display
 from modules.lumascope_api.illumination import LedState
 from modules.scope_display_thread import ScopeDisplayThread
-from ui.advanced_settings import AdvancedSettings
+import ui.listener_bridge as listener_bridge
 from ui.scope_display import ScopeDisplay
 from tests.stock_channels import LED0
 
@@ -112,11 +112,11 @@ def test_changing_the_live_rate_keeps_a_frozen_picture_frozen(thread, monkeypatc
     renderer = _Renderer()
     thread.start(renderer, fps=30)
     generation = thread.generation
-    # a stand-in by design: the settings write is not the subject
+    # a stand-in by design: the settings write is not the subject; the
+    # window's apply of a changed rate is
     ctx = SimpleNamespace(
         scope_display_thread=thread,
         settings={'live_view_fps': 30},
-        update_settings=MagicMock(),
         live_view_fps=30,
         scope_display=SimpleNamespace(
             start=lambda fps=None: ScopeDisplay.start(renderer, fps),
@@ -127,8 +127,9 @@ def test_changing_the_live_rate_keeps_a_frozen_picture_frozen(thread, monkeypatc
     display = _main_display(scope=None)
     _press(display)
 
-    panel = SimpleNamespace(ids={'live_view_fps_slider': SimpleNamespace(value=10)})
-    AdvancedSettings.live_view_fps_slider(panel)
+    ctx.settings['live_view_fps'] = 10
+    # The window's apply of a stored rate, as the settings listener runs it.
+    listener_bridge._apply_live_view_fps(ctx, 'live_view_fps')
 
     assert thread.is_paused
     assert thread.fps == 10

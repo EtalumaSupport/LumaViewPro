@@ -14,6 +14,8 @@ path: it populates every row from the settings store. There is no
 persistent startup-load for these rows.
 """
 
+import typing
+
 from kivy.clock import Clock
 from kivy.lang import Builder
 from kivy.properties import BooleanProperty
@@ -23,6 +25,7 @@ import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
+from modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
 from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
 
 
@@ -81,7 +84,8 @@ class AdvancedSettings(Popup):
         self._show_camera_modes()
 
         video_settings = settings['video']
-        show_text(self.ids['video_max_fps_input'], str(video_settings['max_fps']))
+        for slider_id in self._FPS_LIMITS:
+            self._show_fps_limit(slider_id)
         show_text(
             self.ids['video_max_duration_input'], str(get_manual_video_max_duration(settings))
         )
@@ -90,12 +94,6 @@ class AdvancedSettings(Popup):
         self.ids['separate_folder_per_channel_id'].state = (
             'down' if settings['separate_folder_per_channel'] else 'normal'
         )
-
-        # The runtime fps mirror (ctx.live_view_fps) and scope_display are
-        # initialized at app startup; the slider just reflects the stored value.
-        # fps=0 means uncapped, which maps to the slider's top position.
-        live_fps = settings['live_view_fps']
-        show_on_slider(self.ids['live_view_fps_slider'], 65 if live_fps == 0 else live_fps)
 
         self.ids['protocol_led_on_btn'].state = 'down' if settings['protocol_led_on'] else 'normal'
 
@@ -165,16 +163,48 @@ class AdvancedSettings(Popup):
             lane=ctx.camera_executor,
         )
 
-    def update_video_max_fps(self):
-        # 0 = no limit: the recording rate is then bounded only by
-        # exposure and the delivery constant; non-zero is the user's
-        # explicit cap on the recording cadence.
-        widget = self.ids['video_max_fps_input']
-        gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
-        if self._commit_video_limit(
-            widget, 'video.max_fps', lambda settings: settings['video']['max_fps'], 'VIDEO_MAX_FPS'
-        ):
-            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', widget.text)
+    # The two rate caps, by slider: the setting each writes and the highest cap
+    # it offers. The slider's top position, one past that cap, is no cap,
+    # stored as 0.
+    _FPS_LIMITS: typing.ClassVar[dict[str, tuple[str, int]]] = {
+        'recording_max_fps_slider': ('video.max_fps', VIDEO_MAX_FPS_LIMIT),
+        'display_max_fps_slider': ('live_view_fps', LIVE_VIEW_FPS_LIMIT),
+    }
+
+    def recording_max_fps_slider(self):
+        # Caps the frames a recording keeps, manual or a protocol's video
+        # step; the camera itself runs free.
+        value = self._fps_limit_released('recording_max_fps_slider')
+        gui_logger.slider('RECORDING_MAX_FPS', value)
+        self._store_fps_limit('recording_max_fps_slider', value, 'RECORDING_MAX_FPS')
+
+    def display_max_fps_slider(self):
+        # Caps only how often the live view redraws; the running display
+        # follows the store (ui/listener_bridge.py).
+        value = self._fps_limit_released('display_max_fps_slider')
+        gui_logger.slider('DISPLAY_MAX_FPS', value)
+        self._store_fps_limit('display_max_fps_slider', value, 'DISPLAY_MAX_FPS')
+
+    def _fps_limit_released(self, slider_id: str) -> int:
+        """The cap a rate-cap slider was released at: 0 at the top position."""
+        _path, limit = self._FPS_LIMITS[slider_id]
+        value = int(self.ids[slider_id].value)
+        return 0 if value > limit else value
+
+    def _store_fps_limit(self, slider_id: str, value: int, label: str) -> None:
+        """Hand a rate cap to the settings writer; the slider then shows what is stored."""
+        ctx = _app_ctx.ctx
+        path, _limit = self._FPS_LIMITS[slider_id]
+        run_reported(
+            lambda: ctx.update_settings(path, value),
+            lambda: self._show_fps_limit(slider_id),
+            label,
+        )
+
+    def _show_fps_limit(self, slider_id: str) -> None:
+        path, limit = self._FPS_LIMITS[slider_id]
+        stored = _app_ctx.ctx.session.get_setting(path)
+        show_on_slider(self.ids[slider_id], limit + 1 if stored == 0 else stored)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
@@ -220,23 +250,6 @@ class AdvancedSettings(Popup):
         state = self.ids['separate_folder_per_channel_id'].state == 'down'
         gui_logger.toggle('SEPARATE_FOLDERS', state)
         _app_ctx.ctx.update_settings('separate_folder_per_channel', state)
-
-    def live_view_fps_slider(self):
-        ctx = _app_ctx.ctx
-        fps_val = int(self.ids['live_view_fps_slider'].value)
-        gui_logger.slider('FPS', fps_val)
-        # Values above 60 mean "uncapped" -- store 0 as sentinel.
-        if fps_val > 60:
-            fps_val = 0
-        ctx.live_view_fps = fps_val
-        ctx.update_settings('live_view_fps', fps_val)
-        logger.info(
-            f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
-        )
-
-        # The rate changes on the running thread: a restart would build a
-        # fresh thread and drop a frozen picture's pause.
-        ctx.scope_display_thread.set_fps(fps_val)
 
     def update_protocol_led_on(self):
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
@@ -389,6 +402,9 @@ class AdvancedSettings(Popup):
 
 kv = Builder.load_string(
     """
+#:import LIVE_VIEW_FPS_LIMIT modules.settings_paths.LIVE_VIEW_FPS_LIMIT
+#:import VIDEO_MAX_FPS_LIMIT modules.settings_paths.VIDEO_MAX_FPS_LIMIT
+
 <SectionHeader@Label>:
     font_size: '13sp'
     bold: True
@@ -584,24 +600,33 @@ kv = Builder.load_string(
                     size_hint_y: None
                     height: '30dp'
                     Label:
-                        text: 'Video max FPS'
-                        tooltip_text: 'Maximum frames per second for manual recording.\\n0 = no limit (camera free-run rate).\\nAt low FPS the camera is rate-limited so live preview slows too;\\nrestored to free-run when recording stops.'
+                        text: 'Recording max FPS'
+                        tooltip_text: 'Most frames per second a recording keeps: manual recordings\\nand protocol video steps. Max keeps every frame the camera\\ndelivers. The camera and the live view are not slowed.'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
-                    TextInput:
-                        id: video_max_fps_input
+                    ModSlider:
+                        id: recording_max_fps_slider
                         disabled: app.lock.run_lockout
+                        min: 1
+                        max: VIDEO_MAX_FPS_LIMIT + 1
+                        value: VIDEO_MAX_FPS_LIMIT + 1
+                        step: 1
+                        cursor_size: '20dp','20dp'
+                        cursor_image: './data/icons/slider_cursor.png'
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.recording_max_fps_slider()
+                    TextInput:
                         size_hint_x: None
-                        width: '45dp'
+                        width: '40dp'
                         multiline: False
                         font_size: '12sp'
                         padding: ['4dp', (self.height-self.line_height)/2]
                         halign: 'right'
-                        input_filter: 'int'
-                        text: '0'
-                        on_focus: if not self.focus: root.update_video_max_fps()
+                        text: 'Max' if recording_max_fps_slider.value > VIDEO_MAX_FPS_LIMIT else format(int(recording_max_fps_slider.value))
+                        readonly: True
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -632,6 +657,39 @@ kv = Builder.load_string(
                     size_hint_y: None
                     height: '30dp'
                     Label:
+                        text: 'Display max FPS'
+                        tooltip_text: 'Most frames per second the live view draws. Lower uses less CPU.\\nRecordings and captures are not affected.'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    ModSlider:
+                        id: display_max_fps_slider
+                        disabled: app.lock.run_lockout
+                        min: 1
+                        max: LIVE_VIEW_FPS_LIMIT + 1
+                        value: LIVE_VIEW_FPS_LIMIT + 1
+                        step: 1
+                        cursor_size: '20dp','20dp'
+                        cursor_image: './data/icons/slider_cursor.png'
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.display_max_fps_slider()
+                    TextInput:
+                        size_hint_x: None
+                        width: '40dp'
+                        multiline: False
+                        font_size: '12sp'
+                        padding: ['4dp', (self.height-self.line_height)/2]
+                        halign: 'right'
+                        text: 'Max' if display_max_fps_slider.value > LIVE_VIEW_FPS_LIMIT else format(int(display_max_fps_slider.value))
+                        readonly: True
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
                         text: 'Video Timestamp Overlay'
                         tooltip_text: 'Burn the capture timestamp into each video frame.\\nApplies to manual recordings and protocol video steps.'
                         halign: 'left'
@@ -645,39 +703,6 @@ kv = Builder.load_string(
                         width: '25dp'
                         active: True
                         on_release: root.update_video_timestamp_overlay()
-
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        text: 'Live View FPS'
-                        tooltip_text: 'Maximum frames per second for live camera display'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                        font_size: '12sp'
-                    ModSlider:
-                        id: live_view_fps_slider
-                        disabled: app.lock.run_lockout
-                        min: 5
-                        max: 65
-                        value: 30
-                        step: 5
-                        cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
-                        value_track: True
-                        value_track_width: dp(5)
-                        on_release: root.live_view_fps_slider()
-                    TextInput:
-                        size_hint_x: None
-                        width: '40dp'
-                        multiline: False
-                        font_size: '12sp'
-                        padding: ['4dp', (self.height-self.line_height)/2]
-                        halign: 'right'
-                        text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
-                        readonly: True
 
             SectionHeader:
                 text: 'Protocol'

@@ -138,6 +138,6 @@ def test_the_scan_sees_the_focus_commit_boxes():
     kv_count = commits(KV_SOURCES[0])
     inline_count = commits(KV_SOURCES[1])
     assert kv_count >= 29, f'expected at least 29 focus-commit boxes in the kv, saw {kv_count}'
-    assert inline_count >= 3, (
-        f'expected at least 3 focus-commit boxes in the advanced settings kv, saw {inline_count}'
+    assert inline_count >= 2, (
+        f'expected at least 2 focus-commit boxes in the advanced settings kv, saw {inline_count}'
     )

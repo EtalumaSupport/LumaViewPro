@@ -67,8 +67,9 @@ _ROSTER = {
     'AdvancedSettings.high_conversion_gain': ('HIGH_CONVERSION_GAIN',),
     'AdvancedSettings.keep_led_between_steps_btn': ('KEEP_LED_BETWEEN_STEPS',),
     'AdvancedSettings.line_noise_reduction': ('LINE_NOISE_REDUCTION',),
-    'AdvancedSettings.live_view_fps_slider': ('FPS',),
+    'AdvancedSettings.display_max_fps_slider': ('DISPLAY_MAX_FPS',),
     'AdvancedSettings.protocol_led_on_btn': ('PROTOCOL_LED_ON',),
+    'AdvancedSettings.recording_max_fps_slider': ('RECORDING_MAX_FPS',),
     'AdvancedSettings.scope_spinner': ('SCOPE',),
     'AdvancedSettings.separate_folder_per_channel_id': ('SEPARATE_FOLDERS',),
     'AdvancedSettings.show_step_locations_id': ('SHOW_STEP_LOCATIONS',),
@@ -78,7 +79,6 @@ _ROSTER = {
         'VIDEO_MAX_DURATION_S',
         'VIDEO_MAX_DURATION_S_APPLIED',
     ),
-    'AdvancedSettings.video_max_fps_input': ('VIDEO_MAX_FPS', 'VIDEO_MAX_FPS_APPLIED'),
     'AdvancedSettings.video_timestamp_overlay_id': ('VIDEO_TIMESTAMP_OVERLAY',),
     'CellCountControls.FileChooseBTN(choose:load_cell_count_input_image)': (
         'FILE_CHOOSE',

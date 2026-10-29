@@ -1580,7 +1580,7 @@ def estimate_step_write_mb(
             Video Config.
         video_as_frames: Run-level flag -- video saved as individual frames
             rather than a compressed MP4.
-        global_max_fps: The run's snapshot of the global "Video max FPS" cap
+        global_max_fps: The run's snapshot of the global "Recording max FPS" cap
             (0 = uncapped). Required so a video step can never be sized at a
             rate the recording will not run at.
 

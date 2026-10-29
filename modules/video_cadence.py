@@ -20,7 +20,7 @@ def effective_recording_fps(requested_fps: float | None, global_max_fps: float) 
 
     A recording runs at the camera's own delivery rate unless a limit
     applies: ``min(requested, global max if nonzero)``. The global
-    "Video max FPS" limit applies over a present per-caller request; a
+    "Recording max FPS" limit applies over a present per-caller request; a
     global value of 0 means no global limit. None means no limit at all
     -- every delivered frame is kept, so the camera's maximum is recorded
     without anything having to know it in advance. A camera slower than

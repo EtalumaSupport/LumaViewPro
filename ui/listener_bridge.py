@@ -98,6 +98,8 @@ def _redraw_step_locations(ctx, path: str) -> None:
 
 def _apply_live_view_fps(ctx, path: str) -> None:
     # The running display and the window's copy of the cap follow the store.
+    # The rate changes on the running thread: a restart would build a fresh
+    # thread and drop a frozen picture's pause.
     ctx.live_view_fps = ctx.settings['live_view_fps']
     ctx.scope_display_thread.set_fps(ctx.live_view_fps)
 

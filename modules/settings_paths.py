@@ -186,6 +186,9 @@ _NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
 VIDEO_MAX_FPS_LIMIT: typing.Final = 200
 """The highest recording-rate cap a person may set; 0 means no cap."""
 
+LIVE_VIEW_FPS_LIMIT: typing.Final = 60
+"""The highest live-view display-rate cap a person may set; 0 means no cap."""
+
 VIDEO_MAX_DURATION_S_RANGE: typing.Final = (1, 3600)
 """The manual recording's time limit, in seconds, inclusive."""
 
@@ -343,6 +346,10 @@ def _video_max_fps(path: str, value: float) -> None:
     _refuse_outside(path, value, 0, VIDEO_MAX_FPS_LIMIT)
 
 
+def _live_view_fps(path: str, value: float) -> None:
+    _refuse_outside(path, value, 0, LIVE_VIEW_FPS_LIMIT)
+
+
 def _video_max_duration(path: str, value: float) -> None:
     _refuse_outside(path, value, *VIDEO_MAX_DURATION_S_RANGE)
 
@@ -446,7 +453,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'video.max_fps': _video_max_fps,
     'video.max_duration_s': _video_max_duration,
     'jpg_quality': _jpg_quality,
-    'live_view_fps': _non_negative,
+    'live_view_fps': _live_view_fps,
     'zstack.step_size': _non_negative,
     'zstack.range': _non_negative,
     'protocol.autogain.target_brightness': _fraction,

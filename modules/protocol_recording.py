@@ -110,7 +110,7 @@ class ProtocolVideoStep:
         capture_config: The run's frozen ImageCaptureConfig (encoding,
             depth).
         timestamp_overlay: Run-scoped snapshot of the overlay choice.
-        global_max_fps: Run-scoped snapshot of the global "Video max
+        global_max_fps: Run-scoped snapshot of the global "Recording max
             FPS" cap (0 = uncapped); D15 -- never read live mid-run.
         autogain_settings: The runner's autogain settings dict.
         events: The run's events; this step sends its ``video_progress``.
