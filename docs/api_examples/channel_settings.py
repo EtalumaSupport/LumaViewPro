@@ -9,7 +9,7 @@ and of a fluorescence channel that way, then one still after writing the
 camera directly, which the still's record tells apart. Prints what each
 record says.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/channel_settings.py
 

@@ -7,7 +7,7 @@ it is held, only work in it writes to the scope, and every other caller's
 write is refused. This takes it, moves and saves a still in it, shows a
 write outside it refused, then ends it and shows its id no longer acts.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/control_session.py
 

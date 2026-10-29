@@ -7,7 +7,7 @@ and reads how it ended. A run lets go of the scope before its images are all
 on disk, so this waits for its files too, then lists the run's folder under
 the live folder. Prints what it captured and the files it kept.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/scan.py
 

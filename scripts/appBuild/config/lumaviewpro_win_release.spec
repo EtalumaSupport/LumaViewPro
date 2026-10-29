@@ -28,6 +28,7 @@ datas = [
     ('docs/PluginTutorial.md', 'docs'),
     ('docs/api_examples/*.py', 'docs/api_examples'),
     ('docs/api_examples/*.sh', 'docs/api_examples'),
+    ('docs/api_examples/README.md', 'docs/api_examples'),
     ('version.txt', '.'),
     ('.git_archival.txt', '.'),
     ('lvp_logger.py', '.'),

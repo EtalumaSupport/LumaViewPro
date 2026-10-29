@@ -9,7 +9,7 @@ refusal of each cause -- a move before the scope is homed (the state), a move
 past the stage's travel (the request), and a still after the simulator has
 pulled the camera's cable (nothing until a restart) -- and prints each.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/refusals_and_faults.py
 

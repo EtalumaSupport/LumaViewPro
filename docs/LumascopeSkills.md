@@ -50,15 +50,16 @@ This guide is for researchers who script an experiment and for developers who
 integrate a Lumascope into a larger system. It runs on Python 3.12 and 3.13, on
 Windows, macOS and Linux.
 
-**Examples.** [`api_examples/`](api_examples) holds a script per task, run from
-a LumaViewPro installation folder on the simulator, and beside each a `.sh` twin
-that does the same over REST with `curl`, against a server started with
-`python -m rest --simulate`: a first saved still (`first_still`), channels with
-their own current, exposure and gain (`channel_settings`), a scan whose images
-are kept (`scan`), stopping a run (`stop_a_run`), a saved z-stack
-(`z_stack_saved`), refusals and an injected fault (`refusals_and_faults`), and
-the control session (`control_session`). LumaViewPro's test suite runs each,
-script and twin, and checks what it leaves.
+**Examples.** [`api_examples/`](api_examples) holds a Python script per task,
+run on the simulator, and beside each a `.sh` twin that does the same over REST
+with `curl`: a first saved still (`first_still`), channels with their own
+current, exposure and gain (`channel_settings`), a scan whose images are kept
+(`scan`), stopping a run (`stop_a_run`), a saved z-stack (`z_stack_saved`),
+refusals and an injected fault (`refusals_and_faults`), and the control session
+(`control_session`). Its [README](api_examples/README.md) says, step by step,
+how to run them: a script from LumaViewPro's source, a twin against the
+installed app or `python -m rest --simulate`. LumaViewPro's test suite runs
+each, script and twin, and checks what it leaves.
 
 ## Architecture
 
@@ -137,7 +138,7 @@ of `create`, never read behind your back.
 ```python
 from modules.scope_session import ScopeSession
 
-root = '.'                                   # the folder LumaViewPro is installed in
+root = '.'                                   # the LumaViewPro source folder, which holds data/
 settings = ScopeSession.load_user_settings(root)
 session = ScopeSession.create(
     settings,

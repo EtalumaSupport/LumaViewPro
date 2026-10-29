@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Holding the scope in a control session, over REST: control_session.py's
-# session, on a server started with `python -m rest --simulate`. Work in the
-# session carries its id in the Control-Session header.
+# session, on a simulated LumaViewPro serving the API -- the installed app or
+# `python -m rest --simulate`; how to start one and run this: README.md here.
+# Work in the session carries its id in the Control-Session header.
 # Each line's comment is the status it answers, and for a problem its reason.
 
 API=http://127.0.0.1:8000/api/v1

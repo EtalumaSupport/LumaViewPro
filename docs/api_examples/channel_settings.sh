@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Channels with their own current, exposure and gain, over REST:
-# channel_settings.py's stills, on a server started with
-# `python -m rest --simulate`, which has already run the startup motion.
+# channel_settings.py's stills, on a simulated LumaViewPro serving the API --
+# the installed app or `python -m rest --simulate`; how to start one and run
+# this: README.md here.
+# The scope has already run the startup motion.
 # Each line's comment is the status it answers.
 
 API=http://127.0.0.1:8000/api/v1

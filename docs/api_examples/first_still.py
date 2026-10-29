@@ -6,7 +6,7 @@ Brings a session up from the user's settings, runs the startup motion,
 moves over a well, lights brightfield, and saves one still the way
 LumaViewPro's Capture button does. Prints the file and what its record says.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/first_still.py
 

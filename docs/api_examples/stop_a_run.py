@@ -7,7 +7,7 @@ stops it once its first scan has ended. A stop only asks: the run unwinds,
 puts the scope back and ends ``aborted``, and the images it took are still
 written. Prints how it ended and what it kept.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/stop_a_run.py
 

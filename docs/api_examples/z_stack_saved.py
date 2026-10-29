@@ -9,7 +9,7 @@ steps centred on the stage, runs it on brightfield over well B2, waits for
 its slices to be written, and prints each slice's file. Each file carries
 its own record, its Z among it, which Fiji and other Bio-Formats readers show.
 
-Run it from a LumaViewPro installation folder:
+Run it in a LumaViewPro source folder (how, step by step: README.md here):
 
     python3 docs/api_examples/z_stack_saved.py
 
