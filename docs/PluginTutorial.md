@@ -520,10 +520,11 @@ run-complete dialog without normalization.
 - For hardware-side context -- LED, motion, capture, protocol APIs
   your processor can read about (post-processors operate on saved
   files, not live hardware, but understanding what produced the
-  files helps) -- see `LumascopeSkills.md` in this directory.
+  files helps) -- see the guide, [`LumascopeSkills.md`](LumascopeSkills.md),
+  and every member in [`API_REFERENCE.md`](API_REFERENCE.md).
 - For per-frame listeners (running on the live stream, not after a
-  run), see **Live frame listeners** above and **Frames and captures** in
-  `LumascopeSkills.md`.
+  run), see **Live frame listeners** above and
+  [Frames and captures](LumascopeSkills.md#frames-and-captures) in the guide.
 - HTTP endpoints under `/plugins/<name>/` are not yet available; the
   namespace name is reserved.
 - The full design rationale -- why four namespaces, why

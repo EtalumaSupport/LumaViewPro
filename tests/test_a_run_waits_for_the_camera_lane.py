@@ -147,7 +147,8 @@ class TestAStillInFlightFinishesFirst:
 class TestAStillQueuedBehindCameraWork:
     def test_a_run_that_takes_the_scope_refuses_it_and_lets_go_of_it(self, lane_session):
         """A still not yet running when a run takes the scope is refused, as
-        LumascopeSkills documents: its Future says so and the guard is free."""
+        ``ManualCaptureController.capture`` documents: its Future says so and
+        the guard is free."""
         session, runner, tmp_path = lane_session
         hold = _LaneHold(session)
         try:

@@ -34,9 +34,9 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 - **Protocol Engine** for automated multi-well, multi-channel, time-lapse, Z-stack, and video capture
 - **Autofocus** with frame-based settling
 - **Simulate Mode** -- run without hardware using `python lumaviewpro.py --simulate`
-- **Python API** -- `lumascope_api.py` provides headless microscope control for scripting and automation
+- **API** -- the scope driven from Python through a `ScopeSession`, or over REST, with or without the GUI
 
-API documentation and example scripts are in the `docs/` folder.
+The API is documented in `docs/`: [`LumascopeSkills.md`](docs/LumascopeSkills.md), the guide; [`API_REFERENCE.md`](docs/API_REFERENCE.md), every member, generated from the code; and [`api_examples/`](docs/api_examples), a script per task with its REST twin. Plugins: [`PluginTutorial.md`](docs/PluginTutorial.md).
 
 ## Getting Started
 
