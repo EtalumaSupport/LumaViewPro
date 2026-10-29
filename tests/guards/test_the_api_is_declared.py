@@ -180,6 +180,30 @@ def test_the_reference_names_no_internal_tool(rendered: str) -> None:
     assert not found, 'the reference names an internal tool:\n' + '\n'.join(found)
 
 
+def test_the_reference_names_no_engineering_member(
+    marked: dict[str, Marked], rendered: str
+) -> None:
+    """A member marked ``engineering`` -- a bench or support member -- is
+    callable from Python and absent from the public reference: no entry,
+    no link, and no code span names it, by its key or its bare name."""
+    from modules.api_surface import is_engineering
+
+    engineering = {k: m for k, m in marked.items() if not m.field and is_engineering(m.value)}
+    # The walk reached them: the camera's, the LEDs', the imaging pair and diagnostics' ten.
+    assert len(engineering) >= 16, sorted(engineering)
+    # A bare name another published member also has is that member's, not this one's.
+    public = {m.member for k, m in marked.items() if k not in engineering}
+    spans = set(re.findall(r'`([\w.]+)`', rendered))
+    named = sorted(
+        key
+        for key, m in engineering.items()
+        if key in spans
+        or f'id="{key}"' in rendered
+        or (m.member not in public and m.member in spans)
+    )
+    assert not named, f'the reference names engineering members: {named}'
+
+
 # A code span naming a private member, ``_name`` or ``owner._name``; the
 # signature blocks are left out, where a private default's name is source.
 _FENCE = re.compile(r'^```.*?^```$', re.M | re.S)

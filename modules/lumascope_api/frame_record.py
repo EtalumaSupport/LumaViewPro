@@ -196,7 +196,7 @@ class FrameRecord:
             frame summed. Empty when no change has been recorded; None for
             a recorded frame, which is never judged.
         saturated_fraction: The fraction of the frame's pixels at or near
-            full scale (``ImagingAPI.saturated_fraction``), measured when the
+            full scale, measured when the
             capture asked for the check (``all_ones_check``); for a summed
             capture, its most saturated frame. None when it did not ask.
         dark: True when the frame was kept with no pixel above the dark

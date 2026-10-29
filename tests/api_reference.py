@@ -2,7 +2,9 @@
 """``docs/api-reference.md``: the declared API, rendered from the marks and the docstrings.
 
 Every owner of a marked member or published field, with how a caller
-reaches it; every member's signature, marks, route and docstring, and the
+reaches it; every member's signature, marks, route and docstring, a member
+marked ``engineering`` aside -- a bench or support member, outside what a
+researcher's client needs, left out of the public reference; and the
 refusals its ``Raises:`` and its doors declare with the REST status each
 answers (``rest.problems.declared``); every closed set a marked annotation
 names, with its values; every outcome class with its kind, reasons, causes
@@ -357,8 +359,6 @@ def _marks(item: Marked) -> list[str]:
         marks.append(f'sets [`{sets_of(value)}`](#{item.owner_name}.{sets_of(value)})')
     if stop_of(value):
         marks.append(f'stopped by [`{stop_of(value)}`](#{stop_of(value)})')
-    if is_engineering(value):
-        marks.append('engineering')
     if in_process_arguments_of(value):
         names = ', '.join(f'`{n}`' for n in in_process_arguments_of(value))
         marks.append(f'in-process arguments: {names}')
@@ -605,6 +605,8 @@ def _owners(
 
 def render(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]) -> str:
     """The reference's text for the declared API *marked*, over the classes it can name."""
+    # Left out before anything is indexed, so no other member's entry links to one.
+    marked = {k: m for k, m in marked.items() if m.field or not is_engineering(m.value)}
     index = _index(marked, universe, aliases)
     classes, modules, outcome_owners = _owners(marked, index)
     closed = _closed_sets(index)
