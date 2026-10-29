@@ -710,7 +710,7 @@ In-process: the image does not travel the wire.
 
 **Args**
 
-- `channel`: The layer whose stored exposure, gain and auto-gain the camera holds for the grab, as `apply_layer_camera` puts them on, in the capture's own camera-lane task. None (the default) captures with the camera as set.
+- `channel`: The layer whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no layer's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set.
 - `force_to_8bit`: Convert the image to 8 bits; False keeps the camera's depth (`CapturedStill.significant_bits`).
 - `accept_dark`: Skip the dark-frame judgment: a frame with essentially no lit pixel while a channel is lit is kept at once, its record's `dark` None. False (the default) retries such a frame until `timeout_s` and then keeps it, its record's `dark` True.
 - `exclude_sources`: Hardware changes to ignore for validity, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame returned can predate an excluded change, so a frame that is measured or recorded never excludes one.
@@ -4776,12 +4776,11 @@ Marks: in-process; event: [`ExposureChanged`](#ExposureChanged).
 Register a callback for each change of the camera's exposure.
 
 The listener is called with the exposure now in effect, in ms,
-whenever a write changes it. It fires from the thread that caused
-the change, so listeners **must** schedule UI work via
-`Clock.schedule_once`.
-
-Note: this fires on set_exposure_ms (a user action), NOT on every
-camera frame grab -- zero overhead on display framerate.
+whenever a write changes it, whoever made the write:
+`set_exposure_ms`, `apply`, a channel's settings put on for a
+capture, an auto-gain lock, a restore. It never fires per frame. It
+is called from the thread that made the change, so a GUI listener
+schedules its drawing on its UI thread.
 
 **Args**
 
@@ -4803,11 +4802,11 @@ Marks: in-process; event: [`GainChanged`](#GainChanged).
 Register a callback for each change of the camera's gain.
 
 The listener is called with the gain now in effect, in dB, whenever
-a write changes it. It fires from the thread that caused the change,
-so listeners **must** schedule UI work via `Clock.schedule_once`.
-
-Note: this fires on set_gain_db (a user action), NOT on every camera
-frame grab -- zero overhead on display framerate.
+a write changes it, whoever made the write: `set_gain_db`,
+`apply`, a channel's settings put on for a capture, an auto-gain
+lock, a restore. It never fires per frame. It is called from the
+thread that made the change, so a GUI listener schedules its drawing
+on its UI thread.
 
 **Args**
 
@@ -4921,11 +4920,11 @@ Apply a gain, an exposure and an auto-gain mode in one batched call, and wait.
 The batch is one command on the camera's lane, so no other camera
 command lands between its writes. Turning auto-gain off goes first
 and arming it last, so the gain and the exposure are written with
-the camera's loop off; an arm may lower the exposure to the
-channel's auto-exposure ceiling. Every write is attempted even when
-an earlier one is refused, so one refused setting does not leave the
-others at a previous channel's values; the refusal is raised once all
-have run. The range refusals are `set_gain_db`'s and
+the camera's loop off; an arm may lower the exposure to its own
+ceiling, `auto_gain_settings`' `max_exposure_ms`. Every write is
+attempted even when an earlier one is refused, so one refused setting
+does not leave the others at a previous channel's values; the refusal
+is raised once all have run. The range refusals are `set_gain_db`'s and
 `set_exposure_ms`'s.
 
 **Args**
@@ -5961,7 +5960,9 @@ camera command already in flight, and returns once the camera has
 taken the gain. A write the camera does not apply raises, so the
 returned value is the success and a refusal cannot pass for one. The
 write is a raw one: afterwards the camera holds no channel's stored
-settings, and a frame taken next records `held_channel` None.
+settings until a channel's are put on again, and a still taken
+meanwhile, one naming a channel included, keeps the raw values and
+records `held_channel` None.
 
 **Args**
 
@@ -6998,8 +6999,8 @@ counts for every change it does not exclude. A change landing while
 the capture runs is seen, and the capture starts its wait again,
 within a deadline; the deadline stands still while a commanded move
 is settling. The capture is one command on the camera's lane, and
-this returns once it has run. `capture_still` is the same capture,
-returning the frame's record with it.
+this returns once it has run. `ScopeSession.capture_still` is the
+same capture, returning the frame's record with it.
 
 **Args**
 
@@ -9277,7 +9278,7 @@ and with it the hold, as on a real stage.
 **Args**
 
 - `axis`: The axis whose next move is held.
-- `at_fraction`: How far along its travel it halts, between 0 and 1.
+- `at_fraction`: How far along its travel it halts, above 0 and below 1.
 
 **Returns**
 
@@ -11014,21 +11015,21 @@ them all.
 
 **Fields**
 
-- <a id="Notification.category"></a>`category`: `str` -- (no description)
-- <a id="Notification.fatal"></a>`fatal`: `bool` -- (no description)
-- <a id="Notification.kind"></a>`kind`: `OutcomeKind` -- (no description)
-- <a id="Notification.message"></a>`message`: `str` -- (no description)
-- <a id="Notification.monotonic_s"></a>`monotonic_s`: `float` -- (no description)
-- <a id="Notification.operation_key"></a>`operation_key`: `str` -- (no description)
-- <a id="Notification.outcome_id"></a>`outcome_id`: `int` -- (no description)
-- <a id="Notification.reason"></a>`reason`: `str` -- (no description)
-- <a id="Notification.remedy"></a>`remedy`: `Remedy | None` -- (no description)
-- <a id="Notification.severity"></a>`severity`: `Severity` -- (no description)
-- <a id="Notification.shown"></a>`shown`: `bool` -- (no description)
-- <a id="Notification.solicited"></a>`solicited`: `bool` -- (no description)
-- <a id="Notification.source"></a>`source`: `str` -- (no description)
-- <a id="Notification.title"></a>`title`: `str` -- (no description)
-- <a id="Notification.wall_time_epoch_s"></a>`wall_time_epoch_s`: `float` -- (no description)
+- <a id="Notification.category"></a>`category`: `str` -- The part of the instrument it is about, such as `'Motor'`, `'Camera'`, `'FileIO'` or `'Protocol'`.
+- <a id="Notification.fatal"></a>`fatal`: `bool` -- True for a fault that ended its operation: it reaches a person even while an unattended run mutes the others.
+- <a id="Notification.kind"></a>`kind`: `OutcomeKind` -- What the outcome is, read from its type; `UNCLASSIFIED` for a post made with no outcome behind it.
+- <a id="Notification.message"></a>`message`: `str` -- The words a person reads.
+- <a id="Notification.monotonic_s"></a>`monotonic_s`: `float` -- When it was posted, on this process's monotonic clock, in seconds: the order of two notifications within one process.
+- <a id="Notification.operation_key"></a>`operation_key`: `str` -- The piece of work it is one of a sequence about, a starting notice and the notice that answers it, so a display can replace the earlier one; empty for a notification on its own.
+- <a id="Notification.outcome_id"></a>`outcome_id`: `int` -- The outcome's number: the same for both deliveries of one outcome (muted, then shown when a person asks for it), different for every other.
+- <a id="Notification.reason"></a>`reason`: `str` -- The outcome's machine-readable code, read from its type; empty for a post that declares none.
+- <a id="Notification.remedy"></a>`remedy`: `Remedy | None` -- The action that answers the outcome, offered to a person; None when it has none.
+- <a id="Notification.severity"></a>`severity`: `Severity` -- How the post is logged; `shown` says whether it is displayed.
+- <a id="Notification.shown"></a>`shown`: `bool` -- Whether it is for display now; False when shutdown, an unattended run's mute, a run that already showed it, or the repeat window holds it back.
+- <a id="Notification.solicited"></a>`solicited`: `bool` -- True when it answers a request just made, a refused press or call, so neither the unattended mute nor the repeat window holds it back.
+- <a id="Notification.source"></a>`source`: `str` -- The module or function that posted it; empty when none was named.
+- <a id="Notification.title"></a>`title`: `str` -- The short heading a person reads.
+- <a id="Notification.wall_time_epoch_s"></a>`wall_time_epoch_s`: `float` -- When it was posted, in seconds since the epoch, for a client in another process.
 
 <a id="Objective"></a>
 ## `Objective`
@@ -11325,10 +11326,13 @@ Returned by: [`ScopeSession.create_empty_protocol`](#ScopeSession.create_empty_p
 Held in: [`RunEnded.protocol`](#RunEnded.protocol), [`RunEvents.run_ended`](#RunEvents.run_ended).  
 Taken by: [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step), [`ScopeSession.apply_channel_settings`](#ScopeSession.apply_channel_settings), [`ScopeSession.apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps), [`ScopeSession.apply_tiling`](#ScopeSession.apply_tiling), [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking), [`ScopeSession.delete_step`](#ScopeSession.delete_step), [`ScopeSession.go_to_step`](#ScopeSession.go_to_step), [`ScopeSession.point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot), [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory), [`ScopeSession.rename_step`](#ScopeSession.rename_step), [`ScopeSession.save_focus`](#ScopeSession.save_focus), [`ScopeSession.save_protocol`](#ScopeSession.save_protocol), [`ScopeSession.set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root), [`ScopeSession.set_protocol_labware`](#ScopeSession.set_protocol_labware), [`ScopeSession.set_protocol_schedule`](#ScopeSession.set_protocol_schedule), [`ScopeSession.set_step_autofocus`](#ScopeSession.set_step_autofocus), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.turret_slot_questions`](#ScopeSession.turret_slot_questions), [`ScopeSession.update_step`](#ScopeSession.update_step).
 
+A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
+
 **Fields**
 
-- <a id="Protocol.CURRENT_VERSION"></a>`CURRENT_VERSION`: `ClassVar[int]` -- (no description)
-- <a id="Protocol.PROTOCOL_FILE_HEADER"></a>`PROTOCOL_FILE_HEADER`: `ClassVar[str]` -- (no description)
+- <a id="Protocol.CURRENT_COLUMNS"></a>`CURRENT_COLUMNS`: `ClassVar[tuple[str, ...]]` -- The columns of the steps table a protocol file of `CURRENT_VERSION` holds, in the order they are written.
+- <a id="Protocol.CURRENT_VERSION"></a>`CURRENT_VERSION`: `ClassVar[int]` -- The version of the protocol file this release writes; a file of an earlier version is converted when it is read.
+- <a id="Protocol.PROTOCOL_FILE_HEADER"></a>`PROTOCOL_FILE_HEADER`: `ClassVar[str]` -- The first cell of a protocol file's first row, which a read checks before anything else.
 
 <a id="Protocol.capture_prefix"></a>
 ### `Protocol.capture_prefix`
@@ -12511,45 +12515,46 @@ A `scan_started` event: the scan's index from 0, the scans left with it, the per
 A record: it crosses the wire as its data.  
 Held in: [`Lumascope.capabilities`](#Lumascope.capabilities).
 
-Immutable snapshot of what a scope has.
+What a scope has, read once when it is built; immutable.
 
-Built once at `Lumascope.__init__` from the three drivers. Fields
-are tuples (not lists) to reinforce immutability -- a caller that
-wants to mutate would have to shallow-copy into their own list.
+A caller asks it rather than a model name: each field is the scope's
+own answer, probed from its boards and camera at bring-up, or the
+declared model's where a board did not answer. A collection is a
+tuple.
 
 **Fields**
 
-- <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- (no description)
-- <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- (no description)
-- <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- (no description)
-- <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- (no description)
-- <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- (no description)
-- <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- (no description)
-- <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- (no description)
-- <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- (no description)
-- <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_sdk_version"></a>`camera_sdk_version`: `str | None` -- (no description)
-- <a id="ScopeCapabilities.camera_sensor"></a>`camera_sensor`: `str | None` -- (no description)
-- <a id="ScopeCapabilities.camera_serial_number"></a>`camera_serial_number`: `str | None` -- (no description)
-- <a id="ScopeCapabilities.camera_shutter"></a>`camera_shutter`: `CameraShutter | None` -- (no description)
-- <a id="ScopeCapabilities.camera_supports_auto_exposure"></a>`camera_supports_auto_exposure`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_supports_auto_gain"></a>`camera_supports_auto_gain`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_supports_black_level"></a>`camera_supports_black_level`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_supports_conversion_gain_mode"></a>`camera_supports_conversion_gain_mode`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool` -- (no description)
-- <a id="ScopeCapabilities.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- (no description)
-- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- (no description)
-- <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool` -- (no description)
-- <a id="ScopeCapabilities.has_focus"></a>`has_focus`: `bool` -- (no description)
-- <a id="ScopeCapabilities.has_turret"></a>`has_turret`: `bool` -- (no description)
-- <a id="ScopeCapabilities.has_xy_stage"></a>`has_xy_stage`: `bool` -- (no description)
-- <a id="ScopeCapabilities.is_color_native"></a>`is_color_native`: `bool` -- (no description)
-- <a id="ScopeCapabilities.led_addresses"></a>`led_addresses`: `tuple[int, ...] | None` -- (no description)
-- <a id="ScopeCapabilities.led_colors"></a>`led_colors`: `tuple[str, ...]` -- (no description)
-- <a id="ScopeCapabilities.led_max_ma"></a>`led_max_ma`: `int | None` -- (no description)
-- <a id="ScopeCapabilities.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- (no description)
-- <a id="ScopeCapabilities.pixel_size_um"></a>`pixel_size_um`: `float | None` -- (no description)
+- <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS620 or LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board.
+- <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- The width of the buffers frames are delivered in, not the bits that carry data: 16 for Mono10, Mono12 and Mono16, right-aligned in 16-bit buffers; 8 for a camera that delivers only 8-bit buffers (a Classic's). The data's depth is `camera_max_significant_bits`, and the current frames' `imaging.significant_bits`.
+- <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
+- <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).
+- <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool` -- True when the host can latch the camera's timestamp clock and read it, which maps the camera's clock onto the host's: each capture's `FrameRecord.clock_mapping`. False on a camera without a latch (IDS, a Classic's), or whose tick rate is unknown, as it is for a camera whose frames do not carry their start on that clock; its frames carry no mapping.
+- <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The ranges the attached camera takes, read once at connect; None with no camera connected.
+- <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
+- <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
+- <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- The pixel formats the camera offers (`'Mono8'`, `'Mono12'`, ...); empty with no camera.
+- <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.get_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises.
+- <a id="ScopeCapabilities.camera_sdk_version"></a>`camera_sdk_version`: `str | None` -- The version of the camera vendor's SDK the camera is driven through, read at connect, which ties a measurement to the runtime that made it. None when the SDK does not say, for a camera driven without one (a Classic's, the simulator's), or no camera.
+- <a id="ScopeCapabilities.camera_sensor"></a>`camera_sensor`: `str | None` -- The camera's sensor (`'Sony IMX334LLR-C'`), from its datasheet entry; None for a camera no entry describes, or no camera.
+- <a id="ScopeCapabilities.camera_serial_number"></a>`camera_serial_number`: `str | None` -- The serial number the camera reports at connect, or None.
+- <a id="ScopeCapabilities.camera_shutter"></a>`camera_shutter`: `CameraShutter | None` -- The sensor's shutter, from the same entry; None where `camera_sensor` is.
+- <a id="ScopeCapabilities.camera_supports_auto_exposure"></a>`camera_supports_auto_exposure`: `bool` -- True when the camera has hardware auto-exposure.
+- <a id="ScopeCapabilities.camera_supports_auto_gain"></a>`camera_supports_auto_gain`: `bool` -- True when the camera has hardware auto-gain.
+- <a id="ScopeCapabilities.camera_supports_black_level"></a>`camera_supports_black_level`: `bool` -- True when the camera's black level can be set (`scope.camera.set_black_level`). The black level is read with `scope.camera.read_black_level` on any camera that reports one, settable or not (a Classic's reports its fixed Row Black Target).
+- <a id="ScopeCapabilities.camera_supports_conversion_gain_mode"></a>`camera_supports_conversion_gain_mode`: `bool` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range).
+- <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes.
+- <a id="ScopeCapabilities.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- The rate of the camera's frame timestamp clock in Hz, or None for a camera whose frames carry no timestamp.
+- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the rule a frame is judged by against its changes, and the source's frame count: the clock rule, with its measured delay and the run that measured it, where the camera has a clock latch and its timing record holds a delay for the source, and for every move on such a camera whose record measured no move count, from its stop; the credit rule everywhere else. The count is the largest the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
+- <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool` -- True when the LED firmware runs a stimulation pulse train itself (LED firmware 3.0.8 and later). Paced from the host, a pulse under about 20 ms is unreliable, since the USB bridge batches back-to-back writes; the firmware's train keeps its edges to under a microsecond.
+- <a id="ScopeCapabilities.has_focus"></a>`has_focus`: `bool` -- True when `axes` holds Z.
+- <a id="ScopeCapabilities.has_turret"></a>`has_turret`: `bool` -- Whether this scope has a turret: T in `axes` when the motor board came up, else the declared model's. A turret scope whose board did not come up has a turret in an unknown slot.
+- <a id="ScopeCapabilities.has_xy_stage"></a>`has_xy_stage`: `bool` -- True when `axes` holds X and Y.
+- <a id="ScopeCapabilities.is_color_native"></a>`is_color_native`: `bool` -- True when the camera delivers 3-channel color frames; False for a mono camera, as every shipped one is, and when the camera is unknown.
+- <a id="ScopeCapabilities.led_addresses"></a>`led_addresses`: `tuple[int, ...] | None` -- The LED board addresses the installed board drives: 0 to 7 on an EL-0940's board, 0 to 3 on a Classic's; None when the scope came up without its LED board.
+- <a id="ScopeCapabilities.led_colors"></a>`led_colors`: `tuple[str, ...]` -- The channels of this model that light an LED, from its identity, so a scope that came up without its LED board still names its model's LEDs.
+- <a id="ScopeCapabilities.led_max_ma"></a>`led_max_ma`: `int | None` -- The most current, in mA, the connected LED board drives a channel at; 0 when the board does not answer; None when the scope came up without its LED board.
+- <a id="ScopeCapabilities.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens focal length in mm, from the motor board's optics configuration, else the installation's model entry; with `pixel_size_um` and an objective's focal length it gives that objective's um per pixel. None when neither says; never a default.
+- <a id="ScopeCapabilities.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The camera's pixel size in um, from the motor board's optics configuration, else the installation's model entry (a Classic), else the camera's own pitch; None when none says, and then the scope measures nothing (field of view, scale bar, plate coordinates). Never a default: a guessed pixel size is written into every image and cannot be told from a measured one.
 
 <a id="ScopeModel"></a>
 ## `ScopeModel`
@@ -17544,6 +17549,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/get_setting` | [`ScopeSession.get_setting`](#ScopeSession.get_setting) |
 | `POST` | `/api/v1/go_to_bookmark` | [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark) |
 | `POST` | `/api/v1/go_to_step` | [`ScopeSession.go_to_step`](#ScopeSession.go_to_step) |
+| `GET` | `/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS` | [`Protocol.CURRENT_COLUMNS`](#Protocol.CURRENT_COLUMNS) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/CURRENT_VERSION` | [`Protocol.CURRENT_VERSION`](#Protocol.CURRENT_VERSION) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/PROTOCOL_FILE_HEADER` | [`Protocol.PROTOCOL_FILE_HEADER`](#Protocol.PROTOCOL_FILE_HEADER) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_prefix` | [`Protocol.capture_prefix`](#Protocol.capture_prefix) |

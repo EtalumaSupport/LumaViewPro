@@ -521,7 +521,7 @@ class SimulationAPI:
 
         Args:
             axis: The axis whose next move is held.
-            at_fraction: How far along its travel it halts, between 0 and 1.
+            at_fraction: How far along its travel it halts, above 0 and below 1.
 
         Returns:
             An event set once the move has halted at the hold, for a caller
@@ -539,7 +539,7 @@ class SimulationAPI:
                 TMCM-6110's arrives too.
         """
         self._refuse_unless_simulated('hold_axis')
-        self._bound('at_fraction', at_fraction, 'between 0 and 1', 0 < at_fraction < 1)
+        self._bound('at_fraction', at_fraction, 'above 0 and below 1', 0 < at_fraction < 1)
         target = self._board('hold_axis', Part.MOTOR)
         if not isinstance(target, SimulatedMotorBoard):
             raise self._not_injectable('hold_axis', target)

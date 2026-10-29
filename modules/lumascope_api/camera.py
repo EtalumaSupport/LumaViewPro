@@ -326,8 +326,7 @@ def _rejected_gain_words(gain_db: float) -> str:
     """
     return (
         f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
-        'It is still at its previous gain. Check that the value is '
-        'within the camera limits.'
+        'It is still at its previous gain.'
     )
 
 
@@ -411,7 +410,7 @@ def _no_answer_rejection(rejected: CameraSettingRejected) -> CameraSettingReject
         rejected.setting,
         rejected.requested,
         message=(
-            f'The camera did not answer a {noun} change, sent twice, so whether '
+            f'The camera did not answer the {noun} change, sent twice, so whether '
             'it took it is not known. Check the USB connection if this repeats.'
         ),
         reason='camera_no_answer',
@@ -501,8 +500,7 @@ def _rejected_exposure_words(exposure_ms: float) -> str:
     ``_rejected_gain_words``."""
     return (
         f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
-        'It is still at its previous exposure. Check that the value is '
-        'within the camera limits.'
+        'It is still at its previous exposure.'
     )
 
 
@@ -1367,7 +1365,9 @@ class CameraAPI:
         taken the gain. A write the camera does not apply raises, so the
         returned value is the success and a refusal cannot pass for one. The
         write is a raw one: afterwards the camera holds no channel's stored
-        settings, and a frame taken next records ``held_channel`` None.
+        settings until a channel's are put on again, and a still taken
+        meanwhile, one naming a channel included, keeps the raw values and
+        records ``held_channel`` None.
 
         Args:
             gain_db: The gain in dB, within the camera's declared range
@@ -3776,11 +3776,11 @@ class CameraAPI:
         The batch is one command on the camera's lane, so no other camera
         command lands between its writes. Turning auto-gain off goes first
         and arming it last, so the gain and the exposure are written with
-        the camera's loop off; an arm may lower the exposure to the
-        channel's auto-exposure ceiling. Every write is attempted even when
-        an earlier one is refused, so one refused setting does not leave the
-        others at a previous channel's values; the refusal is raised once all
-        have run. The range refusals are ``set_gain_db``'s and
+        the camera's loop off; an arm may lower the exposure to its own
+        ceiling, ``auto_gain_settings``' ``max_exposure_ms``. Every write is
+        attempted even when an earlier one is refused, so one refused setting
+        does not leave the others at a previous channel's values; the refusal
+        is raised once all have run. The range refusals are ``set_gain_db``'s and
         ``set_exposure_ms``'s.
 
         Args:
@@ -4177,11 +4177,11 @@ class CameraAPI:
         """Register a callback for each change of the camera's gain.
 
         The listener is called with the gain now in effect, in dB, whenever
-        a write changes it. It fires from the thread that caused the change,
-        so listeners **must** schedule UI work via ``Clock.schedule_once``.
-
-        Note: this fires on set_gain_db (a user action), NOT on every camera
-        frame grab -- zero overhead on display framerate.
+        a write changes it, whoever made the write: ``set_gain_db``,
+        ``apply``, a channel's settings put on for a capture, an auto-gain
+        lock, a restore. It never fires per frame. It is called from the
+        thread that made the change, so a GUI listener schedules its drawing
+        on its UI thread.
 
         Args:
             listener: ``callable(gain_db: float)``
@@ -4215,12 +4215,11 @@ class CameraAPI:
         """Register a callback for each change of the camera's exposure.
 
         The listener is called with the exposure now in effect, in ms,
-        whenever a write changes it. It fires from the thread that caused
-        the change, so listeners **must** schedule UI work via
-        ``Clock.schedule_once``.
-
-        Note: this fires on set_exposure_ms (a user action), NOT on every
-        camera frame grab -- zero overhead on display framerate.
+        whenever a write changes it, whoever made the write:
+        ``set_exposure_ms``, ``apply``, a channel's settings put on for a
+        capture, an auto-gain lock, a restore. It never fires per frame. It
+        is called from the thread that made the change, so a GUI listener
+        schedules its drawing on its UI thread.
 
         Args:
             listener: ``callable(exposure_ms: float)``

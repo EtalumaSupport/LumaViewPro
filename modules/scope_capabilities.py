@@ -309,180 +309,165 @@ class CameraShutter(enum.StrEnum):
 )
 @dataclass(frozen=True)
 class ScopeCapabilities:
-    """Immutable snapshot of what a scope has.
+    """What a scope has, read once when it is built; immutable.
 
-    Built once at `Lumascope.__init__` from the three drivers. Fields
-    are tuples (not lists) to reinforce immutability -- a caller that
-    wants to mutate would have to shallow-copy into their own list.
+    A caller asks it rather than a model name: each field is the scope's
+    own answer, probed from its boards and camera at bring-up, or the
+    declared model's where a board did not answer. A collection is a
+    tuple.
+
+    Attributes:
+        axes: The axes this scope has: ``('Z',)`` for an LS620 or LS820,
+            ``('X', 'Y', 'Z')`` for an LS850, ``('X', 'Y', 'Z', 'T')`` for
+            an LS850T, ``()`` with no motor board.
+        has_focus: True when ``axes`` holds Z.
+        has_xy_stage: True when ``axes`` holds X and Y.
+        has_turret: Whether this scope has a turret: T in ``axes`` when the
+            motor board came up, else the declared model's. A turret scope
+            whose board did not come up has a turret in an unknown slot.
+        pixel_size_um: The camera's pixel size in um, from the motor
+            board's optics configuration, else the installation's model
+            entry (a Classic), else the camera's own pitch; None when none
+            says, and then the scope measures nothing (field of view, scale
+            bar, plate coordinates). Never a default: a guessed pixel size
+            is written into every image and cannot be told from a measured
+            one.
+        lens_focal_length_mm: The tube lens focal length in mm, from the
+            motor board's optics configuration, else the installation's
+            model entry; with ``pixel_size_um`` and an objective's focal
+            length it gives that objective's um per pixel. None when neither
+            says; never a default.
+        led_addresses: The LED board addresses the installed board drives:
+            0 to 7 on an EL-0940's board, 0 to 3 on a Classic's; None when
+            the scope came up without its LED board.
+        led_colors: The channels of this model that light an LED, from its
+            identity, so a scope that came up without its LED board still
+            names its model's LEDs.
+        led_max_ma: The most current, in mA, the connected LED board
+            drives a channel at; 0 when the board does not answer; None when
+            the scope came up without its LED board.
+        camera_model: The model the camera reports at connect; None with no
+            camera, or one that did not say.
+        camera_serial_number: The serial number the camera reports at
+            connect, or None.
+        camera_firmware_version: The firmware version the camera reports at
+            connect, or None (a Classic's camera reports none).
+        camera_sensor: The camera's sensor (``'Sony IMX334LLR-C'``), from
+            its datasheet entry; None for a camera no entry describes, or no
+            camera.
+        camera_shutter: The sensor's shutter, from the same entry; None
+            where ``camera_sensor`` is.
+        camera_sdk_version: The version of the camera vendor's SDK the
+            camera is driven through, read at connect, which ties a
+            measurement to the runtime that made it. None when the SDK does
+            not say, for a camera driven without one (a Classic's, the
+            simulator's), or no camera.
+        camera_timestamp_tick_hz: The rate of the camera's frame timestamp
+            clock in Hz, or None for a camera whose frames carry no
+            timestamp.
+        camera_supports_auto_gain: True when the camera has hardware
+            auto-gain.
+        camera_supports_auto_exposure: True when the camera has hardware
+            auto-exposure.
+        camera_pixel_formats: The pixel formats the camera offers
+            (``'Mono8'``, ``'Mono12'``, ...); empty with no camera.
+        camera_binning_sizes: The binning factors the camera offers; empty
+            with no camera, or one that offers none.
+        camera_limits: The ranges the attached camera takes, read once at
+            connect; None with no camera connected.
+        camera_reports_temperature: True when the camera has a temperature
+            sensor. Where it is False,
+            ``scope.diagnostics.get_camera_temperatures_degc`` answers
+            ``{}``; where it is True an empty answer cannot happen, and a
+            read that fails raises.
+        is_color_native: True when the camera delivers 3-channel color
+            frames; False for a mono camera, as every shipped one is, and
+            when the camera is unknown.
+        buffer_bit_depth: The width of the buffers frames are delivered in,
+            not the bits that carry data: 16 for Mono10, Mono12 and Mono16,
+            right-aligned in 16-bit buffers; 8 for a camera that delivers
+            only 8-bit buffers (a Classic's). The data's depth is
+            ``camera_max_significant_bits``, and the current frames'
+            ``imaging.significant_bits``.
+        camera_max_significant_bits: The deepest depth the camera delivers
+            over its pixel formats: 12 for a camera that offers Mono12, 8 for
+            one that streams only 8 bits. None with no camera, or one whose
+            formats are unknown. The depth of the frames it delivers now,
+            which follows ``set_image_mode``, is ``imaging.significant_bits``.
+        camera_supports_conversion_gain_mode: True when the camera has a
+            switchable sensor conversion gain (High: low read noise, narrow
+            range; Low: wide range).
+        camera_supports_line_noise_reduction: True when the camera has the
+            line-noise-reduction filter, which smooths horizontal stripes.
+        camera_has_clock_latch: True when the host can latch the camera's
+            timestamp clock and read it, which maps the camera's clock onto
+            the host's: each capture's ``FrameRecord.clock_mapping``. False
+            on a camera without a latch (IDS, a Classic's), or whose tick
+            rate is unknown, as it is for a camera whose frames do not carry
+            their start on that clock; its frames carry no mapping.
+        frame_rules: For each frame-validity source, the rule a frame is
+            judged by against its changes, and the source's frame count: the
+            clock rule, with its measured delay and the run that measured
+            it, where the camera has a clock latch and its timing record
+            holds a delay for the source, and for every move on such a
+            camera whose record measured no move count, from its stop; the
+            credit rule everywhere else. The count is the largest the record
+            measured for the source over the microscopes the camera was
+            measured on, with the run and microscope in its ``provenance``,
+            else the shipped count with none. Read once at bring-up from the
+            camera's timing record.
+        camera_supports_black_level: True when the camera's black level can
+            be set (``scope.camera.set_black_level``). The black level is
+            read with ``scope.camera.read_black_level`` on any camera that
+            reports one, settable or not (a Classic's reports its fixed Row
+            Black Target).
+        has_firmware_stim: True when the LED firmware runs a stimulation
+            pulse train itself (LED firmware 3.0.8 and later). Paced from
+            the host, a pulse under about 20 ms is unreliable, since the USB
+            bridge batches back-to-back writes; the firmware's train keeps
+            its edges to under a microsecond.
     """
 
     # ---- Motion ----
     axes: tuple[Axis, ...]
-    """Axes physically present on this scope -- from
-    `motion.detect_present_axes()`. e.g. ('Z',) for LS820/LVC LS620,
-    ('X','Y','Z') for LS850, ('X','Y','Z','T') for LS850T, () for no
-    motor hardware."""
-
-    has_focus: bool  # 'Z' in axes
-    has_xy_stage: bool  # 'X' and 'Y' in axes
+    has_focus: bool
+    has_xy_stage: bool
     has_turret: bool
-    """Whether this scope has a turret: 'T' in ``axes`` when the motor board
-    came up, else the declared model's catalogue entry. A turret scope whose
-    board did not come up has a turret in an unknown slot."""
-
     pixel_size_um: float | None
-    """Per-scope camera pixel size in um/pixel, resolved from the first
-    real source: motorconfig Optics.PixelSize (LS820/850/850T) ->
-    scopes.json Optics.PixelSize (Classic) -> the camera profile /
-    SDK-reported pitch -> None. None when no source can supply it: the
-    scope cannot measure, and consumers (FOV / scale bar / coordinate
-    transform) degrade honestly rather than using an invented scale.
-    Never a hardcoded default -- a guessed pixel size is written into
-    every image and cannot be told from a measured one."""
-
     lens_focal_length_mm: float | None
-    """Tube lens focal length in mm, resolved from motorconfig
-    Optics.LensFocalLength -> scopes.json Optics.LensFocalLength
-    (Classic) -> None. Used with pixel_size_um and the objective focal
-    length to compute per-objective effective um/pixel. None when no
-    source supplies it (there is no camera source -- a lens is not a
-    sensor property); never a hardcoded default."""
 
     # ---- LED ----
     led_addresses: tuple[int, ...] | None
-    """The LED addresses the installed board drives -- from
-    `led.available_channels()`. RP2040 = (0, ..., 7), FX2/LVC =
-    (0,1,2,3). None when the scope came up without its LED board."""
-
     led_colors: tuple[str, ...]
-    """Layer names of this model that drive an LED -- from the resolved
-    layer identity, so a scope that came up without its LED board still
-    names its model's LEDs."""
-
     led_max_ma: int | None
-    """Maximum LED current per channel, in mA, as published by the connected
-    LED driver (`led.max_ma()`); 0 when a driver does not answer; None when
-    the scope came up without its LED board."""
 
     # ---- Camera ----
     camera_model: str | None
-    """The model the camera reports at connect; None when no camera is
-    connected or it did not say. Read from the driver, not the profile: an
-    unrecognised camera is given a default profile whose name is a
-    placeholder, not the camera's."""
-
     camera_serial_number: str | None
-    """The serial number the camera reports at connect, or None."""
-
     camera_firmware_version: str | None
-    """The firmware version the camera reports at connect, or None (the FX2
-    reports none)."""
-
     camera_sensor: str | None
-    """The camera's sensor (``'Sony IMX334LLR-C'``), from the camera's
-    datasheet entry; None for a camera no entry describes, or no camera."""
-
     camera_shutter: CameraShutter | None
-    """The sensor's shutter, from the same entry; None where
-    ``camera_sensor`` is."""
-
     camera_sdk_version: str | None
-    """The version of the camera vendor's SDK the camera is driven through,
-    read at connect: a label tying a measurement to the runtime that made it.
-    None when the SDK does not say, for a camera driven without one (the FX2,
-    the simulator), or no camera."""
-
     camera_timestamp_tick_hz: int | None
-    """The rate of the camera's frame timestamp clock, in Hz, or None for a
-    camera whose frames carry no timestamp."""
-
     camera_supports_auto_gain: bool
     camera_supports_auto_exposure: bool
-
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
-
     camera_limits: CameraLimits | None
-    """The ranges the attached camera takes, read once at connect; None
-    with no camera connected."""
-
     camera_reports_temperature: bool
-    """True if the camera has a temperature sensor, probed from its
-    temperature node at connect. Where it is False,
-    ``scope.diagnostics.get_camera_temperatures_degc`` answers ``{}``;
-    where it is True an empty answer cannot happen, and a read that fails
-    raises."""
-
     is_color_native: bool = False
-    """True if the camera natively produces 3-channel color frames
-    (Bayer-decoded RGB out of the SDK). False for mono cameras (the
-    LVP shipping fleet -- all Pylon and IDS sensors used to date).
-    Defaults to False so unknown/missing camera path treats output
-    as mono."""
-
     buffer_bit_depth: int = 16
-    """Width of the buffers the driver delivers frames in, not the bits
-    that carry data: Mono10 / Mono12 / Mono16 right-aligned in uint16
-    buffers all report 16. 8 for a camera that only delivers 8-bit buffers
-    (the FX2). Drives buffer sizing decisions in pipeline stages; the
-    depth of the data is ``camera_max_significant_bits``, and the current
-    frames' ``imaging.significant_bits``."""
-
     camera_max_significant_bits: int | None = None
-    """The deepest payload depth the camera delivers, over its pixel
-    formats by its driver's own depth rule: 12 for a camera that offers
-    Mono12 (Basler, IDS), 8 for one that streams only 8 bits (the FX2).
-    None with no camera, or one whose formats are unknown. The depth of
-    the frames it delivers now, which follows ``set_image_mode``, is
-    ``imaging.significant_bits``."""
-
     camera_supports_conversion_gain_mode: bool = False
-    """True if the camera exposes a switchable sensor conversion-gain
-    mode (High = low read noise / narrow range, Low = wide range). Gates
-    the UI toggle. Pylon Bsl feature; absent on cameras without it."""
-
     camera_supports_line_noise_reduction: bool = False
-    """True if the camera exposes the line-noise-reduction filter (smooths
-    horizontal stripe artifacts). Gates the UI toggle. Pylon Bsl feature;
-    absent on cameras without it."""
-
     camera_has_clock_latch: bool = False
-    """True if the host can latch the camera's timestamp clock and read it,
-    which maps the camera's clock onto the host's: each capture's
-    ``FrameRecord.clock_mapping``. False on a camera without a latch
-    (IDS, the FX2), or whose tick rate is unknown, as it is for a camera
-    whose frames do not carry their start on that clock (no ``Timestamp``
-    chunk); its frames carry no mapping."""
-
     frame_rules: Mapping[FrameValiditySource, FrameRule] = field(
         default_factory=FrameValidity.credit_rules
     )
-    """Per frame-validity source, the rule a frame is judged by against its
-    changes (``FrameValidity.judge``), and the source's frame count: the
-    clock rule, with its measured delay and the run that measured it, where
-    the camera has a clock latch and its timing record holds a delay for the
-    source, and for every move on such a camera whose record measured no
-    move count, from its stop; the credit rule everywhere else. The count is
-    the largest the record measured for the source over the microscopes the
-    camera was measured on, with the run and microscope in its
-    ``provenance``, else the shipped count with none. Read once at bring-up
-    from the camera's timing record (``FrameValidity.rules_from_record``)."""
-
     camera_supports_black_level: bool = False
-    """True if the camera's black level can be set
-    (``scope.camera.set_black_level``). The black level is read with
-    ``scope.camera.read_black_level`` on any camera that reports one,
-    settable or not (the FX2 reports its fixed Row Black Target)."""
 
     # ---- Cross-cutting feature flags ----
     has_firmware_stim: bool = False
-    """True when the LED firmware advertises the STIM pulse-train command
-    (LED firmware v3.0.8+). Probed at boot via `led.supports_firmware_stim()`.
-    Host-side pulse scheduling is unreliable below ~20 ms pulse width
-    because the USB-UART bridge batches back-to-back fast-path writes;
-    firmware STIM eliminates the bridge-batching problem by running the
-    pulse train inside the LED firmware with sub-microsecond pulse-edge
-    accuracy. Caller gates with `caps.has_firmware_stim`."""
 
     @classmethod
     def from_drivers(

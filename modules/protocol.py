@@ -1126,8 +1126,19 @@ def _in_unit_keys(named: dict, unit: 'ChannelIdentity', what: str, file_path: ob
     return renamed
 
 
-@api_fields('CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
+@api_fields('CURRENT_COLUMNS', 'CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
 class Protocol:
+    """A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
+
+    Attributes:
+        CURRENT_COLUMNS: The columns of the steps table a protocol file of
+            ``CURRENT_VERSION`` holds, in the order they are written.
+        CURRENT_VERSION: The version of the protocol file this release
+            writes; a file of an earlier version is converted when it is read.
+        PROTOCOL_FILE_HEADER: The first cell of a protocol file's first row,
+            which a read checks before anything else.
+    """
+
     PROTOCOL_FILE_HEADER: ClassVar[str] = 'LumaViewPro Protocol'
     COLUMNS: ClassVar[dict] = {
         1: [
@@ -1290,7 +1301,7 @@ class Protocol:
     # recorded before the column).
     COLUMNS[9] = COLUMNS[8] + ['Channel Group ID', 'Turret Slot']
     CURRENT_VERSION: ClassVar[int] = 9
-    CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
+    CURRENT_COLUMNS: ClassVar[tuple[str, ...]] = tuple(COLUMNS[CURRENT_VERSION])
 
     # Header columns for the v6 'Layer Settings' block. Order is the
     # written-out order; rows that omit trailing columns (e.g. Stim_Enabled

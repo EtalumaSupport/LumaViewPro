@@ -69,8 +69,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         # What the camera holds, not what happens next: true for a live view
         # and for a protocol step, which then does not capture.
         assert str(excinfo.value) == (
-            'The camera rejected the gain change to 7.0 dB. It is still at its previous '
-            'gain. Check that the value is within the camera limits.'
+            'The camera rejected the gain change to 7.0 dB. It is still at its previous gain.'
         )
 
     def test_a_refused_exposure_raises_by_name(self, sim_camera, monkeypatch):
@@ -84,7 +83,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         assert excinfo.value.requested == 25.0
         assert str(excinfo.value) == (
             'The camera rejected the exposure change to 25 ms. It is still at its previous '
-            'exposure. Check that the value is within the camera limits.'
+            'exposure.'
         )
 
     def test_the_api_shows_nothing_itself(self, sim_camera, centre_posts, monkeypatch):
@@ -275,7 +274,7 @@ class TestAWriteTheCameraDidNotAnswer:
             'Camera Did Not Answer',
             'gain_db',
         )
-        assert str(rejected.value).startswith('The camera did not answer a gain change')
+        assert str(rejected.value).startswith('The camera did not answer the gain change')
         assert type(rejected.value.__cause__).__name__ == 'CameraNoAnswerError'
         # Whether the camera took 9 dB is not known: no gain target is kept, so
         # the next captures settle by frame count rather than match 3 dB.

@@ -257,6 +257,40 @@ class Notification:
     and the dedup window say no), so a listener that
     displays opens only the shown ones and a listener that records keeps
     them all.
+
+    Attributes:
+        severity: How the post is logged; ``shown`` says whether it is
+            displayed.
+        category: The part of the instrument it is about, such as
+            ``'Motor'``, ``'Camera'``, ``'FileIO'`` or ``'Protocol'``.
+        title: The short heading a person reads.
+        message: The words a person reads.
+        monotonic_s: When it was posted, on this process's monotonic clock,
+            in seconds: the order of two notifications within one process.
+        source: The module or function that posted it; empty when none was
+            named.
+        fatal: True for a fault that ended its operation: it reaches a person
+            even while an unattended run mutes the others.
+        solicited: True when it answers a request just made, a refused press
+            or call, so neither the unattended mute nor the repeat window
+            holds it back.
+        operation_key: The piece of work it is one of a sequence about, a
+            starting notice and the notice that answers it, so a display can
+            replace the earlier one; empty for a notification on its own.
+        remedy: The action that answers the outcome, offered to a person;
+            None when it has none.
+        kind: What the outcome is, read from its type; ``UNCLASSIFIED`` for a
+            post made with no outcome behind it.
+        outcome_id: The outcome's number: the same for both deliveries of one
+            outcome (muted, then shown when a person asks for it), different
+            for every other.
+        reason: The outcome's machine-readable code, read from its type;
+            empty for a post that declares none.
+        shown: Whether it is for display now; False when shutdown, an
+            unattended run's mute, a run that already showed it, or the
+            repeat window holds it back.
+        wall_time_epoch_s: When it was posted, in seconds since the epoch,
+            for a client in another process.
     """
 
     severity: Severity

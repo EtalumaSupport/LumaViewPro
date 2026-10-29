@@ -1332,8 +1332,8 @@ class ImagingAPI:
         the capture runs is seen, and the capture starts its wait again,
         within a deadline; the deadline stands still while a commanded move
         is settling. The capture is one command on the camera's lane, and
-        this returns once it has run. ``capture_still`` is the same capture,
-        returning the frame's record with it.
+        this returns once it has run. ``ScopeSession.capture_still`` is the
+        same capture, returning the frame's record with it.
 
         Args:
             force_to_8bit: True for an 8-bit image; False for the camera's

@@ -666,6 +666,7 @@ _SOURCE = 'the module or function a post came from'
 _CATEGORY = "composed from the GUI's label and the executor's action, the dedup identity"
 _KEY = "an outcome's operation key, the caller's"
 _HEADER = "the protocol file format's header line"
+_PROTOCOL_COLUMN = "a column heading of the protocol file format's steps table"
 _READER = "the REST request reader's own word: where it found an argument, or its code for why"
 
 OPEN_STRINGS: dict[str, str] = {
@@ -790,6 +791,7 @@ OPEN_STRINGS: dict[str, str] = {
     'PostProcessingAPI.graph parameter title': _PROSE,
     'PostProcessingAPI.graph_options parameter x': _COLUMN,
     'PostProcessingAPI.graph_options parameter y': _COLUMN,
+    'Protocol.CURRENT_COLUMNS field': _PROTOCOL_COLUMN,
     'Protocol.PROTOCOL_FILE_HEADER field': _HEADER,
     'Protocol.capture_prefix return': _NAME,
     'Protocol.capture_root return': _PATH,

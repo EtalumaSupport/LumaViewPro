@@ -2620,9 +2620,13 @@ class ScopeSession:
 
         Args:
             channel: The layer whose stored exposure, gain and auto-gain the
-                camera holds for the grab, as ``apply_layer_camera`` puts them
-                on, in the capture's own camera-lane task. None (the default)
-                captures with the camera as set.
+                camera holds for the grab, put on in the capture's own
+                camera-lane task. After a raw camera
+                write (``CameraAPI.set_gain_db``, ``set_exposure_ms``,
+                ``apply``) the camera holds no layer's settings, and none are
+                written: the raw values stand, and the record's
+                ``held_channel`` is None. None (the default) captures with the
+                camera as set.
             force_to_8bit: Convert the image to 8 bits; False keeps the
                 camera's depth (``CapturedStill.significant_bits``).
             accept_dark: Skip the dark-frame judgment: a frame with
