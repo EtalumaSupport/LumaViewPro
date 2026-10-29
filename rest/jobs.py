@@ -18,8 +18,8 @@ succeeded. A run's job also names ``files``, the job of its operation's
 ``files``: the run's job ends as the run lets go of the scope, and its
 files' job once its images are on disk. ``DELETE`` on a running job is its
 operation's stop, which only asks; a call adopted as a job holds no
-operation and cannot be stopped there. A finished job is kept until a client forgets it, or until a new
-job finds it past the count or age bound.
+operation and cannot be stopped there. A finished job is kept until a
+client forgets it, or until a new job finds it past the count or age bound.
 """
 
 from __future__ import annotations
@@ -298,10 +298,10 @@ class JobRegistry:
         it is named, and from however many threads at once: a run's files
         are named each time its job is read.
         """
-        answered: asyncio.Future[Answer] = loop.create_future()
         with self._lock:
             known = self._of_future.get(future)
             if known is None:
+                answered: asyncio.Future[Answer] = loop.create_future()
                 job = self._add_locked(
                     member, problems.now(), answered, progress, operation=future, files=files
                 )
