@@ -682,7 +682,7 @@ class ManualRecordingController:
     def stop(self) -> None:
         """Close selection; the drain and finish continue on their own.
 
-        Every caller of this -- the Record button, app close, an L2 client
+        Every caller of this -- the Record button, app close, a REST or SDK client
         -- is the user stopping the recording, so its ``end_reason`` is
         ``'user_stop'``. The controller's own enders (the duration cap, the
         disk floor, a lost camera) name their own, and no caller can write

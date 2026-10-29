@@ -4114,7 +4114,7 @@ Route: `POST /api/v1/manual_recording/stop`.
 
 Close selection; the drain and finish continue on their own.
 
-Every caller of this -- the Record button, app close, an L2 client
+Every caller of this -- the Record button, app close, a REST or SDK client
 -- is the user stopping the recording, so its `end_reason` is
 `'user_stop'`. The controller's own enders (the duration cap, the
 disk floor, a lost camera) name their own, and no caller can write
@@ -6613,7 +6613,7 @@ Reached through `session.scope.illumination`; on the wire, `/api/v1/scope/illumi
 Held in: [`Lumascope.illumination`](#Lumascope.illumination).
 
 Illumination sub-API. Owns LED state, ownership tracking, and
-listener registry. Stateful bodies live here post-Phase 3d.
+listener registry.
 
 <a id="IlluminationAPI.add_led_listener"></a>
 ### `IlluminationAPI.add_led_listener`
@@ -7553,7 +7553,7 @@ wrong depth. A frame you are HOLDING carries its own depth
 Reached through `session.scope.motion`; on the wire, `/api/v1/scope/motion/`.  
 Held in: [`Lumascope.motion`](#Lumascope.motion).
 
-Motion sub-API. Hosts stateless (Phase 2b) and stateful (Phase 2c) bodies.
+Motion sub-API. Owns the motion state and every stage, focus and turret body.
 
 <a id="MotionAPI.add_position_listener"></a>
 ### `MotionAPI.add_position_listener`

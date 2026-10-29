@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """RuntimeState -- the configuration the scope acts on, split from ScopeCapabilities.
 
-Design doc sec 2.5 splits the capabilities surface into TWO:
+The scope answers for itself on TWO surfaces:
 
 - `scope.capabilities`: IMMUTABLE per Lumascope instance. Reconnect =
   new Lumascope = new capabilities.
@@ -16,8 +16,6 @@ The answers for labware / objective / turret / stage live here because
 they are user configuration that callers adjust during a session;
 capabilities is hardware-identity state that doesn't change without a
 reconnect.
-
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.5 and sec 10.
 """
 
 from __future__ import annotations

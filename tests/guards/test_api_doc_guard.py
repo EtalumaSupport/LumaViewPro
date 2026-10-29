@@ -57,12 +57,6 @@ a fenced import.
 A link from the guide reaches its anchor (polarity 6): one of its own
 headings, or an anchor the generated reference holds -- a member, field or
 class the generator rendered, or one of its headings.
-
-``PLUGIN_API_DESIGN_2026-05-09.md`` is deliberately NOT guarded. It is a
-design and history document; 12 of its 40 call forms name proposals that were
-never built (``scope.is_command_safe_for_rest``,
-``session.focus.get_well_focus``) or pre-rename historical spellings. Its
-accuracy is maintained by review, not by resolution.
 """
 
 import ast

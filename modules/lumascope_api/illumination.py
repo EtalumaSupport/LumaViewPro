@@ -518,7 +518,7 @@ class _Held:
 
 class IlluminationAPI:
     """Illumination sub-API. Owns LED state, ownership tracking, and
-    listener registry. Stateful bodies live here post-Phase 3d.
+    listener registry.
     """
 
     def _refuse_not_a_board_address(self, address: int, argument: str) -> None:

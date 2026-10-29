@@ -20,8 +20,7 @@ Within a relocated body:
     * cross-method calls to non-motion helpers on Lumascope route via
       ``self._scope.X``.
 
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.1 for the canonical
-method list.
+Its members are listed in the API reference, docs/API_REFERENCE.md.
 """
 
 from __future__ import annotations
@@ -273,7 +272,7 @@ class TurretChanged:
 
 
 class MotionAPI:
-    """Motion sub-API. Hosts stateless (Phase 2b) and stateful (Phase 2c) bodies."""
+    """Motion sub-API. Owns the motion state and every stage, focus and turret body."""
 
     _MOTION_POLL_INTERVAL = 0.02  # the sleep between polls, not their period
     # How long an axis may sit MOVING with the motor board disconnected

@@ -1,9 +1,9 @@
-# LumaViewPro -- Plugin Tutorial (Post-Processing, Phase A)
+# LumaViewPro -- Plugin Tutorial
 
 ## PRE-RELEASE API
 
-The plugin platform documented in this file is **Phase A** of the 4.x
-plugin contract. The `ctx.plugins.post_processing` namespace shape is
+The plugin platform documented in this file is the 4.x plugin
+contract, before 4.x freezes. The `ctx.plugins.post_processing` namespace shape is
 stable. `ctx.plugins.ui` is registerable now but the only mount point
 is `left_sidebar.accordion`. `ctx.plugins.live_processing` is
 registerable now: a per-frame listener on the live camera stream.
@@ -31,20 +31,16 @@ reaches the instrument through `ctx.scope` and the session's members
 
 Four namespaces are defined for 4.x:
 
-| Namespace | Purpose | State in Phase A |
+| Namespace | Purpose | State in this release |
 |---|---|---|
 | `ui` | Adds widgets at named mount points | live; one mount point (`left_sidebar.accordion`) |
-| `post_processing` | Operates on saved capture folders | live; intern's primary surface |
+| `post_processing` | Operates on saved capture folders | live; this tutorial's subject |
 | `live_processing` | Per-frame listeners on the live camera stream | live; see **Live frame listeners** below |
 | `rest` | HTTP sub-routers mounted under `/plugins/<name>/` | reserved; raises on registration |
 
-This tutorial covers `post_processing` end-to-end. UI / live / REST
-shapes are documented elsewhere as those surfaces land. One rule of the
-`ui` mount: the host does not lock a mounted widget while a run or a
-diagnostic holds the scope. A plugin greys its own controls from
-`ctx.add_run_state_listener` and `ctx.controls_lock.controls_locked`,
-as the built-in regions do, so a control that must stay live during a
-run, such as its own Stop, stays live.
+This tutorial covers `post_processing` end-to-end. The other three
+are under **Lifecycle and namespaces**: **UI mounts**, **Live frame
+listeners** and **The reserved namespace**.
 
 ---
 
@@ -70,7 +66,7 @@ hello_postproc/
 """Hello-world post-processor for LumaViewPro.
 
 Registers a processor that lists the TIFFs in input_dir and writes a
-summary.txt into output_dir. Demonstrates the Phase A contract; not a
+summary.txt into output_dir. Demonstrates the plugin contract; not a
 useful processor on its own.
 """
 from __future__ import annotations
@@ -152,23 +148,28 @@ def unregister(ctx: Any) -> None:
 | `name` | yes | Unique within a namespace. Duplicate -> `PluginRegistrationError`. |
 | `version` | yes | Your plugin's version. Free-form; not parsed by the host. |
 | `requires_lvp_version` | yes | PEP-440-ish requirement (`>=4.0.0`, `==4.0.0`, `~=4.0.0`). Host strips pre-release suffixes (`-beta8`) before comparing. |
-| `description` | yes | One sentence shown in the plugin list and the tech-support report. |
-| `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `modules.image_save`). Recorded in tech-support reports; not sandbox-enforced in 4.x. |
+| `description` | yes | One sentence saying what the plugin does. |
+| `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `modules.image_save`). A declaration only: not read, and not sandbox-enforced, in 4.x. |
 | `subscribes_to` | no | Retired at plugin API level 9: leave it out. An empty tuple is accepted; a spec naming keys is not loaded, since no plugin is told of a settings change. |
 | `author` | no | Free-form. |
 | `url` | no | Free-form. |
+| `auto_run_on_protocol_complete` | no | `post_processing` only. `True` hands your processor the folder of every Full Protocol run; see **After a protocol**. Defaults to `False`. |
 
 `PluginSpec` is a frozen dataclass; attempting to mutate a field
 after construction raises.
+
+The tech-support report records each loaded plugin's `name`, `version`
+and namespace, each plugin that did not load with its reason, and the
+errors a loaded plugin raised while the host called it.
 
 ### What `ProcessorResult` means
 
 | Field | Meaning |
 |---|---|
-| `success` | True if the processor completed. False puts the plugin on the failure list in the run-complete dialog. |
-| `outputs` | Tuple of absolute paths the host should surface (e.g. "Open output folder", attach to email). |
-| `message` | One-line user-facing summary. Speak to an L1 researcher; no internal IDs or exception class names. |
-| `metadata` | Free-form dict. Recorded for the tech-support report; not surfaced in the UI. |
+| `success` | True if the processor completed. When the host ran it (**After a protocol**), False is reported to the person as your plugin's failure, with your `message`. |
+| `outputs` | Tuple of absolute paths of the files the processor wrote. |
+| `message` | One-line summary for the person using the microscope; no internal IDs or exception class names. Logged when the host's run succeeds, shown when it fails. |
+| `metadata` | Free-form dict for your own callers; the host does not read it. |
 
 `ProcessorResult` is also a frozen dataclass.
 
@@ -213,8 +214,9 @@ pip install -e /path/to/hello_postproc
 Restart LumaViewPro. At startup its session iterates entry points,
 imports each one, reads its `spec`, checks `requires_lvp_version`
 against the running LVP version, then calls `register(ctx)`. If any
-step fails the plugin is skipped, a `notifications.error` fires, and
-the rest of the app keeps loading.
+step fails the plugin is skipped and the rest of the app keeps loading;
+when discovery ends, every plugin that did not load is reported
+together, once, each with its reason.
 
 ---
 
@@ -296,22 +298,26 @@ LumaViewPro does at startup. A script's or a test's session that never
 asks has none. For each entry point in `lvp.plugins`, and then for each
 built-in:
 
-1. Import the module. Import failure -> log + notify + skip.
-2. Read module-level `spec`. Missing or wrong type -> warn + skip.
-3. Check `requires_lvp_version` against the running LVP version.
-   Incompatible -> warn + record on the failed-list + skip.
-4. Call `register(ctx)` with the session. Exception -> log + notify +
-   call `unregister(ctx)` for cleanup + skip.
+1. Import the module. Import failure -> not loaded.
+2. Read module-level `spec`. Missing or not a `PluginSpec` -> not loaded.
+3. Check the spec: a `subscribes_to` naming keys, or a
+   `requires_lvp_version` the running LVP version does not meet ->
+   not loaded.
+4. Call `register(ctx)` with the session. Exception -> call
+   `unregister(ctx)`, if the plugin has one, for cleanup -> not loaded.
 5. Track the module so `session.unload_plugins()` can call its
    `unregister` at shutdown.
+
+A plugin that did not load is recorded with its reason, for
+`session.plugin_health()` and the tech-support report.
 
 An installed plugin claiming a built-in's name keeps it; the built-in
 is the one reported as not loaded.
 
-Each step's failure leaves the rest of the app intact. The
-`notifications.error` for a load failure says "Plugin X did not
-load: <reason>. Other features unaffected." -- if you see that on
-startup, that's why.
+Each step's failure leaves the rest of the app intact. The one report
+when discovery ends says, for each plugin, `The "<name>" plugin did not
+load: <reason>.`, then `The rest of LumaViewPro is unaffected.` -- if
+you see that on startup, that's why.
 
 ### Unload
 
@@ -344,6 +350,28 @@ processor. It runs on the post-processing lane, apart from the run: the
 scope takes the next run while it works. From there it may call the
 session's post-processing members; a blocking call to a camera, motion
 or file member raises.
+
+### UI mounts
+
+`ctx.plugins.ui.register(spec, mount_point, builder)` adds a widget at
+a named mount point. The one mount point is `left_sidebar.accordion`;
+another name raises `PluginRegistrationError` (`unknown_mount_point`).
+`builder` takes no arguments and returns a Kivy `AccordionItem`. The
+host calls it once the window's widget tree exists, not at
+registration, and adds what it returns to the accordion; a builder
+that raises is reported as your plugin's failure, and the rest of the
+window still comes up.
+
+```python
+def register(ctx):
+    ctx.plugins.ui.register(spec, 'left_sidebar.accordion', lambda: MyPanel(ctx))
+```
+
+The host does not lock a mounted widget while a run or a diagnostic
+holds the scope. A plugin greys its own controls from
+`ctx.add_run_state_listener` and `ctx.controls_lock.controls_locked`,
+as the built-in regions do, so a control that must stay live during a
+run, such as its own Stop, stays live.
 
 ### Live frame listeners
 
@@ -465,12 +493,12 @@ or ensure your `register(ctx)` runs exactly once. Names are unique
 
 The mount-point name you passed to `ctx.plugins.ui.register(spec, mount_point, builder)`
 is not in `UI_MOUNT_POINTS`. The error message lists the known names;
-in Phase A there is only `left_sidebar.accordion`. Mount points are
+in this release there is only `left_sidebar.accordion`. Mount points are
 added deliberately as the host learns how to attach them; pick from
 the listed set or ask for a new mount point with a widget-shape
 contract.
 
-### Startup notification: `Plugin X did not load: requires >=4.1.0, have 4.0.0`
+### Startup notification: `The "foo" plugin did not load: version 0.1.0 needs LumaViewPro >=4.1.0, and this is 4.0.0`
 
 Your `spec.requires_lvp_version` excludes the running LVP. Either
 loosen the requirement (`>=4.0.0`), update LumaViewPro, or accept
@@ -478,7 +506,7 @@ that your plugin is gated to a future LVP. The host strips
 pre-release suffixes (`-beta8`, `-rc1`) before comparing, so
 `>=4.0.0` matches `4.0.0-beta8`.
 
-### Startup notification: `Plugin X did not load: <ExceptionType>: <message>`
+### Startup notification: `The "foo" plugin did not load: its register() raised <ExceptionType>: <message>`
 
 Your `register(ctx)` raised. The host already called your
 `unregister(ctx)` for cleanup, so partial state should be released.
@@ -527,9 +555,6 @@ run-complete dialog without normalization.
   [Frames and captures](LumascopeSkills.md#frames-and-captures) in the guide.
 - HTTP endpoints under `/plugins/<name>/` are not yet available; the
   namespace name is reserved.
-- The full design rationale -- why four namespaces, why
-  entry-points discovery, why no sandbox in 4.x -- is
-  `PLUGIN_API_DESIGN_2026-05-09.md` in this directory.
 
 If something this tutorial promised doesn't work, or if you hit a
 case the API can't express, file an issue against
