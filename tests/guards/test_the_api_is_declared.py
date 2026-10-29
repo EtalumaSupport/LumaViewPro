@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The API is the marked set, the reference indexes exactly it, and it is closed.
+"""The API is the marked set, the reference is its current render, and it is closed.
 
 A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
@@ -12,9 +12,12 @@ project class a marked annotation resolves to, a driver's record among them),
 and every marked top-level function of a project module, keyed by its dotted
 path (``rest.app.build_app``):
 
-1. **Equal.** The marked set equals the ``## API reference`` index in
-   ``docs/LumascopeSkills.md``, both ways, in-process labels included. The
-   failure names each side's extras.
+1. **Current.** ``docs/API_REFERENCE.md`` is the render of the marked set
+   and its docstrings (``tests.api_reference``), byte for byte, on every
+   interpreter the suite runs on: a member renamed, a docstring changed, a
+   mark added or a route removed without regenerating it fails, naming the
+   command that regenerates it. Run with ``LVP_WRITE_API_REFERENCE=1``,
+   the rule writes the render instead.
 2. **Real.** Every published field is a field the class has: a dataclass or
    NamedTuple field, a class attribute, or assigned as ``self.<name>`` in the
    class body.
@@ -77,9 +80,10 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import difflib
 import enum
 import inspect
-import re
+import os
 import sys
 import types
 from typing import Any
@@ -89,7 +93,8 @@ import pytest
 
 from modules import wire_encoding
 from modules.api_surface import API, api
-from tests.ast_seams import REPO_ROOT, RetiredNames, Words
+from tests.api_reference import REFERENCE, REGENERATE, WRITE, render
+from tests.ast_seams import RetiredNames, Words
 from tests.marked_set import (
     Marked,
     marked_classes_outside,
@@ -97,10 +102,6 @@ from tests.marked_set import (
     marked_members,
     marked_set,
 )
-
-DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
-INDEX_HEADING = '## API reference'
-IN_PROCESS_LABEL = '(in-process)'
 
 # Members whose absence would mean the walk lost its way, one per kind of
 # owner: a Session member, a sub-API member, a run handle's, a run outcome's
@@ -134,32 +135,10 @@ def marked(universe: dict[str, type]) -> dict[str, Marked]:
     return marked_set(universe)
 
 
-def _index(text: str) -> dict[str, str]:
-    """``Class.member`` or ``module.function`` -> ``api`` or ``in_process``, from the doc's index.
-
-    A heading is a class's name, or a module's dotted path for its functions.
-    """
-    start = text.index(f'\n{INDEX_HEADING}\n')
-    section = text[start + len(INDEX_HEADING) + 2 :]
-    end = section.find('\n## ')
-    section = section if end < 0 else section[:end]
-    indexed, cls = {}, None
-    for line in section.splitlines():
-        heading = re.fullmatch(r'### `?([A-Za-z_][A-Za-z0-9_.]*)`?', line.strip())
-        if heading:
-            cls = heading.group(1)
-            continue
-        item = re.fullmatch(r'- `([A-Za-z_][A-Za-z0-9_]*)`( \(in-process\))?', line.strip())
-        if item:
-            assert cls is not None, f'index item {line!r} sits under no heading'
-            indexed[f'{cls}.{item.group(1)}'] = 'in_process' if item.group(2) else 'api'
-    return indexed
-
-
 @pytest.fixture(scope='module')
-def indexed() -> dict[str, str]:
-    """pin-justified: the guard's subject is the reference's index text."""
-    return _index(DOC.read_text(encoding='utf-8'))
+def rendered(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]) -> str:
+    """The reference's text, rendered now from the marks and the docstrings."""
+    return render(marked, universe, aliases)
 
 
 def test_no_marked_name_is_private(marked: dict[str, Marked]) -> None:
@@ -167,19 +146,19 @@ def test_no_marked_name_is_private(marked: dict[str, Marked]) -> None:
     assert not private, f'members marked as API whose names say private: {private}'
 
 
-def test_the_index_is_the_marked_set(marked: dict[str, Marked], indexed: dict[str, str]) -> None:
-    unindexed = sorted(set(marked) - set(indexed))
-    unmarked = sorted(set(indexed) - set(marked))
-    mislabelled = sorted(
-        f'{name}: marked {marked[name].tag}, indexed {indexed[name]}'
-        for name in set(marked) & set(indexed)
-        if marked[name].tag != indexed[name]
+def test_the_reference_is_current(rendered: str) -> None:
+    if os.environ.get(WRITE):
+        REFERENCE.write_text(rendered, encoding='utf-8', newline='\n')
+        return
+    committed = REFERENCE.read_text(encoding='utf-8') if REFERENCE.exists() else ''
+    changed = list(
+        difflib.unified_diff(
+            committed.splitlines(), rendered.splitlines(), 'committed', 'rendered', lineterm='', n=1
+        )
     )
-    assert not (unindexed or unmarked or mislabelled), (
-        f'{DOC.name} "{INDEX_HEADING}" and the @api / @api_fields marks disagree.\n'
-        f'  marked, not indexed: {unindexed}\n'
-        f'  indexed, not marked: {unmarked}\n'
-        f'  labelled differently: {mislabelled}'
+    assert not changed, (
+        f'{REFERENCE.name} is not the render of the marks and docstrings; regenerate it:\n'
+        f'  {REGENERATE}\n' + '\n'.join(changed[:60])
     )
 
 
@@ -390,11 +369,10 @@ def test_every_marked_class_is_in_the_table(universe: dict[str, type]) -> None:
     )
 
 
-def test_the_walk_is_not_vacuous(marked: dict[str, Marked], indexed: dict[str, str]) -> None:
+def test_the_walk_is_not_vacuous(marked: dict[str, Marked], rendered: str) -> None:
     assert marked.keys() >= NOT_VACUOUS, f'marks not found: {sorted(NOT_VACUOUS - marked.keys())}'
-    assert indexed.keys() >= NOT_VACUOUS, (
-        f'index entries not found: {sorted(NOT_VACUOUS - indexed.keys())}'
-    )
+    unrendered = sorted(name for name in NOT_VACUOUS if f'<a id="{name}"></a>' not in rendered)
+    assert not unrendered, f'reference entries not found: {unrendered}'
 
 
 # A parameter naming one of these takes a file-system path.

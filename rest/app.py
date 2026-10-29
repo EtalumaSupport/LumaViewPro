@@ -682,6 +682,23 @@ async def _failed(request: fastapi.Request, error: Exception) -> JSONResponse:
     return problems.answered_by_member(error, request.state.request_id).response()
 
 
+def served(route: Route) -> tuple[str, str, str]:
+    """Where the server serves *route*, below ``PREFIX``: its path, its operation's name, and its tag.
+
+    A route from a live object's class is under
+    ``handles/<Class>/{handle_id}/``, the handle a client was handed; a
+    Session route is at its own path.
+    """
+    if route.root is ScopeSession:
+        return route.path, route.name, '/'.join(route.segments) or 'session'
+    handles = f'handles/{route.root.__name__}'
+    return (
+        f'{handles}/{{handle_id}}/{route.path}',
+        f'{handles}/{route.name}',
+        '/'.join((handles, *route.segments)),
+    )
+
+
 def _add(
     app: fastapi.FastAPI,
     session: ScopeSession,
@@ -696,12 +713,7 @@ def _add(
     doc = inspect.cleandoc(route.member.doc)
     member = route.member
     on_handle = route.root is not ScopeSession
-    if on_handle:
-        path = f'handles/{route.root.__name__}/{{handle_id}}/{route.path}'
-        name = f'handles/{route.root.__name__}/{route.name}'
-        tag = '/'.join((f'handles/{route.root.__name__}', *route.segments))
-    else:
-        path, name, tag = route.path, route.name, '/'.join(route.segments) or 'session'
+    path, name, tag = served(route)
     common = {
         'path': f'{PREFIX}/{path}',
         'name': name,

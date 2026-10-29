@@ -4,10 +4,11 @@
 A member is API when it carries ``@api``; a class's published data
 attributes are the names its ``@api_fields`` lists. Whatever is unmarked
 stays callable from Python but is not documented as API and is never put
-on a wire, whatever its name. ``docs/LumascopeSkills.md`` indexes exactly
-this set, and ``tests/guards/test_the_api_is_declared.py`` holds the two
-equal and the set closed: every type a marked member hands out or takes
-in is itself published.
+on a wire, whatever its name. ``docs/API_REFERENCE.md`` is this set,
+rendered from the marks and the docstrings (``entries_of``,
+``markdown_of``), and ``tests/guards/test_the_api_is_declared.py`` holds
+it current and the set closed: every type a marked member hands out or
+takes in is itself published.
 
 ``@api(in_process=True)`` marks a member that is kept off the wire --
 hosting a session, returning a function, or held back by policy -- so a
@@ -452,6 +453,100 @@ def raises_of(doc: str) -> list[tuple[str, tuple[str, ...]]]:
         (name, tuple(dict.fromkeys(a or b for a, b in QUOTED_REASON.findall(words))))
         for name, words in RAISES_ENTRY.findall(found.group(1))
     ]
+
+
+# A docstring's sections, each a heading line read as its own: what a
+# reader of the API is told under it, entry by entry or as prose.
+SECTIONS = ('Args', 'Attributes', 'Raises', 'Returns', 'Yields')
+# The sections whose body is entries, ``name: words``, continued deeper.
+ENTRY_SECTIONS = frozenset({'Args', 'Attributes', 'Raises'})
+_SECTION_HEADING = re.compile(rf'^({"|".join(SECTIONS)}):\s*$')
+_ENTRY = re.compile(r'^([\w*.]+):\s*(.*)$')
+_CODE = re.compile(r'``(.+?)``')
+
+
+def _section_lines(doc: str) -> list[tuple[str | None, list[str]]]:
+    """*doc* split at its section headings: each part's heading (None for prose) and its lines, a section's dedented.
+
+    A section's body is its indented lines and the blank lines between
+    them; the first unindented line after it is prose again.
+    """
+    parts: list[tuple[str | None, list[str]]] = [(None, [])]
+    for line in doc.splitlines():
+        heading = _SECTION_HEADING.match(line)
+        if heading:
+            parts.append((heading.group(1), []))
+            continue
+        if parts[-1][0] is not None and line.strip() and not line[:1].isspace():
+            parts.append((None, []))
+        parts[-1][1].append(line)
+    return [(h, lines if h is None else _dedent(lines)) for h, lines in parts]
+
+
+def _dedent(lines: list[str]) -> list[str]:
+    widths = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    cut = min(widths, default=0)
+    return [line[cut:] for line in lines]
+
+
+def _entries(lines: list[str]) -> dict[str, str]:
+    """A section body's entries, by name, each one's words joined onto one line."""
+    found: dict[str, list[str]] = {}
+    name = None
+    for line in lines:
+        entry = None if line[:1].isspace() else _ENTRY.match(line)
+        if entry:
+            name = entry.group(1)
+            found[name] = [entry.group(2)]
+        elif name is not None and line.strip():
+            found[name].append(line.strip())
+    return {n: ' '.join(w for w in words if w) for n, words in found.items()}
+
+
+def entries_of(doc: str, section: str) -> dict[str, str]:
+    """Each entry of *doc*'s *section* (``Args``, ``Attributes``, ``Raises``), by name, its words on one line.
+
+    *doc* is a docstring as ``inspect.getdoc`` gives it. A missing section
+    has no entries.
+    """
+    found: dict[str, str] = {}
+    for heading, lines in _section_lines(doc):
+        if heading == section:
+            found |= _entries(lines)
+    return found
+
+
+def _inline(text: str) -> str:
+    """Docstring prose as Markdown: a literal is a code span, and a ``<`` outside one is no tag."""
+    return ''.join(
+        f'`{piece}`' if index % 2 else piece.replace('<', '&lt;')
+        for index, piece in enumerate(_CODE.split(text))
+    )
+
+
+def markdown_of(doc: str, *, leave_out: tuple[str, ...] = ()) -> str:
+    """*doc* as Markdown: its prose as written, each section under a bold heading, an entry section as a list.
+
+    *doc* is a docstring as ``inspect.getdoc`` gives it. A section named in
+    *leave_out* is not rendered; an entry section with no entry
+    (``Nothing.``) is rendered as its prose.
+    """
+    out: list[str] = []
+    for heading, lines in _section_lines(doc):
+        if heading in leave_out:
+            continue
+        entries = _entries(lines) if heading in ENTRY_SECTIONS else {}
+        if heading is None:
+            text = '\n'.join(_inline(line) for line in lines).strip('\n')
+        elif entries:
+            items = '\n'.join(f'- `{name}`: {_inline(words)}' for name, words in entries.items())
+            text = f'**{heading}**\n\n{items}'
+        else:
+            body = ' '.join(line.strip() for line in lines if line.strip())
+            text = f'**{heading}**\n\n{_inline(body)}'
+        if text:
+            out.append(text)
+    return '\n\n'.join(out)
 
 
 def mark_of(member: object) -> str | None:
