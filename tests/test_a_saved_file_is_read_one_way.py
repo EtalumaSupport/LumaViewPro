@@ -22,13 +22,10 @@ from modules import image_utils
 from modules.exceptions import InputFramesUnusableError
 from modules.layer_record import GREY, release_colors
 from modules.stack_builder import StackBuilder
+from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED1
 
 _A_TIME = datetime.datetime(2026, 10, 28, 12, 0, 0, 250000)
-
-# What an OME file does not state until the OME plan writes its schema blocks:
-# tifffile keeps only the schema's Image, Pixels, Channel and Plane.
-_NOT_IN_AN_OME_FILE = {'instrument', 'plate', 'well_label', 'filterset', 'channel_display'}
 
 
 def _a_record(**overrides) -> dict:
@@ -72,16 +69,15 @@ def _write(path, record, *, dtype=np.uint16, ome=False) -> pathlib.Path:
 
 
 def test_one_frame_in_every_container_reads_back_as_one_record(tmp_path):
-    """The same frame saved as a shaped, an ImageJ and an OME TIFF gives the
-    same scale, time, objective, channel and Plane facts; the OME file lacks
-    only what its container cannot yet hold."""
+    """The same frame saved as a shaped, an ImageJ and an OME TIFF reads back
+    as one record: its scale, time, objective, channel, Plane facts,
+    instrument, plate and well."""
     record = _a_record()
     shaped = image_utils.read_file_record(_write(tmp_path / 's.tiff', record, dtype=np.uint8))
     imagej = image_utils.read_file_record(_write(tmp_path / 'ij.tiff', record))
     ome = image_utils.read_file_record(_write(tmp_path / 'o.ome.tiff', record, ome=True))
 
-    assert shaped == imagej
-    assert {k: v for k, v in shaped.items() if k not in _NOT_IN_AN_OME_FILE} == ome
+    assert shaped == imagej == ome
     times = {
         name: image_utils.load_pixels_with_timestamp(path)[3]
         for name, path in (('imagej', tmp_path / 'ij.tiff'), ('ome', tmp_path / 'o.ome.tiff'))
@@ -144,6 +140,122 @@ def test_a_hyperstack_built_from_ome_stills_states_its_plane_times(tmp_path):
         xml = tif.ome_metadata
     delta_t = [float(v) for v in re.findall(r'DeltaT="([^"]+)"', xml)]
     assert delta_t == [0.0, 5.0]
+
+
+def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_path):
+    """A hyperstack built on demand from a folder of OME stills names their
+    instrument in the schema, and reads back the facts a derived file states
+    of its frames (their instrument, plate, well, objective and, on one
+    channel, the layer's settings), never a capture's own fact, from a
+    schema-valid file with no private sidecar tag."""
+    rows = []
+    for z in range(2):
+        name = f'frame_z{z}.ome.tiff'
+        _write(tmp_path / name, _a_record(z_pos_um=100.0 * z), ome=True)
+        rows.append(
+            {
+                'Filepath': name,
+                'Color': LED1,
+                'Scan Count': 0,
+                'Z-Slice': z,
+                'X': 12.5,
+                'Y': 30.25,
+                'Z': 100.0 * z,
+            }
+        )
+    StackBuilder._create_stack(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        output_file_loc=pathlib.Path('out.ome.tiff'),
+        save_encoding='right_aligned',
+        channel_colors=release_colors(),
+    )
+    out = tmp_path / 'out.ome.tiff'
+
+    root = valid_description(out)
+    record = image_utils.read_file_record(out)
+
+    assert root.find(f'{q("Instrument")}/{q("Microscope")}').get('Model') == 'LS850'
+    stated = _a_record()
+    shared = ('instrument', 'plate', 'well_label', 'objective', 'filterset', 'binning_size')
+    on_its_channel = ('exposure_time_ms', 'gain_db', 'excitation_nm', 'channel_display')
+    assert {key: record.get(key) for key in shared + on_its_channel} == {
+        key: image_utils.read_file_record(tmp_path / 'frame_z0.ome.tiff')[key]
+        for key in shared + on_its_channel
+    }
+    assert record['instrument'] == stated['instrument']
+    captured = [
+        key for key in record if image_utils.FILE_FACTS[key].kind is image_utils.FactKind.CAPTURE
+    ]
+    assert captured == []
+    with tf.TiffFile(str(out)) as tif:
+        assert 51838 not in tif.pages[0].tags
+
+
+def _hyperstack(path, record, *, channels, z_positions, positions=True):
+    """A hyperstack of ``record``'s frame, one plane per Z per channel, its
+    planes standing at ``z_positions`` (no Plane at all with no
+    ``positions``)."""
+    planes = len(channels) * len(z_positions)
+    z_per_plane = [z for z in z_positions for _ in channels]
+    unknown = [None] * planes
+    image_utils.write_hyperstack_tiff(
+        iter([np.zeros((8, 8), dtype=np.uint16)] * planes),
+        path,
+        (1, len(z_positions), len(channels), 8, 8),
+        np.uint16,
+        image_utils.build_hyperstack_output_metadata(
+            [record],
+            channel_names=channels,
+            channel_colors=[GREY] * len(channels),
+            plane_positions={
+                'PositionX': [12.5] * planes if positions else unknown,
+                'PositionY': [30.25] * planes if positions else unknown,
+                'PositionZ': z_per_plane if positions else unknown,
+                'DeltaT': None,
+            },
+            significant_bits=12,
+            pixel_size_um=0.65,
+        ),
+        {'photometric': 'minisblack'},
+    )
+    return path
+
+
+def test_a_hyperstacks_record_states_only_what_all_its_planes_agree_on(tmp_path):
+    """A hyperstack's record states a Plane fact only when every Plane states
+    it alike, and its channel only when it has one: a stack whose planes
+    stand at different Z states no Z, never its first plane's; a stack of two
+    channels names neither; a stack with no Plane element reads its own
+    facts alone, the position its frames agree on among them, carried in its
+    annotation since no Plane holds it. Each file is valid OME."""
+    record = _a_record()
+    paths = {
+        'two Z': _hyperstack(
+            tmp_path / 'z.ome.tiff', record, channels=[LED1], z_positions=[1500.0, 1510.0]
+        ),
+        'two channels': _hyperstack(
+            tmp_path / 'c.ome.tiff', record, channels=[LED1, 'BF'], z_positions=[1500.0]
+        ),
+        'no Plane': _hyperstack(
+            tmp_path / 'p.ome.tiff', record, channels=[LED1], z_positions=[1500.0], positions=False
+        ),
+    }
+    roots = {case: valid_description(path) for case, path in paths.items()}
+    read = {case: image_utils.read_file_record(path) for case, path in paths.items()}
+
+    assert 'z_pos_um' not in read['two Z']
+    assert read['two Z']['plate_pos_mm'] == {'x': 12.5, 'y': 30.25}
+    assert read['two Z']['channel'] == LED1
+    assert 'channel' not in read['two channels']
+    assert 'exposure_time_ms' not in read['two channels']
+    assert read['two channels']['z_pos_um'] == 1500.0
+    assert roots['no Plane'].find(f'{q("Image")}/{q("Pixels")}/{q("Plane")}') is None
+    assert read['no Plane']['plate_pos_mm'] == record['plate_pos_mm']
+    assert (read['no Plane']['pixel_size_um'], read['no Plane']['instrument']) == (
+        0.65,
+        record['instrument'],
+    )
 
 
 def _legacy_frame(path, description, *, datetime_tag) -> pathlib.Path:

@@ -422,7 +422,6 @@ class TestARecordingOnTheSimulator:
     def test_each_frame_states_its_record_and_the_hyperstack_its_rounded_position(self, tmp_path):
         import threading
 
-        from modules.image_utils import read_hyperstack_private_metadata
         from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
         from modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
@@ -472,6 +471,6 @@ class TestARecordingOnTheSimulator:
         assert written['illumination_timing'] == 'on_arrival'
         assert 'frame_validity' not in written and 'black_level' not in written
 
-        stack = read_hyperstack_private_metadata(folder / MANUAL_HYPERSTACK_FILENAME)
-        ys = stack['Plane']['PositionY']
-        assert ys[0] == written['plate_pos_mm']['y'], "the stack states the frame file's Y"
+        # The stage stood still, so every plane states the one position.
+        stack = read_file_record(folder / MANUAL_HYPERSTACK_FILENAME)
+        assert stack['plate_pos_mm'] == written['plate_pos_mm'], "the stack states the frame's"

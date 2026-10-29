@@ -63,3 +63,9 @@ py-spy>=0.4
 austin-dist==4.0.0; sys_platform == "darwin"
 austin-python==2.3.0; sys_platform == "darwin"
 ome-types==0.6.3
+
+# The OME 2016-06 schema gate (tests/ome_schema.py): validates every OME
+# description the tests write against the XSD ome-types bundles. ome-types'
+# own from_xml checks no element order and no ID reference, so a misordered
+# Instrument or a dangling ObjectiveSettings passes it.
+xmlschema==4.3.2

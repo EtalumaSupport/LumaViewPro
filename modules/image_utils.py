@@ -5,6 +5,7 @@ import dataclasses
 import datetime
 import enum
 import functools
+import io
 import json
 import os
 import pathlib
@@ -387,17 +388,6 @@ def mono_to_rgb_falsecolor(
 _legacy_collapse_warned: bool = False
 
 
-# Private TIFF tag (range 32768-65535) carrying a JSON-encoded copy of
-# the full hyperstack metadata dict, including the Instrument / Plate /
-# Objective subtrees that tifffile's auto-OME-XML serializer silently
-# drops. LVP-aware consumers recover the dropped fields by parsing the
-# tag value as JSON via read_hyperstack_private_metadata; FIJI / ImageJ
-# / generic OME readers ignore the private tag harmlessly. The OME-XML
-# in ImageDescription (Image > Pixels > Channel + Plane) is unchanged
-# by this sidecar -- both representations coexist on the same IFD.
-LVP_HYPERSTACK_METADATA_TIFF_TAG: int = 51838
-
-
 def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
     """Read a TIFF, collapsing pre-1d 3-channel false-color-replica files
     to mono. Mono inputs and true color outputs pass through.
@@ -472,6 +462,14 @@ _OME_PLANE_ATTRIBUTES = frozenset(
     _OME_PLANE_VALUES + tuple(f'{value}Unit' for value in _OME_PLANE_VALUES)
 )
 _LVP_OME_ANNOTATION_NAMESPACE = 'etaluma.com/lvp'
+
+# tifffile's OME writer serializes only Image, Pixels, Channel, Plane and the
+# MapAnnotation, and drops every other element without a word, so the
+# Instrument is spliced into the description it wrote. Registered as the
+# default namespace so the spliced description keeps the unprefixed tags
+# tifffile wrote; nothing else in LVP serializes XML with ElementTree.
+_OME_NAMESPACE = 'http://www.openmicroscopy.org/Schemas/OME/2016-06'
+ET.register_namespace('', _OME_NAMESPACE)
 
 # The TIFF 6.0 DateTime tag's one form. A record's ``datetime`` is a datetime
 # value, formatted here by the writer and parsed back by the reader.
@@ -953,22 +951,23 @@ def summed_full_scale(frames_summed: int, frame_bits: int) -> int:
 
 
 def _read_ome_input_metadata(ome_xml: str) -> dict | None:
-    """Recover the flat metadata dict from a tifffile-auto-OME description.
+    """Recover the record from an OME description LVP wrote.
 
-    The Plane is the schema's Plane attributes (the position and the exposure)
-    together with every other Plane fact, which write_tiff carries in the
-    image's LVP MapAnnotation; read through the one Plane reading the
-    structured containers use, an OME file states what an ImageJ file of the
-    same frame does. Pixels PhysicalSizeX and Channel Name come from the XML.
-    Instrument, Plate, the Channel's DisplayName and the FilterSet are dropped
-    at write and cannot be recovered, so the result states none of them; nor
-    does a file written before the annotation state its Plane's other facts:
-    a derived output states only what its input did. Returns None on a parse
-    failure, an annotated value that is not JSON among them, or when there is
-    no Pixels element to read at all. tifffile writes no Plane element when
-    the frame states none of its schema attributes (no position, no
-    exposure), and the scale, the channel and the annotation are read all the
-    same.
+    The record comes in two parts. The file's own facts: the image's LVP
+    MapAnnotation, which carries every fact the write put in no schema
+    attribute (a Plane fact under its Plane name, any other under its record
+    key), Pixels PhysicalSizeX, and the Channel's Name and excitation when the
+    file has one Channel. And the Plane facts every ``<Plane>`` agrees on
+    (agreed_facts): a still's one Plane states its own, and a hyperstack
+    whose planes stand at different Z states no Z, never its first plane's.
+    Each is read through the one Plane reading the structured containers use,
+    so an OME file states what an ImageJ file of the same frame does. A file
+    written before the annotation carried a fact states none of it: a derived
+    output states only what its input did. Returns None on a parse failure,
+    an annotated value that is not JSON among them, or when there is no
+    Pixels element to read at all. tifffile writes no Plane element when the
+    file states none of its schema attributes (no position, no exposure, no
+    timing), and the file's own facts are read all the same.
     """
     try:
         root = ET.fromstring(ome_xml)
@@ -986,8 +985,8 @@ def _read_ome_input_metadata(ome_xml: str) -> dict | None:
     )
     if pixels is None:
         return None
-    plane = next((el for el in pixels if _local(el.tag) == 'Plane'), None)
-    channel = next((el for el in pixels if _local(el.tag) == 'Channel'), None)
+    planes = [el for el in pixels if _local(el.tag) == 'Plane']
+    channels = [el for el in pixels if _local(el.tag) == 'Channel']
 
     def _float(attrs: dict, key: str):
         raw = attrs.get(key)
@@ -996,11 +995,7 @@ def _read_ome_input_metadata(ome_xml: str) -> dict | None:
         except (TypeError, ValueError):
             return None
 
-    plane_block = {
-        key: value
-        for key in _OME_PLANE_VALUES
-        if plane is not None and (value := _float(plane.attrib, key)) is not None
-    }
+    annotated: dict = {}
     referenced = {el.get('ID') for el in image if _local(el.tag) == 'AnnotationRef'}
     for annotation in root.iter():
         if (
@@ -1009,7 +1004,7 @@ def _read_ome_input_metadata(ome_xml: str) -> dict | None:
             and annotation.get('Namespace') == _LVP_OME_ANNOTATION_NAMESPACE
         ):
             try:
-                plane_block |= {
+                annotated |= {
                     entry.get('K'): json.loads(entry.text or '')
                     for entry in annotation.iter()
                     if _local(entry.tag) == 'M'
@@ -1019,15 +1014,26 @@ def _read_ome_input_metadata(ome_xml: str) -> dict | None:
 
     # The scale is a hard key whose None the writer reads as no PhysicalSize.
     flat: dict = {'pixel_size_um': _stated_scale(_float(pixels.attrib, 'PhysicalSizeX'))}
-    flat |= _plane_facts(plane_block)
-    if channel is not None and channel.attrib.get('Name'):
-        flat['channel'] = channel.attrib['Name']
-        # ExcitationWavelength is a schema OME Channel attribute, so it
-        # survives the auto-OME serializer (unlike DisplayName and
-        # FilterSet, which are dropped with Instrument/Plate above).
-        excitation = _float(channel.attrib, 'ExcitationWavelength')
+    # A record key is lower-case and a Plane name capitalized, so the two
+    # cannot collide; what is not a record key is the Plane's to read.
+    flat |= _plane_facts({key: value for key, value in annotated.items() if key not in FILE_FACTS})
+    flat |= {key: value for key, value in annotated.items() if key in FILE_FACTS}
+    if len(channels) == 1 and channels[0].attrib.get('Name'):
+        flat['channel'] = channels[0].attrib['Name']
+        excitation = _float(channels[0].attrib, 'ExcitationWavelength')
         if excitation is not None:
             flat['excitation_nm'] = excitation
+    if planes:
+        flat |= agreed_facts(
+            _plane_facts(
+                {
+                    key: value
+                    for key in _OME_PLANE_VALUES
+                    if (value := _float(plane.attrib, key)) is not None
+                }
+            )
+            for plane in planes
+        )
     return flat
 
 
@@ -1404,19 +1410,11 @@ def build_postproc_output_metadata(
         Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
     """
     agreed = agreed_facts(input_records)
-    # A layer's settings travel only while the layer does: a derived output
-    # on another channel (a composite) must not pair another layer's
-    # exposure, light or display name with its own channel.
-    on_its_inputs_channel = agreed.get('channel') == channel
-
-    def _stated_by_the_output(fact: FileFact) -> bool:
-        if fact.kind is FactKind.CHANNEL:
-            return on_its_inputs_channel and not (adds_frames and fact.dropped_by_a_sum)
-        return fact.kind is FactKind.SHARED
-
-    metadata = {
-        key: value for key, value in agreed.items() if _stated_by_the_output(FILE_FACTS[key])
-    }
+    metadata = _derived_facts(
+        agreed,
+        on_its_inputs_channel=agreed.get('channel') == channel,
+        adds_frames=adds_frames,
+    )
     # The writer's hard key, in its "none" form when the inputs agree on no scale.
     metadata['pixel_size_um'] = agreed.get('pixel_size_um')
     metadata['channel'] = channel
@@ -1436,6 +1434,26 @@ def build_postproc_output_metadata(
         metadata['algorithm'] = algorithm
 
     return metadata
+
+
+def _derived_facts(agreed: dict, *, on_its_inputs_channel: bool, adds_frames: bool) -> dict:
+    """The facts a file derived from its inputs states of what they agree on.
+
+    The one rule for every derived file, a post-processing output and a
+    hyperstack alike: the shared facts always; a layer's settings only while
+    the layer travels, since a derived output on another channel (a
+    composite) must not pair another layer's exposure, light or display name
+    with its own channel, and a sum integrates more frames than an input
+    states; no capture's own fact, since the derived file was not captured;
+    no file's own fact, which is the output's writer's to set.
+    """
+
+    def _stated_by_the_output(fact: FileFact) -> bool:
+        if fact.kind is FactKind.CHANNEL:
+            return on_its_inputs_channel and not (adds_frames and fact.dropped_by_a_sum)
+        return fact.kind is FactKind.SHARED
+
+    return {key: value for key, value in agreed.items() if _stated_by_the_output(FILE_FACTS[key])}
 
 
 def require_uniform_geometry(
@@ -1489,9 +1507,13 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
     The one writer of the three, for a still, a derived file and a
     hyperstack. Each is a rendering for Bio-Formats and Fiji, drawn from the
     record's ``objective``, ``instrument``, ``plate`` and ``well_label``, not
-    a second store: the objective's home is ``Plane.Objective``. A block that
-    states nothing is absent, and so is a Plate with no rows and columns
-    (a slide, a blank). Not yet rendered: an OME LightSource (LED wavelength
+    a second store: the objective's home is ``Plane.Objective``, and in an
+    OME file every other fact's is the LVP annotation. Its keys are the OME
+    schema's attribute names, so the OME splice writes the Instrument as it
+    stands. A block that states nothing is absent, and so is a Plate with no
+    rows and columns (a slide, a blank). The OME container takes the
+    Instrument alone: a schema Plate in each file would import into OMERO as
+    a plate per file. Not yet rendered: an OME LightSource (LED wavelength
     and power are not tracked per colour), the Detector's gain and zoom, an
     OME FilterSet (filter wheel and dichroic are not tracked).
     """
@@ -1511,7 +1533,7 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
                 SerialNumber=instrument.get('serial_number'),
             ),
             Objective=stated_fields(
-                Magnification=objective.get('magnification'),
+                NominalMagnification=objective.get('magnification'),
                 LensNA=objective.get('numerical_aperture'),
             )
             | working_distance,
@@ -1548,26 +1570,22 @@ def build_hyperstack_output_metadata(
     significant_bits: int,
     pixel_size_um: float | None,
 ) -> dict:
-    """Build a TZCYX hyperstack OME metadata dict for ``tf.imwrite``.
+    """Build a TZCYX hyperstack OME metadata dict for ``write_hyperstack_tiff``.
 
-    States the instrument, plate and objective its input frames agree on
-    (agreed_facts), reshaped into the OME hyperstack schema that tifffile
-    consumes when ``ome=True`` + ``axes='TZCYX'``. Per-plane positions arrive as
-    parallel lists (one entry per T*Z*C plane in scan order); they land
-    in the OME-XML ``<Plane>`` elements via tifffile's per-axis list
-    convention.
+    States what its input frames agree on (agreed_facts) as any derived file
+    does (``_derived_facts``): the scope, the objective, the plate and the
+    well always, a layer's settings only on a one-channel stack of that
+    layer, no capture's own fact. Per-plane positions arrive as parallel
+    lists (one entry per T*Z*C plane in scan order); they land in the
+    OME-XML ``<Plane>`` elements via tifffile's per-axis list convention.
+    Every stated fact no schema attribute holds rides in the LVP
+    MapAnnotation, and the ``Instrument`` block is spliced into the
+    description by ``write_hyperstack_tiff``, since tifffile drops it.
 
     Pixel size is supplied by the caller, which sources it from the input
     frames' own PhysicalSizeX. Passing None omits the PhysicalSize keys
     entirely, for inputs that carry no scale; the output then makes no
     measurement claim rather than an invented one.
-
-    Tifffile-OME-XML constraint: the underlying tifffile serializer
-    writes only Image > Pixels > Channel + Plane to OME-XML. The
-    Instrument and Plate blocks (the one renderer's,
-    ``_instrument_and_plate_blocks``) are dropped from the XML by
-    tifffile and kept only in the private-tag JSON sidecar
-    ``write_hyperstack_tiff`` writes.
 
     Args:
         input_records: Every input frame's record, as read_file_record
@@ -1585,9 +1603,14 @@ def build_hyperstack_output_metadata(
             input frames agree on, or None.
 
     Returns:
-        OME-shaped metadata dict; pass to ``tf.imwrite(..., metadata=)``.
+        OME-shaped metadata dict; pass to ``write_hyperstack_tiff``.
     """
     inflat = agreed_facts(input_records)
+    facts = _derived_facts(
+        inflat,
+        on_its_inputs_channel=channel_names == [inflat.get('channel')],
+        adds_frames=False,
+    )
 
     num_planes = len(plane_positions['PositionX'])
 
@@ -1654,44 +1677,15 @@ def build_hyperstack_output_metadata(
             }
         )
 
-    blocks = _instrument_and_plate_blocks(inflat)
-    metadata |= {key: blocks[key] for key in ('Instrument', 'Plate') if key in blocks}
+    # The hyperstack's exposure and excitation have no schema attribute here:
+    # tifffile writes per-plane values only for the keys it is given lists of.
+    metadata['MapAnnotation'] = _ome_annotation(
+        facts, plane_rendered=frozenset(plane), record_rendered=_OME_HYPERSTACK_RENDERED
+    )
+    instrument = _instrument_and_plate_blocks(facts).get('Instrument')
+    if instrument:
+        metadata['Instrument'] = instrument
     return metadata
-
-
-def read_hyperstack_private_metadata(path: pathlib.Path) -> dict | None:
-    """Read the LVP private-tag JSON metadata from a hyperstack TIFF.
-
-    Hyperstack writes carry the full metadata dict (including the
-    Instrument / Plate / Objective subtrees that tifffile's auto-OME
-    serializer drops) in a private TIFF tag alongside the standard
-    OME-XML. This reader returns the parsed JSON dict so LVP-aware
-    consumers can recover the dropped fields without parsing OME-XML.
-
-    Args:
-        path: Hyperstack TIFF file path.
-
-    Returns:
-        Parsed metadata dict matching what was passed to
-        write_hyperstack_tiff's ``hyperstack_metadata`` parameter at
-        write time. Returns None
-        if the file has no private tag (third-party hyperstack TIFFs,
-        or LVP files written before this tag was introduced), if the
-        tag exists but is not valid JSON, or if the file cannot be
-        opened.
-    """
-    try:
-        with tf.TiffFile(str(path)) as tif:
-            page0 = tif.pages[0]
-            tag = page0.tags.get(LVP_HYPERSTACK_METADATA_TIFF_TAG)
-            if tag is None:
-                return None
-            value = tag.value
-            if isinstance(value, bytes):
-                value = value.decode('utf-8', errors='replace')
-            return json.loads(value)
-    except (OSError, ValueError, KeyError, json.JSONDecodeError):
-        return None
 
 
 def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
@@ -2187,10 +2181,9 @@ def write_hyperstack_tiff(
     apart lets write_tiff demand significant_bits as a required argument,
     which this path carries inside its OME dict rather than as a scalar.
 
-    JSON sidecar: tifffile's auto-OME serializer silently drops
-    Instrument / Plate / Objective from the metadata dict. The full dict
-    is serialized into a private TIFF tag so LVP-aware consumers can
-    recover those fields; FIJI / ImageJ ignore the unknown tag.
+    tifffile's OME serializer drops the dict's ``Instrument``, so it is
+    spliced into the description once the file is written and before it
+    takes its name (``_splice_ome_instrument``).
     """
     total_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
     use_bigtiff = total_bytes > 3.8 * 1024 * 1024 * 1024
@@ -2199,41 +2192,24 @@ def write_hyperstack_tiff(
             'write_hyperstack_tiff requires photometric in hyperstack_options; '
             'without it a <=4-wide trailing dimension can be misread as samples'
         )
-    write_options = dict(hyperstack_options)
-    # The sidecar recovers the OME subtrees tifffile drops (Instrument /
-    # Plate / Objective) for LVP-aware consumers; render hints live in
-    # the OME-XML itself (Channel.Color), so the dict serializes whole.
-    sidecar_json = json.dumps(hyperstack_metadata)
-    sidecar_extratag = (
-        LVP_HYPERSTACK_METADATA_TIFF_TAG,
-        's',
-        0,
-        sidecar_json,
-        True,
-    )
-    caller_extratags = list(write_options.pop('extratags', []) or [])
-    caller_extratags.append(sidecar_extratag)
+    tiff_metadata = {
+        key: value for key, value in hyperstack_metadata.items() if key != 'Instrument'
+    }
     # The planes stream from the caller, which can refuse one mid-write.
-    with (
-        _written_whole(file_loc) as tmp_loc,
-        tf.TiffWriter(
-            str(tmp_loc),
-            ome=True,
-            bigtiff=use_bigtiff,
-        ) as tif,
-    ):
-        tif.write(
-            planes,
-            shape=shape,
-            dtype=np.dtype(dtype),
-            resolution=hyperstack_resolution,
-            metadata=hyperstack_metadata,
-            software=f'LumaViewPro {version}',
-            # The hyperstack's time is its build's.
-            datetime=datetime.datetime.now().strftime(_TIFF_DATETIME),
-            extratags=caller_extratags,
-            **write_options,
-        )
+    with _written_whole(file_loc) as tmp_loc:
+        with tf.TiffWriter(str(tmp_loc), ome=True, bigtiff=use_bigtiff) as tif:
+            tif.write(
+                planes,
+                shape=shape,
+                dtype=np.dtype(dtype),
+                resolution=hyperstack_resolution,
+                metadata=tiff_metadata,
+                software=f'LumaViewPro {version}',
+                # The hyperstack's time is its build's.
+                datetime=datetime.datetime.now().strftime(_TIFF_DATETIME),
+                **hyperstack_options,
+            )
+        _splice_ome_instrument(tmp_loc, hyperstack_metadata.get('Instrument'))
 
 
 def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np.ndarray, int]:
@@ -2386,51 +2362,54 @@ def write_tiff(
     )
     tiff_datetime = metadata['datetime'].strftime(_TIFF_DATETIME)
 
-    with _written_whole(file_loc) as tmp_loc, tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
-        if (image_type is None) and is_color_image(image=data):
-            # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
-            tif.write(
-                data,
-                resolution=support_data['resolution'],
-                metadata=support_data['metadata'],
-                datetime=tiff_datetime,
-                software=f'LumaViewPro {version}',
-                extratags=support_data['extratags'],
-                **support_data['options'],
-            )
+    with _written_whole(file_loc) as tmp_loc:
+        with tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
+            if (image_type is None) and is_color_image(image=data):
+                # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
+                tif.write(
+                    data,
+                    resolution=support_data['resolution'],
+                    metadata=support_data['metadata'],
+                    datetime=tiff_datetime,
+                    software=f'LumaViewPro {version}',
+                    extratags=support_data['extratags'],
+                    **support_data['options'],
+                )
 
-        elif (image_type == 'ome') and is_color_image(image=data):
-            tif.write(
-                data,
-                resolution=support_data['resolution'],
-                metadata=support_data['metadata'],
-                datetime=tiff_datetime,
-                software=f'LumaViewPro {version}',
-                extratags=support_data['extratags'],
-                **support_data['options'],
-            )
+            elif (image_type == 'ome') and is_color_image(image=data):
+                tif.write(
+                    data,
+                    resolution=support_data['resolution'],
+                    metadata=support_data['metadata'],
+                    datetime=tiff_datetime,
+                    software=f'LumaViewPro {version}',
+                    extratags=support_data['extratags'],
+                    **support_data['options'],
+                )
 
-        else:
-            # 8-bit fluorescence: PALETTE photometric with colormap -- gives
-            # false color in both Windows Preview and ImageJ.
-            # 16-bit fluorescence: MINISBLACK photometric -- Windows Preview
-            # compatible (shows grayscale). Color via ImageJ LUT metadata
-            # (imagej type) or OME Channel metadata (ome type).
-            # Grey: always MINISBLACK, no colormap needed.
-            colormap_array = None
-            if data.dtype == np.uint8 and color != GREY:
-                colormap_array = get_tiff_colormap(color=color, dtype=data.dtype)
+            else:
+                # 8-bit fluorescence: PALETTE photometric with colormap -- gives
+                # false color in both Windows Preview and ImageJ.
+                # 16-bit fluorescence: MINISBLACK photometric -- Windows Preview
+                # compatible (shows grayscale). Color via ImageJ LUT metadata
+                # (imagej type) or OME Channel metadata (ome type).
+                # Grey: always MINISBLACK, no colormap needed.
+                colormap_array = None
+                if data.dtype == np.uint8 and color != GREY:
+                    colormap_array = get_tiff_colormap(color=color, dtype=data.dtype)
 
-            tif.write(
-                data,
-                resolution=support_data['resolution'],
-                metadata=support_data['metadata'],
-                datetime=tiff_datetime,
-                software=f'LumaViewPro {version}',
-                colormap=colormap_array,
-                extratags=support_data['extratags'],
-                **support_data['options'],
-            )
+                tif.write(
+                    data,
+                    resolution=support_data['resolution'],
+                    metadata=support_data['metadata'],
+                    datetime=tiff_datetime,
+                    software=f'LumaViewPro {version}',
+                    colormap=colormap_array,
+                    extratags=support_data['extratags'],
+                    **support_data['options'],
+                )
+        if image_type == 'ome':
+            _splice_ome_instrument(tmp_loc, support_data['instrument'])
 
 
 def generate_tiff_data(
@@ -2468,24 +2447,7 @@ def generate_tiff_data(
     # write -- and ImageJ's own convention is 'um'.
     micron = OME_UNIT_MICROMETER if image_type == 'ome' else 'um'
 
-    # The Plane: every fact of the record that lives there (FILE_FACTS), each
-    # with its unit beside it. Every one is optional: a producer omits the key
-    # when the value was unknown (a failed camera read, an LED that was off or
-    # on an absent board, an axis that had lost its reference, a scope with no
-    # X and Y), because a stand-in written here would be read downstream as
-    # the instrument's own report. A unit standing alone would declare a
-    # measurement the file does not carry, so it is written only with its value.
-    plane: dict = {}
-    if 'plate_pos_mm' in metadata:
-        plane['PositionX'] = metadata['plate_pos_mm']['x']
-        plane['PositionY'] = metadata['plate_pos_mm']['y']
-        plane['PositionXUnit'] = 'mm'
-        plane['PositionYUnit'] = 'mm'
-    for key, fact in _PLANE_FACTS.items():
-        if key in metadata:
-            plane[fact.plane] = metadata[key]
-            if fact.unit is not None:
-                plane[f'{fact.plane}Unit'] = micron if fact.unit == 'um' else fact.unit
+    plane = _plane_block(metadata, micron)
     # No source is assumed for a time: a defaulted one would name the wrong
     # clock for every producer that forgot to state its own.
     if 'timestamp_iso' in metadata and 'timestamp_source' not in metadata:
@@ -2493,11 +2455,10 @@ def generate_tiff_data(
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes
-    # it into real OME-XML; DisplayName is not schema and survives only in
-    # the structured (shaped/ImageJ) containers -- the same partial-
-    # survival contract as instrument on the OME path.
+    # it into real OME-XML; DisplayName is not schema, so the OME
+    # container carries it in the LVP annotation.
     channel_block: dict = {'Name': [metadata['channel']]}
-    if 'channel_display' in metadata:
+    if 'channel_display' in metadata and image_type != 'ome':
         channel_block['DisplayName'] = [metadata['channel_display']]
     if 'excitation_nm' in metadata:
         channel_block['ExcitationWavelength'] = [metadata['excitation_nm']]
@@ -2509,13 +2470,13 @@ def generate_tiff_data(
         'Channel': channel_block,
         'Plane': plane,
     }
-    # The OME container keeps only the schema's Plane attributes, so every other
-    # Plane fact rides in the image's LVP MapAnnotation: without it a summed
-    # frame states its per-frame exposure and no count, and a dark or unsettled
-    # frame reads as a good one. Each value is JSON, so a count, a flag, the
-    # objective and the frame-validity list read back as written. Set in this
-    # arm only: tifffile would also serialize the key into the ImageJ and
-    # shaped descriptions.
+    blocks = _instrument_and_plate_blocks(metadata)
+    # The OME container keeps only the schema's attributes, so every other
+    # fact of the record rides in the image's LVP MapAnnotation: without it a
+    # summed frame states its per-frame exposure and no count, a dark or
+    # unsettled frame reads as a good one, and the file loses its scope and
+    # plate. Set in this arm only: tifffile would also serialize the key into
+    # the ImageJ and shaped descriptions.
     if image_type == 'ome':
         # The schema's own statement of the payload depth, rendered from the
         # value private tag 65123 carries in every container.
@@ -2523,18 +2484,22 @@ def generate_tiff_data(
         tiff_metadata['Plane'] = {
             key: value for key, value in plane.items() if key in _OME_PLANE_ATTRIBUTES
         }
-        tiff_metadata['MapAnnotation'] = {
-            'Namespace': _LVP_OME_ANNOTATION_NAMESPACE,
-            'Value': {
-                key: json.dumps(value, ensure_ascii=False, default=_numpy_scalar_value)
-                for key, value in plane.items()
-                if key not in _OME_PLANE_ATTRIBUTES
-            },
-        }
-    # The filterset is a unit-level fact, not per-channel; it rides as its
-    # own structured key (the OME container drops it, like Instrument).
-    if 'filterset' in metadata:
-        tiff_metadata['FilterSet'] = metadata['filterset']
+        tiff_metadata['MapAnnotation'] = _ome_annotation(
+            metadata,
+            plane_rendered=_OME_PLANE_ATTRIBUTES,
+            record_rendered=_OME_STILL_RENDERED,
+        )
+    else:
+        # The filterset is a unit-level fact, not per-channel; it rides as
+        # its own structured key.
+        if 'filterset' in metadata:
+            tiff_metadata['FilterSet'] = metadata['filterset']
+        # Producing algorithm, when the caller supplied one (post-processing
+        # outputs), so a consumer can tell a degraded edge-to-edge montage
+        # from a registered stitch off the file alone.
+        if metadata.get('algorithm'):
+            tiff_metadata['Algorithm'] = metadata['algorithm']
+        tiff_metadata |= {key: blocks[key] for key in ('Instrument', 'Plate') if key in blocks}
 
     # A scale is written only when one is known. Emitting the keys with a null
     # value would still read downstream as a PhysicalSize claim, and a reader
@@ -2547,15 +2512,6 @@ def generate_tiff_data(
         tiff_metadata['PhysicalSizeXUnit'] = micron
         tiff_metadata['PhysicalSizeY'] = pixel_size_um
         tiff_metadata['PhysicalSizeYUnit'] = micron
-
-    # Producing algorithm, when the caller supplied one (post-processing
-    # outputs). Rides along in the structured metadata so a consumer can tell a
-    # degraded edge-to-edge montage from a registered stitch off the file alone.
-    if metadata.get('algorithm'):
-        tiff_metadata['Algorithm'] = metadata['algorithm']
-
-    blocks = _instrument_and_plate_blocks(metadata)
-    tiff_metadata |= {key: blocks[key] for key in ('Instrument', 'Plate') if key in blocks}
 
     # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
@@ -2644,7 +2600,125 @@ def generate_tiff_data(
         'extratags': _depth_extratags(metadata['significant_bits'], white_bits),
         'options': options,
         'resolution': resolution,
+        # Spliced into an OME file's description once it is written.
+        'instrument': blocks.get('Instrument'),
     }
+
+
+# The facts an OME still or a hyperstack states in a schema attribute or a
+# TIFF tag, whatever their Plane: the annotation carries every other fact its
+# record states. The scale is a hard key, None when the file states none.
+_OME_STILL_RENDERED = frozenset(
+    {'pixel_size_um', 'channel', 'excitation_nm', 'significant_bits', 'datetime'}
+)
+_OME_HYPERSTACK_RENDERED = frozenset({'pixel_size_um', 'channel', 'significant_bits', 'datetime'})
+
+# The record keys the Plane block renders: its facts, and the position pair.
+_IN_THE_PLANE_BLOCK = frozenset(_PLANE_FACTS) | {'plate_pos_mm'}
+
+
+def _plane_block(record: dict, micron: str) -> dict:
+    """The Plane block a record renders to, every fact under its Plane name.
+
+    Every fact of the record that lives there (FILE_FACTS), each with its
+    unit beside it. Every one is optional: a producer omits the key when the
+    value was unknown (a failed camera read, an LED that was off or on an
+    absent board, an axis that had lost its reference, a scope with no X and
+    Y), because a stand-in written here would be read downstream as the
+    instrument's own report. A unit standing alone would declare a
+    measurement the file does not carry, so it is written only with its value.
+    """
+    plane: dict = {}
+    if 'plate_pos_mm' in record:
+        plane['PositionX'] = record['plate_pos_mm']['x']
+        plane['PositionY'] = record['plate_pos_mm']['y']
+        plane['PositionXUnit'] = 'mm'
+        plane['PositionYUnit'] = 'mm'
+    for key, fact in _PLANE_FACTS.items():
+        if key in record:
+            plane[fact.plane] = record[key]
+            if fact.unit is not None:
+                plane[f'{fact.plane}Unit'] = micron if fact.unit == 'um' else fact.unit
+    return plane
+
+
+def _ome_annotation(
+    record: dict, *, plane_rendered: frozenset[str], record_rendered: frozenset[str]
+) -> dict:
+    """An OME file's LVP MapAnnotation: every fact of its record the write
+    put in no schema attribute.
+
+    The writer that renders a schema attribute names what it rendered, so a
+    fact is written once and never dropped: a Plane fact under its Plane name
+    (the name files have always carried it under), any other fact under its
+    record key. Each value is JSON, so a count, a flag, the objective, the
+    instrument and the frame-validity list read back as written.
+    """
+    entries = {
+        key: value
+        for key, value in _plane_block(record, OME_UNIT_MICROMETER).items()
+        if key not in plane_rendered
+    }
+    entries |= {
+        key: record[key]
+        for key in FILE_FACTS
+        if key in record and key not in _IN_THE_PLANE_BLOCK and key not in record_rendered
+    }
+    return {
+        'Namespace': _LVP_OME_ANNOTATION_NAMESPACE,
+        'Value': {
+            key: json.dumps(value, ensure_ascii=False, default=_numpy_scalar_value)
+            for key, value in entries.items()
+        },
+    }
+
+
+def _ome_qualified(tag: str) -> str:
+    return f'{{{_OME_NAMESPACE}}}{tag}'
+
+
+def _splice_ome_instrument(path: pathlib.Path, instrument: dict | None) -> None:
+    """Splice a written OME file's ``Instrument`` into its description.
+
+    tifffile's OME writer drops the element, so it is inserted into the
+    description tifffile wrote, which is written last in the file and
+    extends in place: the Instrument before the first Image, as the schema
+    orders them, and each Image's InstrumentRef, then its ObjectiveSettings
+    when the Instrument holds an Objective, immediately before its Pixels. A
+    reference to an absent part breaks the schema's keyref, so the
+    Instrument is written only when one of its parts states something, and
+    each reference only with what it names. ``instrument`` is the renderer's
+    block (``_instrument_and_plate_blocks``), keyed by the schema's names.
+    The description goes back as UTF-8 bytes: it holds the micro sign, and
+    tiffcomment refuses a non-ASCII str.
+    """
+    if not instrument:
+        return
+    root = ET.fromstring(tf.tiffcomment(path))
+    element = ET.Element(_ome_qualified('Instrument'), ID='Instrument:0')
+    # The schema's order within an Instrument.
+    for part, part_id in (
+        ('Microscope', None),
+        ('Detector', 'Detector:0:0'),
+        ('Objective', 'Objective:0:0'),
+    ):
+        if part in instrument:
+            attributes = {key: str(value) for key, value in instrument[part].items()}
+            if part_id is not None:
+                attributes = {'ID': part_id} | attributes
+            ET.SubElement(element, _ome_qualified(part), attributes)
+    images = root.findall(_ome_qualified('Image'))
+    root.insert(list(root).index(images[0]), element)
+    for image in images:
+        at = list(image).index(image.find(_ome_qualified('Pixels')))
+        references = [ET.Element(_ome_qualified('InstrumentRef'), ID='Instrument:0')]
+        if 'Objective' in instrument:
+            references.append(ET.Element(_ome_qualified('ObjectiveSettings'), ID='Objective:0:0'))
+        for offset, reference in enumerate(references):
+            image.insert(at + offset, reference)
+    description = io.BytesIO()
+    ET.ElementTree(root).write(description, encoding='utf-8', xml_declaration=True)
+    tf.tiffcomment(path, comment=description.getvalue())
 
 
 def _numpy_scalar_value(value):

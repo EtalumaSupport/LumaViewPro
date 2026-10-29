@@ -4,8 +4,9 @@
 tifffile serializes whatever unit and axis strings it is handed, so it
 cannot catch its own output being schema-invalid -- Bio-Formats' lenient
 parsing then hides the defect until a strict reader refuses the file.
-ome-types (dev-only) is that strict reader: every assertion here is
-against the OME data model parsed back from the written XML, pinning the
+The OME 2016-06 XSD (tests/ome_schema.py) is that strict reader, and
+every assertion here is against the OME data model ome-types parses back
+from the written XML, pinning the
 ruled spec -- one OME-TIFF per (well, scan), T = frame capture order,
 C = channel, DimensionOrder XYCZT, per-plane DeltaT from real
 timestamps. The ImageJ/Fiji open and the 8/16-bit + BigTIFF permutation
@@ -25,6 +26,7 @@ from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
 from modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from modules.layer_record import release_colors
 from tests.frame_records import recorded_record, write_recorded
+from tests.ome_schema import schema_errors
 from tests.stock_channels import LED1, LED2
 
 
@@ -73,7 +75,7 @@ def test_video_well_stack_is_schema_valid_with_ruled_axes(sim_scope, tmp_path):
 
     ome_xml = _build(tmp_path, df)
 
-    # from_xml IS the schema gate: an invalid unit or axis string raises.
+    assert schema_errors(ome_xml) == []
     ome = ome_types.from_xml(ome_xml)
     pixels = ome.images[0].pixels
     assert (pixels.size_t, pixels.size_z, pixels.size_c) == (3, 1, 1)
@@ -92,6 +94,7 @@ def test_two_channel_video_well_carries_both_channels(sim_scope, tmp_path):
 
     ome_xml = _build(tmp_path, df)
 
+    assert schema_errors(ome_xml) == []
     ome = ome_types.from_xml(ome_xml)
     pixels = ome.images[0].pixels
     assert (pixels.size_t, pixels.size_c) == (2, 2)

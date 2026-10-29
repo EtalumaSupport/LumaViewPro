@@ -17,9 +17,8 @@ that the per-frame TIFFs carry.
 
 Fix: route through ``image_utils.build_hyperstack_output_metadata``
 which (1) writes the plane_metadata lists into the OME Plane subdict
-so they reach the <Plane> XML elements; (2) reads structured metadata
-from one input frame and propagates Instrument + Plate + Objective
-forward.
+so they reach the <Plane> XML elements; (2) states what the input
+frames agree on, the instrument, plate and objective among it.
 """
 
 from __future__ import annotations
@@ -36,6 +35,7 @@ from modules import image_utils
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -206,10 +206,9 @@ class TestStackBuilderPropagatesPlanePositions:
 class TestStackBuilderPropagatesPixelSizeAndChannels:
     """Hyperstack output must carry forward the schema fields tifffile's
     OME serializer accepts: PhysicalSizeX/Y, Channel.Name list, and
-    per-plane positions. Instrument / Plate / Objective are dropped by
-    tifffile's auto-OME-XML serializer regardless of placement; they
-    travel via the LVP private TIFF tag for LVP-aware consumers (see
-    TestStackBuilderPrivateTagRecoversDroppedMetadata)."""
+    per-plane positions. The Instrument, which tifffile drops, is spliced
+    in after the write, and the plate and well ride in the LVP annotation
+    (see TestAHyperstackStatesWhatItsFramesAgreeOn)."""
 
     def test_pixel_size_in_ome_xml(self, tmp_path):
         rows = []
@@ -338,200 +337,92 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             assert tif.is_ome, 'Hyperstack output must remain OME-tagged'
 
 
-class TestStackBuilderPrivateTagRecoversDroppedMetadata:
-    """Tifffile's auto-OME-XML serializer silently drops Instrument /
-    Plate / Objective from the metadata dict. The hyperstack write
-    path serializes the full metadata dict into the LVP private TIFF
-    tag as a JSON sidecar so LVP-aware consumers can recover the
-    dropped fields. Standard OME-XML readers (FIJI, ImageJ, generic
-    OME parsers) ignore the unknown private tag and see the same
-    OME-XML they always have.
-    """
-
-    def test_instrument_subtree_survives_via_private_tag(self, tmp_path):
-        rows = []
-        for z_idx in range(2):
-            fname = f'frame_z{z_idx}.tiff'
+def _two_slice_stack(tmp_path, *, plate_pos_mm=None, bare=False) -> pathlib.Path:
+    """A hyperstack built by the stack builder from two Z slices of LED1,
+    written through write_tiff (or bare tf.imwrite: no record)."""
+    plate_pos_mm = plate_pos_mm or {'x': 0.0, 'y': 0.0}
+    rows = []
+    for z_idx in range(2):
+        fname = f'frame_z{z_idx}.tiff'
+        if bare:
+            tf.imwrite(str(tmp_path / fname), np.full((4, 4), 100, dtype=np.uint8))
+        else:
             _write_structured_input(
                 tmp_path / fname,
                 channel=LED1,
-                plate_pos_mm={'x': 0.0, 'y': 0.0},
+                plate_pos_mm=plate_pos_mm,
                 z_pos_um=float(z_idx) * 10,
             )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'Color': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 0.0,
-                    'Y': 0.0,
-                    'Z': float(z_idx) * 10,
-                }
-            )
-        df = pd.DataFrame(rows)
+        rows.append(
+            {
+                'Filepath': fname,
+                'Color': LED1,
+                'Scan Count': 0,
+                'Z-Slice': z_idx,
+                'X': plate_pos_mm['x'],
+                'Y': plate_pos_mm['y'],
+                'Z': float(z_idx) * 10,
+            }
+        )
+    result = StackBuilder._create_stack(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        output_file_loc=pathlib.Path('out.ome.tiff'),
+        save_encoding='right_aligned',
+        channel_colors=release_colors(),
+    )
+    assert result['status'], result.get('error')
+    return tmp_path / 'out.ome.tiff'
 
-        StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=pathlib.Path('out.ome.tiff'),
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
-        )
 
-        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
-        assert recovered is not None, (
-            'Private-tag sidecar missing from hyperstack output; the '
-            'JSON-encoded metadata dict must be written alongside the '
-            'auto-OME-XML so LVP-aware readers can recover Instrument / '
-            'Plate / Objective fields tifffile drops.'
-        )
-        instrument = recovered.get('Instrument') or {}
-        microscope = instrument.get('Microscope') or {}
-        assert microscope.get('SerialNumber') == 'SN12062', (
-            'Instrument.Microscope.SerialNumber must round-trip via the '
-            'private tag; the auto-OME-XML drops the entire Instrument '
-            'subtree.'
-        )
-        assert microscope.get('Model') == 'LS720'
-        # The motor controller's firmware is not image metadata.
-        assert 'FirmwareVersion' not in microscope
-        detector = instrument.get('Detector') or {}
+class TestAHyperstackStatesWhatItsFramesAgreeOn:
+    """A hyperstack names the scope, camera and objective its frames agree on
+    in the OME schema's Instrument, and reads back, through the one reader,
+    the facts a derived file states of them: the instrument, objective,
+    plate and well, but no capture's own fact. The file writes no private
+    sidecar tag and is valid OME."""
+
+    def test_the_instrument_is_in_the_schema(self, tmp_path):
+        root = valid_description(_two_slice_stack(tmp_path))
+        microscope = root.find(f'{q("Instrument")}/{q("Microscope")}')
+        assert dict(microscope.attrib) == {
+            'Manufacturer': 'Etaluma',
+            'Model': 'LS720',
+            'SerialNumber': 'SN12062',
+        }
+        detector = root.find(f'{q("Instrument")}/{q("Detector")}')
         assert detector.get('Model') == 'Basler a2A1920'
+        objective = root.find(f'{q("Instrument")}/{q("Objective")}')
+        assert (objective.get('NominalMagnification'), objective.get('LensNA')) == ('20', '0.45')
+        assert root.find(f'{q("Image")}/{q("InstrumentRef")}') is not None
 
-    def test_objective_subtree_survives_via_private_tag(self, tmp_path):
-        rows = []
-        for z_idx in range(2):
-            fname = f'frame_z{z_idx}.tiff'
-            _write_structured_input(
-                tmp_path / fname,
-                channel=LED1,
-                plate_pos_mm={'x': 0.0, 'y': 0.0},
-                z_pos_um=float(z_idx) * 10,
-            )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'Color': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 0.0,
-                    'Y': 0.0,
-                    'Z': float(z_idx) * 10,
-                }
-            )
-        df = pd.DataFrame(rows)
+    def test_the_record_reads_back_its_frames_shared_facts(self, tmp_path):
+        out = _two_slice_stack(tmp_path, plate_pos_mm={'x': 12.5, 'y': 8.25})
+        record = image_utils.read_file_record(out)
+        assert record['instrument'] == {
+            'manufacturer': 'Etaluma',
+            'model': 'LS720',
+            'serial_number': 'SN12062',
+            'camera_model': 'Basler a2A1920',
+        }
+        assert record['plate'] == {'name': '96-well', 'rows': 8, 'columns': 12}
+        assert record['well_label'] == 'A1'
+        assert record['objective']['magnification'] == 20
+        assert record['plate_pos_mm'] == {'x': 12.5, 'y': 8.25}
+        # One channel: its settings travel; never a capture's own fact.
+        assert record['exposure_time_ms'] == 50.0
+        assert [key for key in record if image_utils.FILE_FACTS[key].kind.value == 'capture'] == []
+        with tf.TiffFile(str(out)) as tif:
+            assert 51838 not in tif.pages[0].tags
+        valid_description(out)
 
-        StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=pathlib.Path('out.ome.tiff'),
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
-        )
-
-        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
-        objective = (recovered.get('Instrument') or {}).get('Objective') or {}
-        assert objective.get('Magnification') == 20
-        assert objective.get('LensNA') == 0.45
-
-    def test_plate_subtree_survives_via_private_tag(self, tmp_path):
-        rows = []
-        for z_idx in range(2):
-            fname = f'frame_z{z_idx}.tiff'
-            _write_structured_input(
-                tmp_path / fname,
-                channel=LED1,
-                plate_pos_mm={'x': 12.5, 'y': 8.25},
-                z_pos_um=float(z_idx) * 10,
-            )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'Color': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 12.5,
-                    'Y': 8.25,
-                    'Z': float(z_idx) * 10,
-                }
-            )
-        df = pd.DataFrame(rows)
-
-        StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=pathlib.Path('out.ome.tiff'),
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
-        )
-
-        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
-        plate = recovered.get('Plate') or {}
-        assert plate.get('Name') == '96-well'
-        assert plate.get('Rows') == 8
-        assert plate.get('Columns') == 12
-        assert plate.get('WellLabel') == 'A1'
-
-    def test_bare_input_hyperstack_returns_none_or_minimal(self, tmp_path):
-        # Hyperstack built from bare tf.imwrite inputs: no Instrument /
-        # Plate data to propagate. The private tag still writes (carrying
-        # only Channel + Plane data) since tifffile's auto-OME suffices
-        # for the structural fields. read_hyperstack_private_metadata
-        # returns the minimal dict.
-        rows = []
-        for z_idx in range(2):
-            fname = f'frame_z{z_idx}.tiff'
-            tf.imwrite(
-                str(tmp_path / fname),
-                np.full((4, 4), 100, dtype=np.uint8),
-                compression='lzw',
-            )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'Color': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 0.0,
-                    'Y': 0.0,
-                    'Z': float(z_idx),
-                }
-            )
-        df = pd.DataFrame(rows)
-
-        StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=pathlib.Path('out.ome.tiff'),
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
-        )
-
-        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
-        # Sidecar is always written for hyperstacks; carries at least
-        # the schema fields (Channel, Plane). Instrument / Plate absent
-        # because the bare inputs carry no acquisition context.
-        assert recovered is not None
-        assert 'Channel' in recovered
-        assert 'Instrument' not in recovered
-        assert 'Plate' not in recovered
-
-    def test_read_helper_returns_none_on_non_lvp_file(self, tmp_path):
-        # A file with no private tag (third-party hyperstack, or older
-        # LVP file) returns None.
-        out = tmp_path / 'third_party.ome.tiff'
-        tf.imwrite(
-            str(out),
-            np.zeros((1, 1, 1, 16, 16), dtype=np.uint8),
-            ome=True,
-            metadata={'axes': 'TZCYX'},
-        )
-        assert image_utils.read_hyperstack_private_metadata(out) is None
-
-    def test_read_helper_returns_none_on_missing_file(self, tmp_path):
-        missing = tmp_path / 'does_not_exist.ome.tiff'
-        assert image_utils.read_hyperstack_private_metadata(missing) is None
+    def test_a_stack_of_frames_with_no_record_states_no_instrument(self, tmp_path):
+        out = _two_slice_stack(tmp_path, bare=True)
+        root = valid_description(out)
+        assert root.find(q('Instrument')) is None
+        record = image_utils.read_file_record(out)
+        assert 'instrument' not in record
+        assert 'plate' not in record
 
 
 class TestHyperstackChannelColor:
@@ -625,51 +516,6 @@ class TestHyperstackChannelColor:
         assert ome_xml.count('Color=') == 2, (
             f'Expected 2 Color attrs (one per channel), got {ome_xml.count("Color=")}'
         )
-
-    def test_color_omitted_from_private_tag_sidecar(self, tmp_path):
-        # Channel.Color is encoded into OME-XML; the JSON sidecar exists
-        # for fields tifffile DROPS from OME-XML (Instrument / Plate /
-        # Objective). Color rides the standard OME-XML path and does
-        # NOT need to ride the sidecar -- this asserts it actually
-        # makes it into the OME-XML so we don't end up duplicating.
-        rows = []
-        for z_idx in range(2):
-            fname = f'frame_z{z_idx}.tiff'
-            _write_structured_input(
-                tmp_path / fname,
-                channel=LED1,
-                plate_pos_mm={'x': 0.0, 'y': 0.0},
-                z_pos_um=float(z_idx) * 10,
-            )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'Color': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 0.0,
-                    'Y': 0.0,
-                    'Z': float(z_idx) * 10,
-                }
-            )
-        df = pd.DataFrame(rows)
-
-        StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=pathlib.Path('out.ome.tiff'),
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
-        )
-
-        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
-        assert recovered is not None
-        # Color IS in the sidecar copy too (build_hyperstack_output_metadata
-        # writes it; the sidecar strips only LUTs). That's fine -- it does
-        # not bloat the sidecar (one int per channel) and round-trips
-        # cleanly via JSON.
-        assert recovered['Channel']['Name'] == [LED1]
-        assert recovered['Channel']['Color'] == [0x00FF00FF]
 
 
 class TestHyperstackScaleComesFromTheInput:

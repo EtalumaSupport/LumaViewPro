@@ -16,6 +16,7 @@ Key requirements:
 import ast
 import datetime
 import errno
+import itertools
 import re
 from unittest import mock
 
@@ -25,6 +26,7 @@ import tifffile as tf
 
 from modules import image_utils
 from modules.layer_record import GREY, release_catalogue, release_color
+from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -1349,11 +1351,6 @@ _IN_THE_FILE_AS = {
 }
 
 
-# What an OME file does not state until the OME plan writes its schema blocks:
-# tifffile keeps only the schema's Image, Pixels, Channel and Plane, and drops
-# the rest at write.
-_NOT_IN_AN_OME_FILE = {'instrument', 'plate', 'well_label', 'filterset', 'channel_display'}
-
 # A layer's own settings: a derived file on another channel states none of them.
 _PER_CHANNEL = (
     'channel_display',
@@ -1368,9 +1365,20 @@ _PER_CHANNEL = (
 )
 
 
-def _a_full_still(scope, tmp_path, *, save_encoding, significant_bits, dtype, output_format):
-    """A BF still with every field of its record set, lit by BF's LED: the
-    record the save built, and the file it wrote."""
+def _a_full_still(
+    scope,
+    tmp_path,
+    *,
+    save_encoding,
+    significant_bits,
+    dtype,
+    output_format,
+    labware='96 well microplate',
+    well_label='A1',
+):
+    """A BF still with every field of its record set, lit by BF's LED, on
+    ``labware`` in ``well_label``: the record the save built, and the file it
+    wrote."""
     from modules import image_save
     from modules.layer_record import release_colors
     from tests.frame_records import frame_record, plate
@@ -1397,8 +1405,8 @@ def _a_full_still(scope, tmp_path, *, save_encoding, significant_bits, dtype, ou
     common = {
         'objective_id': '4x Oly',
         'frame_record': record,
-        'labware': plate(),
-        'well_label': 'A1',
+        'labware': plate(labware),
+        'well_label': well_label,
         'fallback_focus': 'no focus peak',
     }
     recorded = image_save.generate_image_metadata(scope, 'BF', **where, **common)
@@ -1438,9 +1446,8 @@ def test_every_key_a_save_records_reads_back_from_the_file(
     """The writer copies the record into the file key by key, so a key the save
     records and the writer does not copy is lost without a word (the held
     layer and the binning were). Every key of a record with every field set
-    is read back, in every container, and an OME file loses only what its
-    container cannot yet hold. Each recorded key has its row in the one
-    table the writer and the readers read."""
+    is read back, in every container. Each recorded key has its row in the
+    one table the writer and the readers read."""
     recorded, path = _a_full_still(
         sim_scope,
         tmp_path,
@@ -1452,8 +1459,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
 
     assert sorted(set(recorded) - set(image_utils.FILE_FACTS)) == [], 'a recorded key has no row'
     read = image_utils.read_file_record(path)
-    not_held = _NOT_IN_AN_OME_FILE if output_format == 'OME-TIFF' else set()
-    lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS) - not_held)
+    lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS))
     assert lost == [], f'recorded but not in the file: {lost}'
     assert (read['binning_size'], read['camera_held_a_channel'], read['camera_held_channel']) == (
         2,
@@ -1462,12 +1468,55 @@ def test_every_key_a_save_records_reads_back_from_the_file(
     )
 
 
+def test_a_stills_record_reads_back_value_for_value_from_ome_and_imagej(
+    sim_scope, tmp_path, monkeypatch
+):
+    """A still's record states no empty value, so an OME and an ImageJ file of
+    the same frame read back the same record, value for value: on a plate
+    with a standard, from a scope with no serial on a plate whose catalogue
+    entry has no standard, and on the Blank labware, which is no plate."""
+    cases = {
+        'full': {},
+        'no serial, no standard': {'labware': '6 well microplate'},
+        'blank': {'labware': 'Blank', 'well_label': None},
+    }
+    read = {}
+    for case, where in cases.items():
+        if case == 'no serial, no standard':
+            # a stand-in by design: the simulated motor board has no
+            # firmware that answers FULLINFO without a serial (a simulator gap).
+            monkeypatch.setattr(sim_scope._motion_driver, 'get_serial_number', lambda: None)
+        for output_format in ('TIFF', 'OME-TIFF'):
+            folder = tmp_path / case / output_format
+            folder.mkdir(parents=True)
+            recorded, path = _a_full_still(
+                sim_scope,
+                folder,
+                save_encoding='right_aligned',
+                significant_bits=12,
+                dtype=np.uint16,
+                output_format=output_format,
+                **where,
+            )
+            read[case, output_format] = image_utils.read_file_record(path)
+        stated = {key: recorded.get(key) for key in ('instrument', 'plate')}
+        assert {key: read[case, 'TIFF'].get(key) for key in stated} == stated, case
+
+    assert {case: read[case, 'OME-TIFF'] for case in cases} == {
+        case: read[case, 'TIFF'] for case in cases
+    }
+    assert 'serial_number' not in read['no serial, no standard', 'TIFF']['instrument']
+    assert 'standard' not in read['no serial, no standard', 'TIFF']['plate']
+    assert 'plate' not in read['blank', 'TIFF']
+
+
 def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_layers_setting(
     sim_scope, tmp_path
 ):
     """A stitch and a composite are written from a still's record; every key
-    each keeps reads back from its own file, and the composite, whose channel
-    is no input's, keeps none of a layer's settings."""
+    each keeps, its algorithm among them, reads back from its own file, plain
+    or OME, and the composite, whose channel is no input's, keeps none of a
+    layer's settings."""
     _, still = _a_full_still(
         sim_scope,
         tmp_path,
@@ -1488,16 +1537,19 @@ def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_laye
     )
 
     assert [key for key in _PER_CHANNEL if key in composite] == []
-    for name, metadata, data in (
-        ('stitch', stitch, np.zeros((8, 8), dtype=np.uint16)),
-        ('composite', composite, np.zeros((8, 8, 3), dtype=np.uint8)),
+    for (name, metadata, data), ome in itertools.product(
+        (
+            ('stitch', stitch, np.zeros((8, 8), dtype=np.uint16)),
+            ('composite', composite, np.zeros((8, 8, 3), dtype=np.uint8)),
+        ),
+        (False, True),
     ):
-        path = tmp_path / f'{name}.tiff'
+        path = tmp_path / f'{name}{".ome" if ome else ""}.tiff'
         image_utils.write_tiff(
             data=data,
             file_loc=path,
             metadata=metadata,
-            ome=False,
+            ome=ome,
             color=GREY,
             significant_bits=metadata['significant_bits'],
             save_encoding='right_aligned',
@@ -1505,7 +1557,7 @@ def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_laye
         )
         read = image_utils.read_file_record(path)
         lost = sorted(set(metadata) - set(read) - set(_IN_THE_FILE_AS))
-        assert lost == [], f'the {name} kept but its file does not state: {lost}'
+        assert lost == [], f'the {name} (OME {ome}) kept but its file does not state: {lost}'
 
 
 def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads(
@@ -1529,14 +1581,8 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
         '4x Oly',
         catalogue.working_distance_mm,
     )
-    rendered = image_utils.generate_tiff_data(
-        data=np.zeros((8, 8), dtype=np.uint8),
-        metadata={**image_utils.read_file_record(still), 'significant_bits': 8},
-        image_type='ome',
-        color=GREY,
-        white_bits=None,
-    )['metadata']['Instrument']['Objective']
-    assert (rendered['WorkingDistance'], rendered['WorkingDistanceUnit']) == (
+    rendered = valid_description(still).find(f'{q("Instrument")}/{q("Objective")}')
+    assert (float(rendered.get('WorkingDistance')), rendered.get('WorkingDistanceUnit')) == (
         catalogue.working_distance_mm,
         'mm',
     )

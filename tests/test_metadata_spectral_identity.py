@@ -166,22 +166,18 @@ class TestWrittenFileRoundTrip:
         assert back['excitation_nm'] == 488.0
         assert back['filterset'] == 'FS-STOCK'
 
-    def test_16bit_ome_tile_keeps_excitation_drops_the_rest_knowingly(
-        self, metadata_scope, tmp_path
-    ):
-        # tifffile's auto-OME serializer writes only schema attributes:
-        # ExcitationWavelength is one (measured 2026-08-30), DisplayName
-        # and FilterSet are not -- they join gain / illumination /
-        # instrument in that path's documented losses. The imagej /
-        # shaped container above is the primary still path and lossless.
+    def test_16bit_ome_tile_keeps_the_trio(self, metadata_scope, tmp_path):
+        # ExcitationWavelength is an OME Channel attribute; the display name
+        # and the filterset have none, so they ride in LVP's annotation, and
+        # the OME tile reads back the trio as the ImageJ one does.
         metadata = _metadata(metadata_scope, LED1)
         path = self._write_tile(tmp_path, metadata, ome=True)
         back = image_utils.read_file_record(path)
         assert back is not None
         assert back['channel'] == LED1
         assert back['excitation_nm'] == 488.0
-        assert 'channel_display' not in back
-        assert 'filterset' not in back
+        assert back['channel_display'] == '488 nm'
+        assert back['filterset'] == 'FS-STOCK'
 
     def test_16bit_tile_without_illumination_still_reads(self, metadata_scope, tmp_path):
         # The read side must not treat a dark capture as an unreadable
@@ -257,12 +253,10 @@ class TestDerivedOutputs:
         assert 'excitation_nm' not in out
         assert out['filterset'] == 'FS-STOCK'
 
-    def test_hyperstack_builder_knowingly_drops_the_trio(self, metadata_scope, tmp_path):
-        # Recorded drop, not an accident: build_hyperstack_output_metadata
-        # composes its own OME schema dict from scratch and does not copy
-        # arbitrary input keys. Extending the hyperstack schema with
-        # per-channel spectral arrays is future work; until then this
-        # test is the record that the drop is known.
+    def test_a_one_channel_hyperstack_keeps_the_trio(self, metadata_scope, tmp_path):
+        # A hyperstack states what a derived file states of its frames: on
+        # its frames' one channel, the layer's display name and excitation,
+        # and the unit's filterset, read back from its annotation.
         import numpy as np
 
         metadata = _metadata(metadata_scope, LED1)
@@ -278,6 +272,7 @@ class TestDerivedOutputs:
             save_encoding='right_aligned',
             white_bits=None,
         )
+        stack = tmp_path / 'stack.ome.tiff'
         out = image_utils.build_hyperstack_output_metadata(
             [image_utils.read_file_record(Path(path))],
             channel_names=[LED1],
@@ -291,5 +286,15 @@ class TestDerivedOutputs:
             significant_bits=12,
             pixel_size_um=1.0,
         )
-        assert 'channel_display' not in str(out)
-        assert 'filterset' not in str(out)
+        image_utils.write_hyperstack_tiff(
+            iter([np.zeros((16, 16), dtype=np.uint16)]),
+            stack,
+            (1, 1, 1, 16, 16),
+            np.uint16,
+            out,
+            {'photometric': 'minisblack'},
+        )
+        back = image_utils.read_file_record(stack)
+        assert back['channel_display'] == '488 nm'
+        assert back['excitation_nm'] == 488.0
+        assert back['filterset'] == 'FS-STOCK'
