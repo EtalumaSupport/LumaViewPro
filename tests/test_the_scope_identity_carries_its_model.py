@@ -95,8 +95,6 @@ class TestTheRunningScopeHasOneModel:
             well_label=None,
             fallback_focus=None,
         )
-        assert metadata['microscope'] == 'LS620'
-        assert metadata['microscope_model'] == 'LS620'
         assert metadata['instrument']['model'] == 'LS620'
 
 

@@ -44,20 +44,15 @@ from modules.layer_record import release_color
 
 def _build_metadata():
     return {
-        'camera_make': 'Etaluma',
-        'microscope': 'LS850',
-        'microscope_model': 'LS850',
         'channel': 'BF',
         'significant_bits': 8,
         'datetime': '2026:05:26 23:00:00',
         'objective': {
-            'model': '4x Plan Apochromat',
-            'manufacturer': 'Olympus',
+            'id': '4x Oly',
             'magnification': 4,
-            'aperture': 0.16,
-            'working_distance': 13.0,
-            'immersion': 'Air',
-            'focal_length': 45.0,
+            'numerical_aperture': 0.16,
+            'working_distance_mm': 13.0,
+            'focal_length_mm': 45.0,
         },
         'plate_pos_mm': {'x': 12.5, 'y': 30.0},
         'z_pos_um': 1500.0,
@@ -107,11 +102,9 @@ def test_ome_path_has_instrument_microscope_block():
 def test_ome_path_has_instrument_objective_block():
     result = _gen(image_type='ome', dtype=np.uint8)
     obj = result['metadata']['Instrument']['Objective']
-    assert obj['Manufacturer'] == 'Olympus'
     assert obj['Magnification'] == 4
     assert obj['LensNA'] == 0.16
-    assert obj['WorkingDistance'] == 13.0
-    assert obj['Immersion'] == 'Air'
+    assert (obj['WorkingDistance'], obj['WorkingDistanceUnit']) == (13.0, 'mm')
 
 
 def test_ome_path_has_instrument_detector_block():
@@ -124,14 +117,8 @@ def test_ome_path_has_instrument_detector_block():
 
 
 def _unreported(md: dict) -> dict:
-    """``md`` from a scope that reported no serial, an objective whose catalogue
-    entry names no model, manufacturer or immersion, and a frame in no well."""
+    """``md`` from a scope that reported no serial, and a frame in no well."""
     md['instrument'] = {**md['instrument'], 'serial_number': None}
-    md['objective'] = {
-        key: value
-        for key, value in md['objective'].items()
-        if key not in ('model', 'manufacturer', 'immersion')
-    }
     del md['well_label']
     return md
 
@@ -187,14 +174,13 @@ def test_no_writer_states_an_instrument_fact_the_scope_did_not_report(tmp_path):
         }
     expected = {
         'microscope': ['Manufacturer', 'Model'],
-        'objective': ['LensNA', 'Magnification', 'WorkingDistance'],
+        'objective': ['LensNA', 'Magnification', 'WorkingDistance', 'WorkingDistanceUnit'],
         'detector': ['Model'],
         'plate': ['Columns', 'Name', 'Rows', 'Standard'],
     }
     assert stated == dict.fromkeys(written, expected)
     assert sorted(written['imagej']['Document']) == [
         'CameraModel',
-        'Device',
         'Manufacturer',
         'Model',
         'PlateColumns',
@@ -235,7 +221,6 @@ def test_imagej_document_block_extended():
     doc = result['metadata']['Document']
     # Pre-existing keys must still be present.
     assert doc['Manufacturer'] == 'Etaluma'
-    assert doc['Device'] == 'LS850'
     assert doc['WellLabel'] == 'A1'
     # New keys per #491.
     assert doc['Model'] == 'LS850'
@@ -250,7 +235,8 @@ def test_imagej_document_block_extended():
 def test_ome_path_without_instrument_dict_does_not_crash():
     """If a downstream caller omits the instrument sub-dict (e.g. a
     post-processor that reconstructs metadata), the OME path must
-    still produce valid output -- the Instrument block is optional."""
+    still produce valid output: the Instrument block renders the objective
+    alone, and states no microscope or detector."""
     md = _build_metadata()
     del md['instrument']
     del md['plate']
@@ -258,7 +244,7 @@ def test_ome_path_without_instrument_dict_does_not_crash():
     result = image_utils.generate_tiff_data(
         data=data, metadata=md, image_type='ome', color=release_color('BF'), white_bits=None
     )
-    assert 'Instrument' not in result['metadata']
+    assert list(result['metadata']['Instrument']) == ['Objective']
     assert 'Plate' not in result['metadata']
     # Plane data must still be intact.
     assert result['metadata']['Plane']['PositionX'] == 12.5

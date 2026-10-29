@@ -243,6 +243,12 @@ class TestTheFramesTime:
         )
 
 
+def _stated_fields(objective):
+    """An objective as a frame's file states it: its own fields, a measurement
+    the catalogue does not hold left out."""
+    return {field: value for field, value in objective.to_dict().items() if value is not None}
+
+
 def _written(scope, tmp_path, arrived, *, frame_number=0):
     """Write ``arrived``'s frame through the production edge and read its
     file back as the readers do."""
@@ -323,7 +329,7 @@ class TestTheFrameFile:
 
         assert (written['exposure_time_ms'], written['gain_db']) == (25.0, 6.0)
         assert written['binning_size'] == A_CAMERA.binning_size
-        assert written['objective'] == sim_scope.objectives['10x Oly'].catalogue_entry()
+        assert written['objective'] == _stated_fields(sim_scope.objectives['10x Oly'])
         assert written['plate']['name'] == plate().name
         assert written['timestamp_iso'] == A_TIME.at.isoformat(timespec='microseconds')
         assert written['timestamp_source'] == 'host_arrival'
@@ -442,9 +448,9 @@ class TestARecordingOnTheSimulator:
             assert delivered.wait(timeout=20), 'the simulated camera delivered no frames'
             operation.stop()
             operation.result(timeout=60)
-            objective = session.scope.objectives[
-                session.scope.runtime_state.resolve_current_objective()[0]
-            ].catalogue_entry()
+            objective = _stated_fields(
+                session.scope.objectives[session.scope.runtime_state.resolve_current_objective()[0]]
+            )
             plate_name = session.scope.runtime_state.get_labware().name
         finally:
             session.scope.imaging.remove_frame_listener(_count)

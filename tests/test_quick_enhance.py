@@ -21,7 +21,7 @@ def _metadata(significant_bits: int, channel: str = LED1) -> dict:
     return {
         'pixel_size_um': 1.0,
         'channel': channel,
-        'objective': '10x',
+        'objective': {'id': '10x'},
         'exposure_time_ms': 1.0,
         'gain_db': 0.0,
         'illumination_ma': 1.0,

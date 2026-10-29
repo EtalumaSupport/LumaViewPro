@@ -220,12 +220,10 @@ def _write(
             'pixel_size_um': 0.5,
             'channel': color,
             'objective': {
-                'model': 'PlanFluor20x',
-                'manufacturer': 'Nikon',
+                'id': '20x Oly',
                 'magnification': 20,
-                'aperture': 0.45,
-                'working_distance': 8.1,
-                'immersion': 'Air',
+                'numerical_aperture': 0.45,
+                'working_distance_mm': 8.1,
             },
             'instrument': {
                 'manufacturer': 'Etaluma',

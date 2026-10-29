@@ -13,6 +13,7 @@ Key requirements:
 - Windows Preview compatibility: no tag 320 (colormap) on uint16 MINISBLACK images
 """
 
+import ast
 import datetime
 import errno
 from unittest import mock
@@ -37,15 +38,13 @@ def _make_metadata():
         'pixel_size_um': 0.5,
         'channel': LED1,
         'significant_bits': 8,
-        'objective': '10x',
+        'objective': {'id': '10x'},
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
         'datetime': '2026:03:16 12:00:00',
-        'camera_make': 'Test',
-        'microscope': 'TestScope',
         'well_label': 'A1',
         'well_site': '1',
     }
@@ -1278,7 +1277,7 @@ class TestPostprocMetadataRoundTrip:
         assert result['pixel_size_um'] == 0.5
         assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
         assert result['channel'] == LED1
-        assert result['objective'] == '10x'
+        assert result['objective'] == {'id': '10x'}
 
     def test_shaped_8bit(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
@@ -1345,14 +1344,6 @@ class TestPostprocMetadataRoundTrip:
 # Recorded keys the file carries in another form, so the reader returns them
 # under no key of their own; each names where it is.
 _IN_THE_FILE_AS = {
-    'software': 'the Software tag',
-    'sub_sec_time': "the Timestamp's microseconds",
-    'x_pos': 'plate_pos_mm (PositionX)',
-    'y_pos': 'plate_pos_mm (PositionY)',
-    'focal_length': "the objective's focal_length",
-    'camera_make': 'Instrument.Microscope.Manufacturer',
-    'microscope': 'Instrument.Microscope.Model',
-    'microscope_model': 'Instrument.Microscope.Model',
     'significant_bits': 'tag 65123',
 }
 
@@ -1510,6 +1501,87 @@ def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_laye
         read = image_utils.read_postproc_input_metadata(path)
         lost = sorted(set(metadata) - set(read) - set(_IN_THE_FILE_AS))
         assert lost == [], f'the {name} kept but its file does not state: {lost}'
+
+
+def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads(
+    sim_scope, tmp_path
+):
+    """The objective's one home in a still is Plane.Objective, under the
+    objective's own field names, each naming its unit; Instrument.Objective is
+    a rendering of it with the working distance's unit stated. A file written
+    under the catalogue's keys reads back under the field names."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='8bit',
+        significant_bits=8,
+        dtype=np.uint8,
+        output_format='OME-TIFF',
+    )
+    catalogue = sim_scope.objectives['4x Oly']
+    stated = image_utils.read_postproc_input_metadata(still)['objective']
+    assert (stated['id'], stated['working_distance_mm']) == (
+        '4x Oly',
+        catalogue.working_distance_mm,
+    )
+    rendered = image_utils.generate_tiff_data(
+        data=np.zeros((8, 8), dtype=np.uint8),
+        metadata={**image_utils.read_postproc_input_metadata(still), 'significant_bits': 8},
+        image_type='ome',
+        color=GREY,
+        white_bits=None,
+    )['metadata']['Instrument']['Objective']
+    assert (rendered['WorkingDistance'], rendered['WorkingDistanceUnit']) == (
+        catalogue.working_distance_mm,
+        'mm',
+    )
+
+    older = tmp_path / 'older.tiff'
+    image_utils.write_tiff(
+        data=np.zeros((8, 8), dtype=np.uint8),
+        file_loc=older,
+        metadata={
+            'pixel_size_um': 0.5,
+            'channel': 'BF',
+            'datetime': '2026:03:16 12:00:00',
+            'objective': {'aperture': 0.16, 'working_distance': 13.0, 'DOF': 40.0},
+        },
+        ome=False,
+        color=GREY,
+        significant_bits=8,
+        save_encoding='8bit',
+        white_bits=None,
+    )
+    assert image_utils.read_postproc_input_metadata(older)['objective'] == {
+        'numerical_aperture': 0.16,
+        'working_distance_mm': 13.0,
+        'depth_of_field_um': 40.0,
+    }
+
+
+def test_each_fact_has_one_key_and_an_imagej_document_renders_the_instrument(sim_scope, tmp_path):
+    """The scope's maker and model live in ``instrument``, the position in
+    ``plate_pos_mm``, the depth in tag 65123: a still's record holds no second
+    name for any of them, and an ImageJ file's Document, Fiji's view of the
+    scope, is rendered from ``instrument`` and ``plate``."""
+    recorded, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='TIFF',
+    )
+    second_names = ('camera_make', 'microscope', 'microscope_model', 'x_pos', 'y_pos')
+    assert [key for key in second_names if key in recorded] == []
+    with tf.TiffFile(str(still)) as tif:
+        description = tif.imagej_metadata
+    assert 'significantbits' not in description
+    document = ast.literal_eval(description['document'])
+    assert (document['Model'], document['PlateName']) == (
+        recorded['instrument']['model'],
+        recorded['plate']['name'],
+    )
 
 
 # ---------------------------------------------------------------------------

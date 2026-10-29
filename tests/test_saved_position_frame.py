@@ -125,25 +125,6 @@ class TestThePlatePositionSurvivesTheSave:
         delta = far['plate_pos_mm']['x'] - near['plate_pos_mm']['x']
         assert delta == pytest.approx(9.0), f'two captures 9 mm apart recorded {delta} mm apart'
 
-    def test_the_duplicate_position_keys_agree_with_the_plate_position(self, positioned_scope):
-        """`x_pos` / `y_pos` carry the same fact as `plate_pos_mm`. Two spellings
-        of one value can drift apart; while both exist they answer the same."""
-        metadata = image_save.generate_image_metadata(
-            positioned_scope,
-            channel='BF',
-            plate_x_mm=PLATE_X_MM,
-            plate_y_mm=PLATE_Y_MM,
-            stage_z_um=STAGE_Z_UM,
-            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
-            frame_record=frame_record(),
-            labware=plate(),
-            well_label=None,
-            fallback_focus=None,
-        )
-
-        assert metadata['x_pos'] == metadata['plate_pos_mm']['x']
-        assert metadata['y_pos'] == metadata['plate_pos_mm']['y']
-
 
 class TestTheWholeSaveChainCarriesOneFrame:
     def test_a_written_file_reports_the_plate_position_it_was_saved_at(

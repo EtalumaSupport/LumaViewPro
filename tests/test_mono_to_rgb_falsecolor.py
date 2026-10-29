@@ -195,14 +195,12 @@ class TestAColourIsAValue:
 
 _METADATA = {
     'pixel_size_um': 0.5,
-    'objective': '20x Oly',
+    'objective': {'id': '20x Oly'},
     'exposure_time_ms': 2.0,
     'gain_db': 1.0,
     'illumination_ma': 5.0,
     'z_pos_um': 5000.0,
     'plate_pos_mm': {'x': 1.0, 'y': 2.0},
     'datetime': '2026:10:13 12:00:00',
-    'camera_make': 'Test',
-    'microscope': 'TestScope',
     'well_label': '',
 }

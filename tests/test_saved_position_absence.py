@@ -32,7 +32,7 @@ from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
 from modules.layer_record import release_colors
 
-POSITION_KEYS = ('plate_pos_mm', 'x_pos', 'y_pos', 'z_pos_um')
+POSITION_KEYS = ('plate_pos_mm', 'z_pos_um')
 
 
 @pytest.fixture

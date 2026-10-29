@@ -1469,7 +1469,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
         known, lost, regained = self._described_frames(tmp_path)
         assert known['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
-        assert 'plate_pos_mm' not in lost and 'x_pos' not in lost
+        assert 'plate_pos_mm' not in lost
         assert lost['z_pos_um'] == 3.0, 'Z is independent of the X/Y pair'
         assert regained['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
 

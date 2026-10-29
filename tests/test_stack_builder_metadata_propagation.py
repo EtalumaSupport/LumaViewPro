@@ -60,12 +60,10 @@ def _write_structured_input(
             'plate_pos_mm': plate_pos_mm,
             'z_pos_um': z_pos_um,
             'objective': {
-                'model': 'PlanFluor20x',
-                'manufacturer': 'Nikon',
+                'id': '20x Oly',
                 'magnification': 20,
-                'aperture': 0.45,
-                'working_distance': 8.1,
-                'immersion': 'Air',
+                'numerical_aperture': 0.45,
+                'working_distance_mm': 8.1,
             },
             'exposure_time_ms': 50.0,
             'gain_db': 3.0,
@@ -433,7 +431,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
         objective = (recovered.get('Instrument') or {}).get('Objective') or {}
-        assert objective.get('Model') == 'PlanFluor20x'
         assert objective.get('Magnification') == 20
         assert objective.get('LensNA') == 0.45
 

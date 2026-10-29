@@ -35,7 +35,7 @@ _UNITS = ('ExposureTimeUnit', 'PositionXUnit', 'PositionYUnit', 'PositionZUnit')
 def _every_plane_field() -> dict:
     """A capture's metadata with every optional Plane field set."""
     return {
-        'objective': {'model': 'PlanFluor20x', 'magnification': 20, 'aperture': 0.45},
+        'objective': {'id': '20x Oly', 'magnification': 20, 'numerical_aperture': 0.45},
         'pixel_size_um': 0.65,
         'channel': LED1,
         'excitation_nm': 470.0,

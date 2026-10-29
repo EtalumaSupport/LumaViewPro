@@ -34,7 +34,7 @@ if the old name comes back, not a one-time sweep.
 
 import ast
 
-from tests.ast_seams import Packages, iter_package_modules, parse_module
+from tests.ast_seams import Packages, iter_package_modules
 
 PROD_PACKAGES = Packages({'modules', 'ui'})
 
@@ -153,35 +153,29 @@ def test_the_unit_string_is_untouched():
 
     This pins the distinction the guard above rests on: banning the
     identifier must never cost the unit. If a future sweep renames this,
-    every image this application writes carries a wrong unit.
-
-    Parsed, not read as text: a source-text read would add this file to
-    the read-text ratchet for a claim the AST answers exactly.
+    every image this application writes carries a wrong unit. Read from what
+    the writer writes, whatever form its source takes.
     """
-    tree = parse_module('modules/image_utils.py')
-    # The tag is written either as a dict-literal pair or as a subscript
-    # assignment (it became conditional when Illumination joined the
-    # optional-fields contract); the unit fact is the same in both forms.
-    units = [
-        value.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Dict)
-        for key, value in zip(node.keys, node.values, strict=True)
-        if isinstance(key, ast.Constant)
-        and key.value == 'IlluminationUnit'
-        and isinstance(value, ast.Constant)
-    ]
-    units += [
-        node.value.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Subscript)
-        and isinstance(node.targets[0].slice, ast.Constant)
-        and node.targets[0].slice.value == 'IlluminationUnit'
-        and isinstance(node.value, ast.Constant)
-    ]
-    assert units == ['mA'], (
-        f'the TIFF IlluminationUnit tag must still read mA, got {units!r} -- '
+    import numpy as np
+
+    from modules import image_utils
+    from modules.layer_record import GREY
+
+    plane = image_utils.generate_tiff_data(
+        data=np.zeros((4, 4), dtype=np.uint8),
+        metadata={
+            'pixel_size_um': None,
+            'channel': 'BF',
+            'significant_bits': 8,
+            'illumination_ma': 50.0,
+            'illumination_by_channel_ma': {'BF': 50.0},
+        },
+        image_type=None,
+        color=GREY,
+        white_bits=None,
+    )['metadata']['Plane']
+    units = [plane['IlluminationUnit'], plane['IlluminationByChannelUnit']]
+    assert units == ['mA', 'mA'], (
+        f'the TIFF illumination unit tags must still read mA, got {units!r} -- '
         'a saved image records the unit, not the parameter name'
     )

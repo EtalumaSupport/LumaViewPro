@@ -148,15 +148,13 @@ def _save_meta(significant_bits=None):
     meta = {
         'pixel_size_um': 0.5,
         'channel': LED1,
-        'objective': '10x',
+        'objective': {'id': '10x'},
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
         'illumination_ma': 100.0,
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
         'datetime': '2026:06:18 12:00:00',
-        'camera_make': 'Test',
-        'microscope': 'TestScope',
         'well_label': 'A1',
         'well_site': '1',
     }

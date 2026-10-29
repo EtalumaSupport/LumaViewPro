@@ -30,7 +30,7 @@ import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from lib.handle_trace import tick as _h_tick
-from lvp_logger import logger, version
+from lvp_logger import logger
 from modules.exceptions import (
     ArgumentRefusedError,
     CaptureFailedError,
@@ -285,16 +285,14 @@ def position_metadata_fields(
         stage_z_um: Stage Z in um, or None when unknown.
 
     Returns:
-        dict: ``plate_pos_mm`` / ``x_pos`` / ``y_pos`` when X and Y are
-            both known, ``z_pos_um`` when Z is; empty otherwise.
+        dict: ``plate_pos_mm`` when X and Y are both known, ``z_pos_um``
+            when Z is; empty otherwise.
     """
     fields: dict = {}
     if plate_x_mm is not None and plate_y_mm is not None:
         px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
         py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
         fields['plate_pos_mm'] = {'x': px, 'y': py}
-        fields['x_pos'] = px
-        fields['y_pos'] = py
     if stage_z_um is not None:
         fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
     return fields
@@ -444,10 +442,6 @@ def generate_image_metadata(
     }
 
     metadata = {
-        'camera_make': 'Etaluma',
-        'microscope': microscope_model,
-        'microscope_model': microscope_model,
-        'software': f'LumaViewPro {version}',
         'channel': channel,
         # What the channel is called wherever it is shown: a fluorescence
         # layer's excitation, any other layer's name on this unit.
@@ -459,9 +453,11 @@ def generate_image_metadata(
         ),
         **({'filterset': identity.filterset} if identity.filterset else {}),
         'datetime': captured_at.strftime('%Y:%m:%d %H:%M:%S'),
-        'sub_sec_time': f'{captured_at.microsecond // 1000:03d}',
-        'objective': objective.catalogue_entry(),
-        'focal_length': objective.focal_length_mm,
+        # The objective under its own field names, each naming its unit; a
+        # measurement the catalogue does not hold is absent.
+        'objective': {
+            field: value for field, value in objective.to_dict().items() if value is not None
+        },
         **_position_fields,
         **_frame_settings,
         # An LED that was off for the grab, or on an absent board, has no

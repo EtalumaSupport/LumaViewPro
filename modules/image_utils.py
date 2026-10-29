@@ -23,6 +23,7 @@ from modules.exceptions import FrameDepthError, InputFramesUnusableError
 from modules.layer_record import GREY, Color, stored_key
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
+import modules.objectives_loader as objectives_loader
 import modules.image_utils as image_utils
 
 from fractions import Fraction
@@ -574,14 +575,6 @@ FILE_FACTS: dict[str, FileFact] = {
     'instrument': FileFact(FactKind.SHARED),
     'plate': FileFact(FactKind.SHARED),
     'well_label': FileFact(FactKind.SHARED),
-    'camera_make': FileFact(FactKind.SHARED),
-    'microscope': FileFact(FactKind.SHARED),
-    'microscope_model': FileFact(FactKind.SHARED),
-    'x_pos': FileFact(FactKind.SHARED),
-    'y_pos': FileFact(FactKind.SHARED),
-    'focal_length': FileFact(FactKind.SHARED),
-    'sub_sec_time': FileFact(FactKind.CAPTURE),
-    'software': FileFact(FactKind.FILE),
     'datetime': FileFact(FactKind.FILE),
     'significant_bits': FileFact(FactKind.FILE),
     'algorithm': FileFact(FactKind.FILE),
@@ -1056,6 +1049,8 @@ def _plane_facts(plane: dict) -> dict:
         # A file written while the objective was a hard key states "none" as {}.
         if fact.plane in plane and plane[fact.plane] != {}:
             facts[key] = plane[fact.plane]
+    if 'objective' in facts:
+        facts['objective'] = objectives_loader.under_field_names(facts['objective'])
     return facts
 
 
@@ -1104,8 +1099,6 @@ def _imagej_to_structured(imagej_metadata: dict) -> dict:
     ):
         if lower in imagej_metadata:
             structured[canonical] = parsed(lower)
-    if 'significantbits' in imagej_metadata:
-        structured['SignificantBits'] = imagej_metadata['significantbits']
     return structured
 
 
@@ -1252,16 +1245,18 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     if 'Algorithm' in structured:
         flat['algorithm'] = structured['Algorithm']
 
-    if 'Instrument' in structured:
-        inst = structured['Instrument']
-        microscope = inst.get('Microscope', {})
-        detector = inst.get('Detector', {})
-        flat['instrument'] = {
-            'manufacturer': microscope.get('Manufacturer'),
-            'model': microscope.get('Model'),
-            'serial_number': microscope.get('SerialNumber'),
-            'camera_model': detector.get('Model'),
-        }
+    # The Instrument block also renders the objective, so an Instrument
+    # whose microscope and detector state nothing states no instrument.
+    inst = structured.get('Instrument', {})
+    microscope = inst.get('Microscope', {})
+    instrument = _stated(
+        manufacturer=microscope.get('Manufacturer'),
+        model=microscope.get('Model'),
+        serial_number=microscope.get('SerialNumber'),
+        camera_model=inst.get('Detector', {}).get('Model'),
+    )
+    if instrument:
+        flat['instrument'] = instrument
 
     if 'Plate' in structured:
         p = structured['Plate']
@@ -1496,6 +1491,62 @@ def _stated_blocks(**blocks: dict) -> dict:
     return {key: block for key, block in blocks.items() if block}
 
 
+def _instrument_and_plate_blocks(record: dict) -> dict:
+    """The ``Instrument``, ``Plate`` and ImageJ ``Document`` blocks a record renders to.
+
+    The one writer of the three, for a still, a derived file and a
+    hyperstack. Each is a rendering for Bio-Formats and Fiji, drawn from the
+    record's ``objective``, ``instrument``, ``plate`` and ``well_label``, not
+    a second store: the objective's home is ``Plane.Objective``. A block that
+    states nothing is absent, and so is a Plate with no rows and columns
+    (a slide, a blank). Not yet rendered: an OME LightSource (LED wavelength
+    and power are not tracked per colour), the Detector's gain and zoom, an
+    OME FilterSet (filter wheel and dichroic are not tracked).
+    """
+    objective = record.get('objective') or {}
+    instrument = record.get('instrument') or {}
+    plate = record.get('plate') or {}
+    working_distance = _stated(
+        WorkingDistance=objective.get('working_distance_mm'),
+    )
+    if working_distance:
+        working_distance['WorkingDistanceUnit'] = 'mm'
+    blocks = {
+        'Instrument': _stated_blocks(
+            Microscope=_stated(
+                Manufacturer=instrument.get('manufacturer'),
+                Model=instrument.get('model'),
+                SerialNumber=instrument.get('serial_number'),
+            ),
+            Objective=_stated(
+                Magnification=objective.get('magnification'),
+                LensNA=objective.get('numerical_aperture'),
+            )
+            | working_distance,
+            Detector=_stated(Model=instrument.get('camera_model')),
+        ),
+        'Document': _stated(
+            Manufacturer=instrument.get('manufacturer'),
+            Model=instrument.get('model'),
+            SerialNumber=instrument.get('serial_number'),
+            CameraModel=instrument.get('camera_model'),
+            PlateName=plate.get('name'),
+            PlateRows=plate.get('rows'),
+            PlateColumns=plate.get('columns'),
+            WellLabel=record.get('well_label'),
+        ),
+    }
+    if plate.get('rows') and plate.get('columns'):
+        blocks['Plate'] = _stated(
+            Name=plate.get('name'),
+            Rows=plate.get('rows'),
+            Columns=plate.get('columns'),
+            WellLabel=record.get('well_label'),
+            Standard=plate.get('standard'),
+        )
+    return _stated_blocks(**blocks)
+
+
 def build_hyperstack_output_metadata(
     reference_input_path: pathlib.Path,
     *,
@@ -1520,14 +1571,11 @@ def build_hyperstack_output_metadata(
     measurement claim rather than an invented one.
 
     Tifffile-OME-XML constraint: the underlying tifffile serializer
-    writes only Image > Pixels > Channel + Plane to OME-XML. Instrument,
-    Objective, and Plate keys in the metadata dict are silently dropped
-    by tifffile -- they remain in the returned dict for future-proofing
-    (if tifffile gains broader OME schema coverage), but consumers
-    cannot read those fields from current hyperstack outputs. Closing
-    the Instrument/Plate provenance gap requires either hand-rolled
-    OME-XML or a private-tag JSON sidecar; both deferred as separate
-    work.
+    writes only Image > Pixels > Channel + Plane to OME-XML. The
+    Instrument and Plate blocks (the one renderer's,
+    ``_instrument_and_plate_blocks``) are dropped from the XML by
+    tifffile and kept only in the private-tag JSON sidecar
+    ``write_hyperstack_tiff`` writes.
 
     Args:
         reference_input_path: One input frame TIFF; acquisition context
@@ -1614,37 +1662,8 @@ def build_hyperstack_output_metadata(
             }
         )
 
-    objective_dict = inflat.get('objective') or {}
-    instrument = inflat.get('instrument') or {}
-    plate = inflat.get('plate') or {}
-    if instrument:
-        instrument_blocks = _stated_blocks(
-            Microscope=_stated(
-                Manufacturer=instrument.get('manufacturer'),
-                Model=instrument.get('model'),
-                SerialNumber=instrument.get('serial_number'),
-            ),
-            Objective=_stated(
-                Model=objective_dict.get('model'),
-                Manufacturer=objective_dict.get('manufacturer'),
-                Magnification=objective_dict.get('magnification'),
-                LensNA=objective_dict.get('aperture'),
-                WorkingDistance=objective_dict.get('working_distance'),
-                Immersion=objective_dict.get('immersion'),
-            ),
-            Detector=_stated(Model=instrument.get('camera_model')),
-        )
-        if instrument_blocks:
-            metadata['Instrument'] = instrument_blocks
-    if plate.get('rows') and plate.get('columns'):
-        metadata['Plate'] = _stated(
-            Name=plate.get('name'),
-            Rows=plate.get('rows'),
-            Columns=plate.get('columns'),
-            WellLabel=inflat.get('well_label'),
-            Standard=plate.get('standard'),
-        )
-
+    blocks = _instrument_and_plate_blocks(inflat)
+    metadata |= {key: blocks[key] for key in ('Instrument', 'Plate') if key in blocks}
     return metadata
 
 
@@ -2492,10 +2511,6 @@ def generate_tiff_data(
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
-        # Payload depth, supplied by write_tiff (which requires it). Stored so
-        # a right-aligned narrow payload is not read back as full container
-        # width and rendered ~16x dark.
-        'SignificantBits': metadata['significant_bits'],
         'Channel': channel_block,
         'Plane': plane,
     }
@@ -2507,6 +2522,9 @@ def generate_tiff_data(
     # arm only: tifffile would also serialize the key into the ImageJ and
     # shaped descriptions.
     if image_type == 'ome':
+        # The schema's own statement of the payload depth, rendered from the
+        # value private tag 65123 carries in every container.
+        tiff_metadata['SignificantBits'] = metadata['significant_bits']
         tiff_metadata['Plane'] = {
             key: value for key, value in plane.items() if key in _OME_PLANE_ATTRIBUTES
         }
@@ -2541,46 +2559,8 @@ def generate_tiff_data(
     if metadata.get('algorithm'):
         tiff_metadata['Algorithm'] = metadata['algorithm']
 
-    # OME Plate + Instrument blocks (#491). The tifffile dict API
-    # serializes well-known OME keys into OME-XML where possible; less-
-    # standard keys ride along in the structured metadata and survive a
-    # round-trip through tifffile.TiffFile(...).imagej_metadata /
-    # .ome_metadata so consumers can extract them. The Objective sub-
-    # block reuses the existing per-image objective dict that already
-    # backs the Plane.Objective field. Not yet shipped: OME LightSource
-    # (LED wavelength + power -- not tracked per-color), OME Detector
-    # gain/zoom (partial -- only model today), OME FilterSet (filter
-    # wheel + dichroic info -- not tracked).
-    objective_dict = metadata.get('objective') or {}
-    instrument = metadata.get('instrument') or {}
-    plate = metadata.get('plate') or {}
-    if instrument:
-        instrument_blocks = _stated_blocks(
-            Microscope=_stated(
-                Manufacturer=instrument.get('manufacturer'),
-                Model=instrument.get('model'),
-                SerialNumber=instrument.get('serial_number'),
-            ),
-            Objective=_stated(
-                Model=objective_dict.get('model'),
-                Manufacturer=objective_dict.get('manufacturer'),
-                Magnification=objective_dict.get('magnification'),
-                LensNA=objective_dict.get('aperture'),
-                WorkingDistance=objective_dict.get('working_distance'),
-                Immersion=objective_dict.get('immersion'),
-            ),
-            Detector=_stated(Model=instrument.get('camera_model')),
-        )
-        if instrument_blocks:
-            tiff_metadata['Instrument'] = instrument_blocks
-    if plate.get('rows') and plate.get('columns'):
-        tiff_metadata['Plate'] = _stated(
-            Name=plate.get('name'),
-            Rows=plate.get('rows'),
-            Columns=plate.get('columns'),
-            WellLabel=metadata.get('well_label'),
-            Standard=plate.get('standard'),
-        )
+    blocks = _instrument_and_plate_blocks(metadata)
+    tiff_metadata |= {key: blocks[key] for key in ('Instrument', 'Plate') if key in blocks}
 
     # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
@@ -2614,17 +2594,8 @@ def generate_tiff_data(
         else:
             raise ValueError(f'Unexpected channel ({identity_channel}) for tiff modality')
         tiff_metadata['Channel']['Modality'] = [modality]
-        tiff_metadata['Document'] = _stated(
-            Manufacturer=metadata.get('camera_make'),
-            Device=metadata.get('microscope'),
-            Model=metadata.get('microscope_model'),
-            SerialNumber=instrument.get('serial_number'),
-            CameraModel=instrument.get('camera_model'),
-            PlateName=plate.get('name'),
-            PlateRows=plate.get('rows'),
-            PlateColumns=plate.get('columns'),
-            WellLabel=metadata.get('well_label'),
-        )
+        if 'Document' in blocks:
+            tiff_metadata['Document'] = blocks['Document']
         # Embed color LUT in ImageJ metadata (not TIFF tag 320).
         # Windows Preview ignores ImageJ metadata -> sees MINISBLACK -> works.
         # ImageJ reads its own metadata -> auto-applies color LUT -> shows color.

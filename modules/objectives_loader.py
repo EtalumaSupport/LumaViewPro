@@ -75,18 +75,6 @@ class Objective:
     z_settle_timeout_ms: float
     focus_peak_fwhm_dense_um: float | None = None
 
-    def catalogue_entry(self) -> dict:
-        """The objective under the catalogue file's keys, ``short_name`` with them.
-
-        What a capture's metadata carries, so an image read back finds the
-        keys every image has carried, written before this record or after.
-        """
-        entry = {key: getattr(self, field) for field, key in _FILE_KEYS.items()}
-        if entry['focus_peak_fwhm_dense_um'] is None:
-            del entry['focus_peak_fwhm_dense_um']
-        entry['short_name'] = self.short_name
-        return entry
-
 
 # Each field's key in objectives.json. The file keeps the names it has
 # always had, written by the engineering plugin's merge as well as by hand.
@@ -109,6 +97,18 @@ _FILE_KEYS = {
     'focus_peak_fwhm_dense_um': 'focus_peak_fwhm_dense_um',
 }
 _OPTIONAL_FILE_KEYS = frozenset({'focus_peak_fwhm_dense_um'})
+
+
+def under_field_names(stated: Mapping) -> dict:
+    """An objective as an image states it, each catalogue file key under its field's name.
+
+    An image written before its objective was saved under the field names
+    states it under the catalogue file's keys (``working_distance``,
+    ``aperture``, ``DOF``, ...); one written since states the field names,
+    which pass through, as does any key that is neither.
+    """
+    field_of = {key: field for field, key in _FILE_KEYS.items()}
+    return {field_of.get(key, key): value for key, value in stated.items()}
 
 
 def _read_objective(objective_id: object, entry: object, filepath: pathlib.Path) -> Objective:

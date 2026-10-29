@@ -41,7 +41,7 @@ def _metadata(path, channel=LED0, significant_bits=None):
         'datetime': '2026-06-18T00:00:00',
         'plate_pos_mm': {'x': 0.0, 'y': 0.0},
         'z_pos_um': 0.0,
-        'objective': 'test',
+        'objective': {'id': 'test'},
         'exposure_time_ms': 1.0,
         'gain_db': 0.0,
         'illumination_ma': 0.0,

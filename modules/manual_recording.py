@@ -880,6 +880,7 @@ class ManualRecordingController:
             position = image_save.position_metadata_fields(
                 fact.plate_x_mm, fact.plate_y_mm, fact.z_um
             )
+            plate_pos_mm = position.get('plate_pos_mm')
             self._hyperstack_rows.append(
                 {
                     'Filepath': file_loc.name,
@@ -889,8 +890,8 @@ class ManualRecordingController:
                     # is recorded on every frame regardless of rendering.
                     'Color': light.channel,
                     'Z-Slice': 0,
-                    'X': position.get('x_pos'),
-                    'Y': position.get('y_pos'),
+                    'X': plate_pos_mm['x'] if plate_pos_mm else None,
+                    'Y': plate_pos_mm['y'] if plate_pos_mm else None,
                     'Z': position.get('z_pos_um'),
                 }
             )
