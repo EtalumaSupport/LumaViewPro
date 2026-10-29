@@ -217,7 +217,6 @@ class ZProjector(ProtocolPostProcessor):
         method = ZProjectMethod(method)
 
         first_slice_row = df.iloc[0]
-        first_slice_path = path / first_slice_row['Filepath']
 
         orig_images = []
         input_depths = []
@@ -261,14 +260,13 @@ class ZProjector(ProtocolPostProcessor):
             return result
 
         # Route through write_tiff so the projected output carries the
-        # layer's PALETTE colormap plus the source acquisition context
-        # forwarded from the first slice. Z position is inherited from
-        # the first slice as a representative value -- the projection
-        # collapses Z, so any single value is approximate.
+        # layer's PALETTE colormap plus the acquisition context its slices
+        # agree on. The projection collapses Z, so slices at different Z
+        # state none.
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         metadata = image_utils.build_postproc_output_metadata(
-            input_path=first_slice_path,
+            input_records=[image_utils.read_file_record(path / name) for name in df['Filepath']],
             channel=first_slice_row['Color'],
             significant_bits=output_depth,
             # A slice's frame count says how many exposures each of its pixels

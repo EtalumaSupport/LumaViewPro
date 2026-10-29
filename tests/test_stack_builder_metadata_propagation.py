@@ -552,7 +552,7 @@ class TestHyperstackChannelColor:
             z_pos_um=0.0,
         )
         metadata = image_utils.build_hyperstack_output_metadata(
-            reference_input_path=ref,
+            input_records=[image_utils.read_file_record(ref)],
             channel_names=[LED1, 'BF', LED2, LED0],
             channel_colors=[release_color(name) for name in [LED1, 'BF', LED2, LED0]],
             plane_positions={
@@ -789,7 +789,7 @@ def test_write_hyperstack_streams_a_plane_iterator(tmp_path):
     reference = tmp_path / 'ref.tiff'
     tf.imwrite(reference, plane_a)
     metadata = image_utils.build_hyperstack_output_metadata(
-        reference_input_path=reference,
+        input_records=[image_utils.read_file_record(reference)],
         channel_names=[LED1],
         channel_colors=[release_color(LED1)],
         plane_positions={

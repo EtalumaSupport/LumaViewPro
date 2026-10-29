@@ -151,7 +151,7 @@ def test_no_writer_states_an_instrument_fact_the_scope_did_not_report(tmp_path):
         white_bits=None,
     )
     written['hyperstack'] = image_utils.build_hyperstack_output_metadata(
-        reference,
+        [image_utils.read_file_record(reference)],
         channel_names=['BF'],
         channel_colors=[release_color('BF')],
         plane_positions={

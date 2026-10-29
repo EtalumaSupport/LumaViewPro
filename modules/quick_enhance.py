@@ -95,17 +95,15 @@ class QuickEnhancer:
         cls,
         source_path: pathlib.Path,
         *,
-        source_pixels: np.ndarray | None = None,
-        source_metadata: dict | None = None,
+        source_pixels: np.ndarray,
+        source_record: dict | None,
     ) -> str | None:
-        metadata = source_metadata or image_utils.read_file_record(source_path) or {}
-        channel = metadata.get('channel')
+        channel = source_record.get('channel') if source_record is not None else None
         if isinstance(channel, str) and channel:
             return channel
-        if source_pixels is not None:
-            legacy_channel = cls._legacy_false_color_channel(source_pixels)
-            if legacy_channel is not None:
-                return legacy_channel[0]
+        legacy_channel = cls._legacy_false_color_channel(source_pixels)
+        if legacy_channel is not None:
+            return legacy_channel[0]
         # Foreign inputs only. This path admits PNG/JPG/BMP and third-party
         # TIFFs, none of which carry a channel field; files this application
         # writes always state theirs and are answered by the metadata branch
@@ -372,17 +370,18 @@ class QuickEnhancer:
         temp_output = output_path.with_name(f'.{output_path.stem}.{uuid.uuid4().hex}.tmp.tif')
         temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
         try:
-            source_metadata = image_utils.read_file_record(source_path) or {}
+            # Read once: the channel and the output's record both come from it.
+            source_record = image_utils.read_file_record(source_path)
             channel = str(
                 self._source_channel(
                     source_path,
                     source_pixels=source_pixels,
-                    source_metadata=source_metadata,
+                    source_record=source_record,
                 )
                 or 'Unknown'
             )
             metadata = image_utils.build_postproc_output_metadata(
-                input_path=source_path,
+                input_records=[source_record],
                 channel=channel,
                 significant_bits=significant_bits,
                 adds_frames=False,

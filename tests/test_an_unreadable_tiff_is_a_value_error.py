@@ -85,7 +85,7 @@ _READERS = [
     image_utils.load_pixels,
     image_utils.load_pixels_with_timestamp,
     image_utils.read_tiff_significant_bits,
-    image_utils.read_tiff_depth_and_timestamp,
+    image_utils.read_tiff_depth_and_record,
     image_utils.read_image_geometry,
 ]
 
@@ -99,7 +99,7 @@ def test_an_undecodable_tiff_is_a_value_error_naming_the_file(tmp_path, reader, 
 
     header_only = reader in (
         image_utils.read_tiff_significant_bits,
-        image_utils.read_tiff_depth_and_timestamp,
+        image_utils.read_tiff_depth_and_record,
         image_utils.read_image_geometry,
     )
     if header_only and state is _compressed_pixels_cut_short:

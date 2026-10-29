@@ -94,7 +94,7 @@ def _write_output(
     path: pathlib.Path,
     output_file_loc: pathlib.Path | None,
     image: np.ndarray,
-    first_tile_path: pathlib.Path,
+    tile_paths: list[pathlib.Path],
     color: str,
     channel_colors: layer_record.ChannelColors,
     center: dict,
@@ -109,7 +109,7 @@ def _write_output(
     output_file_loc_abs = path / output_file_loc
     output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
     metadata = image_utils.build_postproc_output_metadata(
-        input_path=first_tile_path,
+        input_records=[image_utils.read_file_record(tile) for tile in tile_paths],
         channel=color,
         significant_bits=significant_bits,
         adds_frames=False,
@@ -154,7 +154,7 @@ def _result(
         path=path,
         output_file_loc=output_file_loc,
         image=image,
-        first_tile_path=path / first_row['Filepath'],
+        tile_paths=[path / name for name in df['Filepath']],
         color=color,
         channel_colors=channel_colors,
         center=center,

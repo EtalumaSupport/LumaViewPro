@@ -1477,10 +1477,14 @@ def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_laye
         output_format='TIFF',
     )
     stitch = image_utils.build_postproc_output_metadata(
-        still, 'BF', significant_bits=12, adds_frames=False, algorithm='registered'
+        [image_utils.read_file_record(still)],
+        'BF',
+        significant_bits=12,
+        adds_frames=False,
+        algorithm='registered',
     )
     composite = image_utils.build_postproc_output_metadata(
-        still, 'Composite', significant_bits=8, adds_frames=False
+        [image_utils.read_file_record(still)], 'Composite', significant_bits=8, adds_frames=False
     )
 
     assert [key for key in _PER_CHANNEL if key in composite] == []
@@ -1602,7 +1606,7 @@ def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_s
         data=np.zeros((8, 8), dtype=np.uint8),
         file_loc=derived,
         metadata=image_utils.build_postproc_output_metadata(
-            still, 'BF', significant_bits=8, adds_frames=False
+            [image_utils.read_file_record(still)], 'BF', significant_bits=8, adds_frames=False
         ),
         ome=False,
         color=GREY,

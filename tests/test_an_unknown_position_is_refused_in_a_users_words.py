@@ -163,7 +163,8 @@ def test_a_hyperstack_states_no_position_it_does_not_have(tmp_path):
 
     nan = float('nan')
     metadata = build_hyperstack_output_metadata(
-        tmp_path / 'absent.tiff',
+        # Frames with no record: the case is the positions alone.
+        [None, None],
         channel_names=['BF'],
         channel_colors=[release_color(name) for name in ['BF']],
         plane_positions={

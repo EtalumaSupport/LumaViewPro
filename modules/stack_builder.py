@@ -242,10 +242,9 @@ class StackBuilder(ProtocolPostProcessor):
         plane_metadata: dict,
         significant_bits: int,
         channel_colors: layer_record.ChannelColors,
+        input_records: list[dict | None],
     ):
         channel_names = df['Color'].unique().tolist()
-        row0 = df.iloc[0]
-        sample_image_file_loc = path / row0['Filepath']
         # The hyperstack inherits the depth the caller carried from the
         # load_pixels read of the input frames -- no second open to re-derive
         # what those pixels already came tagged with.
@@ -257,8 +256,8 @@ class StackBuilder(ProtocolPostProcessor):
         # and did so from whatever focal length the caller happened to hold --
         # which on a scope with no objective selector is a default, not a
         # measurement. Nothing here rebins; planes are stacked as read, so the
-        # input's own scale is the output's scale.
-        pixel_size_um = image_utils.read_pixel_size_um(sample_image_file_loc)
+        # scale every input states is the output's scale.
+        pixel_size_um = image_utils.agreed_facts(input_records).get('pixel_size_um')
 
         if pixel_size_um is None:
             # Older / third-party / pre-metadata captures carry no scale, and
@@ -267,10 +266,10 @@ class StackBuilder(ProtocolPostProcessor):
             # PhysicalSizeX is measured off the file forever and is
             # indistinguishable from a real value.
             logger.warning(
-                '[StackBuilder] No pixel size in input metadata (PhysicalSizeX missing) '
-                'for %s; hyperstack will carry no scale. Re-capture with current LVP or '
-                'supply frames carrying pixel-size metadata.',
-                sample_image_file_loc.name,
+                '[StackBuilder] No pixel size every input frame states (PhysicalSizeX '
+                'missing or differing) for %s; hyperstack will carry no scale. Re-capture '
+                'with current LVP or supply frames carrying pixel-size metadata.',
+                df.iloc[0]['Filepath'],
             )
         else:
             pixel_size_um = round(
@@ -279,7 +278,7 @@ class StackBuilder(ProtocolPostProcessor):
             )
 
         metadata = image_utils.build_hyperstack_output_metadata(
-            reference_input_path=sample_image_file_loc,
+            input_records=input_records,
             channel_names=channel_names,
             channel_colors=[
                 layer_record.output_color(name, channel_colors) for name in channel_names
@@ -423,10 +422,11 @@ class StackBuilder(ProtocolPostProcessor):
         # The output's depth claim and per-plane timing resolve from every
         # input's header before the write starts -- neither can be collected
         # during the plane stream because the OME metadata is written first.
-        headers = [image_utils.read_tiff_depth_and_timestamp(path / fp) for fp in df['Filepath']]
+        headers = [image_utils.read_tiff_depth_and_record(path / fp) for fp in df['Filepath']]
         input_depths = [depth for depth, _ in headers]
         output_depth = image_utils.resolve_output_depth(input_depths)
-        timestamps = [ts for _, ts in headers]
+        input_records = [record for _, record in headers]
+        timestamps = [image_utils.frame_time(record) for record in input_records]
 
         # Positions only: build_hyperstack_output_metadata derives every
         # unit list itself, so unit entries built here would be dead.
@@ -454,6 +454,7 @@ class StackBuilder(ProtocolPostProcessor):
             plane_metadata=plane_metadata,
             significant_bits=output_depth,
             channel_colors=channel_colors,
+            input_records=input_records,
         )
 
         def _planes():

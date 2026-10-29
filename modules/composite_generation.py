@@ -416,9 +416,10 @@ class CompositeGeneration(ProtocolPostProcessor):
                 composite_significant_bits = img.dtype.itemsize * 8
                 if output_file_loc is not None:
                     output_file_loc.parent.mkdir(parents=True, exist_ok=True)
-                    reference_input_path = path / df.iloc[0]['Filepath']
                     metadata = image_utils.build_postproc_output_metadata(
-                        input_path=reference_input_path,
+                        input_records=[
+                            image_utils.read_file_record(path / name) for name in df['Filepath']
+                        ],
                         channel='Composite',
                         significant_bits=composite_significant_bits,
                         adds_frames=False,

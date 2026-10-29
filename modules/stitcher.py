@@ -125,23 +125,27 @@ class Stitcher(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        # Source pixel_size_um from the tile's own PhysicalSizeX, written at
+        # Source pixel_size_um from the tiles' own PhysicalSizeX, written at
         # capture with the actual binning already applied. Re-deriving it from
         # the objective focal length hardcoded binning_size=1, so a binned
         # (2x/4x) capture got half/quarter the true scale -- doubling the tile
-        # pixel spacing and pulling the registered montage apart.
-        first_tile_meta = image_utils.read_file_record(path / df.iloc[0]['Filepath'])
-        pixel_size_um = first_tile_meta['pixel_size_um'] if first_tile_meta else None
-        if pixel_size_um is None or pixel_size_um <= 0:
-            # No PhysicalSizeX on the tiles (older / third-party / pre-metadata
-            # captures) and binning is not recoverable to re-derive the scale, so
-            # the stitchers cannot register by stage position and fall back to
-            # unregistered edge-to-edge placement. Name the cause instead of
-            # emitting a silently-misregistered montage under a generic reason.
+        # pixel spacing and pulling the registered montage apart. Every tile's,
+        # not the first's: tiles at another scale laid out at the first's are
+        # a misregistered montage.
+        pixel_size_um = image_utils.agreed_facts(
+            image_utils.read_file_record(path / name) for name in df['Filepath']
+        ).get('pixel_size_um')
+        if pixel_size_um is None:
+            # No one PhysicalSizeX across the tiles (older / third-party /
+            # pre-metadata captures, or tiles that disagree) and binning is not
+            # recoverable to re-derive the scale, so the stitchers cannot
+            # register by stage position and fall back to unregistered
+            # edge-to-edge placement. Name the cause instead of emitting a
+            # silently-misregistered montage under a generic reason.
             logger.warning(
-                '[Stitch] No pixel size in tile metadata (PhysicalSizeX missing) for well=%s; '
-                'montage will be unregistered edge-to-edge. Re-capture with current LVP or '
-                'supply tiles carrying pixel-size metadata.',
+                '[Stitch] No pixel size every tile states (PhysicalSizeX missing or '
+                'differing) for well=%s; montage will be unregistered edge-to-edge. '
+                'Re-capture with current LVP or supply tiles carrying pixel-size metadata.',
                 df.iloc[0].get('Well', '<unknown>'),
             )
 

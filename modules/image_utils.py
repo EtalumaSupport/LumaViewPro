@@ -791,7 +791,7 @@ def _load_pixels_and_timestamp(
             sig = _significant_bits_from_open(tif)
             white = _white_bits_from_open(tif)
             if read_timestamp:
-                timestamp = _frame_time(_record_from_open(tif))
+                timestamp = frame_time(_record_from_open(tif))
         if collapse_legacy_false_color:
             image = _collapse_legacy_false_color(image, path)
         # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
@@ -1292,7 +1292,7 @@ def read_pixel_size_um(path: pathlib.Path) -> float | None:
     return record.get('pixel_size_um') if record is not None else None
 
 
-def _frame_time(record: dict | None) -> datetime.datetime | None:
+def frame_time(record: dict | None) -> datetime.datetime | None:
     """The time a record states its frame was taken, or None when it states none."""
     stated = record.get('timestamp_iso') if record is not None else None
     return datetime.datetime.fromisoformat(stated) if stated else None
@@ -1315,37 +1315,59 @@ def _parsed_tiff_datetime(stated: str) -> datetime.datetime | None:
         return None
 
 
-def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.datetime | None']:
-    """Header-only read of a TIFF's payload depth and capture timestamp.
+def read_tiff_depth_and_record(path: pathlib.Path) -> tuple[int, dict | None]:
+    """Header-only read of a TIFF's payload depth and its record.
 
-    One open serves both facts; the pixel data is never decoded, so a
-    pre-scan over hundreds of recorded frames costs one IFD parse each.
-    See read_tiff_significant_bits for the depth resolution order. The
-    timestamp is the record's (read_file_record), None when the file states
-    no capture time.
+    One open serves both; the pixel data is never decoded, so a pre-scan over
+    hundreds of recorded frames costs one IFD parse each. See
+    read_tiff_significant_bits for the depth resolution order and
+    read_file_record for the record, None when the file states none;
+    frame_time gives the record's capture time.
     """
     with _open_saved_tiff(path) as tif:
-        sig = _significant_bits_from_open(tif)
-        timestamp = _frame_time(_record_from_open(tif))
-    return sig, timestamp
+        return _significant_bits_from_open(tif), _record_from_open(tif)
+
+
+def agreed_facts(records: Iterable[dict | None]) -> dict:
+    """The facts every record states with one value.
+
+    What a file derived from several inputs can state of them: a fact one
+    input states differently, or does not state, is no fact of the output (a
+    stitch of tiles at 3 and 9 dB states no gain, a projection of slices at
+    different Z states no Z). An input with no record states nothing, so
+    nothing is agreed.
+
+    Raises:
+        ValueError: No records were given (no inputs were read).
+    """
+    records = list(records)
+    if not records:
+        raise ValueError('agreed_facts needs at least one input record')
+    if any(record is None for record in records):
+        return {}
+    first, *rest = records
+    return {
+        key: value
+        for key, value in first.items()
+        if all(key in record and record[key] == value for record in rest)
+    }
 
 
 def build_postproc_output_metadata(
-    input_path: pathlib.Path,
+    input_records: Iterable[dict | None],
     channel: str,
     *,
     significant_bits: int,
     adds_frames: bool,
     plate_pos_mm_override: dict | None = None,
-    z_pos_um_override: float | None = None,
     algorithm: str | None = None,
 ) -> dict:
     """Build a write_tiff metadata dict for a post-processing output.
 
-    Reads acquisition context from one representative input TIFF and
-    forwards what each fact's kind (``FILE_FACTS``) lets a derived file
-    state: the shared facts (objective, scale, position, instrument, plate,
-    well), and a layer's settings only when the output is on its input's
+    Takes every input's record (read_file_record) and states what they agree
+    on (agreed_facts), as each fact's kind (``FILE_FACTS``) lets a derived
+    file: the shared facts (objective, scale, position, instrument, plate,
+    well), and a layer's settings only when the output is on its inputs'
     channel. A capture's own facts (its time, its id, how it was judged)
     describe the original capture, not the derived image, and a file's own
     facts are the output's writer's to set.
@@ -1361,22 +1383,20 @@ def build_postproc_output_metadata(
     outputs are distinguishable from the captures that fed them.
 
     Callers in stitcher pass ``plate_pos_mm_override`` with the stitched
-    region's geometric center; zprojector leaves both overrides None and
-    inherits the input slice's position. An input with no structured
-    metadata (an external PNG, a bare TIFF) gives an output that states no
-    position, acquisition setting or scale: unknown stays unknown, because a
-    number in a TIFF tag is read downstream as a measurement.
+    region's geometric center; zprojector leaves it None and states the
+    slices' position where they agree. An input with no record (an external
+    PNG, a bare TIFF) gives an output that states no position, acquisition
+    setting or scale: unknown stays unknown, because a number in a TIFF tag
+    is read downstream as a measurement.
 
     Args:
-        input_path: First-input TIFF; metadata is read from here.
+        input_records: Every input's record, as read_file_record read it.
         channel: Layer key for the derived output (Ex405 / Ex488 / Ex589
             / Lumi / BF / PC / DF), or 'Composite'.
         adds_frames: Whether each output pixel adds its inputs' (a Sum), so
             it integrates more frames than any input states.
         plate_pos_mm_override: Optional plate_pos_mm dict to override
             the value read from the input.
-        z_pos_um_override: Optional z_pos_um to override the value read
-            from the input.
         algorithm: Optional producing-algorithm name. Stamped into the
             output TIFF so a consumer can tell a degraded edge-to-edge
             montage from a registered stitch without re-deriving it.
@@ -1384,26 +1404,27 @@ def build_postproc_output_metadata(
     Returns:
         Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
     """
-    # An input with no record gives the writer's hard key in its "none" form.
-    read = read_file_record(input_path) or {'pixel_size_um': None}
+    agreed = agreed_facts(input_records)
     # A layer's settings travel only while the layer does: a derived output
     # on another channel (a composite) must not pair another layer's
     # exposure, light or display name with its own channel.
-    on_its_inputs_channel = read.get('channel') == channel
+    on_its_inputs_channel = agreed.get('channel') == channel
 
     def _stated_by_the_output(fact: FileFact) -> bool:
         if fact.kind is FactKind.CHANNEL:
             return on_its_inputs_channel and not (adds_frames and fact.dropped_by_a_sum)
         return fact.kind is FactKind.SHARED
 
-    metadata = {key: value for key, value in read.items() if _stated_by_the_output(FILE_FACTS[key])}
+    metadata = {
+        key: value for key, value in agreed.items() if _stated_by_the_output(FILE_FACTS[key])
+    }
+    # The writer's hard key, in its "none" form when the inputs agree on no scale.
+    metadata['pixel_size_um'] = agreed.get('pixel_size_um')
     metadata['channel'] = channel
     metadata['datetime'] = datetime.datetime.now()
 
     if plate_pos_mm_override is not None:
         metadata['plate_pos_mm'] = plate_pos_mm_override
-    if z_pos_um_override is not None:
-        metadata['z_pos_um'] = z_pos_um_override
 
     # A derived output inherits its inputs' depth: a stitch or projection copies
     # the input pixels verbatim, so the output's true significant-bit depth is
@@ -1520,7 +1541,7 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
 
 
 def build_hyperstack_output_metadata(
-    reference_input_path: pathlib.Path,
+    input_records: Iterable[dict | None],
     *,
     channel_names: list[str],
     channel_colors: list[Color],
@@ -1530,9 +1551,9 @@ def build_hyperstack_output_metadata(
 ) -> dict:
     """Build a TZCYX hyperstack OME metadata dict for ``tf.imwrite``.
 
-    Reads acquisition context from one input-frame TIFF and reshapes
-    it into the OME hyperstack schema that tifffile consumes when
-    ``ome=True`` + ``axes='TZCYX'``. Per-plane positions arrive as
+    States the instrument, plate and objective its input frames agree on
+    (agreed_facts), reshaped into the OME hyperstack schema that tifffile
+    consumes when ``ome=True`` + ``axes='TZCYX'``. Per-plane positions arrive as
     parallel lists (one entry per T*Z*C plane in scan order); they land
     in the OME-XML ``<Plane>`` elements via tifffile's per-axis list
     convention.
@@ -1550,9 +1571,8 @@ def build_hyperstack_output_metadata(
     ``write_hyperstack_tiff`` writes.
 
     Args:
-        reference_input_path: One input frame TIFF; acquisition context
-            is read from here. All hyperstack input frames share these
-            shared fields (same site, same objective, same scope).
+        input_records: Every input frame's record, as read_file_record
+            read it.
         channel_names: One channel name per C-axis position.
         channel_colors: Each channel's colour, in ``channel_names``' order.
         plane_positions: Dict with PositionX / PositionY / PositionZ
@@ -1562,12 +1582,13 @@ def build_hyperstack_output_metadata(
             (no timing claim is written). Caller is responsible for
             list-length consistency with the data array.
         significant_bits: 8 for uint8 captures, 16 for uint16.
-        pixel_size_um: Hyperstack pixel size in microns.
+        pixel_size_um: Hyperstack pixel size in microns: the scale its
+            input frames agree on, or None.
 
     Returns:
         OME-shaped metadata dict; pass to ``tf.imwrite(..., metadata=)``.
     """
-    inflat = read_file_record(reference_input_path) or {}
+    inflat = agreed_facts(input_records)
 
     num_planes = len(plane_positions['PositionX'])
 

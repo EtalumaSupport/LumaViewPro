@@ -222,7 +222,7 @@ class TestDerivedOutputs:
             white_bits=None,
         )
         out = image_utils.build_postproc_output_metadata(
-            Path(path), LED1, significant_bits=12, adds_frames=False
+            [image_utils.read_file_record(Path(path))], LED1, significant_bits=12, adds_frames=False
         )
         assert out['channel_display'] == '488 nm'
         assert out['excitation_nm'] == 488.0
@@ -248,7 +248,10 @@ class TestDerivedOutputs:
             white_bits=None,
         )
         out = image_utils.build_postproc_output_metadata(
-            Path(path), 'Composite', significant_bits=12, adds_frames=False
+            [image_utils.read_file_record(Path(path))],
+            'Composite',
+            significant_bits=12,
+            adds_frames=False,
         )
         assert 'channel_display' not in out
         assert 'excitation_nm' not in out
@@ -276,7 +279,7 @@ class TestDerivedOutputs:
             white_bits=None,
         )
         out = image_utils.build_hyperstack_output_metadata(
-            Path(path),
+            [image_utils.read_file_record(Path(path))],
             channel_names=[LED1],
             channel_colors=[release_color(name) for name in [LED1]],
             plane_positions={

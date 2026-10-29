@@ -238,7 +238,7 @@ def test_a_hyperstack_names_each_channels_colour_in_its_ome_metadata(tmp_path):
         return unsigned - (1 << 32) if unsigned >= (1 << 31) else unsigned
 
     metadata = image_utils.build_hyperstack_output_metadata(
-        reference,
+        [image_utils.read_file_record(reference)],
         channel_names=list(_COLOUR),
         channel_colors=[release_color(channel) for channel in _COLOUR],
         plane_positions={

@@ -179,7 +179,7 @@ class TestAColourIsAValue:
             white_bits=None,
         )
         metadata = image_utils.build_hyperstack_output_metadata(
-            reference,
+            [image_utils.read_file_record(reference)],
             channel_names=[LED0],
             channel_colors=[self.MAGENTA],
             plane_positions={
