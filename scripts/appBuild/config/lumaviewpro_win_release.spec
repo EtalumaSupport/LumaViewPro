@@ -20,6 +20,8 @@ datas = [
     ('drivers/sim_wire/runtime/MICROPYTHON_PIN', 'drivers/sim_wire/runtime'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
+    ('docs/THIRD_PARTY_NOTICES.md', 'docs'),
+    ('docs/CONTRIBUTORS.md', 'docs'),
     # The API's documents, for the reader of an installation: the guide,
     # the generated reference, the plugin tutorial the guide links to, and
     # the examples with their REST twins. The app opens none of them.

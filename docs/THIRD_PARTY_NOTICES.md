@@ -4,8 +4,8 @@ LumaViewPro is distributed under the MIT License (see `docs/LICENSE`). It bundle
 
 This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §4(d) and comparable attribution requirements from BSD, LGPL, and GPL-with-Classpath-Exception licenses that apply to bundled components.
 
-**Last updated**: 2026-10-17 (for LumaViewPro 4.0.0-beta; the Lumascope Classic USB stack added)
-**Regenerating**: If dependencies materially change, re-run `pip-licenses --with-license-file --with-notice-file --format=markdown` on the build venv after `pip install -r requirements.txt` and reconcile against this file. For 4.0.0-beta, this file was authored from the declared `requirements.txt` + PyInstaller spec and each declared dep's documented upstream license.
+**Last updated**: 2026-10-29 (for LumaViewPro 4.0.0-beta). Every package `requirements.txt` names is listed at its pin, its license read from its own Windows wheel. The packages those pull in (FastAPI's, uvicorn's and the rest) are still to be listed from a Windows build environment.
+**Regenerating**: For each package `requirements.txt` names, read the license its Windows wheel declares (`pip download --no-deps --platform win_amd64 --only-binary=:all: <name>==<pin>`, then the wheel's `METADATA` and its license files); for the packages they pull in, the build environment's own `pip freeze`.
 
 ---
 
@@ -15,23 +15,32 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 |---|---|---|---|
 | Kivy | 2.3.1 | MIT | https://kivy.org/ |
 | kivy-deps (sdl2, glew) | bundled with Kivy | zlib / MIT (SDL2 family) | https://www.libsdl.org/ |
-| NumPy | 2.4.4 | BSD-3-Clause | https://numpy.org/ |
+| NumPy | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | https://numpy.org/ |
 | SciPy | 1.17.1 | BSD-3-Clause | https://scipy.org/ |
-| Matplotlib | 3.10.8 | Matplotlib License (PSF-based, BSD-compatible) | https://matplotlib.org/ |
-| pandas | 3.0.2 | BSD-3-Clause | https://pandas.pydata.org/ |
+| Matplotlib | 3.10.9 | Matplotlib License (PSF-based, BSD-compatible) | https://matplotlib.org/ |
+| pandas | 3.0.3 | BSD-3-Clause | https://pandas.pydata.org/ |
 | scikit-image | 0.26.0 | BSD-3-Clause | https://scikit-image.org/ |
 | opencv-python-headless | 4.13.0.92 | Apache-2.0 | https://opencv.org/ |
-| tifffile | 2026.3.3 | BSD-3-Clause | https://github.com/cgohlke/tifffile |
-| imagecodecs | 2026.3.6 | BSD-3-Clause (wrapper) | https://github.com/cgohlke/imagecodecs |
+| tifffile | 2026.5.15 | BSD-3-Clause | https://github.com/cgohlke/tifffile |
+| imagecodecs | 2026.5.10 | BSD-3-Clause (wrapper) | https://github.com/cgohlke/imagecodecs |
 | pyserial | 3.5 | BSD-3-Clause | https://github.com/pyserial/pyserial |
 | psutil | 7.2.2 | BSD-3-Clause | https://github.com/giampaolo/psutil |
-| platformdirs | 4.4.0 | MIT | https://github.com/platformdirs/platformdirs |
-| pypylon | 26.4.1 | BSD-3-Clause (Python wrapper only) | https://github.com/basler/pypylon |
-| ids-peak | 1.13.0.0.6 | BSD-3-Clause (Python wrapper only) | https://pypi.org/project/ids-peak/ |
-| PyAV (`av`) | 14.0.0 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
+| platformdirs | 4.9.6 | MIT | https://github.com/platformdirs/platformdirs |
+| pypylon | 26.4.1 | BSD-3-Clause (the wrapper; the wheel's metadata declares Other/Proprietary). It carries the Basler pylon runtime, below. | https://github.com/basler/pypylon |
+| ids-peak | 1.15.0.0.8 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak/ |
+| ids-peak-ipl | 1.17.2.0.7 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-ipl/ |
+| ids-peak-icv | 1.3.0.9744 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-icv/ |
+| ids-peak-afl | 2.0.1.0.6 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-afl/ |
+| PyAV (`av`) | 17.0.1 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
+| FastAPI | 0.143.0 | MIT | https://github.com/fastapi/fastapi |
+| uvicorn | 0.54.0 | BSD-3-Clause | https://github.com/Kludex/uvicorn |
+| pydantic | 2.14.0 | MIT | https://github.com/pydantic/pydantic |
+| Starlette | 1.7.0 | BSD-3-Clause | https://github.com/Kludex/starlette |
 | pyusb | 1.3.1 | BSD-3-Clause | https://github.com/pyusb/pyusb |
 | libusb1 (python-libusb1) | 3.4.0 | LGPL-2.1-or-later | https://github.com/vpelletier/python-libusb1 |
 | libusb-package | 1.0.30.0 | Apache-2.0 (packaging; carries the LGPL-2.1 libusb library below) | https://github.com/pyocd/libusb-package |
+
+The IDS license terms permit distributing the IDS software only in products that operate with IDS cameras. Each ids-peak wheel carries those terms (`LICENSE`) and the licenses of the open-source components inside it (`third_party_licenses.txt`, `third_party_copyrights.txt`; ids-peak's GenICam licenses under `genicam/`).
 
 ## C / C++ libraries bundled inside the imagecodecs wheel
 
@@ -52,7 +61,7 @@ These libraries are statically or dynamically linked into `imagecodecs` and are 
 | Brotli | MIT | https://github.com/google/brotli |
 | JPEG XL / libjxl (if enabled) | BSD-3-Clause | https://github.com/libjxl/libjxl |
 
-**Authoritative per-build list**: The imagecodecs wheel includes a `LICENSES/` subdirectory inside `site-packages/imagecodecs/` on the build machine. Contents of that directory should be copied verbatim into `docs/licenses/codecs/` in the installer before ship, to capture any additional codecs enabled in the specific wheel version.
+**Authoritative per-build list**: the imagecodecs wheel carries each codec's license text in its `imagecodecs/licenses/` folder. The installer does not yet carry that folder; copying it in is a build step still to come.
 
 ## Bundled binaries (not pip-installed)
 
@@ -64,18 +73,20 @@ These ship inside the application folder after PyInstaller builds the Windows in
 | SDL2 + SDL2_image / SDL2_mixer / SDL2_ttf | zlib license | https://www.libsdl.org/ | Bundled via `kivy_deps.sdl2` and included in the PyInstaller `.spec` via `Tree(sdl2.dep_bins)`. See `docs/licenses/LICENSE.*.txt` for each sub-component. |
 | GLEW | Modified BSD / MIT | http://glew.sourceforge.net/ | Bundled via `kivy_deps.glew`. |
 | OpenBLAS | BSD-3-Clause | https://www.openblas.net/ | Bundled inside NumPy/SciPy wheels. |
+| Basler pylon runtime (`PylonBase`, `PylonUtility`, the USB and GigE transport layers, the GenICam `GenApi` / `GCBase` libraries) | Proprietary, Basler's: the wheel's metadata declares Other/Proprietary and it carries no license text for them | https://www.baslerweb.com/pylon | Shipped inside the pypylon wheel and collected with it. |
+| IDS peak libraries (`ids_peak.dll`, `ids_peak_ipl.dll`, `ids_peak_icv.dll`, `ids_peak_afl.dll`, their GenICam libraries and TBB) | IDS license terms (proprietary); the open-source components' licenses as each wheel lists them | https://en.ids-imaging.com/ids-peak.html | Shipped inside the four ids-peak wheels, each collected whole. |
 | libusb-1.0 (`libusb-1.0.dll` / `.dylib` / `.so`) | LGPL-2.1-or-later | https://libusb.info/ | The USB library the Lumascope Classic (LS560, LS620, LS720) drivers run on, through pyusb and python-libusb1. Shipped unmodified from the `libusb-package` wheel, in the application's `libusb_package/` folder, and loaded at run time, so it is user-replaceable per LGPL §6. |
 
-## Separately installed by end user (not bundled)
+## Installed by their own installers
 
-These are proprietary SDKs required for specific camera hardware. Each has its own EULA, accepted by the user during its own installer. LumaViewPro's Python wrappers (`pypylon`, `ids-peak`) are BSD-3 and are bundled, but the proprietary SDKs themselves are not.
+The camera vendors' USB drivers are installed by the vendors' own installers, each under its own EULA. The runtime libraries LumaViewPro calls are not installed this way: they ship inside the pypylon and ids-peak wheels, above.
 
 | SDK | License | Upstream |
 |---|---|---|
 | Basler Pylon SDK | Proprietary (Basler EULA) | https://docs.baslerweb.com/pylon-software-suite |
 | IDS Peak SDK | Proprietary (IDS EULA) | https://en.ids-imaging.com/ids-peak.html |
 
-The Windows Bundle installer *chains* Basler's signed Pylon MSI so the Basler EULA is presented during install. IDS Peak is always installed separately by the end user.
+The Windows Bundle installer *chains* Basler's signed pylon USB camera driver MSI, and, when the build has it, the IDS peak runtime installer, run silently.
 
 ---
 
@@ -96,4 +107,5 @@ Full license text for each distinct license used above is provided alongside thi
 - `docs/licenses/LICENSE.Apache-2.0.txt`
 - `docs/licenses/LICENSE.matplotlib.txt`
 - `docs/licenses/LICENSE.LGPL-2.1.txt`
+- Not yet in `docs/licenses/`: the CC0-1.0 text NumPy names, the IDS license terms and the licenses the ids-peak and imagecodecs wheels list; carrying them is a build step still to come.
 - `docs/licenses/LICENSE.FLAC.txt`, `LICENSE.freetype.txt`, `LICENSE.harfbuzz.txt`, `LICENSE.jpeg.txt`, `LICENSE.modplug.txt`, `LICENSE.mpg123.txt`, `LICENSE.ogg-vorbis.txt`, `LICENSE.opus.txt`, `LICENSE.opusfile.txt`, `LICENSE.png.txt`, `LICENSE.tiff.txt`, `LICENSE.webp.txt`, `LICENSE.zlib.txt` — SDL2 sub-component licenses, pre-existing.
