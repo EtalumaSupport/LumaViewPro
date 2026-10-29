@@ -67,6 +67,7 @@ accuracy is maintained by review, not by resolution.
 
 import ast
 import collections
+import dataclasses
 import enum
 import importlib
 import inspect
@@ -905,22 +906,24 @@ def _expand(token, variables):
 
 
 def _curl_request(command, variables):
-    """``(method, path, headers, body)`` of a ``curl`` command, its variables expanded.
+    """``(method, path, headers, body, output)`` of a ``curl`` command, its variables expanded.
 
-    Reads the flags the guide uses: ``-s``, ``-X``, ``-H`` and ``--json``;
-    any other is refused, so a line the runner cannot send is never read as
-    sent.
+    Reads the flags the guide and the examples use: ``-s``, ``-X``, ``-H``,
+    ``--json`` and ``-o``; any other is refused, so a line the runner cannot
+    send is never read as sent.
     """
     words = shlex.split(command)
     if words[0] != 'curl':
         raise ValueError(f'not a curl command: {words[0]}')
-    method, headers, body, url = None, {}, None, None
+    method, headers, body, url, output = None, {}, None, None, None
     rest = iter(words[1:])
     for word in rest:
         if word == '-s':
             continue
         if word == '-X':
             method = next(rest)
+        elif word == '-o':
+            output = _expand(next(rest), variables)
         elif word == '-H':
             name, _, value = _expand(next(rest), variables).partition(':')
             headers[name.strip()] = value.strip()
@@ -933,32 +936,52 @@ def _curl_request(command, variables):
         else:
             url = urllib.parse.urlsplit(_expand(word, variables))
     path = url.path + (f'?{url.query}' if url.query else '')
-    return method or ('POST' if body is not None else 'GET'), path, headers, body
+    return method or ('POST' if body is not None else 'GET'), path, headers, body, output
 
 
 def _jq_raw(answer, path):
-    """``jq -r <path>`` of a JSON answer, for the paths the guide uses (``.``, ``.a.b``)."""
-    for key in filter(None, path.split('.')):
-        answer = answer[key]
+    """``jq -r <path>`` of a JSON answer, for the paths the guide and the
+    examples use (``.``, ``.a.b``, ``'.a[0].b'``)."""
+    for key, index in re.findall(r'\.([A-Za-z_]\w*)|\[(\d+)\]', shlex.split(path)[0]):
+        answer = answer[key] if key else answer[int(index)]
     return answer if isinstance(answer, str) else json.dumps(answer)
 
 
-def walkthrough_failures(text, label, client):
-    """A line per ``curl`` line of ``text``'s ``bash`` fences that does not answer as stated.
+@dataclasses.dataclass
+class ShellRun:
+    """What a run of shell lines left behind, as a shell would have it."""
 
-    The lines run in order, as one shell: ``NAME=value`` sets a variable, and
-    ``NAME=$(curl ... | jq -r <path>)`` sets it from the answer. A comment's
-    status, and a problem's reason, are asserted; a line that states no
-    status must succeed. A line that fails ends the walkthrough: what follows
-    it assumed it ran.
-    """
-    variables, fence = {}, None
+    variables: dict = dataclasses.field(default_factory=dict)
+    # Each answer ``-o`` saved, by the name its line gave.
+    written: dict = dataclasses.field(default_factory=dict)
+
+
+def bash_fence_lines(text):
+    """``(lineno, line)`` for each line inside ``text``'s ``bash`` fences."""
+    fence = None
     for lineno, line in enumerate(text.splitlines(), 1):
         if line.startswith('```'):
             fence = fence_info(line)[0] if fence is None else None
-            continue
-        if fence != 'bash':
-            continue
+        elif fence == 'bash':
+            yield lineno, line
+
+
+def walkthrough_failures(text, label, client):
+    """A line per ``curl`` line of ``text``'s ``bash`` fences that does not answer as stated."""
+    return curl_failures(bash_fence_lines(text), label, client, ShellRun())
+
+
+def curl_failures(lines, label, client, run):
+    """A line per ``curl`` line of ``lines`` that does not answer as stated.
+
+    The lines run in order, as one shell, into ``run``: ``NAME=value`` sets a
+    variable, ``NAME=$(curl ... | jq -r <path>)`` sets it from the answer,
+    and ``-o <name>`` keeps the answer under that name. A comment's status,
+    and a problem's reason, are asserted; a line that states no status must
+    succeed. A line that fails ends the run: what follows it assumed it ran.
+    """
+    variables = run.variables
+    for lineno, line in lines:
         code, comment = _code_and_comment(line)
         assign = _ASSIGN.match(code)
         if assign and not code.startswith(f'{assign.group(1)}=$('):
@@ -972,7 +995,7 @@ def walkthrough_failures(text, label, client):
             return [
                 f'  {label}:{lineno}  an id typed into the URL: read it from the answer that made it'
             ]
-        method, path, headers, body = _curl_request(command, variables)
+        method, path, headers, body, output = _curl_request(command, variables)
         answer = client.request(method, path, headers=headers, content=body)
         stated = _STATED.match(comment)
         status = int(stated.group(1)) if stated else None
@@ -991,6 +1014,8 @@ def walkthrough_failures(text, label, client):
             ]
         if capture:
             variables[capture.group(1)] = _jq_raw(answer.json(), capture.group(3))
+        if output is not None:
+            run.written[output] = answer.content
     return []
 
 

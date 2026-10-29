@@ -1,8 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The api_examples are executable AND they go through the Session.
+"""The api_examples do what they say AND they go through the Session.
 
-Two properties, because executability alone is what let the corpus drift.
-Every example ran green here for months while three of the four built a
+Each example is a task a reader copies: its test runs it and asserts what
+the task leaves -- the file, the record, the outcome -- and runs its REST
+twin, ``<name>.sh``, line by line on a simulated server and asserts the same.
+An example that only had to run raised nothing while it saved a saturated
+frame, so ran-without-raising is not a test of one.
+
+And it goes through the Session. Every example ran green here for months
+while three of the four built a
 bare ``Lumascope(simulate=True)`` and never touched ``ScopeSession`` --
 the layer an L2 caller is required to come through. A smoke test that
 only asks "did it run" cannot see that, so the second property asks what
@@ -10,13 +16,12 @@ the example DEMONSTRATES, by resolving the call against the live class
 rather than matching text. A ban on a spelling would be fooled by an
 alias import and would mis-fire on the first real-hardware example.
 
-Each example is the SAME code path both ways -- the examples ARE the
-smoke corpus (a hand-rolled per-file import environment was the defect
-this replaces). In-suite, the conftest's heavy-dep mocks serve the
-imports; standalone, the real installed deps do. The subprocess witness
-proves the standalone form still works outside the suite's mock
-environment; one witness suffices because the import environment is the
-only thing that differs between the two forms.
+Each example is the SAME code path both ways. In-suite, the conftest's
+heavy-dep mocks serve the imports and the settings the process prepared
+are the fast tier's; standalone, the real installed deps and the user's
+settings do. The subprocess witness proves the standalone form still works
+outside the suite's mock environment; one witness suffices because the
+import environment is the only thing that differs between the two forms.
 
 Per-example wall time is budgeted (each builds a full simulate-mode
 scope; see PERFORMANCE_BUDGETS.md `api_example_runtime_s`) -- the
@@ -33,7 +38,8 @@ import sys
 
 import pytest
 from tests.case_walk import failing_cases
-from tests.settings_fixtures import shipped_template
+from tests.guards.test_api_doc_guard import ShellRun, curl_failures
+from tests.settings_fixtures import complete_settings
 
 EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'api_examples'
 # Derived from the directory, never hand-listed: a roster has to be
@@ -42,49 +48,122 @@ EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'api_examp
 # lands.
 EXAMPLES = sorted(path.stem for path in EXAMPLES_DIR.glob('*.py'))
 
+# The examples written before each had a task, a twin and an outcome test:
+# they are only run. Each leaves this set when the example for its task
+# replaces it, and the set and test_example_runs_in_suite go with the last.
+_NOT_YET_REWRITTEN = frozenset({'multi_channel_capture', 'protocol_execution', 'z_stack'})
+
 _SENTINEL = object()
 
 
 @pytest.fixture(autouse=True)
-def _restore_settings_globals():
-    """An example may load settings the documented way, which publishes
-    them as process globals; the suite's later simulated scopes read the
-    same globals for their model, so restore them after each run.
+def prepared_settings(tmp_path):
+    """The settings this process prepared, as an example reads them, for the test's length.
 
-    The globals are also PINNED to the shipped template for the duration.
-    ``load_user_settings()`` resolves settings from the process globals
-    when they are loaded, and the unpinned source underneath them is
-    ``data/current.json`` -- gitignored and per-machine. Without this pin
-    an example's printed frame geometry, and whether it comes up at all,
-    varies by whose checkout runs it. A customer SHOULD see their own
-    configuration; the smoke corpus should not.
+    ``load_user_settings()`` answers the settings a process has prepared, as
+    the GUI's own scripts read them, and only an unprepared process reads
+    ``data/current.json`` -- gitignored and per-machine. So the test prepares
+    them: the shipped template on the fast tier, the live folder in the
+    test's own directory. A shipped script carries no test-only parameter,
+    and what it saves is the test's to read. The suite's later simulated
+    scopes read the same globals for their model, so they are restored.
     """
-    module = sys.modules.get('modules.settings_init')
-    saved = {
-        name: getattr(module, name, None)
-        for name in ('settings', 'rejected_current_json')
-        if module is not None
-    }
-    if module is not None:
-        module.settings = shipped_template()
-    yield
+    from modules import settings_init
+
+    saved = {name: getattr(settings_init, name) for name in ('settings', 'rejected_current_json')}
+    settings_init.settings = complete_settings(live_folder=str(tmp_path / 'live'))
+    yield settings_init.settings
     for name, value in saved.items():
-        setattr(module, name, value)
+        setattr(settings_init, name, value)
+
+
+def _run_example(name):
+    """What the example's ``main()`` returns, run as its ``__main__`` would run it."""
+    return runpy.run_path(str(EXAMPLES_DIR / f'{name}.py'))['main']()
+
+
+@pytest.fixture
+def served(prepared_settings):
+    """Runs an example's REST twin on a simulated server; answers its client and its run.
+
+    The server is the one ``python -m rest --simulate`` serves: a session
+    brought up from the prepared settings, its startup motion run.
+    """
+    from fastapi.testclient import TestClient
+
+    from modules.scope_session import ScopeSession
+    from rest.app import build_app
+
+    session = ScopeSession.create(prepared_settings.copy(), simulate=True)
+    session.run_application_session()
+    with TestClient(build_app(session)) as client:
+
+        def run_twin(name):
+            path = EXAMPLES_DIR / f'{name}.sh'
+            run = ShellRun()
+            lines = enumerate(path.read_text().splitlines(), 1)
+            failures = curl_failures(lines, path.name, client, run)
+            assert not failures, (
+                f'{path.name} has a curl line that does not answer as its comment states. '
+                'Correct the line or its comment.\n' + '\n'.join(failures)
+            )
+            return client, run
+
+        yield run_twin
+    session.shutdown()
 
 
 @pytest.mark.slow
 # parametrize-justified: each example runs its own __main__ in-process
-@pytest.mark.parametrize('name', EXAMPLES)
+@pytest.mark.parametrize('name', sorted(_NOT_YET_REWRITTEN))
 def test_example_runs_in_suite(name):
     """Run the example's __main__ path in-process under the suite mocks."""
     runpy.run_path(str(EXAMPLES_DIR / f'{name}.py'), run_name='__main__')
 
 
-def test_basic_capture_standalone_subprocess():
+def test_every_example_has_its_twin_and_its_outcome_test():
+    """An example is run by a test of what it leaves, and has its REST twin."""
+    tested = {name for name in EXAMPLES if any(t.startswith(f'test_{name}_') for t in globals())}
+    for name in sorted(set(EXAMPLES) - _NOT_YET_REWRITTEN):
+        assert (EXAMPLES_DIR / f'{name}.sh').is_file(), f'{name}.py has no REST twin {name}.sh'
+        assert name in tested, f'{name}.py has no test_{name}_... asserting what it leaves'
+
+
+def _full_scale(bits):
+    return (1 << bits) - 1
+
+
+def test_first_still_saves_a_lit_unsaturated_still_and_its_record():
+    from modules.image_utils import read_file_record
+
+    still = _run_example('first_still')
+    assert (still.channel, still.well_label) == ('BF', 'B2')
+    assert still.frame.held_channel == 'BF'
+    assert still.frame.dark is False
+    assert still.statistics.maximum < _full_scale(still.significant_bits)
+    record = read_file_record(still.file)
+    assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
+
+
+def test_first_still_over_rest_saves_the_same_still(served, tmp_path):
+    from modules.image_utils import read_file_record
+
+    client, run = served('first_still')
+    still = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()['result'][0]
+    assert (still['channel'], still['well_label']) == ('BF', 'B2')
+    assert still['frame']['dark'] is False
+    assert still['statistics']['maximum'] < _full_scale(still['significant_bits'])
+    downloaded = tmp_path / 'still.tiff'
+    downloaded.write_bytes(run.written['still.tiff'])
+    record = read_file_record(downloaded)
+    assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
+
+
+def test_first_still_standalone_subprocess():
     """The one standalone witness: the example runs in its own interpreter,
     outside the suite's mock environment, against the real installed deps."""
     proc = subprocess.run(
-        [sys.executable, str(EXAMPLES_DIR / 'basic_capture.py')],
+        [sys.executable, str(EXAMPLES_DIR / 'first_still.py')],
         capture_output=True,
         text=True,
         timeout=180,
