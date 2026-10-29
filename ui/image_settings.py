@@ -6,7 +6,6 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.properties import ColorProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -89,8 +88,6 @@ class ImageSettings(BoxLayout):
         The drawers display the shown channel, in a run too: this is their
         one writer, called at start-up and by the listener bridge on each
         change, and after a person's open in case the Session refused it.
-        Cleans up ScrollView viewport textures on collapse to prevent memory
-        accumulation.
         """
         layer = _app_ctx.ctx.session.shown_channel.channel
         for a_layer in common_utils.get_layers():
@@ -98,16 +95,6 @@ class ImageSettings(BoxLayout):
             if layer == a_layer:
                 accordion_item_obj.collapse = False
                 continue
-            if not accordion_item_obj.collapse:
-                layer_control = self.layer_lookup(layer=a_layer)
-                for child in layer_control.walk():
-                    if isinstance(child, ScrollView):
-                        # Schedule cleanup after collapse animation completes
-                        from ui.ui_helpers import cleanup_scrollview_viewport
-
-                        Clock.schedule_once(
-                            lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
-                        )
             accordion_item_obj.collapse = True
         gui_logger.display('OPEN_LAYER', layer)
         self.layer_lookup(layer=layer).show_as_shown()

@@ -3,7 +3,7 @@
 UI helper functions -- manipulate Kivy widgets, window titles, LED buttons.
 
 Moved from modules/ui_helpers.py to ui/ because this is GUI code (imports
-Kivy Window, ScrollView). A compatibility shim at modules/ui_helpers.py
+Kivy Window). A compatibility shim at modules/ui_helpers.py
 re-exports everything for existing callers.
 """
 
@@ -13,7 +13,6 @@ import typing
 
 from kivy.properties import StringProperty
 from kivy.uix.accordion import AccordionItem
-from kivy.uix.scrollview import ScrollView
 from modules import gui_logger, live_work
 from modules.acquire_mode import AcquireMode
 from modules.caller import Caller, calling
@@ -801,11 +800,6 @@ def reset_stim_ui():
             layer_obj.update_stim_controls_visibility()
 
 
-# ============================================================================
-# ScrollView Memory Cleanup
-# ============================================================================
-
-
 class LoggedAccordionItem(AccordionItem):
     """An accordion item that records a person opening it.
 
@@ -870,34 +864,3 @@ def resort_accordion(accordion, items: typing.Sequence[tuple[object | None, bool
         accordion.add_widget(widget)
     for widget in untracked:
         accordion.add_widget(widget, 0)
-
-
-def cleanup_scrollview_viewport(scrollview):
-    """
-    Clean up ScrollView viewport textures to prevent memory accumulation.
-    This is called after accordion collapse events to release viewport resources.
-    """
-    try:
-        if not isinstance(scrollview, ScrollView):
-            return
-
-        # Clear viewport canvas
-        if (
-            hasattr(scrollview, '_viewport')
-            and scrollview._viewport
-            and hasattr(scrollview._viewport, 'canvas')
-        ):
-            scrollview._viewport.canvas.ask_update()
-
-        # Clear effect textures (primary source of memory accumulation)
-        for effect in [scrollview.effect_x, scrollview.effect_y]:
-            if effect and hasattr(effect, '_texture'):
-                effect._texture = None
-
-        # Clear viewport texture reference
-        if hasattr(scrollview, '_viewport_texture'):
-            scrollview._viewport_texture = None
-
-        logger.debug('[LVP Main  ] ScrollView viewport cleanup completed')
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] ScrollView cleanup error: {e}')

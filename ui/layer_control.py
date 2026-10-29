@@ -7,7 +7,6 @@ import numpy as np
 from kivy.clock import Clock
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -280,17 +279,6 @@ class LayerControl(BoxLayout):
 
         # Don't apply settings during initial UI setup - will be done after load_settings
         # Skip initialization of autogain and apply_settings here
-
-    def cleanup_scrollviews(self):
-        """
-        Clean up ScrollView viewport resources in this LayerControl.
-        Called when accordion is collapsed to prevent memory accumulation.
-        """
-        from ui.ui_helpers import cleanup_scrollview_viewport
-
-        for child in self.walk():
-            if isinstance(child, ScrollView):
-                cleanup_scrollview_viewport(child)
 
     def update_stim_controls_visibility(self):
         if self.ids['stim_enable_btn'].active:
