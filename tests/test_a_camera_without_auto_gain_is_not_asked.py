@@ -16,21 +16,14 @@ mode.
 """
 
 import logging
-import threading
 
 import pytest
 
 import drivers.camera_profiles as camera_profiles
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingUnsupportedError
-from modules.lumascope_api import Lumascope
 from modules.lumascope_api.camera import CameraAutoMode
-from tests.scope_fakes import (
-    answer_auto_gain_like_the_api,
-    give_camera_and_imaging,
-    give_camera_capabilities,
-    give_stub_lanes,
-)
+from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -82,19 +75,11 @@ def reported(monkeypatch):
 
 
 @pytest.fixture
-def ag_less_camera(ag_less_profile, asked):
-    cam = SimulatedCamera()
-    cam.open_and_start()
-    assert cam.profile.has_auto_gain is False
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_camera_capabilities(scope, cam)
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    camera = give_camera_and_imaging(scope)
-    yield camera
-    cam.disconnect()
+def ag_less_camera(ag_less_profile, sim_scope, asked):
+    """The camera of a simulated scope brought up under the profile; every
+    auto-mode call is recorded from then on."""
+    assert sim_scope.capabilities.camera_supports_auto_gain is False
+    return sim_scope.camera
 
 
 class TestTheLayerApply:
@@ -131,20 +116,11 @@ class TestTheAnswerTheGuiDisplays:
         off = ag_less_camera.applied_auto_gain_for(False)
         assert (off.stored, off.applied, off.capped) == (False, False, False)
 
-    def test_a_stored_preference_stands_on_a_camera_with_auto_gain(self):
-        cam = SimulatedCamera()
-        cam.open_and_start()
-        try:
-            scope = Lumascope.__new__(Lumascope)
-            scope._camera_driver = cam
-            give_camera_capabilities(scope, cam)
-            give_stub_lanes(scope)
-            camera = give_camera_and_imaging(scope)
-            on = camera.applied_auto_gain_for(True)
-            assert (on.stored, on.applied, on.capped) == (True, True, False)
-            assert camera.applied_auto_gain_for(False).applied is False
-        finally:
-            cam.disconnect()
+    def test_a_stored_preference_stands_on_a_camera_with_auto_gain(self, sim_scope):
+        camera = sim_scope.camera
+        on = camera.applied_auto_gain_for(True)
+        assert (on.stored, on.applied, on.capped) == (True, True, False)
+        assert camera.applied_auto_gain_for(False).applied is False
 
 
 class TestThePublicSetters:

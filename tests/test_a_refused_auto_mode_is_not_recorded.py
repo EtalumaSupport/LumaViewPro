@@ -9,32 +9,12 @@ apply names a refused auto-gain among the settings it could not apply, and
 the lock's disarm reports a refusal it would otherwise drop.
 """
 
-import threading
-
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected
-from modules.lumascope_api import Lumascope
 from modules.lumascope_api.camera import CameraAutoMode
-from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
-
-
-@pytest.fixture
-def sim_camera():
-    cam = SimulatedCamera()
-    cam.active = True
-    cam.open_and_start()
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_camera_capabilities(scope, cam)
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    camera = give_camera_and_imaging(scope)
-    return camera, cam
 
 
 @pytest.fixture
@@ -47,9 +27,9 @@ def reported(monkeypatch):
     return calls
 
 
-def test_a_refused_auto_gain_arm_raises_and_is_not_recorded(sim_camera, monkeypatch):
-    camera, cam = sim_camera
-    monkeypatch.setattr(cam, 'auto_gain', lambda *a, **kw: False)
+def test_a_refused_auto_gain_arm_raises_and_is_not_recorded(sim_scope):
+    camera = sim_scope.camera
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.set_auto_gain(True, AG_SETTINGS)
@@ -58,9 +38,9 @@ def test_a_refused_auto_gain_arm_raises_and_is_not_recorded(sim_camera, monkeypa
     assert camera._auto_gain_arm is None, 'an arm the camera refused is not standing'
 
 
-def test_a_refused_auto_exposure_raises(sim_camera, monkeypatch):
-    camera, cam = sim_camera
-    monkeypatch.setattr(cam, 'auto_exposure_t', lambda state=True: False)
+def test_a_refused_auto_exposure_raises(sim_scope):
+    camera = sim_scope.camera
+    sim_scope.simulation.refuse_camera_write('auto_exposure', 'false')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
@@ -68,9 +48,9 @@ def test_a_refused_auto_exposure_raises(sim_camera, monkeypatch):
     assert excinfo.value.setting == 'auto_exposure'
 
 
-def test_a_refused_target_brightness_raises(sim_camera, monkeypatch):
-    camera, cam = sim_camera
-    monkeypatch.setattr(cam, 'update_auto_gain_target_brightness', lambda v: False)
+def test_a_refused_target_brightness_raises(sim_scope):
+    camera = sim_scope.camera
+    sim_scope.simulation.refuse_camera_write('auto_gain_target_brightness', 'false')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.update_auto_gain_target_brightness(0.4)
@@ -78,9 +58,9 @@ def test_a_refused_target_brightness_raises(sim_camera, monkeypatch):
     assert excinfo.value.setting == 'auto_gain_target_brightness'
 
 
-def test_the_layer_apply_names_a_refused_auto_gain(sim_camera, monkeypatch):
-    camera, cam = sim_camera
-    monkeypatch.setattr(cam, 'auto_gain', lambda *a, **kw: False)
+def test_the_layer_apply_names_a_refused_auto_gain(sim_scope):
+    camera = sim_scope.camera
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.apply(
@@ -95,10 +75,10 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_camera, monkeypatch):
     assert camera.gain_db == pytest.approx(5.0), 'the other writes still ran'
 
 
-def test_the_locks_refused_disarm_is_reported(sim_camera, reported, monkeypatch):
-    camera, cam = sim_camera
+def test_the_locks_refused_disarm_is_reported(sim_scope, reported):
+    camera = sim_scope.camera
     camera.set_auto_gain(True, AG_SETTINGS)
-    monkeypatch.setattr(cam, 'auto_gain', lambda *a, **kw: False)
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
 
     camera.lock_auto_gain()
 

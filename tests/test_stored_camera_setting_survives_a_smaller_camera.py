@@ -18,15 +18,12 @@ are pinned with AST guards, matching the other ui/ guards in this suite.
 """
 
 import ast
-import dataclasses
 import pathlib
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.lumascope_api._lumascope import Lumascope
 from modules.lumascope_api.camera import AppliedGain, cap_stored_value
-from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
+from tests.scope_fakes import set_camera_limits
 from tests.stock_channels import LED0
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -44,21 +41,10 @@ def _func(path: pathlib.Path, name: str) -> ast.FunctionDef:
 
 
 @pytest.fixture
-def camera():
-    """CameraAPI on a real simulated camera, with known caps."""
-    cam = SimulatedCamera()
-    cam.active = True
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    give_camera_capabilities(scope, cam)
-    scope.capabilities = dataclasses.replace(
-        scope.capabilities,
-        camera_limits=dataclasses.replace(
-            scope.capabilities.camera_limits, gain_max_db=20.0, exposure_max_ms=200.0
-        ),
-    )
-    return give_camera_and_imaging(scope)
+def camera(sim_scope, monkeypatch):
+    """The simulated scope's camera API, its camera declaring smaller caps."""
+    set_camera_limits(monkeypatch, sim_scope, gain_max_db=20.0, exposure_max_ms=200.0)
+    return sim_scope.camera
 
 
 class TestTheApiDecidesWhatAStoredValueApplies:

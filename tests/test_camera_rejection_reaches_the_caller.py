@@ -22,31 +22,9 @@ is refused naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py
 
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
-from modules.lumascope_api import Lumascope
 from modules.notification_center import Severity
 from modules.lumascope_api.camera import CameraAutoMode
-from tests.scope_fakes import (
-    bind_settings_like_a_session,
-    give_camera_and_imaging,
-    give_camera_capabilities,
-    give_stub_lanes,
-)
-
-
-@pytest.fixture
-def sim_camera():
-    cam = SimulatedCamera()
-    cam.active = True
-    cam.open_and_start()
-    scope = Lumascope.__new__(Lumascope)
-    bind_settings_like_a_session(scope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    give_camera_capabilities(scope, cam)
-    camera = give_camera_and_imaging(scope)
-    return camera, cam
 
 
 _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -57,9 +35,9 @@ def _errors(centre_posts):
 
 
 class TestAConfirmedRejectionReachesTheCaller:
-    def test_a_refused_gain_raises_by_name(self, sim_camera, monkeypatch):
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
+    def test_a_refused_gain_raises_by_name(self, sim_scope):
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('gain', 'false')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             camera.set_gain_db(7.0)
@@ -72,9 +50,9 @@ class TestAConfirmedRejectionReachesTheCaller:
             'The camera rejected the gain change to 7.0 dB. It is still at its previous gain.'
         )
 
-    def test_a_refused_exposure_raises_by_name(self, sim_camera, monkeypatch):
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+    def test_a_refused_exposure_raises_by_name(self, sim_scope):
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('exposure', 'false')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             camera.set_exposure_ms(25.0)
@@ -86,11 +64,11 @@ class TestAConfirmedRejectionReachesTheCaller:
             'exposure.'
         )
 
-    def test_the_api_shows_nothing_itself(self, sim_camera, centre_posts, monkeypatch):
+    def test_the_api_shows_nothing_itself(self, sim_scope, centre_posts):
         """The raise carries the words; whoever ends its flight shows them, so
         the API posting too would show the one refusal twice."""
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('gain', 'false')
 
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(7.0)
@@ -107,23 +85,23 @@ class TestAConfirmedRejectionReachesTheCaller:
 
 
 class TestOnlyAConfirmedRejectionRaises:
-    def test_a_driver_without_a_confirmation_signal_does_not_raise(self, sim_camera, monkeypatch):
+    def test_a_driver_without_a_confirmation_signal_does_not_raise(self, sim_scope):
         """``None`` means "this driver cannot confirm", never "refused"."""
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'gain', lambda v: None)
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('gain', 'none')
 
         camera.set_gain_db(7.0)
 
-    def test_a_successful_write_does_not_raise(self, sim_camera):
-        camera, _cam = sim_camera
+    def test_a_successful_write_does_not_raise(self, sim_scope):
+        camera = sim_scope.camera
 
         camera.set_gain_db(7.0)
         camera.set_exposure_ms(25.0)
 
-    def test_no_camera_is_refused_naming_it_not_rejected(self, sim_camera):
+    def test_no_camera_is_refused_naming_it_not_rejected(self, sim_scope):
         """No camera is not a rejection: it is refused, naming the camera."""
-        camera, cam = sim_camera
-        cam.active = False
+        camera = sim_scope.camera
+        sim_scope.simulation.remove_camera()
 
         for write in (lambda: camera.set_gain_db(7.0), lambda: camera.set_exposure_ms(25.0)):
             with pytest.raises(HardwareCommandRefusedError) as exc:
@@ -143,10 +121,10 @@ class TestARefusalIsNotRecordedAsTruth:
     is ``tests/test_pylon_gain_reports_its_rejection.py``.
     """
 
-    def test_a_refused_gain_moves_neither_the_cache_nor_the_target(self, sim_camera, monkeypatch):
-        camera, cam = sim_camera
+    def test_a_refused_gain_moves_neither_the_cache_nor_the_target(self, sim_scope):
+        camera = sim_scope.camera
         camera.set_gain_db(3.0)
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        sim_scope.simulation.refuse_camera_write('gain', 'false')
 
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(9.0)
@@ -154,8 +132,8 @@ class TestARefusalIsNotRecordedAsTruth:
         assert camera.gain_db == 3.0
         assert camera.frame_validity.target('gain') == 3.0
 
-    def test_an_applied_gain_moves_both(self, sim_camera):
-        camera, _cam = sim_camera
+    def test_an_applied_gain_moves_both(self, sim_scope):
+        camera = sim_scope.camera
         camera.set_gain_db(3.0)
 
         camera.set_gain_db(9.0)
@@ -163,11 +141,11 @@ class TestARefusalIsNotRecordedAsTruth:
         assert camera.gain_db == 9.0
         assert camera.frame_validity.target('gain') == 9.0
 
-    def test_a_driver_that_cannot_confirm_is_believed(self, sim_camera, monkeypatch):
+    def test_a_driver_that_cannot_confirm_is_believed(self, sim_scope):
         """``None`` is not a refusal, so the request IS recorded -- that is the
         deliberate rule, and it is why a driver that CAN confirm must."""
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'gain', lambda v: None)
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('gain', 'none')
 
         camera.set_gain_db(9.0)
 
@@ -178,12 +156,10 @@ class TestOneChannel:
     """A setting body raises a write that did not apply, unreported: the one
     channel its callers catch, whichever way the driver failed."""
 
-    def test_the_value_bodies_raise_a_refusal_unreported(
-        self, sim_camera, centre_posts, monkeypatch
-    ):
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
-        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+    def test_the_value_bodies_raise_a_refusal_unreported(self, sim_scope, centre_posts):
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('exposure', 'false')
 
         for body, setting in (
             (lambda: camera._set_gain_db_impl(7.0), 'gain_db'),
@@ -194,11 +170,11 @@ class TestOneChannel:
             assert (rejected.value.setting, rejected.value.reason) == (setting, 'camera_rejected')
         assert not _errors(centre_posts), 'the body raises; its caller reports it'
 
-    def test_an_auto_gain_lock_survives_a_refused_write(self, sim_camera, monkeypatch):
+    def test_an_auto_gain_lock_survives_a_refused_write(self, sim_scope):
         """The lock consumes the arm; a raise would strand it, disarmed."""
-        camera, cam = sim_camera
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
-        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+        camera = sim_scope.camera
+        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('exposure', 'false')
 
         lock = camera._lock_auto_gain_impl()
 

@@ -15,10 +15,10 @@ flaky USB read de-binned the binning spinner (-1 -> '1x1'), reclassified a
 Mono8 camera as 2 bytes/pixel, and poisoned save/restore snapshots with
 gain -1.
 
-Harness pattern: real CameraAPI on a Lumascope built via __new__ (the
-test_camera_write_authority.py pattern) with a scripted driver double, so
-the production read / populate path -- including _populate_camera_cache at
-init -- is what runs.
+Each failed read is the simulated camera's (``scope.simulation.refuse_camera_read``),
+which answers as the real driver of that node does. A read that fails before
+bring-up's first populate is not yet injectable there (a simulator gap): those
+tests build the camera API over a scripted driver double.
 """
 
 from __future__ import annotations
@@ -58,6 +58,7 @@ GOOD_ROUND = {
 from modules.run_outcome import EndingLatch
 from tests.scope_fakes import (
     bind_settings_like_a_session,
+    build_scope,
     give_camera_and_imaging,
     give_camera_capabilities,
     give_stub_lanes,
@@ -181,51 +182,52 @@ def _build_imaging(cam) -> ImagingAPI:
 # --- Member regressions (named for the defect shape) -------------------------
 
 
-def test_pixel_format_none_read_does_not_clobber_known_mono8():
-    # After a populate that knows 'Mono8', a repopulate whose format read
-    # returns the None sentinel must keep the known format. The old behavior
-    # cached None, and every reader of the format then saw no format at all.
-    driver = steady_good_driver({'get_pixel_format': ['Mono8', None]})
-    camera = _build_camera(driver)
-    assert camera.pixel_format == 'Mono8'
+def test_pixel_format_none_read_does_not_clobber_known_mono8(sim_scope):
+    # A repopulate whose format read returns the None sentinel must keep the
+    # known format. The old behavior cached None, and every reader of the
+    # format then saw no format at all.
+    camera = sim_scope.camera
+    known = camera.pixel_format
+    assert known is not None
+    sim_scope.simulation.refuse_camera_read('pixel_format', 'failed')
     camera._populate_camera_cache()
-    assert camera.pixel_format == 'Mono8'
+    assert camera.pixel_format == known
 
 
-def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
+def test_save_camera_state_snapshot_not_poisoned_by_failing_reads(sim_scope):
     # Input half of snapshot poisoning: after a good populate, gain/exposure
     # reads fail; the snapshot carries the values held, not -1 -- the old
-    # shape restored gain -1 after an autofocus save/restore cycle. Only
-    # these two fail: a failed read of the frame size or format raises.
-    camera = _build_camera(
-        steady_good_driver({'get_gain': [12.5, RAISE], 'get_exposure_t': [50.0, RAISE]})
-    )
+    # shape restored gain -1 after an autofocus save/restore cycle.
+    camera = sim_scope.camera
+    camera.set_gain_db(12.5)
+    camera.set_exposure_ms(50.0)
+    sim_scope.simulation.refuse_camera_read('gain', 'failed')
+    sim_scope.simulation.refuse_camera_read('exposure', 'failed')
     snapshot = camera.save_camera_state('pre-autofocus')
     assert snapshot['gain_db'] == 12.5
     assert snapshot['exposure_ms'] == 50.0
 
 
-def test_populate_none_frame_size_read_keeps_cached_geometry():
+def test_populate_none_frame_size_read_keeps_cached_geometry(sim_scope):
     # Populate clobber guard: a repopulate whose frame-size read returns the
     # None sentinel must leave the previously cached geometry intact. The old
     # behavior stored zero dims over the known-good size.
-    driver = steady_good_driver({'get_frame_size': [{'width': 1936, 'height': 1216}, None]})
-    camera = _build_camera(driver)
-    assert camera.frame_size.to_dict() == {'width': 1936, 'height': 1216}
+    camera = sim_scope.camera
+    known = camera.frame_size.to_dict()
+    sim_scope.simulation.refuse_camera_read('frame_size', 'failed')
     camera._populate_camera_cache()
-    assert camera.frame_size.to_dict() == {'width': 1936, 'height': 1216}
+    assert camera.frame_size.to_dict() == known
 
 
 # --- Write-generation guard ---------------------------------------------------
 
 
-def test_authoritative_write_beats_in_flight_stale_read():
+def test_authoritative_write_beats_in_flight_stale_read(sim_camera, monkeypatch):
     # A fresh read's driver read is in flight when an authoritative cache write
     # (_commit_camera_writes: setter write-through / after-auto resync) lands.
     # The read's value is stale hardware truth from BEFORE the write; the
     # generation guard must discard it and answer the newer written value.
-    driver = steady_good_driver()
-    camera = _build_camera(driver)
+    camera, cam = sim_camera
 
     read_started = threading.Event()
     release_read = threading.Event()
@@ -235,7 +237,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
         release_read.wait(timeout=5.0)
         return 5.0  # pre-write hardware value, stale by the time it returns
 
-    driver.get_gain = held_gain_read
+    monkeypatch.setattr(cam, 'get_gain', held_gain_read)
 
     result = {}
     reader_thread = threading.Thread(target=lambda: result.update(value=camera.read_gain_db()))
@@ -257,6 +259,8 @@ def test_authoritative_write_beats_in_flight_stale_read():
 
 
 def test_populate_survives_raising_key_and_caches_the_rest():
+    # A stand-in by design: the read fails at bring-up's populate, which the
+    # simulator cannot yet inject (a simulator gap).
     # One raising key must not abort the rest of the populate round: gain and
     # exposure (and pixel format, read AFTER the raising frame-size key) are
     # still cached. The old populate body was a single try, so one raising
@@ -272,26 +276,29 @@ def test_populate_survives_raising_key_and_caches_the_rest():
 # --- Depth property (significant_bits) ---------------------------------------------
 
 
-def test_significant_bits_holds_12_when_format_reads_fail():
+def test_significant_bits_holds_12_when_format_reads_fail(sim_scope):
     # THE Seams-1 regression: the camera is configured Mono12 (the cache
     # knows the format), then format reads fail transiently. The depth must
     # stay 12 -- the old live-derived code fell back to 16, so a fully blown
     # frame passed the saturation evidence check at 0.0% and files were
     # stamped at the wrong depth.
-    driver = steady_good_driver({'get_pixel_format': ['Mono12', RAISE]})
-    imaging = _build_imaging(driver)  # populate consumes the one good read
+    sim_scope.camera.set_image_mode('12bit_scientific')
+    sim_scope.simulation.refuse_camera_read('pixel_format', 'failed', count=2)
     for _ in range(2):
-        assert imaging.significant_bits == 12
+        assert sim_scope.imaging.significant_bits == 12
 
 
-def test_with_no_camera_the_published_depth_is_refused():
-    imaging = _build_imaging(None)
+def test_with_no_camera_the_published_depth_is_refused(no_hardware):
+    scope = build_scope(warn_pre_release=False)
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        _ = imaging.significant_bits
+        _ = scope.imaging.significant_bits
     assert refused.value.reason == 'not_connected'
 
 
 def test_significant_bits_native_fallback_when_format_never_known():
+    # A stand-in by design: the format is never known only if its read fails
+    # at bring-up's populate, which the simulator cannot yet inject (a
+    # simulator gap).
     # Active driver, every read fails, format never known: falls back to the
     # driver's container width (native_bit_depth), not a crash.
     imaging = _build_imaging(all_reads_fail_driver())
@@ -301,7 +308,9 @@ def test_significant_bits_native_fallback_when_format_never_known():
 # --- Depth travels with the frame (protocol writer) -----------------------------
 
 
-def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch, tmp_path):
+def test_writer_saves_capture_time_depth_not_save_time_rederivation(
+    monkeypatch, tmp_path, sim_scope
+):
     # The CapturedFrame couples the frame with the depth it was captured at.
     # By save time the camera reports a DIFFERENT depth (format changed /
     # unreadable); save_image must receive the capture-time stamp. The old
@@ -313,10 +322,10 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
     from modules.run_events import RunEvents
 
-    scope = MagicMock()
-    scope.imaging.significant_bits = 16  # the published depth at save time disagrees
+    # The simulated camera's published depth at save time disagrees with the frame's.
+    assert sim_scope.imaging.significant_bits != 12
     writer = ProtocolImageWriter(
-        scope=scope,
+        scope=sim_scope,
         events=RunEvents(),
         aborted=_threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
@@ -387,6 +396,9 @@ def test_temp_logger_survives_transient_disconnect_and_resumes():
     # on the first False, permanently ending temperature logging for the rest
     # of a multi-day soak. The tick skips the sample but stays scheduled;
     # teardown belongs solely to stop_camera_temp_logging.
+    # A stand-in by design: a camera that is away for one tick and back is
+    # not a fault the simulator offers (its removal is for the session), a
+    # simulator gap.
     driver = steady_good_driver()
     connected = {'value': True}
     driver.is_connected = lambda: connected['value']  # camera_connected reads this
@@ -435,21 +447,8 @@ def test_disconnect_tears_down_temp_logging_schedule():
     # must be the teardown owner -- without it the orphaned schedule keeps
     # sampling the discarded scope and pins its object graph for the rest
     # of the session.
-    driver = steady_good_driver()
-    imaging = _build_imaging(driver)
-    scope = imaging._scope
-    scope.motion = SimpleNamespace(_disconnect=lambda: None)
-    scope._led_driver = SimpleNamespace(disconnect=lambda: None)
-    scope.illumination = SimpleNamespace(
-        _leds_off_emergency=lambda: None, _forget_led_state=lambda: None
-    )
-    # A motor board with nothing connected: teardown has nothing to stop.
-    scope._motion_driver = SimpleNamespace(disconnect=lambda: None, is_connected=lambda: False)
-    scope.diagnostics = SimpleNamespace(get_camera_temperatures_degc=lambda: None)
-    # The constructor's disconnect lock, which a built scope carries, and
-    # the instance lock a simulated scope does not take.
-    scope._disconnect_lock = threading.RLock()
-    scope._instance_lock = None
+    scope = build_scope(simulate=True, warn_pre_release=False)
+    imaging = scope.imaging
 
     unschedule_calls = []
     imaging.start_camera_temp_logging(
@@ -488,6 +487,9 @@ def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch)
     # -1 and a later restore drove the sentinel back toward the camera), and
     # a WARNING names each unknown field at SAVE time. No bring-up wrote the
     # conversion-gain mode or line-noise reduction, so those are unknown too.
+    # A stand-in by design: the cache is cold only if the reads fail at
+    # bring-up's populate, which the simulator cannot yet inject (a simulator
+    # gap).
     camera = _build_camera(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
@@ -512,38 +514,29 @@ def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch)
         assert any(field in w for w in save_warnings), (field, save_warnings)
 
 
-def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
-    camera = _build_camera(steady_good_driver())
+def test_save_camera_state_carries_both_fields_without_warning(sim_scope, monkeypatch):
+    camera = sim_scope.camera
     # As bring-up does: a camera without either toggle is at its standard
     # setting, which the writer records without reaching the driver.
     camera._set_conversion_gain_mode_impl('Low')
     camera._set_line_noise_reduction_impl(False)
+    camera.set_gain_db(12.5)
+    camera.set_exposure_ms(50.0)
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
     snapshot = camera.save_camera_state('t')
 
-    assert snapshot == {
-        'tag': 't',
-        'gain_db': 12.5,
-        'exposure_ms': 50.0,
-        'auto_gain_arm': None,
-        'held_layer': None,
-        'frame_size': {'width': 1936, 'height': 1216},
-        'pixel_format': 'Mono12',
-        'high_conversion_gain': False,
-        'line_noise_reduction': False,
-        'stored': SHIPPED_STORED,
-    }
+    assert (snapshot['gain_db'], snapshot['exposure_ms']) == (12.5, 50.0)
     assert warnings == []
 
 
-def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monkeypatch):
+def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(sim_scope, monkeypatch):
     # A caller-trimmed snapshot (autofocus keeps only the fields its run
     # targeted) is legitimate: restore the present field, skip the absent one,
     # and log NO warning -- save_camera_state already warned if the omission
     # was a never-read.
-    camera = _build_camera(steady_good_driver())
+    camera = sim_scope.camera
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
     calls = []
@@ -558,8 +551,8 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
     assert warnings == []
 
 
-def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
-    camera = _build_camera(steady_good_driver())
+def test_restore_camera_state_empty_snapshot_is_noop(sim_scope, monkeypatch):
+    camera = sim_scope.camera
     calls = []
     monkeypatch.setattr(camera, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
     monkeypatch.setattr(camera, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))

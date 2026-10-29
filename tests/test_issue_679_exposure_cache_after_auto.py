@@ -26,30 +26,9 @@ auto-off).
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
-from drivers.simulated_camera import SimulatedCamera
-from modules.lumascope_api import Lumascope
 from modules.lumascope_api.camera import CameraAutoMode
-from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
-
-
-@pytest.fixture
-def sim_camera():
-    """Build a SimulatedCamera-backed CameraAPI with a minimal scope
-    stub holding the locks the setters acquire."""
-    cam = SimulatedCamera()
-    cam.active = True
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_camera_capabilities(scope, cam)
-    give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    camera = give_camera_and_imaging(scope)
-    return camera, cam
 
 
 class TestSetAutoExposureRefreshesCacheAtAutoOff:

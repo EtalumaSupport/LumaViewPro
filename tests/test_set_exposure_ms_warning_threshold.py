@@ -17,7 +17,7 @@ sensor physical minimum. The warning now fires only for genuinely
 impossible values (unit-confusion bugs). Wording corrected to name
 the actual behavior (clamping) and prompt the user to verify units.
 
-These tests drive set_exposure_ms on a simulator-backed CameraAPI
+These tests drive set_exposure_ms on the simulated scope's camera
 with a recording logger (the shared lvp_logger is conftest-mocked, so
 caplog cannot observe it) and lock the no-warn/warn boundary plus the
 wording, so a threshold bump back toward 0.1 ms or a wording revert
@@ -27,25 +27,17 @@ trips immediately.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
+
+from tests.scope_fakes import set_camera_limits
 
 
-def _warnings_for(exposure_ms: float, monkeypatch) -> list:
-    """Call set_exposure_ms on a sim-backed CameraAPI; return the
+def _warnings_for(scope, exposure_ms: float, monkeypatch) -> list:
+    """Call set_exposure_ms on the simulated scope's camera; return the
     warning messages the camera module logged."""
-    from drivers.simulated_camera import SimulatedCamera
-    from modules.lumascope_api import Lumascope
-
-    cam = SimulatedCamera()
-    cam.connect()
     # A camera that declares no floor, so a sub-5 us request reaches the
     # warning instead of the floor's refusal.
-    cam.profile.exposure_min_us = None
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    give_stub_lanes(scope)
-    give_camera_capabilities(scope, cam)
-    camera = give_camera_and_imaging(scope)
+    set_camera_limits(monkeypatch, scope, exposure_min_ms=None)
+    camera = scope.camera
 
     records = []
     recorder = SimpleNamespace(
@@ -64,22 +56,22 @@ class TestSetExposureTimeWarningThreshold:
     """Lock the lower-than-100us threshold so a regression to 0.1 ms
     (which fires on every legitimate bright-BF capture) trips."""
 
-    def test_legitimate_bright_bf_value_does_not_warn(self, monkeypatch):
+    def test_legitimate_bright_bf_value_does_not_warn(self, sim_scope, monkeypatch):
         # 0.03 ms (30 us) is real bright-BF, bench-validated in beta11
         # field logs; the old 0.1 ms threshold warned on it every capture.
-        assert _warnings_for(0.03, monkeypatch) == []
+        assert _warnings_for(sim_scope, 0.03, monkeypatch) == []
 
-    def test_value_just_above_contract_does_not_warn(self, monkeypatch):
+    def test_value_just_above_contract_does_not_warn(self, sim_scope, monkeypatch):
         # The warning gate must sit at or below 0.01 ms (10 us); a value
         # just above that bound must pass silently.
-        assert _warnings_for(0.011, monkeypatch) == []
+        assert _warnings_for(sim_scope, 0.011, monkeypatch) == []
 
-    def test_impossible_value_warns_describing_clamp(self, monkeypatch):
+    def test_impossible_value_warns_describing_clamp(self, sim_scope, monkeypatch):
         # Below 5 us is impossible on any shipped Basler sensor --
         # a unit-confusion bug. The warning must name the clamping
         # behavior, not claim the image will be "nearly black" (Pylon
         # clamps to the sensor minimum; the image is at-minimum, not zero).
-        records = _warnings_for(0.004, monkeypatch)
+        records = _warnings_for(sim_scope, 0.004, monkeypatch)
         assert len(records) == 1, f'a below-physical-minimum exposure must warn once; got {records}'
         assert 'clamp' in records[0].lower(), (
             f'warning must describe the clamping behavior; got {records[0]}'

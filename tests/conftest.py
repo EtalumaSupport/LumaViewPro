@@ -1094,6 +1094,17 @@ def sim_scope():
     s.disconnect()
 
 
+@pytest.fixture
+def sim_camera(sim_scope):
+    """(the camera API, the simulated camera under it) of ``sim_scope``.
+
+    For a test that reads the camera's own state or wraps one of its
+    members; a fault the camera meets is injected through
+    ``sim_scope.simulation``.
+    """
+    return sim_scope.camera, sim_scope._camera_driver
+
+
 @pytest.fixture(scope='module')
 def sim_turreted_session(tmp_path_factory):
     """A homed LS850T session on the simulator, with the shipped template's plate and stage offset.
