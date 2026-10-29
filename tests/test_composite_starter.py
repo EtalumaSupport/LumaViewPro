@@ -10,40 +10,23 @@ engine's answer about this button's own run, never the toggle's state.
 """
 
 from types import SimpleNamespace
-from unittest.mock import DEFAULT, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 
-import modules.app_context as _app_ctx
+from modules.acquire_mode import AcquireMode
 from modules.caller import Caller, current_caller
-from modules.exceptions import ProtocolRunRefusedError
-from modules.protocol_image_writer import RunWriteBatch
-from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import EngineRun, RunProgress
-from tests.scope_fakes import spec_scope
+from modules.protocol_runner import ProtocolRunner
+from tests.pool_fakes import run_task_now
+from tests.protocol_drives import run_identity
+from tests.scope_fakes import home_sim_scope
+from tests.stock_channels import LED1
 import ui.composite_capture as cc
 import ui.ui_helpers as ui_helpers
-from tests.pool_fakes import run_task_now
 
-
-def _progress(*, live: bool) -> RunProgress:
-    """The engine's record of one run, live or not, and never stopping."""
-    return RunProgress(
-        is_live=live,
-        is_stopping=False,
-        is_last_run=live,
-        run_dir=None,
-        step_index=0 if live else None,
-        num_steps=1 if live else None,
-        scans_remaining=1 if live else None,
-        period_s=None,
-    )
-
-
-def _run_of(engine) -> EngineRun:
-    """A run as the engine holds it; the button holds its ``operation``."""
-    return EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
+_HOLD_WAIT_S = 10.0
+_END_WAIT_S = 60.0
 
 
 class _Starter(cc.CompositeCapture):
@@ -63,48 +46,75 @@ class _Starter(cc.CompositeCapture):
 
 
 @pytest.fixture
-def runner():
-    return MagicMock()
+def held():
+    """Pool tasks, when a test holds them instead of running them at once."""
+    return []
 
 
 @pytest.fixture
-def engine():
-    """The session's sequenced-capture engine: what a Stop is handed to,
-    and what the button asks whether its run is live."""
-    e = MagicMock()
-    e._progress_of.side_effect = lambda run: _progress(live=False)
-    return e
-
-
-@pytest.fixture
-def app_ctx(runner, engine, tmp_path, monkeypatch):
+def app_ctx(gui_ctx, held, monkeypatch):
+    """The GUI over an unhomed simulated session with Brightfield and one
+    fluorescence channel acquiring; the pool runs each request at once, and
+    each start the member is asked for is recorded with who asked, then made."""
     from modules.sequential_io_executor import ENQUEUED
 
-    saved = getattr(_app_ctx, 'ctx', None)
-    session = MagicMock()
-    session.create_protocol_runner.return_value = runner
-    # Nothing holds the scope; a MagicMock's own answer would be truthy.
-    session.held_by_other.return_value = False
     pool = MagicMock()
 
-    def _run_now(task):
+    def _put(task):
         # One worker, run as it is handed over: the order a person's
         # presses reach the engine is the order they were made.
-        run_task_now(task)
+        if held == ['hold']:
+            held.append(task)
+        else:
+            run_task_now(task)
         return ENQUEUED
 
-    pool.put.side_effect = _run_now
+    pool.put.side_effect = _put
+    gui_ctx.worker_pool = pool
+    gui_ctx.ui_listener_bridge = MagicMock()
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    _app_ctx.ctx = SimpleNamespace(
-        scope=spec_scope(camera_connected=True),
-        session=session,
-        settings={'live_folder': str(tmp_path)},
+    for channel in ('BF', LED1):
+        gui_ctx.session.set_channel_acquire(channel, AcquireMode.IMAGE)
+    asked = []
+    started = []
+    real_start = ProtocolRunner.start_composite
+
+    def _start_composite(self, **kwargs):
+        asked.append((kwargs, current_caller()))
+        run = real_start(self, **kwargs)
+        started.append(run)
+        return run
+
+    monkeypatch.setattr(ProtocolRunner, 'start_composite', _start_composite)
+    return SimpleNamespace(
+        session=gui_ctx.session,
+        scope=gui_ctx.scope,
         worker_pool=pool,
-        sequenced_capture_runner=engine,
-        ui_listener_bridge=MagicMock(),
+        ui_listener_bridge=gui_ctx.ui_listener_bridge,
+        asked=asked,
+        started=started,
     )
-    yield _app_ctx.ctx
-    _app_ctx.ctx = saved
+
+
+@pytest.fixture
+def homed(app_ctx):
+    """``app_ctx`` homed, Z mid-travel; any run left live is stopped at teardown."""
+    scope = app_ctx.scope
+    home_sim_scope(scope)
+    scope.motion.move_z(5000.0)
+    yield app_ctx
+    scope.simulation.clear()
+    scope.motion.stop_motion()
+    for run in app_ctx.started:
+        run.result(timeout=_END_WAIT_S)
+
+
+@pytest.fixture
+def rival(app_ctx):
+    """Another run holds the scope: a REST scan's claim."""
+    claim = app_ctx.session.activity_claim.try_claim('protocol', run=run_identity(Caller.REST))
+    yield claim
+    claim.release()
 
 
 @pytest.fixture(autouse=True)
@@ -118,34 +128,31 @@ def _click(starter):
     cc.CompositeCapture.composite_capture(starter)
 
 
-def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(
-    app_ctx, runner, centre_posts
-):
+def _click_held(homed, starter):
+    """Click with Z's next move held: the composite it starts stays live until
+    the test or the teardown ends it."""
+    reached = homed.scope.simulation.hold_axis('Z')
+    _click(starter)
+    assert reached.wait(_HOLD_WAIT_S), "the composite's first move never started"
+    return starter._composite_run
+
+
+def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(homed):
     # No folder: the API owns where a composite goes, so a script's and a
     # press's land in the same place. No camera pre-check: a camera that
     # is not streaming is the engine's refusal, and the button cannot know
     # that better than prepare() does.
-    app_ctx.scope.camera.active = False
-    starter = _Starter()
-    starters = []
-    runner.start_composite.side_effect = lambda **_kw: starters.append(current_caller()) or DEFAULT
+    _click_held(homed, _Starter())
 
-    _click(starter)
-
-    runner.start_composite.assert_called_once()
-    kwargs = runner.start_composite.call_args.kwargs
+    ((kwargs, starter),) = homed.asked
     assert 'parent_dir' not in kwargs, 'the button composed a folder the API already owns'
-    assert starters == [Caller.GUI], 'the press reaches the API stamped as the GUI'
+    assert starter is Caller.GUI, 'the press reaches the API stamped as the GUI'
     assert 'engineering_mode' not in kwargs, "the mode is the session's; the button states none"
-    assert not app_ctx.sequenced_capture_runner._stop_run.called, 'a start is not a stop'
 
 
-def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner, centre_posts):
+def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, rival, centre_posts):
     # The button changed nothing ahead of the engine's answer, so there is
     # nothing to undo: the redraw asks the engine, which has no live run.
-    runner.start_composite.side_effect = ProtocolRunRefusedError(
-        'already_running', 'Another run is already in progress.'
-    )
     starter = _Starter()
 
     _click(starter)
@@ -156,9 +163,13 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner
 
 
 def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(
-    app_ctx, runner, centre_posts
+    app_ctx, centre_posts, monkeypatch
 ):
-    runner.start_composite.side_effect = TypeError('bad call')
+    def _fails(self, **kwargs):
+        raise TypeError('bad call')
+
+    # a stand-in by design: a member raising a type no session raises, a fault the simulator cannot produce
+    monkeypatch.setattr(ProtocolRunner, 'start_composite', _fails)
     starter = _Starter()
 
     _click(starter)
@@ -168,15 +179,12 @@ def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(
     assert starter.composite_pending is False
 
 
-def test_a_started_run_keeps_its_handle_and_draws_running(app_ctx, runner, engine):
-    started = _run_of(engine)
-    runner.start_composite.return_value = started.operation
-    engine._progress_of.side_effect = lambda run: _progress(live=run is started)
+def test_a_started_run_keeps_its_handle_and_draws_running(homed):
     starter = _Starter()
 
-    _click(starter)
+    run = _click_held(homed, starter)
 
-    assert starter._composite_run is runner.start_composite.return_value, (
+    assert homed.started == [run], (
         'the button must keep the handle its start returned: it is what its Stop names'
     )
     assert starter.button.state == 'down', 'the button draws its own live run'
@@ -199,39 +207,33 @@ def test_a_redraw_draws_its_button_and_nothing_every_run_shares(app_ctx, monkeyp
     app_ctx.ui_listener_bridge.reconcile_led_buttons.assert_not_called()
 
 
-def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(
-    app_ctx, runner, engine
-):
+def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(homed):
     from modules.sequential_io_executor import PRIORITY_HIGH
 
     starter = _Starter()
-    own = _run_of(engine)
-    starter._composite_run = own.operation
-    engine._progress_of.side_effect = lambda run: _progress(live=run is own)
+    run = _click_held(homed, starter)
 
     _click(starter)
 
-    task = app_ctx.worker_pool.put.call_args.args[0]
+    task = homed.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    # The Stop names the run this button's own start returned, so the
-    # engine can tell it from a rival's.
-    engine._stop_run.assert_called_once_with(own)
-    runner.start_composite.assert_not_called()
+    assert len(homed.asked) == 1, 'a Stop is not a start'
+    # A Stop only asks: the run ends once the move it is in arrives.
+    homed.scope.simulation.clear()
+    outcome = run.result(timeout=_END_WAIT_S)
+    assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
 
 
-def test_a_press_during_someone_elses_run_is_not_a_stop(app_ctx, runner, engine):
+def test_a_press_during_someone_elses_run_is_not_a_stop(app_ctx, rival):
     # A rival run is the engine's to refuse. Treating this as a second press
     # would let the composite button stop a scan it never started.
-    starter = _Starter()
-    engine._progress_of.side_effect = lambda run: _progress(live=False)
+    _click(_Starter())
 
-    _click(starter)
-
-    assert not engine._stop_run.called, 'a rival run must not be stopped from here'
-    runner.start_composite.assert_called_once()
+    assert len(app_ctx.asked) == 1, 'the press is a start, refused by the engine'
+    assert app_ctx.session.held_by_other(None), 'the rival still holds the scope'
 
 
-def test_a_press_is_a_start_whatever_the_toggle_reads(app_ctx, runner, engine):
+def test_a_press_is_a_start_whatever_the_toggle_reads(app_ctx):
     # Kivy flips the toggle at touch-down, and a redraw can have left it
     # either way; whether a press means Stop is only the engine's answer.
     starter = _Starter()
@@ -239,35 +241,34 @@ def test_a_press_is_a_start_whatever_the_toggle_reads(app_ctx, runner, engine):
 
     _click(starter)
 
-    assert not engine._stop_run.called, "a toggle reading 'normal' is not a Stop"
-    runner.start_composite.assert_called_once()
+    assert len(app_ctx.asked) == 1, "a toggle reading 'normal' is not a Stop"
 
 
-def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, runner):
-    from modules.sequential_io_executor import ENQUEUED
-
-    held = []
-    app_ctx.worker_pool.put.side_effect = lambda task: held.append(task) or ENQUEUED
+def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, held):
+    held.append('hold')
     starter = _Starter()
 
     _click(starter)
 
     assert starter.composite_pending is True, 'a second press must not race the first to the pool'
-    run_task_now(held[0])
+    run_task_now(held[1])
     assert starter.composite_pending is False, "the request's own redraw brings the button back"
 
 
-def test_the_button_greys_while_anything_else_holds_the_scope(app_ctx):
+def test_the_button_greys_while_anything_else_holds_the_scope(homed):
     """The Session answers for this button's own run: another holder greys it,
     its own run leaves it live as that run's Stop."""
     starter = _Starter()
-    own = _run_of(app_ctx.sequenced_capture_runner).operation
-    starter._composite_run = own
-    asked = []
+    cc.CompositeCapture.draw_composite_button(starter)
+    assert starter.composite_held is False
 
-    for held in (True, False):
-        app_ctx.session.held_by_other = lambda run, held=held: asked.append(run) or held
+    diagnostic = homed.session.activity_claim.try_claim('diagnostic')
+    try:
         cc.CompositeCapture.draw_composite_button(starter)
-        assert starter.composite_held is held
+        assert starter.composite_held is True
+    finally:
+        diagnostic.release()
 
-    assert asked == [own, own], 'the button must ask about the run it started'
+    _click_held(homed, starter)
+    cc.CompositeCapture.draw_composite_button(starter)
+    assert starter.composite_held is False, 'its own run is not another holder'

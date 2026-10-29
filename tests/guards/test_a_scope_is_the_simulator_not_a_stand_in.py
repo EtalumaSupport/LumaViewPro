@@ -231,7 +231,6 @@ ALLOWED = frozenset(
         'tests/test_capture_collision_policy.py::test_video_step_row_records_writers_actual_path',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
         'tests/test_composite_run_outcome.py::_runner',
-        'tests/test_composite_starter.py::app_ctx',
         'tests/test_diagnostic_claim.py::_make_session',
         'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe._make_board',
         'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe.test_diagnostic_query_returns_response_when_supported',
