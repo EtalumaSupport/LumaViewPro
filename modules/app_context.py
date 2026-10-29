@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.scope_session import SettingsLock
+    from modules.scope_session import ScopeSession, SettingsLock
 
 
 # Module-level singleton -- set by LumaViewProApp.build() after construction.
@@ -100,6 +100,32 @@ class AppContext:
 
     # Initialization flag (replaces _app_initializing)
     _ready: bool = False
+
+    @classmethod
+    def over_session(cls, session: 'ScopeSession', **fields: object) -> 'AppContext':
+        """The context over ``session``: its scope, runners and lanes are the session's.
+
+        Every handle is the session's object, read off it: one store, no
+        second construction, and one place that knows which fields come
+        from the session, so a host and a test build the same context.
+        ``fields`` are the rest (the widgets, the version, the display
+        preferences).
+        """
+        return cls(
+            scope=session.scope,
+            session=session,
+            sequenced_capture_runner=session.sequenced_capture_runner,
+            autofocus_runner=session.autofocus_runner,
+            io_executor=session.io_executor,
+            camera_executor=session.camera_executor,
+            protocol_thread=session.protocol_thread,
+            file_io_executor=session.file_io_executor,
+            post_processing_executor=session.post_processing.lane,
+            autofocus_thread=session.autofocus_thread,
+            scope_display_thread=session.executor_bundle.scope_display_thread,
+            worker_pool=session.executor_bundle.worker_pool,
+            **fields,
+        )
 
     @property
     def ready(self):

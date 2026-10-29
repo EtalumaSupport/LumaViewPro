@@ -212,17 +212,6 @@ def _calls(node):
     return [n for n in ast.walk(node) if isinstance(n, ast.Call)]
 
 
-def _chain(node):
-    out = []
-    value = node
-    while isinstance(value, ast.Attribute):
-        out.append(value.attr)
-        value = value.value
-    if isinstance(value, ast.Name):
-        out.append(value.id)
-    return out
-
-
 class TestTheGuiTakesTheFactory:
     def test_lumaviewpro_constructs_no_session_directly(self):
         # The ratchet cannot see this: a call through the factory is an
@@ -309,32 +298,35 @@ class TestTheGuiTakesTheFactory:
             'the scope goes on before the kv tree is built'
         )
 
-    def test_the_context_handles_are_the_sessions_objects(self):
+    def test_the_gui_builds_its_context_over_its_session(self):
+        """build() takes its context from ``AppContext.over_session`` and hands
+        in none of the session's handles itself: the builder reads them off the
+        session (tests/test_the_app_context_is_the_sessions.py), and a handle
+        handed in beside it would be a second construction."""
         build = ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
-        ctx_calls = [
-            c for c in _calls(build) if isinstance(c.func, ast.Name) and c.func.id == 'AppContext'
+        direct = [
+            c.lineno
+            for c in _calls(build)
+            if isinstance(c.func, ast.Name) and c.func.id == 'AppContext'
         ]
-        assert len(ctx_calls) == 1
-        composed = {
-            'scope',
-            'io_executor',
-            'camera_executor',
-            'file_io_executor',
-            'worker_pool',
-            'protocol_thread',
-            'scope_display_thread',
-            'autofocus_thread',
-            'autofocus_runner',
-            'sequenced_capture_runner',
-        }
-        wrong = [
-            (kw.arg, ast.unparse(kw.value))
-            for kw in ctx_calls[0].keywords
-            if kw.arg in composed and 'scope_session' not in _chain(kw.value)
+        assert direct == [], f'build() constructs AppContext( directly at {direct}'
+        built = [
+            c
+            for c in _calls(build)
+            if isinstance(c.func, ast.Attribute)
+            and c.func.attr == 'over_session'
+            and isinstance(c.func.value, ast.Name)
+            and c.func.value.id == 'AppContext'
         ]
-        assert wrong == [], f'context handles not read off the session: {wrong}'
-        seen = {kw.arg for kw in ctx_calls[0].keywords}
-        assert composed <= seen, f'the context lost a handle: {composed - seen}'
+        assert len(built) == 1, 'build() builds its context through the one builder'
+        assert [ast.unparse(a) for a in built[0].args] == ['scope_session']
+        builder = ast_seams.find_def(
+            'modules/app_context.py', 'over_session', class_name='AppContext'
+        )
+        (returned,) = [n for n in ast.walk(builder) if isinstance(n, ast.Return)]
+        from_the_session = {kw.arg for kw in returned.value.keywords if kw.arg}
+        handed_in = sorted({kw.arg for kw in built[0].keywords} & from_the_session)
+        assert handed_in == [], f'build() hands in handles the session owns: {handed_in}'
 
     def test_the_context_has_no_field_only_the_dead_handler_read(self):
         from modules.app_context import AppContext

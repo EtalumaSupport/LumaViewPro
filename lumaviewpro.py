@@ -1073,25 +1073,12 @@ class LumaViewProApp(TooltipMixin, App):
 
         sweep_recording_scratch(settings['live_folder'])
 
-        # Create AppContext -- central service registry. Every handle is
-        # the session's object, read off it: one store, no second
-        # construction.
-        ctx = AppContext(
-            scope=scope_session.scope,
+        # Create AppContext -- central service registry over the session.
+        ctx = AppContext.over_session(
+            scope_session,
             lumaview=lumaview,
-            session=scope_session,
-            sequenced_capture_runner=scope_session.sequenced_capture_runner,
-            autofocus_runner=scope_session.autofocus_runner,
             version=version,
             source_path=source_path,
-            io_executor=scope_session.io_executor,
-            camera_executor=scope_session.camera_executor,
-            protocol_thread=scope_session.protocol_thread,
-            file_io_executor=scope_session.file_io_executor,
-            post_processing_executor=scope_session.post_processing.lane,
-            autofocus_thread=scope_session.autofocus_thread,
-            scope_display_thread=scope_session.executor_bundle.scope_display_thread,
-            worker_pool=scope_session.executor_bundle.worker_pool,
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
