@@ -34,6 +34,7 @@ import inspect
 import itertools
 import pathlib
 import runpy
+import shutil
 import subprocess
 import sys
 
@@ -147,16 +148,30 @@ def test_first_still_over_rest_saves_the_same_still(served, tmp_path):
     assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
 
 
-def test_first_still_standalone_subprocess():
+def test_first_still_standalone_subprocess(tmp_path):
     """The one standalone witness: the example runs in its own interpreter,
-    outside the suite's mock environment, against the real installed deps."""
+    outside the suite's mock environment, against the real installed deps.
+
+    It runs from a fresh installation of its own, the shipped ``data/`` and
+    no user ``current.json``, as a reader runs it from theirs: the still it
+    saves lands in that installation's live folder, never in the one a
+    developer's ``current.json`` names.
+    """
+    installation = tmp_path / 'installation'
+    shutil.copytree(
+        EXAMPLES_DIR.parents[1] / 'data',
+        installation / 'data',
+        ignore=shutil.ignore_patterns('current.json'),
+    )
     proc = subprocess.run(
         [sys.executable, str(EXAMPLES_DIR / 'first_still.py')],
         capture_output=True,
         text=True,
         timeout=180,
+        cwd=installation,
     )
     assert proc.returncode == 0, f'stderr tail: {proc.stderr[-2000:]}'
+    assert len(list((installation / 'capture').rglob('*.tiff'))) == 1
 
 
 # What channel_settings asks of each still, in both its forms: the channel
