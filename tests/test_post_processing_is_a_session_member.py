@@ -136,34 +136,20 @@ def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_pat
     assert raised.value.reason == 'invalid_setting'
 
 
-def test_each_offered_mode_and_method_is_taken_and_no_other(session, tmp_path):
+def test_each_offered_mode_and_method_is_taken(session, tmp_path):
     """The stitch modes and projection methods are the session's reads, and
     each one offered is a setting the build takes: refused for the empty
-    folder, never for the setting. Each is a closed set, so any other word is
-    refused at the door, offering the set."""
+    folder, never for the setting. Any other word is refused by the build's
+    settings record (below)."""
     post = session.post_processing
     assert post.stitch_modes() == (StitchMode.QUALITY, StitchMode.FAST_PREVIEW)
     assert post.projection_methods() == tuple(ZProjectMethod)
-    for build, setting, values, offered in (
-        ('stitch', 'mode', post.stitch_modes(), ('quality', 'fast_preview')),
-        (
-            'zproject',
-            'method',
-            post.projection_methods(),
-            ('Min', 'Max', 'Average', 'Median', 'Sum', 'StdDev'),
-        ),
-    ):
-        for value in values:
-            with pytest.raises(PostProcessingRefusedError) as refused:
-                getattr(post, build)(tmp_path, **{setting: value})
-            assert refused.value.reason != 'invalid_setting', (build, value)
-        with pytest.raises(ArgumentRefusedError) as refused:
-            getattr(post, build)(tmp_path, **{setting: 'sideways'})
-        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
-            'not_offered',
-            setting,
-            offered,
-        )
+    chosen = [{'stitch': Stitch(mode=mode)} for mode in post.stitch_modes()]
+    chosen += [{'zproject': ZProject(method=method)} for method in post.projection_methods()]
+    for build in chosen:
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            post.build(tmp_path, **build)
+        assert refused.value.reason != 'invalid_setting', build
 
 
 def test_a_stitch_record_built_with_a_word_that_is_no_mode_is_refused():

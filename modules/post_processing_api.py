@@ -610,7 +610,6 @@ class PostProcessingAPI:
         """
         return tuple(ZProjectMethod)
 
-    @api
     def stitch(
         self,
         folder: FilePath,
@@ -644,7 +643,6 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    @api
     def zproject(
         self,
         folder: FilePath,
@@ -676,7 +674,6 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    @api
     def composite(
         self,
         folder: FilePath,
@@ -708,7 +705,6 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    @api
     def video(
         self,
         folder: FilePath,

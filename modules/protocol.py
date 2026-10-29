@@ -2131,7 +2131,6 @@ class Protocol:
         except ValueError as e:
             raise StepEditRefusedError(f'a step Z of {value!r} {e}') from None
 
-    @api(in_process=True, reads=True)
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
 
@@ -2624,7 +2623,6 @@ class Protocol:
         """
         return tuple(_step_record(self.step_row(idx)) for idx in range(self.num_steps()))
 
-    @api(in_process=True, reads=True)
     def step_row(self, step_index: int) -> pd.Series:
         """One step, as a DETACHED copy of its row, keyed by the steps table's columns.
 

@@ -68,7 +68,6 @@ class RuntimeState:
 
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-    @api(reads=True)
     def get_labware(self) -> Labware:
         """The selected labware (well plate).
 

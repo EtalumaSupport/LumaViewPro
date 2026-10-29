@@ -53,6 +53,7 @@ from modules.exceptions import (
     PostProcessingRefusedError,
 )
 from modules.cell_count_method import CellCountMethod
+from modules.post_processing_api import Stitch, Video, ZProject
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.problems import answered_by_member
@@ -80,10 +81,7 @@ ENROLLED = (
     'ScopeSession.make_logs_zip',
     'ScopeSession.make_support_report',
     'ScopeSession.live_folder_listing',
-    'PostProcessingAPI.stitch',
-    'PostProcessingAPI.zproject',
-    'PostProcessingAPI.composite',
-    'PostProcessingAPI.video',
+    'PostProcessingAPI.build',
     'PostProcessingAPI.enhance',
     'PostProcessingAPI.count_cells',
     'PostProcessingAPI.graph_options',
@@ -448,30 +446,32 @@ def _valid_rows() -> list[Valid]:
         ),
         Valid(
             'stitch a 2x2 scan',
-            'PostProcessingAPI.stitch',
-            lambda s: pp(s).stitch(_built_from(s, 'tiled', 'stitch')),
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(_built_from(s, 'tiled', 'stitch'), stitch=Stitch()),
             # One stitched image a channel.
-            lambda s, result: _made(result, 2),
+            lambda s, result: _made(result.built[0].result, 2),
         ),
         Valid(
             'composite a two-channel scan',
-            'PostProcessingAPI.composite',
-            lambda s: pp(s).composite(_built_from(s, 'tiled', 'composite')),
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(_built_from(s, 'tiled', 'composite'), composite=True),
             # One composite a tile.
-            lambda s, result: _made(result, 4),
+            lambda s, result: _made(result.built[0].result, 4),
         ),
         Valid(
             'zproject a Z-stack',
-            'PostProcessingAPI.zproject',
-            lambda s: pp(s).zproject(_built_from(s, 'zstack', 'zproject'), method='Max'),
-            lambda s, result: _made(result, 1),
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(
+                _built_from(s, 'zstack', 'zproject'), zproject=ZProject(method='Max')
+            ),
+            lambda s, result: _made(result.built[0].result, 1),
         ),
         Valid(
             'video of a time-lapse',
-            'PostProcessingAPI.video',
-            lambda s: pp(s).video(_built_from(s, 'timelapse', 'video')),
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(_built_from(s, 'timelapse', 'video'), video=Video()),
             # One video a channel.
-            lambda s, result: _made(result, 2),
+            lambda s, result: _made(result.built[0].result, 2),
         ),
         Valid(
             'count_cells',
@@ -846,84 +846,50 @@ def _bad_rows() -> list[Bad]:
             'not_a_number',
         ),
     ]
-    # A setting of a closed set is refused at the door; any other by the build.
-    unusable = (PostProcessingRefusedError, 'invalid_setting')
-    for name, member, call, wire_extra, setting, (refusal, reason) in (
-        (
-            'stitch',
-            'PostProcessingAPI.stitch',
-            lambda s, f, **k: pp(s).stitch(f, **k),
-            {},
-            'mode',
-            (ArgumentRefusedError, 'not_offered'),
-        ),
-        (
-            'zproject',
-            'PostProcessingAPI.zproject',
-            lambda s, f, **k: pp(s).zproject(f, **({'method': 'Max'} | k)),
-            {'method': 'Max'},
-            'method',
-            (ArgumentRefusedError, 'not_offered'),
-        ),
-        (
-            'composite',
-            'PostProcessingAPI.composite',
-            lambda s, f, **k: pp(s).composite(f),
-            {},
-            None,
-            unusable,
-        ),
+    # A build's closed-set settings are refused by its settings record, before
+    # the call (tests/test_post_processing_is_a_session_member.py); any other
+    # by the build.
+    route = '/api/v1/post_processing/build'
+    for name, chosen, wire_chosen in (
+        ('stitch', lambda: {'stitch': Stitch()}, {'stitch': {'mode': 'quality'}}),
+        ('zproject', lambda: {'zproject': ZProject(method='Max')}, {'zproject': {'method': 'Max'}}),
+        ('composite', lambda: {'composite': True}, {'composite': True}),
         (
             'video',
-            'PostProcessingAPI.video',
-            lambda s, f, **k: pp(s).video(f, **k),
-            {},
-            'frame_rate_fps',
-            unusable,
+            lambda: {'video': Video()},
+            {'video': {'frame_rate_fps': None, 'timestamp_overlay': False}},
         ),
     ):
-        route = f'/api/v1/post_processing/{name}'
-        rows.append(
-            Bad(
-                f'{name} missing',
-                member,
-                lambda s, call=call: call(s, s.live / 'nothing_here'),
-                LiveFolderPathRefusedError,
-                'path_not_found',
-                (route, lambda s, extra=wire_extra: {'folder': 'nothing_here', **extra}),
-            )
-        )
-        rows.append(
-            Bad(
-                f'{name} a file',
-                member,
-                lambda s, call=call: call(s, s.live / 'a_file.txt'),
-                LiveFolderPathRefusedError,
-                'not_a_folder',
-                (route, lambda s, extra=wire_extra: {'folder': 'a_file.txt', **extra}),
-            )
-        )
-        if setting is not None:
-            bogus = 0 if setting == 'frame_rate_fps' else 'bogus'
+        for case, given, reason in (
+            ('missing', 'nothing_here', 'path_not_found'),
+            ('a file', 'a_file.txt', 'not_a_folder'),
+        ):
             rows.append(
                 Bad(
-                    f'{name} an unusable {setting}',
-                    member,
-                    lambda s, call=call, setting=setting, bogus=bogus: call(
-                        s, s.live / 'images', **{setting: bogus}
-                    ),
-                    refusal,
+                    f'{name} {case}',
+                    'PostProcessingAPI.build',
+                    lambda s, chosen=chosen, given=given: pp(s).build(s.live / given, **chosen()),
+                    LiveFolderPathRefusedError,
                     reason,
-                    (
-                        route,
-                        lambda s, extra=wire_extra, setting=setting, bogus=bogus: {
-                            'folder': 'images',
-                            **extra,
-                            setting: bogus,
-                        },
-                    ),
+                    (route, lambda s, given=given, extra=wire_chosen: {'folder': given, **extra}),
                 )
             )
+    rows.append(
+        Bad(
+            'video an unusable frame_rate_fps',
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(s.live / 'images', video=Video(frame_rate_fps=0.0)),
+            PostProcessingRefusedError,
+            'invalid_setting',
+            (
+                route,
+                lambda s: {
+                    'folder': 'images',
+                    'video': {'frame_rate_fps': 0.0, 'timestamp_overlay': False},
+                },
+            ),
+        )
+    )
     return rows
 
 

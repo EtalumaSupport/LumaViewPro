@@ -993,7 +993,6 @@ class CameraAPI:
             for key in updates:
                 self._camera_cache_write_gen[key] = self._camera_cache_write_gen.get(key, 0) + 1
 
-    @api
     @property
     def camera_removed(self) -> bool:
         """Whether this scope's camera was declared removed by its driver.
@@ -3007,7 +3006,6 @@ class CameraAPI:
         with self._camera_cache_lock:
             return self._camera_cache[key]
 
-    @api
     @property
     def active(self) -> bool:
         """Whether the camera is connected and active; no camera read.

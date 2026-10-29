@@ -1598,7 +1598,6 @@ class Lumascope:
         """
         return self._simulation
 
-    @api(in_process=True)
     def host_steady_ns(self) -> int:
         """The host's steady time now, in nanoseconds, on the clock of every steady stamp the scope takes.
 
@@ -1633,8 +1632,8 @@ class Lumascope:
         """The installation's plates, by name, read once at bring-up.
 
         Read-only, as each record is: no caller can change what another
-        reads. Which one is selected is ``runtime_state.get_labware``'s
-        answer. Slides and Petri dishes are not offered yet.
+        reads. Which one is selected is ``ScopeSession.labware_id``.
+        Slides and Petri dishes are not offered yet.
 
         Raises:
             Nothing.
@@ -1667,7 +1666,6 @@ class Lumascope:
         """
         return copy.deepcopy(self._settings_template)
 
-    @api
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected.
@@ -1697,7 +1695,6 @@ class Lumascope:
         """
         return self._motion_expected
 
-    @api
     @property
     def led_connected(self) -> bool:
         """Whether the LED controller is connected.
@@ -1710,7 +1707,6 @@ class Lumascope:
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
-    @api
     @property
     def camera_connected(self) -> bool:
         """Whether the camera is connected and active.

@@ -763,7 +763,6 @@ OPEN_STRINGS: dict[str, str] = {
     'PostProcessingAPI.graph parameter title': _PROSE,
     'PostProcessingAPI.graph_options parameter x': _COLUMN,
     'PostProcessingAPI.graph_options parameter y': _COLUMN,
-    'PostProcessingAPI.video parameter frame_rate_fps': _NUMBER_TEXT,
     'Protocol.PROTOCOL_FILE_HEADER field': _HEADER,
     'Protocol.capture_prefix return': _NAME,
     'Protocol.capture_root return': _PATH,

@@ -4901,7 +4901,7 @@ class ScopeSession:
 
     @api(in_process=True)
     def host_steady_ns(self) -> int:
-        """The host's steady time now, in nanoseconds: ``scope.host_steady_ns()``.
+        """The host's steady time now, in nanoseconds.
 
         The clock every steady stamp the scope takes is on, for an
         in-process caller setting its own "now" against them.
@@ -5263,7 +5263,7 @@ class ScopeSession:
     def labware_id(self) -> str:
         """The current plate's catalogue key, the one ``select_labware`` selected.
 
-        Its record is ``scope.runtime_state.get_labware()``.
+        Its record is ``scope.labware[labware_id]``.
 
         Raises:
             Nothing.
