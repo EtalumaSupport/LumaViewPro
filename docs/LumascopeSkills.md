@@ -1113,8 +1113,9 @@ client corrects its request without reading the words.
 `status`, the scope as `GET /api/v1/status` reads it; after that every change
 is an event, named as in the [events table](API_REFERENCE.md#events), its data
 the event's record. A run's events carry `run`, `{"job": "<id>"}`, the job of
-the run that sent them, and every job's end is a `job_ended` event. An outcome
-nobody asked for is an `outcome` event.
+the run that sent them, and every job's end is a `job_ended` event, its data
+the job: a run's `files` job ends with its own, so match a `job_ended` by its
+`id`. An outcome nobody asked for is an `outcome` event.
 
 A client that reconnects with `Last-Event-ID` is sent what it missed; when the
 server no longer holds it (more than 1024 events ago, or a restarted server),

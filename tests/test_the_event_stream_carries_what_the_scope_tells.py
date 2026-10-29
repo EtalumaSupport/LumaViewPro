@@ -117,6 +117,12 @@ class _Stream:
             if event['event'] == name:
                 return seen
 
+    def job_ended(self, job_id: str) -> dict:
+        """The ``job_ended`` of job *job_id*: a run's files' job ends on its own."""
+        while (ended := self.until('job_ended')[-1])['data']['id'] != job_id:
+            pass
+        return ended
+
 
 @contextlib.contextmanager
 def _reading(client, **headers):
@@ -191,7 +197,7 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
             json={'protocol': protocol, 'enable_image_saving': False},
         ).json()
         events = stream.until('run_ended')
-        ended = stream.until('job_ended')[-1]
+        ended = stream.job_ended(run['id'])
 
     run_events = [e for e in events if e['event'] in {'scan_started', 'step_started', 'run_ended'}]
     assert run_events[0]['event'] == 'scan_started'

@@ -80,6 +80,13 @@ def _events_until(lines, name: str) -> list[dict]:
     raise AssertionError(f'the stream ended before {name}')
 
 
+def _job_ended(lines, job_id: str) -> dict:
+    """The ``job_ended`` of job *job_id* read from a stream's *lines*: a run's files' job ends on its own."""
+    while (ended := _events_until(lines, 'job_ended')[-1])['data']['id'] != job_id:
+        pass
+    return ended
+
+
 def _start_a_scan(session, **events):
     """A run started in-process, as the GUI or a script starts one."""
     home_sim_scope(session.scope)
@@ -120,7 +127,7 @@ def test_a_run_another_caller_started_is_one_job_whose_end_reaches_the_stream(se
             again = client.post('/api/v1/last_run')
         finally:
             release.set()
-        ended = _events_until(stream, 'job_ended')[-1]
+        ended = _job_ended(stream, read.json()['id'])
 
     assert session.last_run() is run
     assert read.status_code == 202, read.text
@@ -141,7 +148,7 @@ def test_a_run_read_after_it_ended_is_its_finished_job(session):
         stream = response.iter_lines()
         _events_until(stream, 'status')
         read = client.post('/api/v1/last_run')
-        ended = _events_until(stream, 'job_ended')[-1]
+        ended = _job_ended(stream, read.json()['id'])
 
     # The job's end is told at the read: its operation was already done.
     assert read.status_code == 202, read.text
