@@ -131,7 +131,7 @@ def test_png_and_jpeg_export_as_derived_tiff(tmp_path, suffix):
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
 
-    assert exported['output_path'].suffix == '.tif'
+    assert exported['output_path'].suffix == '.tiff'
     output, _bits, _white = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
@@ -223,7 +223,7 @@ def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
 
     recipe = QuickEnhancer().recipe_dict(
         source_path=source,
-        output_path=tmp_path / 'source_enhanced.tif',
+        output_path=tmp_path / 'source_enhanced.tiff',
         settings=QuickEnhanceSettings(),
         input_dtype=np.dtype(np.uint16),
         output_dtype=np.dtype(np.uint16),
@@ -264,8 +264,8 @@ def test_export_preserves_tiff_depth_writes_recipe_and_never_overwrites(tmp_path
     second = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
 
     assert source.read_bytes() == original_bytes
-    assert first['output_path'].name == 'original_enhanced.tif'
-    assert second['output_path'].name == 'original_enhanced_2.tif'
+    assert first['output_path'].name == 'original_enhanced.tiff'
+    assert second['output_path'].name == 'original_enhanced_2.tiff'
     out, significant_bits, _ = image_utils.load_pixels(first['output_path'])
     assert out.dtype == np.uint16
     assert significant_bits == 12
@@ -466,11 +466,11 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
             channel_colors=release_colors(),
         )
 
-    assert raised.value.produced_paths == (str(tmp_path / 'valid_enhanced.tif'),)
+    assert raised.value.produced_paths == (str(tmp_path / 'valid_enhanced.tiff'),)
     assert len(raised.value.errors) == 1
     assert [(completed, total) for completed, total, _ in progress] == [(1, 2), (2, 2)]
     assert {name for _, _, name in progress} == {'valid.tif', 'bad.tif'}
-    assert (tmp_path / 'valid_enhanced.tif').exists()
+    assert (tmp_path / 'valid_enhanced.tiff').exists()
 
 
 def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_files(tmp_path):
@@ -519,10 +519,10 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
         (5, 5),
     ]
     assert all(path.read_bytes() == original for path, original in original_bytes.items())
-    assert (tmp_path / 'bf_enhanced.tif').exists()
-    assert (tmp_path / 'composite_enhanced.tif').exists()
-    assert (tmp_path / 'share_enhanced.tif').exists()
-    assert (tmp_path / 'share_enhanced_2.tif').exists()
+    assert (tmp_path / 'bf_enhanced.tiff').exists()
+    assert (tmp_path / 'composite_enhanced.tiff').exists()
+    assert (tmp_path / 'share_enhanced.tiff').exists()
+    assert (tmp_path / 'share_enhanced_2.tiff').exists()
     assert len(displayed) == 4
 
 
@@ -530,7 +530,7 @@ def test_output_folder_is_reported_from_a_completed_export(tmp_path):
     completed = {
         'created': [
             {
-                'output_path': tmp_path / 'source_enhanced.tif',
+                'output_path': tmp_path / 'source_enhanced.tiff',
             }
         ]
     }

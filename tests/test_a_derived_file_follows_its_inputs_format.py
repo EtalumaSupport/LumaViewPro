@@ -252,7 +252,7 @@ def test_an_enhance_is_written_in_its_sources_format_beside_its_own_recipe(sessi
     # a.tiff's base is a's too: it takes the next name free in both
     # formats, never a.ome.tiff's recipe.
     assert (plain.output_path.name, plain.recipe_path.name) == (
-        'a_enhanced_3.tif',
+        'a_enhanced_3.tiff',
         'a_enhanced_3.recipe.json',
     )
     assert not _is_ome(plain.output_path)
@@ -262,7 +262,7 @@ def test_an_enhance_keeps_every_dot_of_its_sources_name_but_its_format(session, 
     source = tmp_path / 'exp1.5uM_BF_0000.tiff'
     _write_frame(source, ome=False)
 
-    assert _enhanced(session, source).output_path.name == 'exp1.5uM_BF_0000_enhanced.tif'
+    assert _enhanced(session, source).output_path.name == 'exp1.5uM_BF_0000_enhanced.tiff'
 
 
 def test_an_enhance_of_a_png_is_plain_tiff(session, tmp_path):
@@ -271,7 +271,7 @@ def test_an_enhance_of_a_png_is_plain_tiff(session, tmp_path):
 
     made = _enhanced(session, source)
 
-    assert made.output_path.name == 'a_enhanced.tif'
+    assert made.output_path.name == 'a_enhanced.tiff'
     assert not _is_ome(made.output_path)
 
 

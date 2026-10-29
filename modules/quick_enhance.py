@@ -534,7 +534,7 @@ class QuickEnhancer:
         """Where an enhance of *source_path* is written, and its recipe.
 
         In its source's format: ``a.ome.tiff`` gives ``a_enhanced.ome.tiff``,
-        anything else ``<name>_enhanced.tif``. The name is the source's
+        anything else ``<name>_enhanced.tiff``. The name is the source's
         without its format's suffix -- ``.ome.tiff`` taken off whole, else
         only the last suffix, so ``exp1.5uM_BF.tiff`` keeps its ``.5uM``. A
         name is taken while the image in either format or the recipe exists,
@@ -542,13 +542,14 @@ class QuickEnhancer:
         """
         if image_utils.is_ome_tiff(source_path):
             base = source_path.name[: -len(''.join(source_path.suffixes[-2:]))]
-            suffix = image_utils.derived_file_suffix(image_mode.OutputFormat.OME_TIFF)
+            output_format = image_mode.OutputFormat.OME_TIFF
         else:
             base = source_path.stem
-            suffix = '.tif'
+            output_format = image_mode.OutputFormat.TIFF
+        suffix = image_utils.derived_file_suffix(output_format)
         for index in range(1, 10_002):
             stem = f'{base}_enhanced' if index == 1 else f'{base}_enhanced_{index}'
-            taken = (f'{stem}.ome.tiff', f'{stem}.tif', f'{stem}.recipe.json')
+            taken = (f'{stem}.ome.tiff', f'{stem}.tiff', f'{stem}.recipe.json')
             if not any(source_path.with_name(name).exists() for name in taken):
                 return (
                     source_path.with_name(f'{stem}{suffix}'),
