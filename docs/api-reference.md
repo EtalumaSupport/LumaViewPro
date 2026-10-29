@@ -5642,9 +5642,10 @@ Marks: in-process; engineering.
 
 Restore every camera setting a saved state holds, and wait.
 
-The binning, frame size, pixel format and black level go back
-first, each only where it differs from the camera's value now, since
-a write of an unchanged one restarts grabbing for nothing; then the
+The binning, frame size, pixel format, conversion-gain mode,
+line-noise reduction and black level go back first, each only where
+it differs from the camera's value now, since a write of an unchanged
+one restarts grabbing for nothing; then the
 gain, the exposure and the auto-gain arm. A setting absent from the
 snapshot, or recorded as None, is skipped and named in the log. The
 auto-gain loop goes back to the snapshot's state: re-armed when an
@@ -5694,10 +5695,15 @@ pixel format, its binning where it offers more than one size, and its
 black level where that can be set (`capabilities`). These are read
 live, and a failed read raises: the camera cannot report its own
 setting, and a restore that left it out would leave the scope changed
-without saying so. With them, `stored` holds the saved image mode,
-binning, frame and unbinned region, which the restore saves back: three
-image modes share one format, so the mode cannot be read back from the
-camera. A scope no session composed has no settings to read them from.
+without saying so. It holds the conversion-gain mode and line-noise
+reduction too, as held, since no driver reads them back; one unknown
+is recorded None, which the restore leaves as it is, as the gain.
+With them, `stored` holds the saved image mode, binning, frame,
+unbinned region, conversion-gain mode and line-noise reduction, which
+the restore saves back: three image modes share one format, so the
+mode cannot be read back from the camera, and a toggle the camera
+refused at bring-up stays saved while the camera holds another. A
+scope no session composed has no settings to read them from.
 
 **Args**
 

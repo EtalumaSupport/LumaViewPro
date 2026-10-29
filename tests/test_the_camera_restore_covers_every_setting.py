@@ -10,7 +10,10 @@ offered setting raises at the save instead of leaving it out. The restore
 writes a setting only where it differs from the camera's value now (a frame
 size, format or binning write restarts grabbing), in the order the camera
 needs: binning (which resets the frame), frame size, format, black level, then
-gain and exposure and the arm.
+gain and exposure and the arm. The conversion-gain mode and line-noise
+reduction, which no driver reads back, are held in the snapshot as the camera
+last took them and come back before the black level, their saved settings with
+them.
 """
 
 from dataclasses import replace
@@ -122,3 +125,44 @@ def test_a_failed_read_of_an_offered_setting_raises_at_the_save(sim_scope, reade
         pytest.raises(HardwareError, match=setting),
     ):
         sim_scope.camera.save_camera_state('test')
+
+
+def test_the_conversion_gain_and_line_noise_reduction_come_back_and_are_saved(
+    sim_scope, monkeypatch
+):
+    # a stand-in by design: the simulated camera has neither toggle (a
+    # simulator gap), so the scope is given both and the driver's two writes
+    # record what reached it.
+    monkeypatch.setattr(
+        sim_scope,
+        'capabilities',
+        replace(
+            sim_scope.capabilities,
+            camera_supports_conversion_gain_mode=True,
+            camera_supports_line_noise_reduction=True,
+        ),
+    )
+    reached = []
+    driver = sim_scope._camera_driver
+    driver.set_conversion_gain_mode = lambda mode: reached.append(mode) or True
+    driver.set_line_noise_reduction = lambda enabled: reached.append(enabled) or True
+    camera = sim_scope.camera
+    camera.set_high_conversion_gain(False)
+    camera.set_line_noise_reduction(False)
+    snapshot = camera.save_camera_state('test')
+
+    camera.set_high_conversion_gain(True)
+    camera.set_line_noise_reduction(True)
+    reached.clear()
+    camera.restore_camera_state(snapshot)
+
+    assert reached == ['Low', False]
+    assert (camera.high_conversion_gain, camera.line_noise_reduction) == (False, False)
+    assert sim_scope.read_setting('camera.high_conversion_gain') is False
+    assert sim_scope.read_setting('camera.line_noise_reduction') is False
+
+    # Held as the snapshot holds them, neither is written again: on Pylon
+    # each write restarts the grab.
+    reached.clear()
+    camera.restore_camera_state(snapshot)
+    assert reached == []

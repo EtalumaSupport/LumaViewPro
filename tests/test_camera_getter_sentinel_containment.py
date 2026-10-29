@@ -477,6 +477,8 @@ SHIPPED_STORED = {
     'frame.height': 1900,
     'frame.native_width': 1900,
     'frame.native_height': 1900,
+    'camera.high_conversion_gain': False,
+    'camera.line_noise_reduction': False,
 }
 
 
@@ -484,7 +486,8 @@ def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch)
     # Cold cache, gain and exposure reads fail: the snapshot records each as
     # None, unknown, which the restore leaves alone (the old shape stored gain
     # -1 and a later restore drove the sentinel back toward the camera), and
-    # a WARNING names each unknown field at SAVE time.
+    # a WARNING names each unknown field at SAVE time. No bring-up wrote the
+    # conversion-gain mode or line-noise reduction, so those are unknown too.
     camera = _build_camera(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
@@ -499,16 +502,22 @@ def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch)
         'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
+        'high_conversion_gain': None,
+        'line_noise_reduction': None,
         'stored': SHIPPED_STORED,
     }
     save_warnings = [w for w in warnings if 'save_camera_state' in w]
-    assert len(save_warnings) == 2, save_warnings
-    assert any('gain' in w for w in save_warnings)
-    assert any('exposure' in w for w in save_warnings)
+    assert len(save_warnings) == 4, save_warnings
+    for field in ('the gain is', 'the exposure is', 'high_conversion_gain', 'line_noise_reduction'):
+        assert any(field in w for w in save_warnings), (field, save_warnings)
 
 
 def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
     camera = _build_camera(steady_good_driver())
+    # As bring-up does: a camera without either toggle is at its standard
+    # setting, which the writer records without reaching the driver.
+    camera._set_conversion_gain_mode_impl('Low')
+    camera._set_line_noise_reduction_impl(False)
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
@@ -522,6 +531,8 @@ def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
         'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
+        'high_conversion_gain': False,
+        'line_noise_reduction': False,
         'stored': SHIPPED_STORED,
     }
     assert warnings == []

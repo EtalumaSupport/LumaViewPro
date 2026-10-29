@@ -513,7 +513,22 @@ _REJECTED_VALUE_WORDS = {
 # The camera settings a restore puts back beyond gain and exposure, in the
 # order it writes them: a binning write resets the frame, and the black
 # level's range is the pixel format's.
-_GEOMETRY_ORDER = ('binning', 'frame_size', 'pixel_format', 'black_level')
+_GEOMETRY_ORDER = (
+    'binning',
+    'frame_size',
+    'pixel_format',
+    'high_conversion_gain',
+    'line_noise_reduction',
+    'black_level',
+)
+
+# The two of them no driver reads back, each with its saved setting: the
+# snapshot holds the value the camera last took and the one saved, which can
+# differ (a toggle the camera refused at bring-up stays saved).
+_HELD_TOGGLES = {
+    'high_conversion_gain': 'camera.high_conversion_gain',
+    'line_noise_reduction': 'camera.line_noise_reduction',
+}
 
 # The saved geometry settings: the binning, the frame and the unbinned region
 # it was framed from, saved together whenever the camera's geometry changes.
@@ -1174,10 +1189,10 @@ class CameraAPI:
     # never hit it.
     _CAMERA_GEOMETRY_TIMEOUT_S = 30.0
 
-    # A restore may restart the grab three times (binning, frame size, pixel
-    # format) and then writes the black level, gain, exposure and the
-    # auto-gain arm.
-    _CAMERA_RESTORE_TIMEOUT_S = 3 * _CAMERA_GEOMETRY_TIMEOUT_S + 4 * _CAMERA_WRITE_TIMEOUT_S
+    # A restore may restart the grab five times (binning, frame size, pixel
+    # format, and on Pylon the conversion-gain mode and line-noise reduction)
+    # and then writes the black level, gain, exposure and the auto-gain arm.
+    _CAMERA_RESTORE_TIMEOUT_S = 5 * _CAMERA_GEOMETRY_TIMEOUT_S + 4 * _CAMERA_WRITE_TIMEOUT_S
 
     def _dispatch_camera(
         self,
@@ -3337,10 +3352,15 @@ class CameraAPI:
         black level where that can be set (``capabilities``). These are read
         live, and a failed read raises: the camera cannot report its own
         setting, and a restore that left it out would leave the scope changed
-        without saying so. With them, ``stored`` holds the saved image mode,
-        binning, frame and unbinned region, which the restore saves back: three
-        image modes share one format, so the mode cannot be read back from the
-        camera. A scope no session composed has no settings to read them from.
+        without saying so. It holds the conversion-gain mode and line-noise
+        reduction too, as held, since no driver reads them back; one unknown
+        is recorded None, which the restore leaves as it is, as the gain.
+        With them, ``stored`` holds the saved image mode, binning, frame,
+        unbinned region, conversion-gain mode and line-noise reduction, which
+        the restore saves back: three image modes share one format, so the
+        mode cannot be read back from the camera, and a toggle the camera
+        refused at bring-up stays saved while the camera holds another. A
+        scope no session composed has no settings to read them from.
 
         Args:
             tag: Descriptive name for the snapshot (for logging).
@@ -3374,12 +3394,19 @@ class CameraAPI:
                 f'[SCOPE API ] save_camera_state tag={tag}: the exposure is '
                 f'unknown; the restore will leave exposure unchanged'
             )
+        for key in _HELD_TOGGLES:
+            if key in snapshot and snapshot[key] is None:
+                logger.warning(
+                    f'[SCOPE API ] save_camera_state tag={tag}: the {key} is '
+                    f'unknown; the restore will leave it unchanged'
+                )
         if snapshot.keys() & set(_GEOMETRY_ORDER):
             # The saved settings the restore puts back beside the camera's:
             # three image modes share one format, so the mode cannot be read
             # back from the camera, and the region is the saved intent.
             snapshot['stored'] = {
-                path: self._scope.read_setting(path) for path in ('image_mode', *_STORED_GEOMETRY)
+                path: self._scope.read_setting(path)
+                for path in ('image_mode', *_STORED_GEOMETRY, *_HELD_TOGGLES.values())
             }
         with self._state_lock:
             snapshot['auto_gain_arm'] = self._auto_gain_arm
@@ -3398,6 +3425,8 @@ class CameraAPI:
 
         Empty when no camera is active. Binning appears only where the camera
         offers more than one size, the black level only where it can be set.
+        The conversion-gain mode and line-noise reduction are the values held,
+        None when unknown: no driver reads them back.
 
         Raises:
             CameraReadFailedError: ``'camera_read_failed'``, a setting the
@@ -3415,6 +3444,8 @@ class CameraAPI:
             if black_level is None:
                 raise CameraReadFailedError("The camera's black level could not be read")
             now['black_level'] = black_level
+        for key in _HELD_TOGGLES:
+            now[key] = self._held(key)
         return now
 
     def _read_setting_live(self, key: str) -> object:
@@ -3439,9 +3470,10 @@ class CameraAPI:
     def restore_camera_state(self, snapshot: dict) -> None:
         """Restore every camera setting a saved state holds, and wait.
 
-        The binning, frame size, pixel format and black level go back
-        first, each only where it differs from the camera's value now, since
-        a write of an unchanged one restarts grabbing for nothing; then the
+        The binning, frame size, pixel format, conversion-gain mode,
+        line-noise reduction and black level go back first, each only where
+        it differs from the camera's value now, since a write of an unchanged
+        one restarts grabbing for nothing; then the
         gain, the exposure and the auto-gain arm. A setting absent from the
         snapshot, or recorded as None, is skipped and named in the log. The
         auto-gain loop goes back to the snapshot's state: re-armed when an
@@ -3476,9 +3508,10 @@ class CameraAPI:
     def _restore_camera_state_impl(self, snapshot: dict) -> None:
         """Restore every camera setting a saved state holds.
 
-        The binning, frame size, pixel format and black level go back first,
-        in ``_GEOMETRY_ORDER``, each only where it differs from the camera's
-        value now: an unchanged frame size, format or binning write would
+        The binning, frame size, pixel format, conversion-gain mode,
+        line-noise reduction and black level go back first, in
+        ``_GEOMETRY_ORDER``, each only where it differs from the camera's
+        value now: an unchanged write of any but the black level would
         restart grabbing for nothing. Then gain, exposure and the arm.
 
         Fields absent from the snapshot, or recorded as None, are skipped
@@ -3593,7 +3626,8 @@ class CameraAPI:
         The camera is written through the private bodies and then saved as
         bring-up saves (``_delivered_geometry``): where the camera took the
         snapshot's binning and frame, the snapshot's saved keys go back
-        exactly, its image mode with them; where a write was refused part
+        exactly, its image mode, conversion-gain mode and line-noise
+        reduction with them; where a write was refused part
         way, what the camera holds is saved, and the refusal is raised. Only
         a key whose value changes is written, so a run or an autofocus that
         changed nothing saves nothing.
@@ -3617,7 +3651,11 @@ class CameraAPI:
             raise
         if stored is not None and self._scope.camera_connected:
             self._store_changed(
-                {'image_mode': stored['image_mode'], **self._delivered_geometry(stored)}
+                {
+                    'image_mode': stored['image_mode'],
+                    **{path: stored[path] for path in _HELD_TOGGLES.values()},
+                    **self._delivered_geometry(stored),
+                }
             )
 
     def _restore_camera_geometry(self, snapshot: dict) -> None:
@@ -3630,10 +3668,15 @@ class CameraAPI:
                 format; the restore stops there, as a setter's raise does.
         """
         for key in _GEOMETRY_ORDER:
-            if key not in snapshot:
+            wanted = snapshot.get(key)
+            if wanted is None:
                 continue
-            wanted = snapshot[key]
-            now = self.read_black_level() if key == 'black_level' else self._read_setting_live(key)
+            if key == 'black_level':
+                now = self.read_black_level()
+            elif key in _HELD_TOGGLES:
+                now = self._held(key)
+            else:
+                now = self._read_setting_live(key)
             if now == wanted:
                 continue
             if key == 'binning':
@@ -3643,8 +3686,15 @@ class CameraAPI:
             elif key == 'pixel_format':
                 self._set_pixel_format_impl(wanted)
             else:
+                # A value the camera refuses is reported and the rest go on,
+                # as one setting's refusal leaves no other unrestored.
                 try:
-                    self._set_black_level_impl(wanted)
+                    if key == 'high_conversion_gain':
+                        self._set_conversion_gain_mode_impl('High' if wanted else 'Low')
+                    elif key == 'line_noise_reduction':
+                        self._set_line_noise_reduction_impl(wanted)
+                    else:
+                        self._set_black_level_impl(wanted)
                 except CameraSettingRejected as rejected:
                     self._report_refused_write(rejected)
 
