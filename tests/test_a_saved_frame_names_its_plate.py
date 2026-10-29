@@ -1,9 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A saved frame's plate metadata names the plate it was taken on.
 
-The plate block of a frame's metadata (the OME Plate a reader sees) carries
-the plate's rows, columns and standard, and its name: the catalogue name of
-the plate handed to the save, never the microscope's model.
+The plate block of a frame's metadata (the Plate a reader sees) carries the
+plate's rows, columns and standard, the well the frame was taken in, and its
+name: the catalogue name of the plate handed to the save, never the
+microscope's model.
 """
 
 from modules import image_save
@@ -29,4 +30,5 @@ def test_the_plate_block_names_the_plate(sim_scope):
         'rows': 16,
         'columns': 24,
         'standard': 'ANSI SLAS 2004',
+        'well_label': 'A1',
     }

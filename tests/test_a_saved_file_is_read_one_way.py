@@ -48,8 +48,7 @@ def _a_record(**overrides) -> dict:
         'timestamp_iso': _A_TIME.isoformat(timespec='microseconds'),
         'timestamp_source': 'host_wallclock',
         'instrument': {'manufacturer': 'Etaluma', 'model': 'LS850', 'camera_model': 'cam'},
-        'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12},
-        'well_label': 'A1',
+        'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
         **overrides,
     }
 
@@ -177,7 +176,7 @@ def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_
 
     assert root.find(f'{q("Instrument")}/{q("Microscope")}').get('Model') == 'LS850'
     stated = _a_record()
-    shared = ('instrument', 'plate', 'well_label', 'objective', 'filterset', 'binning_size')
+    shared = ('instrument', 'plate', 'objective', 'filterset', 'binning_size')
     on_its_channel = ('exposure_time_ms', 'gain_db', 'excitation_nm', 'channel_display')
     assert {key: record.get(key) for key in shared + on_its_channel} == {
         key: image_utils.read_file_record(tmp_path / 'frame_z0.ome.tiff')[key]

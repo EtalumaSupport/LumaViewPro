@@ -30,8 +30,7 @@ _RECORD = {
     'z_pos_um': 4321.0,
     'exposure_time_ms': 50.0,
     'instrument': {'manufacturer': 'Etaluma', 'model': 'LS850', 'camera_model': 'cam'},
-    'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12},
-    'well_label': 'A1',
+    'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
 }
 
 

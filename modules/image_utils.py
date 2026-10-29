@@ -575,8 +575,9 @@ FILE_FACTS: dict[str, FileFact] = {
     'filterset': FileFact(FactKind.SHARED),
     'pixel_size_um': FileFact(FactKind.SHARED),
     'instrument': FileFact(FactKind.SHARED),
+    # The plate, and the well on it when the frame was taken over one: a
+    # well is a place on a plate, so a record cannot name one without it.
     'plate': FileFact(FactKind.SHARED),
-    'well_label': FileFact(FactKind.SHARED),
     'datetime': FileFact(FactKind.FILE),
     'significant_bits': FileFact(FactKind.FILE),
     'algorithm': FileFact(FactKind.FILE),
@@ -1275,9 +1276,8 @@ def _structured_record(structured: dict) -> dict | None:
             rows=p.get('Rows'),
             columns=p.get('Columns'),
             standard=p.get('Standard'),
+            well_label=p.get('WellLabel'),
         )
-        if 'WellLabel' in p:
-            flat['well_label'] = p['WellLabel']
 
     return flat
 
@@ -1403,11 +1403,11 @@ def build_postproc_output_metadata(
 
     Takes every input's record (read_file_record) and states what they agree
     on (agreed_facts), as each fact's kind (``FILE_FACTS``) lets a derived
-    file: the shared facts (objective, scale, position, instrument, plate,
-    well), and a layer's settings only when the output is on its inputs'
-    channel. A capture's own facts (its time, its id, how it was judged)
-    describe the original capture, not the derived image, and a file's own
-    facts are the output's writer's to set.
+    file: the shared facts (objective, scale, position, instrument, and the
+    plate with its well), and a layer's settings only when the output is on
+    its inputs' channel. A capture's own facts (its time, its id, how it was
+    judged) describe the original capture, not the derived image, and a
+    file's own facts are the output's writer's to set.
 
     The depth is supplied by the caller, not re-read here: the caller
     loads its input pixels through load_pixels, so it already holds the
@@ -1534,20 +1534,21 @@ def _stated_blocks(**blocks: dict) -> dict:
 
 
 def _instrument_and_plate_blocks(record: dict) -> dict:
-    """The ``Instrument``, ``Plate`` and ImageJ ``Document`` blocks a record renders to.
+    """The ``Instrument`` and ``Plate`` blocks a record renders to.
 
-    The one writer of the three, for a still, a derived file and a
+    The one writer of the two, for a still, a derived file and a
     hyperstack. Each is a rendering for Bio-Formats and Fiji, drawn from the
-    record's ``objective``, ``instrument``, ``plate`` and ``well_label``, not
-    a second store: the objective's home is ``Plane.Objective``, and in an
-    OME file every other fact's is the LVP annotation. Its keys are the OME
-    schema's attribute names, so the OME splice writes the Instrument as it
-    stands. A block that states nothing is absent, and so is a Plate with no
-    rows and columns (a slide, a blank). The OME container takes the
-    Instrument alone: a schema Plate in each file would import into OMERO as
-    a plate per file. Not yet rendered: an OME LightSource (LED wavelength
-    and power are not tracked per colour), the Detector's gain and zoom, an
-    OME FilterSet (filter wheel and dichroic are not tracked).
+    record's ``objective``, ``instrument`` and ``plate``, not a second
+    store: the objective's home is ``Plane.Objective``, and in an OME file
+    every other fact's is the LVP annotation. Its keys are the OME schema's
+    attribute names, so the OME splice writes the Instrument as it stands.
+    A block that states nothing is absent. Whether there is a plate is the
+    record's to say, where it is made; a Plate is rendered exactly when the
+    record holds one. The OME container takes the Instrument alone: a schema
+    Plate in each file would import into OMERO as a plate per file. Not yet
+    rendered: an OME LightSource (LED wavelength and power are not tracked
+    per colour), the Detector's gain and zoom, an OME FilterSet (filter
+    wheel and dichroic are not tracked).
     """
     objective = record.get('objective') or {}
     instrument = record.get('instrument') or {}
@@ -1571,25 +1572,14 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
             | working_distance,
             Detector=stated_fields(Model=instrument.get('camera_model')),
         ),
-        'Document': stated_fields(
-            Manufacturer=instrument.get('manufacturer'),
-            Model=instrument.get('model'),
-            SerialNumber=instrument.get('serial_number'),
-            CameraModel=instrument.get('camera_model'),
-            PlateName=plate.get('name'),
-            PlateRows=plate.get('rows'),
-            PlateColumns=plate.get('columns'),
-            WellLabel=record.get('well_label'),
-        ),
-    }
-    if plate.get('rows') and plate.get('columns'):
-        blocks['Plate'] = stated_fields(
+        'Plate': stated_fields(
             Name=plate.get('name'),
             Rows=plate.get('rows'),
             Columns=plate.get('columns'),
-            WellLabel=record.get('well_label'),
+            WellLabel=plate.get('well_label'),
             Standard=plate.get('standard'),
-        )
+        ),
+    }
     return _stated_blocks(**blocks)
 
 
@@ -1605,8 +1595,8 @@ def build_hyperstack_output_metadata(
     """Build a TZCYX hyperstack OME metadata dict for ``write_hyperstack_tiff``.
 
     States what its input frames agree on (agreed_facts) as any derived file
-    does (``_derived_facts``): the scope, the objective, the plate and the
-    well always, a layer's settings only on a one-channel stack of that
+    does (``_derived_facts``): the scope, the objective, and the plate with
+    its well always, a layer's settings only on a one-channel stack of that
     layer, no capture's own fact. Per-plane positions arrive as parallel
     lists (one entry per T*Z*C plane in scan order); they land in the
     OME-XML ``<Plane>`` elements via tifffile's per-axis list convention.
@@ -2545,7 +2535,7 @@ def generate_tiff_data(
         tiff_metadata['PhysicalSizeY'] = pixel_size_um
         tiff_metadata['PhysicalSizeYUnit'] = micron
 
-    # ImageJ adds unit, channel modality, LUT, and document block
+    # ImageJ adds unit, display range, channel modality and LUT
     if image_type == 'imagej':
         tiff_metadata['unit'] = 'um'
         # The display range Fiji opens the file at: the white LVP shows it
@@ -2577,8 +2567,6 @@ def generate_tiff_data(
         else:
             raise ValueError(f'Unexpected channel ({identity_channel}) for tiff modality')
         tiff_metadata['Channel']['Modality'] = [modality]
-        if 'Document' in blocks:
-            tiff_metadata['Document'] = blocks['Document']
         # Embed color LUT in ImageJ metadata (not TIFF tag 320).
         # Windows Preview ignores ImageJ metadata -> sees MINISBLACK -> works.
         # ImageJ reads its own metadata -> auto-applies color LUT -> shows color.

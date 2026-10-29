@@ -77,7 +77,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
     assert metadata['black_level'] == 4.0
     assert metadata['illumination_ma'] == 40.0
     assert metadata['frames_summed'] == 2
-    assert metadata['well_label'] == 'A1'
+    assert metadata['plate']['well_label'] == 'A1'
     assert metadata['timestamp_iso'] == '2026-09-29T12:00:00.123456'
     assert metadata['frame_id'] == 7
     assert metadata['instrument']['camera_model'] == 'simulated'
@@ -109,7 +109,7 @@ def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
     )
 
     assert 'illumination_ma' not in metadata
-    assert 'well_label' not in metadata
+    assert 'well_label' not in metadata['plate']
 
 
 def test_a_record_cannot_be_changed_after_the_capture():

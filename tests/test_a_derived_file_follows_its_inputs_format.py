@@ -219,7 +219,6 @@ def _write_frame(path, *, ome: bool):
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': 10.0, 'y': 10.0},
             'datetime': datetime.datetime(2026, 10, 29, 12, 0, 0),
-            'well_label': '',
             'significant_bits': 8,
         },
         ome=ome,
@@ -276,8 +275,7 @@ def test_an_enhance_of_a_png_is_plain_tiff(session, tmp_path):
 
 
 def test_an_ome_output_states_the_facts_its_plain_twin_does(session, tmp_path):
-    # Plated: a plain frame with no plate reads back no well label, which
-    # an OME one does -- the saved-file record's own defect, not a build's.
+    # Plated, so the plate and its well are among the facts the twins compare.
     ome_made = _chain(session, write_run_folder(tmp_path / 'ome', LED0, ome=True, plated=True))
     plain_made = _chain(session, write_run_folder(tmp_path / 'plain', LED0, plated=True))
 

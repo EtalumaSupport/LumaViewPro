@@ -237,7 +237,7 @@ def test_scan_completes_and_keeps_an_image_of_each_well():
     assert (outcome.captures.asked, outcome.captures.captured) == (2, 2)
     assert (files.outcome, files.written) == (FilesOutcome.WRITTEN, 2)
     records = [read_file_record(p) for p in sorted(run_dir.glob('*.tiff'))]
-    assert [(r['channel'], r['well_label'], r['dark']) for r in records] == [
+    assert [(r['channel'], r['plate']['well_label'], r['dark']) for r in records] == [
         ('BF', 'B2', False),
         ('BF', 'B3', False),
     ]
@@ -253,7 +253,11 @@ def test_scan_over_rest_completes_and_keeps_its_images(served, tmp_path):
     downloaded = tmp_path / 'first.tiff'
     downloaded.write_bytes(run.written['first.tiff'])
     record = read_file_record(downloaded)
-    assert (record['channel'], record['well_label'], record['dark']) == ('BF', 'B2', False)
+    assert (record['channel'], record['plate']['well_label'], record['dark']) == (
+        'BF',
+        'B2',
+        False,
+    )
 
 
 def _slice_steps_um(paths):

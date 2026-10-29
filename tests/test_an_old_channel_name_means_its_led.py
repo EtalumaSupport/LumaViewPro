@@ -235,7 +235,6 @@ def test_an_old_names_image_is_written_as_fluorescence(installation, tmp_path):
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': 12.0, 'y': 12.0},
             'datetime': datetime.datetime(2026, 10, 25, 12, 0, 0),
-            'well_label': '',
             'significant_bits': 12,
         },
         ome=False,

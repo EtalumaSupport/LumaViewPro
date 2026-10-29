@@ -17314,7 +17314,6 @@ Every fact a saved file's record can state, by its key (`modules/image_utils.FIL
 | `pixel_size_um` | shared | -- | -- | no |
 | `instrument` | shared | -- | -- | no |
 | `plate` | shared | -- | -- | no |
-| `well_label` | shared | -- | -- | no |
 | `datetime` | file | -- | -- | no |
 | `significant_bits` | file | -- | -- | no |
 | `algorithm` | file | -- | -- | no |

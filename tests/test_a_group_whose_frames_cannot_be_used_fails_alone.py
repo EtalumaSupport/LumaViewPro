@@ -42,7 +42,7 @@ from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
 
 
-def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: int = 256) -> None:
+def _write_frame(path: pathlib.Path, *, x: float, seed: int, size: int = 256) -> None:
     # Random pixels, so an LZW strip barely compresses and a half truncation
     # cuts into the pixels while the header still reads.
     pixels = np.random.default_rng(seed).integers(0, 256, size=(size, size), dtype=np.uint8)
@@ -59,7 +59,6 @@ def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: in
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': x, 'y': 11.24},
             'datetime': datetime.datetime(2026, 10, 7, 12, 0, 0),
-            'well_label': well,
             'significant_bits': 8,
         },
         ome=False,
@@ -124,7 +123,6 @@ def _run_folder(tmp_path, frames: list[dict]) -> pathlib.Path:
         _write_frame(
             folder / filename,
             x=frame['x'],
-            well=frame['well'],
             seed=seed,
             size=frame.get('size', 256),
         )
@@ -175,7 +173,7 @@ def _outputs(folder: pathlib.Path) -> set[str]:
 class TestTheReader:
     def test_a_frame_cut_short_is_refused_naming_it(self, tmp_path):
         frame = tmp_path / 'cut.tiff'
-        _write_frame(frame, x=1.0, well='A1', seed=0)
+        _write_frame(frame, x=1.0, seed=0)
         _truncate(frame)
 
         with pytest.raises(InputFramesUnusableError) as refused:
@@ -267,7 +265,7 @@ def test_a_video_none_of_whose_frames_can_be_read_is_a_failed_group(tmp_path):
 class TestAHyperstackLeavesNothingWhenRefused:
     @staticmethod
     def _frames(tmp_path, second: np.ndarray) -> pd.DataFrame:
-        _write_frame(tmp_path / 'a.tiff', x=1.0, well='A1', seed=0, size=8)
+        _write_frame(tmp_path / 'a.tiff', x=1.0, seed=0, size=8)
         tf.imwrite(str(tmp_path / 'b.tiff'), second)
         return pd.DataFrame(
             [
@@ -301,7 +299,7 @@ def test_a_custom_steps_refusal_names_no_well(tmp_path):
     rows = []
     for z, color in ((0, 'BF'), (1, 'BF'), (0, LED1)):
         name = f'{color}_{z}.tiff'
-        _write_frame(tmp_path / name, x=1.0, well='', seed=z, size=8)
+        _write_frame(tmp_path / name, x=1.0, seed=z, size=8)
         rows.append({'Filepath': name, 'Color': color, 'Scan Count': 0, 'Z-Slice': z,
                      'X': 1.0, 'Y': 2.0, 'Z': 3.0, 'Well': ''})  # fmt: skip
 

@@ -177,8 +177,8 @@ class TestALateWriteRecordsItsFrame:
                 f'{name} records {metadata.get("illumination_by_channel_ma")}: a run lights '
                 "its step's one LED, and its file says so"
             )
-            assert metadata.get('well_label') == well, (
-                f'{name} records well {metadata.get("well_label")!r}, not {well!r}: the step '
+            assert metadata['plate'].get('well_label') == well, (
+                f'{name} records well {metadata["plate"].get("well_label")!r}, not {well!r}: the step '
                 "position on the protocol's 6-well plate"
             )
             recorded = datetime.datetime.fromisoformat(metadata['timestamp_iso'])
@@ -269,8 +269,8 @@ class TestAFileNamesTheWellAtThePositionItRecords:
 
         metadata, _ = files['B3']
         assert metadata.get('plate_pos_mm') is None, metadata.get('plate_pos_mm')
-        assert not metadata.get('well_label'), (
-            f'the file states no position but names well {metadata.get("well_label")!r}, '
+        assert 'well_label' not in metadata['plate'], (
+            f'the file states no position but names well {metadata["plate"]["well_label"]!r}, '
             "the well under the step's planned X/Y"
         )
 
@@ -287,5 +287,5 @@ class TestAManualStillRecordsItsFrame:
 
         metadata = read_file_record(path)
         assert metadata.get('illumination_ma') == 40.0, metadata.get('illumination_ma')
-        assert metadata.get('well_label') == well, (well, metadata.get('well_label'))
+        assert metadata['plate'].get('well_label') == well, (well, metadata['plate'])
         assert metadata.get('frames_summed') == 1

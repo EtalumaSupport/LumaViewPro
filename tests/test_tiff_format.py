@@ -13,7 +13,6 @@ Key requirements:
 - Windows Preview compatibility: no tag 320 (colormap) on uint16 MINISBLACK images
 """
 
-import ast
 import datetime
 import errno
 import itertools
@@ -48,7 +47,6 @@ def _make_metadata():
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
         'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
-        'well_label': 'A1',
         'well_site': '1',
     }
 
@@ -1510,6 +1508,77 @@ def test_a_stills_record_reads_back_value_for_value_from_ome_and_imagej(
     assert 'plate' not in read['blank', 'TIFF']
 
 
+def test_a_stills_well_is_stated_inside_its_plate_in_every_container(sim_scope, tmp_path):
+    """A well is a place on a plate, so a still's record states it inside its
+    plate, and the shaped, ImageJ and OME files of that still read back the
+    plate with its well."""
+    containers = {
+        'shaped': ('8bit', 8, np.uint8, 'TIFF'),
+        'imagej': ('right_aligned', 12, np.uint16, 'TIFF'),
+        'ome': ('right_aligned', 12, np.uint16, 'OME-TIFF'),
+    }
+    read = {}
+    for container, (save_encoding, significant_bits, dtype, output_format) in containers.items():
+        folder = tmp_path / container
+        folder.mkdir()
+        recorded, path = _a_full_still(
+            sim_scope,
+            folder,
+            save_encoding=save_encoding,
+            significant_bits=significant_bits,
+            dtype=dtype,
+            output_format=output_format,
+            well_label='B7',
+        )
+        read[container] = image_utils.read_file_record(path).get('plate')
+
+    assert recorded['plate']['well_label'] == 'B7'
+    assert read == dict.fromkeys(containers, recorded['plate'])
+
+
+def test_a_derived_file_states_a_well_only_with_the_plate_every_input_was_on(sim_scope, tmp_path):
+    """A derived file states the plate its inputs agree on, well and all:
+    from inputs in one well, the plate with that well; from inputs on one
+    plate in two wells, no plate, never the plate without its well."""
+    records = {}
+    for well in ('A1', 'A2'):
+        folder = tmp_path / well
+        folder.mkdir()
+        _, path = _a_full_still(
+            sim_scope,
+            folder,
+            save_encoding='8bit',
+            significant_bits=8,
+            dtype=np.uint8,
+            output_format='TIFF',
+            well_label=well,
+        )
+        records[well] = image_utils.read_file_record(path)
+
+    def derived(name, inputs):
+        out = tmp_path / f'{name}.tiff'
+        image_utils.write_tiff(
+            data=np.zeros((8, 8), dtype=np.uint8),
+            file_loc=out,
+            metadata=image_utils.build_postproc_output_metadata(
+                inputs, 'BF', significant_bits=8, adds_frames=False
+            ),
+            ome=False,
+            color=GREY,
+            significant_bits=8,
+            save_encoding='8bit',
+            white_bits=None,
+        )
+        return image_utils.read_file_record(out)
+
+    one_well = derived('one_well', [records['A1'], records['A1']])
+    two_wells = derived('two_wells', [records['A1'], records['A2']])
+
+    assert one_well['plate'] == records['A1']['plate']
+    assert one_well['plate']['well_label'] == 'A1'
+    assert 'plate' not in two_wells
+
+
 def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_layers_setting(
     sim_scope, tmp_path
 ):
@@ -1610,11 +1679,12 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
     }
 
 
-def test_each_fact_has_one_key_and_an_imagej_document_renders_the_instrument(sim_scope, tmp_path):
+def test_each_fact_has_one_key(sim_scope, tmp_path):
     """The scope's maker and model live in ``instrument``, the position in
-    ``plate_pos_mm``, the depth in tag 65123: a still's record holds no second
-    name for any of them, and an ImageJ file's Document, Fiji's view of the
-    scope, is rendered from ``instrument`` and ``plate``."""
+    ``plate_pos_mm``, the depth in tag 65123, the well in ``plate``: a still's
+    record holds no second name for any of them, and an ImageJ file names its
+    scope in ``Instrument`` and its plate and well in ``Plate``, with no
+    ``Document`` block repeating them."""
     recorded, still = _a_full_still(
         sim_scope,
         tmp_path,
@@ -1623,16 +1693,11 @@ def test_each_fact_has_one_key_and_an_imagej_document_renders_the_instrument(sim
         dtype=np.uint16,
         output_format='TIFF',
     )
-    second_names = ('camera_make', 'microscope', 'microscope_model', 'x_pos', 'y_pos')
+    second_names = ('camera_make', 'microscope', 'microscope_model', 'x_pos', 'y_pos', 'well_label')
     assert [key for key in second_names if key in recorded] == []
     with tf.TiffFile(str(still)) as tif:
         description = tif.imagej_metadata
-    assert 'significantbits' not in description
-    document = ast.literal_eval(description['document'])
-    assert (document['Model'], document['PlateName']) == (
-        recorded['instrument']['model'],
-        recorded['plate']['name'],
-    )
+    assert [key for key in ('significantbits', 'document') if key in description] == []
 
 
 def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_scope, tmp_path):

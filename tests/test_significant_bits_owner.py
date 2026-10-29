@@ -156,7 +156,6 @@ def _save_meta(significant_bits=None):
         'z_pos_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
         'datetime': datetime.datetime(2026, 6, 18, 12, 0, 0),
-        'well_label': 'A1',
         'well_site': '1',
     }
     if significant_bits is not None:

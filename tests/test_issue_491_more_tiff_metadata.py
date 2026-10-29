@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """#491: a saved file names its instrument and plate -- the ImageJ
-Document and Plate blocks, and the OME schema's Instrument.
+Instrument and Plate blocks, and the OME schema's Instrument.
 
 Bug
 ---
@@ -12,8 +12,9 @@ WellSite; the OME path had no Plate or Instrument blocks at all.
 Fix
 ---
 Per the Option-A scope agreed with Eric:
-- ImageJ Document block gets Model, SerialNumber,
-  CameraModel, PlateName, PlateRows, PlateColumns.
+- An ImageJ file names its scope in an Instrument block and its plate and
+  well in a Plate block, each once; the Document block that repeated them
+  is gone.
 - An OME file carries the schema's Instrument (Microscope, Detector,
   Objective), spliced into the description tifffile writes, which drops
   it; its plate and well ride in LVP's annotation, since a schema Plate
@@ -59,7 +60,6 @@ def _build_metadata():
         'gain_db': 1.0,
         'illumination_ma': 50.0,
         'pixel_size_um': 2.5,
-        'well_label': 'A1',
         'well_site': 0,
         'instrument': {
             'manufacturer': 'Etaluma',
@@ -72,19 +72,9 @@ def _build_metadata():
             'rows': 8,
             'columns': 12,
             'standard': 'ANSI SLAS 2004',
+            'well_label': 'A1',
         },
     }
-
-
-def _gen(image_type: str, dtype=np.uint8):
-    data = np.zeros((128, 128), dtype=dtype)
-    return image_utils.generate_tiff_data(
-        data=data,
-        metadata=_build_metadata(),
-        image_type=image_type,
-        color=release_color('BF'),
-        white_bits=None,
-    )
 
 
 def _ome_still(tmp_path, md: dict, name: str = 'still.ome.tiff'):
@@ -177,7 +167,7 @@ def _unreported(md: dict) -> dict:
     """``md`` from a scope that reported no serial, and a frame in no well:
     the record states neither (``image_save`` omits an empty value)."""
     del md['instrument']['serial_number']
-    del md['well_label']
+    del md['plate']['well_label']
     return md
 
 
@@ -246,42 +236,3 @@ def test_no_writer_states_an_instrument_fact_the_scope_did_not_report(tmp_path):
     }
     assert stated == dict.fromkeys(stated, expected)
     assert sorted(imagej['Plate']) == ['Columns', 'Name', 'Rows', 'Standard']
-    assert sorted(imagej['Document']) == [
-        'CameraModel',
-        'Manufacturer',
-        'Model',
-        'PlateColumns',
-        'PlateName',
-        'PlateRows',
-    ]
-
-
-def test_a_plate_block_needs_rows_and_columns():
-    """The ImageJ Plate block requires rows + columns; degraded labware
-    (slide, blank) has neither -- the block should not appear."""
-    md = _build_metadata()
-    md['plate'] = {'name': 'Slide'}
-    data = np.zeros((128, 128), dtype=np.uint16)
-    result = image_utils.generate_tiff_data(
-        data=data, metadata=md, image_type='imagej', color=release_color('BF'), white_bits=None
-    )
-    assert 'Plate' not in result['metadata'], (
-        'Plate block should be omitted when rows/columns are unset; '
-        'degraded labware (slide/blank) has no plate dimensions to report.'
-    )
-
-
-def test_imagej_document_block_extended():
-    result = _gen(image_type='imagej', dtype=np.uint8)
-    doc = result['metadata']['Document']
-    # Pre-existing keys must still be present.
-    assert doc['Manufacturer'] == 'Etaluma'
-    assert doc['WellLabel'] == 'A1'
-    # New keys per #491.
-    assert doc['Model'] == 'LS850'
-    assert doc['SerialNumber'] == 'EL0940-05'
-    assert 'FirmwareVersion' not in doc
-    assert doc['CameraModel'] == 'Basler a2A3536-31umBAS'
-    assert doc['PlateName'] == '96 well microplate'
-    assert doc['PlateRows'] == 8
-    assert doc['PlateColumns'] == 12

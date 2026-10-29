@@ -97,7 +97,7 @@ def write_run_folder(
     ``plated`` records each frame's 96-well plate and its well, A1, as a
     well-plate run does; else no plate and no well.
     """
-    plate = {'well_label': 'A1', 'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12}}
+    plate = {'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12, 'well_label': 'A1'}}
     channels = _channels(fluorescence)
     folder = tmp_path / 'live' / 'ProtocolData' / '20261018_120000'
     folder.mkdir(parents=True)
@@ -136,7 +136,6 @@ def write_run_folder(
                 'z_pos_um': float(step[3]),
                 'plate_pos_mm': {'x': float(step[1]), 'y': float(step[2])},
                 'datetime': datetime.datetime(2026, 10, 18, 12, 0, 0),
-                'well_label': '',
                 'significant_bits': bits,
                 **(plate if plated else {}),
             },

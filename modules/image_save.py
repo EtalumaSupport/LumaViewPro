@@ -483,10 +483,6 @@ def generate_image_metadata(
         'frames_summed': frame_record.frames_summed,
         'binning_size': frame_record.binning_size,
         'pixel_size_um': pixel_size_um,
-        # Zero-well labware (Blank) has no well: omit the key rather than
-        # stamp an empty or fabricated label, mirroring the no-scale idiom
-        # above -- a fake well is measured off the file forever.
-        **({'well_label': well_label} if well_label else {}),
         'timestamp_iso': captured_at.isoformat(timespec='microseconds'),
         'timestamp_source': frame_record.captured_at.source.value,
         # A value the scope or the catalogue did not give is absent from the
@@ -497,7 +493,9 @@ def generate_image_metadata(
             serial_number=motor_info.serial_number,
             camera_model=frame_record.camera_model,
         ),
-        # Labware with no wells (Blank) is no plate.
+        # Labware with no wells (Blank) is no plate. A well is a place on
+        # the plate, so it is stated inside it, and only when there is one:
+        # an empty or fabricated label is measured off the file forever.
         **(
             {
                 'plate': image_utils.stated_fields(
@@ -505,6 +503,7 @@ def generate_image_metadata(
                     rows=labware.rows,
                     columns=labware.columns,
                     standard=labware.standard,
+                    well_label=well_label,
                 )
             }
             if labware.rows and labware.columns

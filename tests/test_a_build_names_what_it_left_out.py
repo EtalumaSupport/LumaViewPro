@@ -103,7 +103,6 @@ def run_folder(tmp_path):
                 'z_pos_um': 5000.0,
                 'plate_pos_mm': {'x': float(step[1]), 'y': float(step[2])},
                 'datetime': datetime.datetime(2026, 10, 12, 12, 0, 0),
-                'well_label': '',
                 'significant_bits': 8,
             },
             ome=False,

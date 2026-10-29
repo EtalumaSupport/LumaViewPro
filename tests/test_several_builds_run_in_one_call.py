@@ -129,7 +129,6 @@ def _add_an_ordinary_step(folder: pathlib.Path) -> None:
                 'z_pos_um': 5000.0,
                 'plate_pos_mm': {'x': 12.0, 'y': 12.0},
                 'datetime': datetime.datetime(2026, 10, 18, 12, 1, 0),
-                'well_label': '',
                 'significant_bits': 8,
             },
             ome=False,

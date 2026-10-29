@@ -48,7 +48,6 @@ _METADATA = {
     'z_pos_um': 5000.0,
     'plate_pos_mm': {'x': 1.0, 'y': 2.0},
     'datetime': datetime.datetime(2026, 10, 13, 12, 0, 0),
-    'well_label': '',
 }
 # The lossy writers' frame: smooth, since chroma subsampling smears a dense
 # pattern's colour by about 18 levels where a gradient loses under 2

@@ -81,8 +81,8 @@ def _write_structured_input(
                 'name': '96-well',
                 'rows': 8,
                 'columns': 12,
+                'well_label': 'A1',
             },
-            'well_label': 'A1',
         },
         ome=False,
         color=release_color(channel),
@@ -405,8 +405,7 @@ class TestAHyperstackStatesWhatItsFramesAgreeOn:
             'serial_number': 'SN12062',
             'camera_model': 'Basler a2A1920',
         }
-        assert record['plate'] == {'name': '96-well', 'rows': 8, 'columns': 12}
-        assert record['well_label'] == 'A1'
+        assert record['plate'] == {'name': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'}
         assert record['objective']['magnification'] == 20
         assert record['plate_pos_mm'] == {'x': 12.5, 'y': 8.25}
         # One channel: its settings travel; never a capture's own fact.

@@ -53,7 +53,6 @@ def _write_tiff(path):
             'z_pos_um': 5000.0,
             'plate_pos_mm': {'x': 14.38, 'y': 11.24},
             'datetime': datetime.datetime(2026, 10, 7, 12, 0, 0),
-            'well_label': 'A1',
             'significant_bits': 8,
         },
         ome=False,

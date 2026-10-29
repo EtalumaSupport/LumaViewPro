@@ -233,7 +233,6 @@ def _write_rgb_run_folder(tmp_path, *, ome: bool):
                 'z_pos_um': 5000.0,
                 'plate_pos_mm': {'x': 10.0, 'y': 10.0},
                 'datetime': datetime.datetime(2026, 10, 13, 12, 0, 0),
-                'well_label': '',
                 'significant_bits': 8,
             },
             ome=ome,
