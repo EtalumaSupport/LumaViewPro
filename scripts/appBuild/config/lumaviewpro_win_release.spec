@@ -20,6 +20,14 @@ datas = [
     ('drivers/sim_wire/runtime/MICROPYTHON_PIN', 'drivers/sim_wire/runtime'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
+    # The API's documents, for the reader of an installation: the guide,
+    # the generated reference, the plugin tutorial the guide links to, and
+    # the examples with their REST twins. The app opens none of them.
+    ('docs/LumascopeSkills.md', 'docs'),
+    ('docs/API_REFERENCE.md', 'docs'),
+    ('docs/PluginTutorial.md', 'docs'),
+    ('docs/api_examples/*.py', 'docs/api_examples'),
+    ('docs/api_examples/*.sh', 'docs/api_examples'),
     ('version.txt', '.'),
     ('.git_archival.txt', '.'),
     ('lvp_logger.py', '.'),
