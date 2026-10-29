@@ -199,7 +199,6 @@ ALLOWED = frozenset(
         'tests/test_a_stalled_writer_refusal_names_its_remedy.py::session',
         'tests/test_a_step_list_edit_outruns_the_move.py::env',
         'tests/test_a_video_step_announces_its_finish.py::_scope',
-        'tests/test_a_zstack_with_no_range_is_refused.py::TestTheHeadlessCallerGetsIt.test_start_zstack_refuses_instead_of_capturing_one_plane',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter._make_scope_with_fake_camera',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter.test_no_camera_returns_false',
         'tests/test_audit_fixes.py::TestDeviceLinkThroughputLimitSetter._make_scope_with_fake_camera',

@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import os
+
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
@@ -159,24 +161,19 @@ class TestTheHeadlessCallerGetsIt:
     """The reachable case: ProtocolRunner passes use_zstacking=True unguarded."""
 
     @pytest.mark.parametrize('zstack', UNCONFIGURED)
-    def test_start_zstack_refuses_instead_of_capturing_one_plane(self, zstack, sim_scope, tmp_path):
-        from modules.protocol_runner import ProtocolRunner
+    def test_start_zstack_refuses_instead_of_capturing_one_plane(self, zstack, sim_session):
+        from tests.scope_fakes import home_sim_scope
 
-        settings = _zstack_settings()
-        settings['zstack'] = {**settings['zstack'], **zstack}
-        settings['live_folder'] = str(tmp_path)
-
-        session = MagicMock()
-        session.settings = settings
-        session.capture_settings_snapshot.return_value = session.settings
-        session.scope = sim_scope
-        session.plate_position_on.return_value = _POSITION
-        runner = ProtocolRunner(session)
+        home_sim_scope(sim_session.scope)
+        for key, value in zstack.items():
+            sim_session.update_settings(f'zstack.{key}', value)
+        live_folder = sim_session.settings['live_folder']
+        runner = sim_session.create_protocol_runner()
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
             runner.start_zstack(channel='BF')
 
         assert refusal.value.reason == 'zstack_not_configured'
-        assert not runner._executor.prepare.called, (
-            'the refusal must arrive before the run is prepared, not after it commits'
-        )
+        # The refusal arrives before the run is prepared, not after it commits.
+        assert not sim_session.live_work.work
+        assert list(os.scandir(live_folder)) == [], 'a refused stack made a run folder'
