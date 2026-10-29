@@ -159,7 +159,7 @@ Owns the shared, GUI-independent state for one microscope session.
 
 **Fields**
 
-- <a id="ScopeSession.engineering_mode"></a>`engineering_mode`: `bool` -- (no description)
+- <a id="ScopeSession.engineering_mode"></a>`engineering_mode`: `bool` -- Whether the session runs in engineering mode: a saved still or run image on a scope with a turret names the slot it was taken at, and the system metrics are sampled more often unless the settings name an interval. It begins as `create` was given; a plugin may turn it on when the host loads plugins.
 - <a id="ScopeSession.manual_capture"></a>`manual_capture`: `ManualCaptureController` -- (no description)
 - <a id="ScopeSession.manual_recording"></a>`manual_recording`: `ManualRecordingController` -- (no description)
 - <a id="ScopeSession.post_processing"></a>`post_processing`: `PostProcessingAPI` -- (no description)
@@ -4597,11 +4597,13 @@ Nothing.
 Reached through `session.scope`; on the wire, `/api/v1/scope/`.  
 Held in: [`ScopeSession.scope`](#ScopeSession.scope).
 
+The microscope: its boards and camera, reached through its sub-APIs.
+
 **Fields**
 
 - <a id="Lumascope.camera"></a>`camera`: `CameraAPI` -- (no description)
-- <a id="Lumascope.capabilities"></a>`capabilities`: `ScopeCapabilities` -- (no description)
-- <a id="Lumascope.channel_identity"></a>`channel_identity`: `ChannelIdentity` -- (no description)
+- <a id="Lumascope.capabilities"></a>`capabilities`: `ScopeCapabilities` -- What this scope has (`ScopeCapabilities`), read once when the scope is built and fixed for its life.
+- <a id="Lumascope.channel_identity"></a>`channel_identity`: `ChannelIdentity` -- Which model this scope is and the channels it has (`ChannelIdentity`).
 - <a id="Lumascope.diagnostics"></a>`diagnostics`: `DiagnosticsAPI` -- (no description)
 - <a id="Lumascope.illumination"></a>`illumination`: `IlluminationAPI` -- (no description)
 - <a id="Lumascope.imaging"></a>`imaging`: `ImagingAPI` -- (no description)

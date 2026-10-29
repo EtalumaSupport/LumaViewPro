@@ -505,7 +505,16 @@ class LiveFolderEntry:
 
 @api_fields('engineering_mode', 'manual_capture', 'manual_recording', 'post_processing', 'scope')
 class ScopeSession:
-    """Owns the shared, GUI-independent state for one microscope session."""
+    """Owns the shared, GUI-independent state for one microscope session.
+
+    Attributes:
+        engineering_mode: Whether the session runs in engineering mode: a
+            saved still or run image on a scope with a turret names the
+            slot it was taken at, and the system metrics are sampled more
+            often unless the settings name an interval. It begins as
+            ``create`` was given; a plugin may turn it on when the host
+            loads plugins.
+    """
 
     # What the session holds, set during construction.
     engineering_mode: bool

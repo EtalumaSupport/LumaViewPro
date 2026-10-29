@@ -295,6 +295,15 @@ def _board_status(part: Part, board, fallback) -> 'PartStatus':
     'runtime_state',
 )
 class Lumascope:
+    """The microscope: its boards and camera, reached through its sub-APIs.
+
+    Attributes:
+        capabilities: What this scope has (``ScopeCapabilities``), read
+            once when the scope is built and fixed for its life.
+        channel_identity: Which model this scope is and the channels it
+            has (``ChannelIdentity``).
+    """
+
     # --- Input validation constants ---
     # There is no LED current cap on this class: the connected LED driver
     # publishes its own through `scope.capabilities.led_max_ma`, and a

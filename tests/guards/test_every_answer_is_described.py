@@ -195,14 +195,16 @@ def test_every_route_is_described_in_its_own_words(built):
     A field has no docstring of its own: its words are its class's
     ``Attributes:`` entry, the reference's too. Read off a function the
     field does not have, the description was ``NoneType``'s, "The type of
-    the None singleton."
+    the None singleton." A route with no words at all is refused too: on
+    Python 3.12 ``NoneType`` has no docstring, so only the missing words
+    themselves can catch it on every Python.
     """
     described, member_routes, _events, _records = built
     borrowed = {t.__doc__ for t in (type(None), object, bool, int, float, str, dict, list, tuple)}
     wrong = [
         _url(route)
         for route in member_routes
-        if _operation(described, route).get('description') in borrowed
+        if not (words := _operation(described, route).get('description')) or words in borrowed
     ]
     assert not wrong, '\n'.join(wrong)
     columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
