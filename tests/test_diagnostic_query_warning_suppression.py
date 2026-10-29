@@ -23,6 +23,7 @@ GitHub issue #654.
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -84,12 +85,26 @@ class TestDiagnosticQueryCapabilityProbe:
         result = board._diagnostic_query('VOLTAGE')
         assert result == 'real-response-data'
 
+    @pytest.mark.skipif(
+        not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
+        reason='the firmware-backed simulator runs on macOS and Linux only',
+    )
     def test_diagnostic_query_returns_none_on_error_response(self):
         """When firmware rejects with ERROR prefix, the response is
-        swallowed and None is returned (caller treats as inconclusive)."""
-        from drivers.motorboard import MotorBoard
+        swallowed and None is returned (caller treats as inconclusive).
 
-        board = MotorBoard.__new__(MotorBoard)
-        board.exchange_command = MagicMock(return_value="ERROR: command 'VOLTAGE' not found:")
-        result = board._diagnostic_query('VOLTAGE')
-        assert result is None
+        On the field firmware, which has no DRVSTAT. The query itself, not
+        read_drv_status: that read's own parse fallback also answers None
+        for an ERROR line, so it cannot tell this clause from its own."""
+        from drivers.motorboard import MotorBoard
+        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+        from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+
+        board = MotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+            backend=SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT'), dialect='field')),
+        )
+        try:
+            assert board._diagnostic_query('DRVSTAT_Z') is None
+        finally:
+            board.disconnect()

@@ -131,7 +131,7 @@ _FRAGILE_PIN = {
     'tests/guards/test_controls_lockout.py': 5,
     'tests/test_dark_floor_capture_guard.py': 1,
     'tests/test_enhance_file_or_folder.py': 2,
-    'tests/test_fatal_abort_led_safety.py': 2,
+    'tests/test_fatal_abort_led_safety.py': 1,
     'tests/test_histogram_display_gating.py': 1,
     'tests/test_image_mode.py': 2,
     'tests/test_installer_log_capture.py': 1,

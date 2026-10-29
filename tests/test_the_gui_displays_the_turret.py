@@ -116,7 +116,6 @@ def _built(monkeypatch, session, cls):
         SimpleNamespace(
             scope=session.scope,
             session=session,
-            objective_helper=session.scope.objective_helper,
             io_executor=_RunNowExecutor(),
             lumaview=SimpleNamespace(scope=session.scope),
             motion_settings=SimpleNamespace(

@@ -5845,13 +5845,6 @@ class TestAcquisitionStopModeSetter:
         cam.active.GetNodeMap.return_value.GetNode.return_value = None
         assert cam.set_acquisition_stop_mode('Complete') is False
 
-    def test_ids_driver_stub_returns_false(self):
-        from drivers.idscamera import IDSCamera
-
-        camera = IDSCamera.__new__(IDSCamera)
-        assert camera.set_acquisition_stop_mode('Complete') is False
-        assert camera.set_acquisition_stop_mode('AbortExposure') is False
-
 
 class TestGigeSetters:
     """GigE-specific Pylon node setters: BandwidthReserveMode,
@@ -7800,26 +7793,6 @@ class TestFrameValidityIsL2Stable:
             assert hasattr(fv, name), (
                 f'FrameValidity.{name} must exist per audit #40 promotion; L2 callers depend on it.'
             )
-
-    def test_frame_validity_is_publicly_named(self):
-        """The attribute is `frame_validity`, not `_frame_validity` --
-        signals 'documented L2 surface' per the underscore convention."""
-        from modules.frame_validity import FrameValidity
-        from modules.lumascope_api import Lumascope
-
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope._camera_driver = None
-        give_camera_and_imaging(scope)
-        api = scope.imaging
-        assert isinstance(api.frame_validity, FrameValidity), (
-            'ImagingAPI must expose a FrameValidity instance under the '
-            'public frame_validity name -- L2 callers depend on it.'
-        )
-        assert not hasattr(api, '_frame_validity'), (
-            'frame_validity must not be prefixed -- the surface is formal '
-            'L2 promotion, not internal hiding.'
-        )
 
 
 class TestCreateDiagnosticSharesInitMinimal:

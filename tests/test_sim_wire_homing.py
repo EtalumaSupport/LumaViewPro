@@ -90,6 +90,12 @@ def test_a_z_or_turret_home_done_or_with_no_turret_returns(homing_boards, method
     assert getattr(driver, method)() is None
 
 
+def test_a_turret_home_marks_the_turret_homed(homing_boards):
+    driver, _sim = homing_boards['full']
+    driver.thome()
+    assert driver.has_thomed() is True
+
+
 @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
 def test_a_home_with_no_reply_raises(method):
     """The cable is pulled before the command is sent."""
@@ -98,6 +104,8 @@ def test_a_home_with_no_reply_raises(method):
         sim.unplug()
         with pytest.raises(HardwareError, match='no response'):
             getattr(driver, method)()
+        assert driver.has_homed() is False
+        assert driver.has_thomed() is False
     finally:
         driver.disconnect()
 
@@ -110,14 +118,18 @@ def test_a_home_with_no_reply_raises(method):
         ('thome', 'T', tmc5072.SWITCH_NEVER_TRIPS),  # 'ERROR: T home timeout'
     ],
 )
-def test_a_home_the_firmware_reports_failed_raises(homing_boards, method, axis, fault):
-    driver, sim = homing_boards['full']
-    sim.inject(axis, fault)
+def test_a_home_the_firmware_reports_failed_raises(method, axis, fault):
+    """A failed home leaves the board unhomed, so its own board: a shared one
+    may already be homed by another test."""
+    driver, sim = _firmware_board('LS850T', 'XYZT')
     try:
+        sim.inject(axis, fault)
         with pytest.raises(HardwareError, match='firmware error'):
             getattr(driver, method)()
+        assert driver.has_homed() is False
+        assert driver.has_thomed() is False
     finally:
-        sim.clear(axis, fault)
+        driver.disconnect()
 
 
 def _raw(board, query, axis):

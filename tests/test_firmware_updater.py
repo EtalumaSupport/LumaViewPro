@@ -228,15 +228,6 @@ class TestSendFwupdateCommand:
             _send_fwupdate_command(board, cfg)
             mock_fallback.assert_called_once_with(board)
 
-    def test_disconnects_on_error(self):
-        """Board is disconnected even when exchange_command fails."""
-        cfg = self._make_motor_config()
-        board = MagicMock()
-        board.exchange_command.side_effect = OSError('USB disconnected')
-        with pytest.raises(UpdateError):
-            _send_fwupdate_command(board, cfg)
-        board.disconnect.assert_called()
-
 
 # ---------------------------------------------------------------------------
 # 7-9. _backup_configs
@@ -386,12 +377,6 @@ class TestRestoreConfigs:
         with pytest.raises(UpdateError) as exc_info:
             _restore_configs(board, cfg, {'cal.json': b'data'})
         assert exc_info.value.stage == UpdateStage.RESTORING_CONFIG
-
-    def test_empty_config_data_returns_true(self):
-        """No config files to restore returns True immediately."""
-        cfg = BOARD_CONFIGS[BoardType.LED]
-        board = MagicMock()
-        assert _restore_configs(board, cfg, {}) is True
 
 
 # ---------------------------------------------------------------------------

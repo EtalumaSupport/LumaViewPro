@@ -585,24 +585,6 @@ class TestProtocolImageWriterWriteCapture:
         )
         return writer
 
-    def test_write_capture_saving_disabled_records_unsaved(self):
-        record = MagicMock()
-        writer = self._make_writer(execution_record=record)
-        writer.write_capture(
-            step_index=0,
-            scan_count=0,
-            enable_image_saving=False,
-            step={'Name': 'test'},
-        )
-        record.add_step.assert_called_once()
-        call_kwargs = record.add_step.call_args
-        assert (
-            call_kwargs[1]['capture_result_file_name'] == 'unsaved'
-            or call_kwargs[0][0] == 'unsaved'
-            if call_kwargs[0]
-            else 'capture_result_file_name' in call_kwargs[1]
-        )
-
     def test_write_capture_saving_disabled_correct_unsaved_value(self):
         record = MagicMock()
         writer = self._make_writer(execution_record=record)

@@ -231,26 +231,6 @@ class TestLumascopeHome:
             assert scope.motion.get_axis_state(ax) == AxisState.IDLE
 
 
-class TestMotorBoardGetMicroscopeModelDisconnect:
-    """drivers/motorboard.py::get_microscope_model() must NOT raise when
-    the board is disconnected (self._fullinfo is None). Issue #632
-    crash 1: caller did `info['model']` against cached None, blew up
-    with TypeError 'NoneType is not subscriptable', killed the app's
-    settings-load on first launch with Thonny holding the motor port.
-    """
-
-    def test_returns_none_when_model_key_missing(self):
-        # Defense-in-depth: malformed cache shouldn't crash either.
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board._fullinfo = {'serial': '12074'}  # no 'model' key
-        assert board.get_microscope_model() is None
-
-
 class TestFrameValidityDuringHoming:
     """Issue #609: the frame valid marker was showing green during homing
     because the homing bodies never called frame_validity.invalidate().

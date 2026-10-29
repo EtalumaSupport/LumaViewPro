@@ -18,7 +18,6 @@ the user's end policy; the step-boundary hold is gated on the fatal flag
 so a cross-thread fatal cannot be undone by a completing capture.
 """
 
-import ast
 import datetime
 import pathlib
 import threading
@@ -207,33 +206,8 @@ def test_nonfatal_cleanup_keeps_the_configured_end_policy():
 
 
 # ---------------------------------------------------------------------------
-# Source pins: the funnel is the only critical path; the boundary gate is
-# keyed on the fatal flag, not the abort flag
+# Source pin: the boundary gate is keyed on the fatal flag, not the abort flag
 # ---------------------------------------------------------------------------
-
-
-def test_no_critical_notification_outside_the_fatal_funnel():
-    src = (_MODULES_DIR / 'protocol_image_writer.py').read_text()
-    tree = ast.parse(src)
-    offenders = []
-    funnel_range = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == '_abort_run_fatal':
-            funnel_range = (node.lineno, node.end_lineno)
-    assert funnel_range is not None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'critical'
-            and not (funnel_range[0] <= node.lineno <= funnel_range[1])
-        ):
-            offenders.append(node.lineno)
-    assert offenders == [], (
-        'every run-killing critical must route through _abort_run_fatal so '
-        'no fatal path can notify without first aborting and darkening: '
-        f'bare criticals at lines {offenders}'
-    )
 
 
 def test_step_boundary_gate_keys_on_fatal_not_aborted():

@@ -54,6 +54,14 @@ def led():
         board.disconnect()
 
 
+def test_a_motor_read_is_bounded(motor):
+    """pyserial waits forever on a read with no timeout, so a board that
+    never answers would hang its caller. Read off the driver: the emulated
+    port's lost reply still sends a line, so no read here waits the bound out."""
+    board, _sim = motor
+    assert board.timeout is not None and board.timeout > 0
+
+
 def test_a_lost_reply_is_none(motor):
     board, sim = motor
     sim.drop_next_reply()

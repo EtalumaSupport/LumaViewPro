@@ -85,24 +85,6 @@ def _make_settings(layers=None, with_stim=False):
     return settings
 
 
-def _make_mock_scope(led_available=True):
-    """Build a mock scope object."""
-    scope = MagicMock()
-    scope._led_driver = led_available
-    type(scope).led_connected = PropertyMock(return_value=bool(led_available))
-    type(scope).motor_connected = PropertyMock(return_value=True)
-    scope._motion_driver = MagicMock()
-    scope._motion_driver.driver = True
-    scope.illumination.leds_off = MagicMock()
-    scope.illumination.led_on = MagicMock()
-    scope.illumination.led_off = MagicMock()
-    scope.motion.move_xy = MagicMock()
-    scope.motion.move_z = MagicMock()
-    scope.motion.home = MagicMock()
-    scope.motion.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
-    return scope
-
-
 class _RecordingExecutor(SequentialIOExecutor):
     """A real executor that also records what was submitted to it.
 
