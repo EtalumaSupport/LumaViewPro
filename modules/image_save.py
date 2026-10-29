@@ -489,18 +489,27 @@ def generate_image_metadata(
         **({'well_label': well_label} if well_label else {}),
         'timestamp_iso': captured_at.isoformat(timespec='microseconds'),
         'timestamp_source': frame_record.captured_at.source.value,
-        'instrument': {
-            'manufacturer': 'Etaluma',
-            'model': microscope_model,
-            'serial_number': motor_info.serial_number,
-            'camera_model': frame_record.camera_model,
-        },
-        'plate': {
-            'name': labware.name,
-            'rows': labware.rows,
-            'columns': labware.columns,
-            'standard': labware.standard,
-        },
+        # A value the scope or the catalogue did not give is absent from the
+        # record itself, so every container reads back the same record.
+        'instrument': image_utils.stated_fields(
+            manufacturer='Etaluma',
+            model=microscope_model,
+            serial_number=motor_info.serial_number,
+            camera_model=frame_record.camera_model,
+        ),
+        # Labware with no wells (Blank) is no plate.
+        **(
+            {
+                'plate': image_utils.stated_fields(
+                    name=labware.name,
+                    rows=labware.rows,
+                    columns=labware.columns,
+                    standard=labware.standard,
+                )
+            }
+            if labware.rows and labware.columns
+            else {}
+        ),
     }
 
     # Camera-side timestamp and frame id, where the camera stamps them

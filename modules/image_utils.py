@@ -1221,7 +1221,7 @@ def _structured_record(structured: dict) -> dict | None:
     # whose microscope and detector state nothing states no instrument.
     inst = structured.get('Instrument', {})
     microscope = inst.get('Microscope', {})
-    instrument = _stated(
+    instrument = stated_fields(
         manufacturer=microscope.get('Manufacturer'),
         model=microscope.get('Model'),
         serial_number=microscope.get('SerialNumber'),
@@ -1232,13 +1232,12 @@ def _structured_record(structured: dict) -> dict | None:
 
     if 'Plate' in structured:
         p = structured['Plate']
-        flat['plate'] = {
-            'name': p.get('Name'),
-            'rows': p.get('Rows'),
-            'columns': p.get('Columns'),
-        }
-        if 'Standard' in p:
-            flat['plate']['standard'] = p['Standard']
+        flat['plate'] = stated_fields(
+            name=p.get('Name'),
+            rows=p.get('Rows'),
+            columns=p.get('Columns'),
+            standard=p.get('Standard'),
+        )
         if 'WellLabel' in p:
             flat['well_label'] = p['WellLabel']
 
@@ -1470,7 +1469,7 @@ def require_uniform_geometry(
         )
 
 
-def _stated(**fields) -> dict:
+def stated_fields(**fields) -> dict:
     """The fields that hold a value: a fact the catalogue or the instrument
     did not give is absent, never a stand-in. ``''`` is a catalogue's empty
     entry and states nothing either; a stand-in written into a file reads
@@ -1499,26 +1498,26 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
     objective = record.get('objective') or {}
     instrument = record.get('instrument') or {}
     plate = record.get('plate') or {}
-    working_distance = _stated(
+    working_distance = stated_fields(
         WorkingDistance=objective.get('working_distance_mm'),
     )
     if working_distance:
         working_distance['WorkingDistanceUnit'] = 'mm'
     blocks = {
         'Instrument': _stated_blocks(
-            Microscope=_stated(
+            Microscope=stated_fields(
                 Manufacturer=instrument.get('manufacturer'),
                 Model=instrument.get('model'),
                 SerialNumber=instrument.get('serial_number'),
             ),
-            Objective=_stated(
+            Objective=stated_fields(
                 Magnification=objective.get('magnification'),
                 LensNA=objective.get('numerical_aperture'),
             )
             | working_distance,
-            Detector=_stated(Model=instrument.get('camera_model')),
+            Detector=stated_fields(Model=instrument.get('camera_model')),
         ),
-        'Document': _stated(
+        'Document': stated_fields(
             Manufacturer=instrument.get('manufacturer'),
             Model=instrument.get('model'),
             SerialNumber=instrument.get('serial_number'),
@@ -1530,7 +1529,7 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
         ),
     }
     if plate.get('rows') and plate.get('columns'):
-        blocks['Plate'] = _stated(
+        blocks['Plate'] = stated_fields(
             Name=plate.get('name'),
             Rows=plate.get('rows'),
             Columns=plate.get('columns'),
