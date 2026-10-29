@@ -43,9 +43,7 @@ import pytest
 from modules.run_events import RunEvents
 from tests.af_drives import af_runner_and_scope, drive_af
 from tests.ast_seams import parse_module
-from tests.scope_fakes import spec_scope
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-from modules.scope_session import ShownChannel
 from tests.stock_channels import LED1
 
 STALE_Z = 4321.0  # a prior run's result; no drive ever produces this value
@@ -193,38 +191,15 @@ def _outcome(z):
     return SimpleNamespace(af_focus_z_um=z)
 
 
-class _Session:
-    def __init__(self):
-        self.saved = []
-        self.engineering_mode = False
-        self.shown_channel = ShownChannel(LED1, lit=False)
-
-    def save_channel_focus(self, layer, z_um):
-        self.saved.append((layer, z_um))
-
-
 @pytest.fixture
-def gui(monkeypatch):
-    """The Autofocus button over a recording session and a specced scope.
-
-    The scope is specced, not a bare MagicMock: these tests assert the stage
-    is NOT consulted, and a double that answers any attribute at all would
-    make that assertion vacuous.
-    """
-    import modules.app_context as app_context
+def gui(gui_ctx, monkeypatch):
+    """The Autofocus button over a simulated session, unhomed: its Z is not a
+    focus any run chose, so a Z saved from the stage would show."""
     import ui.vertical_control as vc
 
     layer_obj = MagicMock()
-    ctx = SimpleNamespace(
-        scope=spec_scope(),
-        session=_Session(),
-        image_settings=MagicMock(),
-    )
-    ctx.image_settings.layer_lookup.return_value = layer_obj
-    # The stage is mid-restore and reads something else entirely -- the
-    # value the old code committed.
-    ctx.scope.motion.get_current_position.return_value = 91.25
-    monkeypatch.setattr(app_context, 'ctx', ctx)
+    gui_ctx.image_settings = MagicMock()
+    gui_ctx.image_settings.layer_lookup.return_value = layer_obj
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     button = SimpleNamespace(
         _autofocus_run=None,
@@ -232,9 +207,11 @@ def gui(monkeypatch):
     button._autofocus_run_ended = lambda layer, outcome: vc.VerticalControl._autofocus_run_ended(
         button, layer, outcome
     )
-    return SimpleNamespace(
-        vc=vc, ctx=ctx, layer_obj=layer_obj, button=button, saved=ctx.session.saved
-    )
+    return SimpleNamespace(vc=vc, ctx=gui_ctx, layer_obj=layer_obj, button=button)
+
+
+def _focus(gui, layer):
+    return gui.ctx.session.settings[layer]['focus']
 
 
 def _press(gui, monkeypatch):
@@ -248,24 +225,29 @@ def _press(gui, monkeypatch):
 
 class TestTheButtonSavesTheFocusItsRunChose:
     def test_the_outcomes_z_is_saved_for_the_layer_the_run_started_on(self, gui, monkeypatch):
-        """The shown channel changed and the stage moved before the handler
-        ran: the focus still goes to the layer the run focused, at the Z the
-        run chose."""
+        """The shown channel changed before the handler ran: the focus still
+        goes to the layer the run focused, at the Z the run chose."""
+        started_on = gui.ctx.session.shown_channel.channel
+        other = LED1 if started_on != LED1 else 'BF'
+        kept = _focus(gui, other)
         events = _press(gui, monkeypatch)
-        gui.ctx.session.shown_channel = ShownChannel('BF', lit=False)
+        gui.ctx.session.show_channel(other)
 
         events.run_ended(_outcome(777.5), None, MagicMock())
 
-        assert gui.saved == [(LED1, 777.5)]
+        assert _focus(gui, started_on) == 777.5
+        assert _focus(gui, other) == kept
 
     def test_an_outcome_with_no_focus_saves_nothing(self, gui, monkeypatch):
         """Not found: an autofocus that found nothing writes nothing. The
         old code wrote wherever the stage happened to be (#816)."""
+        layer = gui.ctx.session.shown_channel.channel
+        kept = _focus(gui, layer)
         events = _press(gui, monkeypatch)
 
         events.run_ended(_outcome(None), None, MagicMock())
 
-        assert gui.saved == []
+        assert _focus(gui, layer) == kept
 
     def test_the_camera_widget_resync_runs_on_every_terminal_path(self, gui):
         """The widget re-sync is not about focus: autofocus restores the
@@ -283,12 +265,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
         from modules.exceptions import PositionOutOfRangeError
         from modules.notification_center import notifications
 
-        refused = PositionOutOfRangeError('Z', 1e9, 0.0, 14000.0)
-
-        def _refuse(layer, z_um):
-            raise refused
-
-        gui.ctx.session.save_channel_focus = _refuse
+        # A Z past the travel: the session refuses to save it.
         monkeypatch.setattr(run_events, 'schedule_ui', lambda fn, *a: fn(0))
         reported = []
         monkeypatch.setattr(
@@ -298,7 +275,9 @@ class TestTheButtonSavesTheFocusItsRunChose:
 
         run_events.deliver(events, 'run_ended', _outcome(1e9), None, MagicMock())
 
-        assert reported == [(refused, {'solicited': False, 'category': 'run_ended'})]
+        assert [(type(ex), kw) for ex, kw in reported] == [
+            (PositionOutOfRangeError, {'solicited': False, 'category': 'run_ended'})
+        ]
 
     def test_the_completion_handler_never_samples_the_stage(self):
         """An AST lock: _autofocus_run_ended must not call

@@ -224,7 +224,6 @@ ALLOWED = frozenset(
         'tests/test_audit_fixes.py::_sim_backed_imaging',
         'tests/test_auto_gain_lock.py::_build',
         'tests/test_auto_gain_lock.py::_build_inert',
-        'tests/test_autofocus_result_run_scope.py::gui',
         'tests/test_autogain_support_capability_gate.py::TestCapabilityMapping._caps_for',
         'tests/test_camera_capabilities.py::TestScopeCapabilitiesIntegration._stub_motion',
         'tests/test_camera_getter_sentinel_containment.py::_build_camera',
