@@ -496,6 +496,10 @@ class Job(pydantic.BaseModel):
     running call a member handed back, its operation's (a run's
     ``RunProgress``). ``result`` is the member's answer once the call has
     completed, and ``error`` the problem it ended in once it has failed.
+    ``files``, on a run's job alone, is the job of the run's files: the
+    run's job ends as the run lets go of the scope, and its files' job once
+    its images are on disk, with the run's ``RunFiles``. A next run is
+    refused ``'files_writing'`` until then.
     """
 
     model_config = ANSWER_CONFIG
@@ -507,3 +511,4 @@ class Job(pydantic.BaseModel):
     progress: JobProgress | _OPERATION_PROGRESS
     result: typing.Any = pydantic.Field(default=None)
     error: dict | None = pydantic.Field(default=None)
+    files: Job | None = pydantic.Field(default=None)

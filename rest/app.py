@@ -784,13 +784,15 @@ def _add(
         loop = asyncio.get_running_loop()
         progress = Progress()
 
-        def job_of(operation: Operation) -> dict:
+        def job_of(operation: Operation, member: str = asked) -> dict:
+            files = operation.files
             return jobs.of_future(
                 operation,
-                member=asked,
+                member=member,
                 answer=future_answer,
                 progress=lambda: encoded(operation.progress()),
                 loop=loop,
+                files=None if files is None else lambda: job_of(files, f'{member}/files'),
             )
 
         def encoded(value: object) -> object:

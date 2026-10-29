@@ -235,6 +235,8 @@ def test_a_running_call_a_member_hands_back_is_a_job(client):
     assert job['member'] == 'scope/motion/start_home'
     ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=30'}).json()
     assert ended['status'] == 'completed'
+    # Only a run's operation has files of its own to name.
+    assert 'files' not in ended
     assert client.get('/api/v1/jobs').json()[0]['id'] == job['id']
 
 
@@ -421,6 +423,38 @@ def test_a_run_job_deleted_while_it_runs_is_stopped_and_ends_aborted(client, ses
     ended = client.get(location, headers={'Prefer': 'wait=30'}).json()
     assert ended['status'] == 'completed'
     assert (ended['result']['status'], ended['result']['reason']) == ('aborted', 'stopped')
+
+
+def test_a_runs_job_names_its_files_job_which_ends_once_they_are_written(client, session, live):
+    """A run's job ends as the run lets go of the scope; its images are written after.
+
+    The run's job names the job of its files, which a client waits on by
+    ``Prefer: wait`` before it reads the run's folder or starts the next run,
+    which is refused ``'files_writing'`` until then.
+    """
+    home_sim_scope(session.scope)
+    session.settings['BF']['acquire'] = 'image'
+    protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+    for _ in range(2):
+        assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    start = f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan'
+
+    run = client.post(start, json={'protocol': protocol}).json()
+    ended = client.get(f'/api/v1/jobs/{run["id"]}', headers={'Prefer': 'wait=30'}).json()
+    assert ended['status'] == 'completed', ended
+    assert 'files' in ended, ended
+    files_job = f'/api/v1/jobs/{ended["files"]["id"]}'
+    files = client.get(files_job, headers={'Prefer': 'wait=30'}).json()
+
+    assert files['status'] == 'completed', files
+    assert (files['result']['outcome'], files['result']['written']) == ('written', 2)
+    assert len(list((live / ended['progress']['run_dir']['name']).glob('*.tiff'))) == 2
+    # The same files job however often the run's job is read.
+    assert client.get(f'/api/v1/jobs/{run["id"]}').json()['files']['id'] == files['id']
+    again = client.post(start, json={'protocol': protocol})
+    assert again.status_code == 202, again.json()
+    client.get(f'/api/v1/jobs/{again.json()["id"]}', headers={'Prefer': 'wait=30'})
 
 
 def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):

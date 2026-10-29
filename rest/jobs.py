@@ -14,9 +14,11 @@ has ended, ``result`` or ``error``: ``status`` goes ``running`` ->
 ``completed`` | ``failed``, ``progress`` is how far it has got -- the
 member's own report, or the operation's ``progress()`` -- and ``error`` is
 the problem the call ended in. Reading a failed job is 200: the read
-succeeded. ``DELETE`` on a running job is its operation's stop, which only
-asks; a call adopted as a job holds no operation and cannot be stopped
-there. A finished job is kept until a client forgets it, or until a new
+succeeded. A run's job also names ``files``, the job of its operation's
+``files``: the run's job ends as the run lets go of the scope, and its
+files' job once its images are on disk. ``DELETE`` on a running job is its
+operation's stop, which only asks; a call adopted as a job holds no
+operation and cannot be stopped there. A finished job is kept until a client forgets it, or until a new
 job finds it past the count or age bound.
 """
 
@@ -120,6 +122,7 @@ class Job:
         answered: asyncio.Future[Answer],
         progress: Callable[[], object],
         operation: Operation | None,
+        files: Callable[[], object] | None = None,
     ) -> None:
         self.id = job_id
         self.member = member
@@ -127,6 +130,8 @@ class Job:
         self.answered = answered
         self._progress = progress
         self.operation = operation
+        # Names the job of the operation's files, for an operation that has them.
+        self._files = files
 
     @property
     def finished(self) -> bool:
@@ -158,6 +163,8 @@ class Job:
             'ended': self.ended.isoformat() if self.ended else None,
             'progress': self._progress(),
         }
+        if self._files is not None:
+            view['files'] = self._files()
         if self.finished:
             answer = self.answered.result()
             view['error' if answer.is_problem else 'result'] = answer.body
@@ -280,19 +287,27 @@ class JobRegistry:
         answer: Callable[[Operation], Answer],
         progress: Callable[[], object],
         loop: asyncio.AbstractEventLoop,
+        files: Callable[[], object] | None = None,
     ) -> dict[str, object]:
         """The job a running call a member handed back is, in its wire form.
 
         ``answer`` turns the finished operation into its answer, on the
         thread that finished it; ``progress`` reads its ``progress()`` in
-        wire form. The same operation is the same job, however many times
-        it is named.
+        wire form; ``files``, for an operation with files, names their job
+        in wire form. The same operation is the same job, however many times
+        it is named, and from however many threads at once: a run's files
+        are named each time its job is read.
         """
+        answered: asyncio.Future[Answer] = loop.create_future()
         with self._lock:
             known = self._of_future.get(future)
+            if known is None:
+                job = self._add_locked(
+                    member, problems.now(), answered, progress, operation=future, files=files
+                )
+                self._of_future[future] = job
         if known is not None:
             return known.view()
-        answered: asyncio.Future[Answer] = loop.create_future()
 
         def finished(done: Operation) -> None:
             reply = answer(done)
@@ -300,9 +315,7 @@ class JobRegistry:
                 lambda: None if answered.done() else answered.set_result(reply)
             )
 
-        job = self._add(member, problems.now(), answered, progress, operation=future)
-        with self._lock:
-            self._of_future[future] = job
+        self._tell_when_ended(job)
         future.add_done_callback(finished)
         return job.view()
 
@@ -316,17 +329,34 @@ class JobRegistry:
         operation: Operation | None,
     ) -> Job:
         with self._lock:
-            job_id = str(self._next)
-            self._next += 1
-            job = Job(job_id, member, requested, answered, progress, operation)
-            self._jobs[job_id] = job
-            self._prune()
+            job = self._add_locked(member, requested, answered, progress, operation=operation)
+        self._tell_when_ended(job)
+        return job
+
+    def _add_locked(
+        self,
+        member: str,
+        requested: datetime.datetime,
+        answered: asyncio.Future[Answer],
+        progress: Callable[[], object],
+        *,
+        operation: Operation | None,
+        files: Callable[[], object] | None = None,
+    ) -> Job:
+        job_id = str(self._next)
+        self._next += 1
+        job = Job(job_id, member, requested, answered, progress, operation, files)
+        self._jobs[job_id] = job
+        self._prune()
+        return job
+
+    def _tell_when_ended(self, job: Job) -> None:
+        answered = job.answered
         # A job is made on the loop or on its call's thread, and a future
         # takes its callbacks only on its loop.
         answered.get_loop().call_soon_threadsafe(
             answered.add_done_callback, lambda _answered: self._ended(job)
         )
-        return job
 
     def _prune(self) -> None:
         finished = sorted(
