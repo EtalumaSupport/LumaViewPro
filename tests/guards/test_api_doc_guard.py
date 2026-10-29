@@ -1,47 +1,47 @@
-"""Structural guard: LumascopeSkills.md call forms resolve and bind.
+"""Structural guard: LumascopeSkills.md's code is the API's, and it runs.
 
-Every call form an L2 reader could copy out of the reference must resolve on
-a real object (polarity 1) AND accept the arguments the reference passes it
-(polarity 2), so a doc line and the surface it describes cannot drift apart
-silently. Resolution alone is not enough: a member can exist and still reject
-the documented call, which is how the reference came to publish
+Every call form a reader could copy out of the guide must resolve on a real
+object (polarity 1) AND accept the arguments the guide passes it (polarity
+2), and every ``python`` fence must run on the simulator as its info string
+says (polarity 3). Resolution alone is not enough: a member can exist and
+still reject the documented call, which is how the guide came to publish
 ``fv.count_frame(chunk_data=None, frame_ts=None)`` against a signature that
-had neither parameter -- a TypeError on a line every test called clean. When this test goes red the DOC is
-what gets corrected -- the published reference follows the API, never the
-reverse. Adding a method because a doc line names it is the failure mode this
-guard exists to make visible, not to license.
+had neither parameter. Binding is not enough either: a call can bind and
+still fail on the shipped settings, as the guide's unlit still, its
+``new_protocol(..., use_zstacking=True)`` with no stack configured, and its
+moves on an unhomed scope did. When this test goes red the DOC is what gets
+corrected -- the guide follows the API, never the reverse. Adding a method
+because a doc line names it is the failure mode this guard exists to make
+visible, not to license.
 
 It replaces the per-defect string assertions that accumulated in
-test_audit_fixes.py (one `assert 'scope.pixel_size()' not in doc` per audit
-finding). Those pinned individual known-bad names; this checks the whole
-document against the live object, so the NEXT drift is caught without anyone
-having to notice it first. The older assertions are kept: they also pin that
-the canonical replacement surface is still DOCUMENTED, which is a presence
-claim this guard does not make.
+test_audit_fixes.py (one ``assert 'scope.pixel_size()' not in doc`` per
+audit finding): those pinned individual known-bad names, where this checks
+the whole document against the live object, so the next drift is caught
+without anyone having to notice it first.
 
-Scope, and why it is not the whole file
----------------------------------------
-Only fenced code blocks are checked -- ``python``-labelled and unlabelled.
-LumascopeSkills.md contains, by design, sections whose job is to name
-surfaces that do NOT resolve:
+Running the fences
+------------------
+Each ``## `` chapter's ``python`` fences run in order in one namespace, on a
+simulated session brought up and homed as a host leaves it, bound as
+``session`` and ``scope`` (``_ChapterSessions``). The info string says what
+a fence needs beyond that: ``tier=`` and ``model=`` name the board it runs
+on, ``raises=<Class>`` the refusal it teaches, raised by its last statement,
+and ``norun`` a fence no simulator can run (serving forever, say), which is
+still resolved and bound.
 
-* the Changelog, which records ``removal`` and ``rename`` entries against the
-  frozen 4.x surface;
-* retirement and forward-looking notes in prose ("was previously available as
-  ``scope.compute_focus_score(image)``; retired in Wave 7", and the
-  explanation that ``session.led_on(...)`` deliberately does not exist
-  without a suffix).
-
-A whole-file resolution check would need a hand-maintained allowlist of those
-mentions -- a mirror requiring manual sync, which is the defect class this
-guard is meant to close, not reproduce. Code fences carry the contract the
-guard is actually protecting: a reader copies from an example block.
+Scope, and why prose is not resolved
+------------------------------------
+Only fenced code blocks are resolved and bound -- ``python``-labelled and
+unlabelled. The guide's Changelog names, by design, surfaces that do NOT
+resolve: its ``removal`` and ``rename`` entries against the frozen 4.x
+surface. A whole-file resolution check would need a hand-maintained
+allowlist of those mentions -- a mirror requiring manual sync, which is the
+defect class this guard is meant to close, not reproduce.
 
 One prose form is checked too: a backticked path into a project package
 (```modules.x.y```, ``drivers.``, ``rest.``) names something a reader is
-told to import, so it must be API like a fenced import. Retired names are
-written as the call forms above, never as module paths, so this needs no
-allowlist.
+told to import, so it must be API like a fenced import.
 
 ``PLUGIN_API_DESIGN_2026-05-09.md`` is deliberately NOT guarded. It is a
 design and history document; 12 of its 40 call forms name proposals that were
@@ -55,10 +55,12 @@ import enum
 import importlib
 import inspect
 import re
+import traceback
 import warnings
 
 import pytest
 
+from lib.lumascope_error import LumascopeError
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 from tests.settings_fixtures import complete_settings
 
@@ -70,11 +72,9 @@ DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 # `session.scope` is an instance attribute, so a class-level hasattr would
 # report every `session.scope.*` form in the document as unresolved.
 #
-# `caps` is an alias the reference establishes in its own example block
-# (`caps = scope.capabilities` opens the scope.capabilities section) and then
-# uses for 22 copyable forms. Without it those lines -- the whole structure
-# report, which is also the REST /capabilities payload -- would sit outside
-# the guard.
+# `caps` is an alias the guide establishes in its own example block
+# (`caps = scope.capabilities`, in "What LumaViewPro is") and then reads the
+# capabilities through. Without it those lines would sit outside the guard.
 _CALL_FORM = re.compile(r'\b(scope|session|caps)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)')
 
 # Fence languages whose contents are checked. The empty string is an
@@ -86,6 +86,22 @@ _CALL_FORM = re.compile(r'\b(scope|session|caps)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)'
 _CHECKED_FENCES = ('', 'python')
 
 
+def fence_info(line):
+    """``(language, options)`` of a fence's opening line.
+
+    The info string is the language, then words the runner reads from a
+    ``python`` fence: ``key=value`` (``tier=firmware``, ``model=LS850T``,
+    ``raises=AxisStateUnknownError``) or a bare flag (``norun``), whose
+    value is True.
+    """
+    words = line[3:].split()
+    options = {}
+    for word in words[1:]:
+        key, sep, value = word.partition('=')
+        options[key] = value if sep else True
+    return (words[0] if words else ''), options
+
+
 def _fenced_call_forms(text):
     """Extract (receiver, chain, lineno) for every call form in a code fence.
 
@@ -95,7 +111,7 @@ def _fenced_call_forms(text):
     fence = None
     for lineno, line in enumerate(text.splitlines(), 1):
         if line.startswith('```'):
-            fence = line[3:].strip() if fence is None else None
+            fence = fence_info(line)[0] if fence is None else None
             continue
         if fence not in _CHECKED_FENCES:
             continue
@@ -118,7 +134,7 @@ def _checked_fence_blocks(text):
     for lineno, line in enumerate(text.splitlines(), 1):
         if line.startswith('```'):
             if fence is None:
-                fence, lines, start = line[3:].strip(), [], lineno + 1
+                fence, lines, start = fence_info(line)[0], [], lineno + 1
             else:
                 if fence in _CHECKED_FENCES:
                     yield start, '\n'.join(lines)
@@ -390,13 +406,14 @@ _PROSE_PATH = re.compile(r'`((?:modules|drivers|rest)\.[A-Za-z_][A-Za-z0-9_.]*)'
 def why_not_api(obj):
     """Why ``obj``, a name from a project package, is not API; None when it is.
 
-    API is an exception, an enum, a class that publishes fields or has marked
-    members, or a marked function. A module is where names live, not a name:
-    each of its names a reader uses is checked where it is used.
+    API is an exception, an enum or one of its members, a class that
+    publishes fields or has marked members, or a marked function. A module
+    is where names live, not a name: each of its names a reader uses is
+    checked where it is used.
     """
     from modules.api_surface import fields_of, mark_of
 
-    if inspect.ismodule(obj):
+    if inspect.ismodule(obj) or isinstance(obj, enum.Enum):
         return None
     if inspect.isclass(obj):
         if issubclass(obj, (BaseException, enum.Enum)):
@@ -423,6 +440,25 @@ def _resolve_project_name(dotted):
             found = getattr(found, attr)
         return found
     raise ImportError(dotted)
+
+
+def _why_name_is_not_api(dotted):
+    """Why the project name ``dotted`` is not API; None when it is.
+
+    A field its class publishes is API whatever its value, so it is judged
+    by the publishing, not by what it holds.
+    """
+    from modules.api_surface import fields_of
+
+    owner_path, _, attr = dotted.rpartition('.')
+    if owner_path:
+        try:
+            owner = _resolve_project_name(owner_path)
+        except (ImportError, AttributeError):
+            owner = None
+        if inspect.isclass(owner) and any(attr in fields_of(k) for k in owner.__mro__):
+            return None
+    return why_not_api(_resolve_project_name(dotted))
 
 
 def _project_module(name):
@@ -511,10 +547,10 @@ def project_name_failures(label, source, start=1, assigned=frozenset()):
     for dotted, nargs, kwnames, lineno in project_names(source, start, assigned):
         try:
             found = _resolve_project_name(dotted)
+            why = _why_name_is_not_api(dotted)
         except (ImportError, AttributeError):
             failures.append(f'  {label}:{lineno}  {dotted}  -> does not resolve')
             continue
-        why = why_not_api(found)
         if why:
             failures.append(f'  {label}:{lineno}  {dotted}  -> {why}')
         elif nargs is not None and callable(found):
@@ -540,14 +576,14 @@ def _doc_project_name_failures(text, label):
     fence = None
     for lineno, line in enumerate(text.splitlines(), 1):
         if line.startswith('```'):
-            fence = line[3:].strip() if fence is None else None
+            fence = fence_info(line)[0] if fence is None else None
             continue
         if fence is not None:
             continue
         for match in _PROSE_PATH.finditer(line):
             dotted = match.group(1).rstrip('.')
             try:
-                why = why_not_api(_resolve_project_name(dotted))
+                why = _why_name_is_not_api(dotted)
             except (ImportError, AttributeError):
                 why = 'does not resolve'
             if why:
@@ -605,3 +641,213 @@ def test_the_reference_names_each_protocol_constructor_and_each_is_api():
     for member in ('load_protocol', 'new_protocol', 'create_empty_protocol'):
         assert f'session.{member}(' in doc, member
         assert mark_of(getattr(ScopeSession, member)) == API, member
+
+
+# The tier a fence runs on when it names none: the simulator a reader's
+# script gets from the shipped settings is the realistic one, but every
+# fence that does not depend on timing reads the same on the fast tier, at a
+# tenth of the cost.
+_DEFAULT_TIER = 'fast'
+
+
+def guide_chapters(text):
+    """``(heading, [(start, language, options, source), ...])`` per ``## `` chapter.
+
+    ``start`` is the line of the fence's first source line. Text before the
+    first chapter heading is a chapter with the heading ``''``.
+    """
+    heading, fences = '', []
+    fence, lines, start = None, [], 0
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if fence is None and line.startswith('## '):
+            yield heading, fences
+            heading, fences = line[3:].strip(), []
+            continue
+        if line.startswith('```'):
+            if fence is None:
+                fence, lines, start = fence_info(line), [], lineno + 1
+            else:
+                fences.append((start, *fence, '\n'.join(lines)))
+                fence = None
+            continue
+        if fence is not None:
+            lines.append(line)
+    yield heading, fences
+
+
+class _ChapterSessions:
+    """The simulated sessions one chapter's fences run against, shut down together.
+
+    A chapter starts on the default tier and model, brought up and homed as a
+    host leaves it; a fence naming another tier or model swaps the session
+    for one on that board, and later fences keep it. A session a fence makes
+    for itself is shut down with the chapter's.
+    """
+
+    def __init__(self, namespace):
+        self._namespace = namespace
+        self._key = None
+        self._made = []
+
+    def use(self, options):
+        """Bring up the session a fence's ``options`` ask for, unless it is up."""
+        from modules import settings_init
+        from modules.scope_session import ScopeSession
+
+        if self._key is not None and 'tier' not in options and 'model' not in options:
+            return
+        tier, model = options.get('tier', _DEFAULT_TIER), options.get('model')
+        if (tier, model) == self._key:
+            return
+        overrides = {'simulator_tier': tier}
+        if model is not None:
+            overrides['microscope'] = model
+        settings = complete_settings(**overrides)
+        # A fence teaching load_user_settings reads what this process
+        # prepared, as the GUI's own scripts do: the chapter's settings,
+        # never this machine's current.json.
+        settings_init.settings = settings
+        session = ScopeSession.create(settings.copy(), simulate=True, warn_pre_release=False)
+        self._made.append(session)
+        session.run_application_session()
+        self._namespace.update(session=session, scope=session.scope)
+        self._key = (tier, model)
+
+    def close(self):
+        from modules.scope_session import ScopeSession
+
+        made = self._made + [v for v in self._namespace.values() if isinstance(v, ScopeSession)]
+        for session in {id(s): s for s in made}.values():
+            session.shutdown()
+
+
+def _last_statement_lines(source):
+    """The line span of ``source``'s last top-level statement, 1-based."""
+    last = ast.parse(source).body[-1]
+    return last.lineno, last.end_lineno
+
+
+def _raised_at(exc, filename):
+    """The line of ``filename`` the exception left, the innermost frame there."""
+    lines = [
+        lineno
+        for frame, lineno in traceback.walk_tb(exc.__traceback__)
+        if frame.f_code.co_filename == filename
+    ]
+    return lines[-1] if lines else None
+
+
+def _run_fence(label, start, options, source, namespace):
+    """A failure line for a fence that does not do what its info string says, or None."""
+    filename = f'{label}:{start}'
+    expected = options.get('raises')
+    code = compile('\n' * (start - 1) + source, filename, 'exec')
+    try:
+        exec(code, namespace)
+    except (Exception, LumascopeError) as exc:
+        raised = type(exc).__name__
+        if expected is None:
+            return f'  {label}:{start}  raised {raised}: {exc}'
+        if raised != expected:
+            return f'  {label}:{start}  raised {raised}, not the {expected} it states: {exc}'
+        first, last = _last_statement_lines(source)
+        at = _raised_at(exc, filename)
+        if at is None or not start + first - 1 <= at <= start + last - 1:
+            return f'  {label}:{start}  raised {expected} at line {at}, before its last statement'
+        return None
+    if expected is not None:
+        return f'  {label}:{start}  states raises={expected} and raised nothing'
+    return None
+
+
+def guide_fence_failures(text, label):
+    """A line per ``python`` fence of ``text`` that does not run as its info string states.
+
+    Each chapter's fences run in order in one namespace holding the chapter's
+    ``session`` and ``scope`` (``_ChapterSessions``); a fence flagged
+    ``norun`` is skipped here and still resolved and bound by the checks
+    above. A fence that raises ends the chapter: what follows it assumed it
+    ran.
+    """
+    from modules import settings_init
+
+    failures = []
+    prepared = settings_init.settings
+    try:
+        for heading, fences in guide_chapters(text):
+            runnable = [f for f in fences if f[1] == 'python' and not f[2].get('norun')]
+            if not runnable:
+                continue
+            namespace = {'__name__': '__guide__'}
+            sessions = _ChapterSessions(namespace)
+            try:
+                for start, _, options, source in runnable:
+                    sessions.use(options)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('ignore', FutureWarning)
+                        failure = _run_fence(label, start, options, source, namespace)
+                    if failure:
+                        failures.append(f'{failure}  (chapter "{heading}")')
+                        break
+            finally:
+                sessions.close()
+    finally:
+        settings_init.settings = prepared
+    return failures
+
+
+class TestLumascopeSkillsFencesRun:
+    """Polarity 3: every ``python`` fence runs on the simulator as its info string states."""
+
+    @pytest.mark.slow
+    def test_every_python_fence_runs(self, doc_text):
+        failures = guide_fence_failures(doc_text, DOC)
+        assert not failures, (
+            'LumascopeSkills.md has python fences that do not run on the simulator as '
+            'written. A fence that teaches a refusal states it (```python '
+            'raises=<Class>) and ends in it; one that needs a board says tier= or '
+            'model=; one no simulator can run is ```python norun.\n' + '\n'.join(failures)
+        )
+
+    def test_a_fence_that_does_not_do_what_it_states_is_reported(self):
+        planted = (
+            '## Lit\n'
+            '```python\n'
+            "still = session.capture_still('BF')\n"
+            'assert still.record.dark is False\n'
+            '```\n'
+            '## Refused\n'
+            '```python raises=PositionOutOfRangeError\n'
+            'scope.motion.move_z(1e9)\n'
+            'x = 1\n'
+            '```\n'
+            '## Wrong class\n'
+            '```python raises=ValueError\n'
+            "session.get_setting('nope')\n"
+            '```\n'
+            '## Never raised\n'
+            '```python raises=ValueError\n'
+            'x = 1\n'
+            '```\n'
+            '## Kept\n'
+            '```python model=LS720\n'
+            'x = 1\n'
+            '```\n'
+            '```python\n'
+            "assert session.model == 'LS720'\n"
+            '```\n'
+            '## Skipped\n'
+            '```python norun\n'
+            'raise RuntimeError\n'
+            '```\n'
+        )
+        reported = '\n'.join(guide_fence_failures(planted, 'planted'))
+        for expected in (
+            'planted:3  raised AssertionError',
+            'planted:8  raised PositionOutOfRangeError at line 8, before its last statement',
+            'planted:13  raised ArgumentRefusedError, not the ValueError it states',
+            'planted:17  states raises=ValueError and raised nothing',
+        ):
+            assert expected in reported, reported
+        assert 'planted:24' not in reported, reported
+        assert 'planted:28' not in reported, reported

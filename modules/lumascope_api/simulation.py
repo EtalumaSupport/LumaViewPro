@@ -12,7 +12,7 @@ board privately.
 Each member is answered by the simulated board the scope built -- the
 capability probe is the board itself -- and refused by name on a board
 that cannot produce the fault, never a silent no-op. Which board answers
-which member: ``docs/LumascopeSkills.md`` "Simulated mode". Every member but
+which member: ``docs/LumascopeSkills.md`` "The simulator". Every member but
 ``hold_axis`` and ``exposed_under``, whose event and frame are in-process
 objects, is on the wire too, so a REST client injects a fault as a Python
 caller does. Each injection and take-back is a guarded write: a held

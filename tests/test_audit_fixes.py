@@ -7957,78 +7957,17 @@ class TestSessionCarriesNoHardwareForwarders:
         )
 
 
-class TestLumascopeSkillsRetiredOpticalMethods:
-    """LumascopeSkills must not cite the retired optical-info methods
-    (API plugin audit F1). Canonical home for pixel size and tube
-    lens focal length is `scope.capabilities.pixel_size_um` /
-    `.lens_focal_length_mm`. An L2 consumer copy-pasting a doc line
-    that calls the retired methods used to get AttributeError.
+class TestRetiredSurfaceStaysRetired:
+    """The surfaces the API/plugin audit retired stay retired in the code
+    (F16, F24, carryover #24): the objective is answered by
+    ``scope.runtime_state`` and selected through the Session, and the
+    acquisition stop mode is private. The guide's own examples are held to
+    the API by ``tests/guards/test_api_doc_guard.py``, which runs them.
     """
-
-    def _doc(self):
-        import pathlib
-
-        return pathlib.Path('docs/LumascopeSkills.md').read_text()
-
-    def test_pixel_size_method_not_cited(self):
-        doc = self._doc()
-        assert 'scope.pixel_size()' not in doc, (
-            'LumascopeSkills.md must not cite `scope.pixel_size()` -- '
-            'the method was retired. Use `scope.capabilities.pixel_size_um`.'
-        )
-
-    def test_lens_focal_length_method_not_cited(self):
-        doc = self._doc()
-        assert 'scope.lens_focal_length()' not in doc, (
-            'LumascopeSkills.md must not cite `scope.lens_focal_length()` -- '
-            'the method was retired. Use `scope.capabilities.lens_focal_length_mm`.'
-        )
-
-    def test_capability_fields_documented(self):
-        doc = self._doc()
-        assert 'scope.capabilities.pixel_size_um' in doc, (
-            'LumascopeSkills.md must document the canonical capability '
-            'field `scope.capabilities.pixel_size_um`.'
-        )
-        assert 'scope.capabilities.lens_focal_length_mm' in doc, (
-            'LumascopeSkills.md must document the canonical capability '
-            'field `scope.capabilities.lens_focal_length_mm`.'
-        )
-
-
-class TestLumascopeSkillsApiPluginDocBatch:
-    """LumascopeSkills doc-accuracy batch from the API/plugin audit
-    (F16, F20, F23, F24, F25, carryover #24). Each assertion pins both
-    that the doc no longer cites a surface that would raise at HEAD and
-    that the canonical surface it now cites actually exists, so the doc
-    and the code cannot drift apart silently again.
-    """
-
-    def _doc(self):
-        import pathlib
-
-        # pin-justified: the published doc text is the L2 contract surface;
-        # these tests guard doc-vs-API sync.
-        return pathlib.Path('docs/LumascopeSkills.md').read_text()
-
-    def test_objective_setters_not_cited_on_composition_root(self):
-        # Carryover #24: the objective is answered by scope.runtime_state and
-        # selected through the Session; a doc line calling a setter on the
-        # scope raises AttributeError.
-        doc = self._doc()
-        assert 'scope.set_objective(' not in doc, (
-            'LumascopeSkills.md must not cite `scope.set_objective(...)` -- '
-            'the objective is selected with `session.select_objective`.'
-        )
-        assert 'runtime_state.set_objective' not in doc
-        assert 'session.select_objective' in doc
-        assert 'scope.runtime_state.resolve_current_objective' in doc
 
     def test_objective_surface_lives_on_runtime_state_in_code(self):
         from modules.lumascope_api import Lumascope
 
-        # The doc rewrite is only correct if Lumascope no longer carries
-        # these and runtime_state does.
         # The objective is selected through the Session (select_objective);
         # runtime_state only answers it.
         assert not hasattr(Lumascope, 'set_objective')
@@ -8036,44 +7975,16 @@ class TestLumascopeSkillsApiPluginDocBatch:
         assert hasattr(RuntimeState, 'resolve_current_objective')
         assert hasattr(RuntimeState, 'get_turret_config')
 
-    def test_acquisition_stop_mode_not_a_public_setter_example(self):
-        # F16: the sentinel-vs-raise contract used set_acquisition_stop_mode
-        # as a public-setter example, but it is private now.
-        doc = self._doc()
-        assert 'set_acquisition_stop_mode`, `set_gain_db`' not in doc, (
-            'set_acquisition_stop_mode is private (_set_acquisition_stop_mode); '
-            'do not use it as a public-setter example.'
-        )
+    def test_acquisition_stop_mode_is_private(self):
         assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
         assert not hasattr(ImagingAPI, 'set_acquisition_stop_mode')
-
-    def test_run_application_session_documented_and_exists(self):
-        # F24
-        from modules.scope_session import ScopeSession
-
-        doc = self._doc()
-        assert 'run_application_session' in doc
-        assert hasattr(ScopeSession, 'run_application_session')
-
-    def test_listener_signature_overview_present(self):
-        # F20: the four differing callback signatures appear in one overview.
-        doc = self._doc()
-        for sig in (
-            'on_position(axis',
-            'on_led(address',
-            'on_gain(gain_db',
-            'on_exposure(exposure_ms',
-            'on_frame(frame',
-        ):
-            assert sig in doc, f'listener overview missing {sig!r}'
 
 
 class TestGetLedStateShape:
     """get_led_states answers LedReading records (address,
     name, state, illumination_ma) and use None (not -1) for the
-    illumination_ma of an address that is not lit (matches the
-    Sentinel-return contract preface in LumascopeSkills).
-    Closes API audit F2 / F3 / F12 cluster.
+    illumination_ma of an address that is not lit: an unknown value is
+    None, never a stand-in number. Closes API audit F2 / F3 / F12 cluster.
     """
 
     def _scope(self):
@@ -8094,24 +8005,6 @@ class TestGetLedStateShape:
             assert reading.illumination_ma is None, (
                 f'address {reading.address} off-state must use None sentinel, not -1.'
             )
-
-    def test_doc_example_matches_shape(self):
-        import pathlib
-
-        # pin-justified: the published doc example text is the L2 contract
-        # surface; this guards doc-vs-API sync.
-        doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
-        assert (
-            f"LedReading(address=0, name='{LED0}', state=LedState.LIT, illumination_ma=200.0)"
-            in doc
-        ), 'LumascopeSkills get_led_states example must show the LedReading return shape.'
-        assert "{'enabled': True, 'illumination_ma'" not in doc, (
-            'The retired dict return shape must be gone from LumascopeSkills.'
-        )
-        # Old "current mA, or -1 if off" wording must be retired.
-        assert 'current mA, or -1 if off' not in doc, (
-            "Stale '-1 if off' sentinel must be removed from the led_illumination doc line."
-        )
 
 
 class TestProtocolCleanupLedRestoreKey:

@@ -8,7 +8,7 @@ Demonstrates:
 - Building a Z-stack for 3D analysis or extended depth of focus
 
 Note: autofocus runs as a RUN through the session's protocol runner
-(see LumascopeSkills.md, Running protocols) -- it sweeps Z and settles
+(see LumascopeSkills.md, Protocols and runs) -- it sweeps Z and settles
 on the best focus plane under the run-exclusivity claim. This example
 shows manual Z stepping for cases where you want full control over
 the Z-stack.
@@ -115,11 +115,11 @@ def main():
     # NOTE: these arrays carry no record of the instrument; saving them is
     # yours to do as you like. To have LumaViewPro save a stack with its
     # record, run it: session.create_protocol_runner().start_zstack('BF')
-    # (LumascopeSkills.md, Running protocols; protocol_execution.py runs a
+    # (LumascopeSkills.md, Protocols and runs; protocol_execution.py runs a
     # scan the same way).
 
     # NOTE: for automatic focusing, run autofocus as a run through the
-    # session's protocol runner (LumascopeSkills.md, Running protocols).
+    # session's protocol runner (LumascopeSkills.md, Protocols and runs).
 
     # Clean up
     scope.illumination.leds_off()
