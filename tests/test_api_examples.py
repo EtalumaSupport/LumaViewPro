@@ -51,7 +51,7 @@ EXAMPLES = sorted(path.stem for path in EXAMPLES_DIR.glob('*.py'))
 # The examples written before each had a task, a twin and an outcome test:
 # they are only run. Each leaves this set when the example for its task
 # replaces it, and the set and test_example_runs_in_suite go with the last.
-_NOT_YET_REWRITTEN = frozenset({'protocol_execution', 'z_stack'})
+_NOT_YET_REWRITTEN = frozenset({'z_stack'})
 
 _SENTINEL = object()
 
@@ -222,6 +222,34 @@ def test_channel_settings_over_rest_takes_the_same_stills(served):
         assert _lit_and_unsaturated(
             s['frame']['dark'], s['statistics']['maximum'], s['significant_bits']
         ), s
+
+
+def test_scan_completes_and_keeps_an_image_of_each_well():
+    from modules.image_utils import read_file_record
+    from modules.run_outcome import FilesOutcome, RunStatus
+
+    outcome, files, run_dir = _run_example('scan')
+    assert outcome.status is RunStatus.COMPLETED, outcome.message
+    assert (outcome.captures.asked, outcome.captures.captured) == (2, 2)
+    assert (files.outcome, files.written) == (FilesOutcome.WRITTEN, 2)
+    records = [read_file_record(p) for p in sorted(run_dir.glob('*.tiff'))]
+    assert [(r['channel'], r['well_label'], r['dark']) for r in records] == [
+        ('BF', 'B2', False),
+        ('BF', 'B3', False),
+    ]
+
+
+def test_scan_over_rest_completes_and_keeps_its_images(served, tmp_path):
+    from modules.image_utils import read_file_record
+
+    client, run = served('scan')
+    files = client.get(f'/api/v1/jobs/{run.variables["FILES"]}').json()
+    assert files['status'] == 'completed', files
+    assert (files['result']['outcome'], files['result']['written']) == ('written', 2)
+    downloaded = tmp_path / 'first.tiff'
+    downloaded.write_bytes(run.written['first.tiff'])
+    record = read_file_record(downloaded)
+    assert (record['channel'], record['well_label'], record['dark']) == ('BF', 'B2', False)
 
 
 def test_stop_a_run_ends_it_aborted_after_its_first_scan_with_its_images_written():
