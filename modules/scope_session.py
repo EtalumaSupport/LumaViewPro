@@ -101,7 +101,7 @@ from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
 from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.manual_recording import ManualRecordingController
-from modules.config_helpers import DisplayRates
+from modules.config_helpers import DisplayRates, log_environment_once
 from modules.coord_transformations import PlateLocation
 from modules.acquire_mode import AcquireMode
 from modules.axes import StageAxis
@@ -5880,7 +5880,8 @@ class ScopeSession:
     def enable_metrics(self, display: DisplayRates | None = None) -> None:
         """Start the session's periodic metrics logging.
 
-        Uses the session's scheduler and the
+        Logs the host's environment fingerprint (``[ENV METRICS]``) first,
+        then schedules the periodic ticks. Uses the session's scheduler and the
         ``settings.profiling.metrics_interval_s`` cadence override when
         present. Metrics stay opt-in by the call itself: a host that runs
         the scope for others calls it -- the GUI does, and so does a
@@ -5919,6 +5920,10 @@ class ScopeSession:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif self.engineering_mode:
             start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
+        # The host's fixed facts (boot time, OS, Pylon SDK, Defender state)
+        # head the series they explain, so a post-mortem can read any tick
+        # against the exact host state without the ticks repeating them.
+        log_environment_once()
         self.metrics_logger.start(self._scheduler, display=display, **start_kwargs)
         self._metrics_started = True
 

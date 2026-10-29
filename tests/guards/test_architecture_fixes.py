@@ -472,7 +472,6 @@ def _ui_except_counts():
 # replaced, this pin can only fall by the migration actually happening: a
 # call site disappears when, and only when, the GUI stops answering.
 _UI_ANSWERER_CALL_PIN = {
-    'lumaviewpro.py': 1,
     'ui/advanced_settings.py': 1,
     'ui/image_settings.py': 4,
     'ui/microscope_settings.py': 2,

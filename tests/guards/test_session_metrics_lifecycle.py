@@ -136,3 +136,24 @@ class TestCtxMirrorStaysRetired:
             '(it went stale at reconnect); read the scope via the session '
             f'instead. Reads found: {offenders}'
         )
+
+
+def test_a_host_that_starts_metrics_logs_its_environment_first():
+    """Every host that starts metrics -- the GUI and the REST server alike --
+    gets the environment fingerprint once, ahead of any metric line, because
+    the session's start logs it rather than one host's launch."""
+    from modules import config_helpers
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(complete_settings(), simulate=True)
+    try:
+        logged = config_helpers.metrics_logger.info.call_args_list
+        before = len(logged)
+        session.enable_metrics()
+        lines = [str(call.args[0]) for call in logged[before:]]
+    finally:
+        session.shutdown()
+
+    fingerprints = [line for line in lines if line.startswith('[ENV METRICS]')]
+    assert len(fingerprints) == 1, f'one fingerprint per metrics start: {lines}'
+    assert lines[0].startswith('[ENV METRICS]'), f'a metric line came first: {lines}'

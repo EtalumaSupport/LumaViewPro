@@ -158,7 +158,6 @@ if __name__ == '__main__':
 
     import modules.app_context as app_context
     import modules.common_utils as common_utils
-    import modules.config_helpers as config_helpers
     import modules.lvp_lock as lvp_lock
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
@@ -707,16 +706,9 @@ class LumaViewProApp(TooltipMixin, App):
             # Objective and LEDs are set by scope.initialize() during load_settings();
             # The shown channel's settings are applied by complete_initialization().
 
-            # Once-per-startup environment + dependency fingerprint. Pairs
-            # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so
-            # post-mortem can correlate a problem against the exact host
-            # state (OS, Python, Pylon SDK, Defender state, etc.) without
-            # the noise of repeating those facts every tick.
-            config_helpers.log_environment_once()
-
             # The session owns the metrics lifecycle (it owns the session
-            # scheduler and restarts metrics on the new scope at
-            # every reconnect). Cadence is hourly in production and 60 s in
+            # scheduler, and logs the environment fingerprint ahead of the
+            # first tick). Cadence is hourly in production and 60 s in
             # engineering mode; settings.profiling.metrics_interval_s
             # overrides both (gen2_depth + handle/thread counts are the
             # signals worth sub-minute granularity on a short leak hunt).

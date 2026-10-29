@@ -1267,7 +1267,8 @@ Marks: in-process.
 
 Start the session's periodic metrics logging.
 
-Uses the session's scheduler and the
+Logs the host's environment fingerprint (`[ENV METRICS]`) first,
+then schedules the periodic ticks. Uses the session's scheduler and the
 `settings.profiling.metrics_interval_s` cadence override when
 present. Metrics stay opt-in by the call itself: a host that runs
 the scope for others calls it -- the GUI does, and so does a
