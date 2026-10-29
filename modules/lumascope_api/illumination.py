@@ -1049,9 +1049,8 @@ class IlluminationAPI:
     ) -> float:
         """Turn on a channel's LED at the specified current, and wait for it.
 
-        The channel is lit at its LED's address (``led_on_by_address``
-        takes the address itself), as one command on the LED board's lane,
-        waited for. The board lights at the nearest current its step can
+        The channel is lit at its LED's address, as one command on the LED
+        board's lane, waited for. The board lights at the nearest current its step can
         deliver, and a request above zero but below one step at one step;
         that commanded current, not the request, is what is stored and
         returned. 0 mA leaves the channel on at 0 mA, which the board treats
@@ -1097,10 +1096,9 @@ class IlluminationAPI:
     def led_off(self, channel: str) -> None:
         """Turn off a channel's LED, and wait for it.
 
-        The channel is darkened at its LED's address (``led_off_by_address``
-        takes the address itself). An off whose end state already holds is
-        satisfied with no write: a channel the API holds dark, or any off
-        with no LED controller and nothing believed lit. Only an off of a
+        The channel is darkened at its LED's address. An off whose end state
+        already holds is satisfied with no write: a channel the API holds
+        dark, or any off with no LED controller and nothing believed lit. Only an off of a
         channel believed lit asks for the controller.
 
         Args:

@@ -169,6 +169,17 @@ def test_the_reference_is_current(rendered: str) -> None:
     )
 
 
+def test_the_reference_names_no_internal_tool(rendered: str) -> None:
+    """The reference is public and the engineering plugin is internal: no
+    published docstring names the plugin or its panel."""
+    found = [
+        line
+        for line in rendered.splitlines()
+        if re.search(r'engineering (plugin|panel)', line, re.I)
+    ]
+    assert not found, 'the reference names an internal tool:\n' + '\n'.join(found)
+
+
 # A code span naming a private member, ``_name`` or ``owner._name``; the
 # signature blocks are left out, where a private default's name is source.
 _FENCE = re.compile(r'^```.*?^```$', re.M | re.S)

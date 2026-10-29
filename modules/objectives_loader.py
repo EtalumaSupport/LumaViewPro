@@ -52,8 +52,8 @@ class Objective:
     ``autofocus_step_max_um`` and refines down to ``autofocus_step_min_um``
     across ``autofocus_half_range_um`` either side of where it starts. A
     jog moves the ``jog_*`` distance on its axis. ``focus_peak_fwhm_dense_um``
-    is measured by the engineering plugin's characterization, None until an
-    objective has been.
+    is the objective's measured focus-peak width (full width at half
+    maximum), None until it has been measured.
     """
 
     id: str

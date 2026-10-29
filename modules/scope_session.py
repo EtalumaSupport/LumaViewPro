@@ -1073,7 +1073,7 @@ class ScopeSession:
         then what finishes after it lets go: a recording's file, a run's
         video steps, a finished run's images and its post-run builds;
         post-processing builds running and queued; a support report or logs
-        zip; an engineering plugin run, from its press to its end; a still
+        zip; a plugin's run, from its press to its end; a still
         being saved. Each item says how much it has left, and
         a build how far it has got. Read lock-free, owner by owner, from any
         thread; ``closing`` while the close runs, ``closed`` once the
@@ -1517,9 +1517,9 @@ class ScopeSession:
                 False; a separately shipped caller leaves the default.
             engineering_mode: the session's engineering mode to begin with;
                 a plugin may turn it on when the host loads plugins.
-            no_engineering: the host's word that the engineering plugin is
-                not loaded: ``load_plugins`` leaves it out before it is
-                imported, as if it were not installed.
+            no_engineering: ``load_plugins`` leaves out the installed
+                plugin named ``etaluma_engineering`` before it is imported,
+                as if it were not installed.
             sim_model: the model the simulated scope is, when it is not the
                 one ``settings`` declares: a stored file that disagrees
                 with the scope attached, which bring-up settles by the
@@ -5133,7 +5133,8 @@ class ScopeSession:
         has none. Each plugin's ``register`` is handed this session as its
         ctx. A plugin that does not load is reported and the rest load;
         nothing here raises for a plugin. Under ``no_engineering`` the
-        engineering plugin is left out, unreported, as if not installed.
+        plugin named ``etaluma_engineering`` is left out, unreported, as if
+        not installed.
         Call it once, after ``create``.
 
         Raises:

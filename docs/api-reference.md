@@ -1044,7 +1044,7 @@ then the camera start gate released) and is torn down by
 - `simulate`: build a simulated scope (the model from `settings['microscope']`, the motor board's tier from `settings['simulator_tier']`).
 - `warn_pre_release`: whether this construction fires the pre-release FutureWarning -- the factory's own call and the scope constructor's. A host that ships with the API passes False; a separately shipped caller leaves the default.
 - `engineering_mode`: the session's engineering mode to begin with; a plugin may turn it on when the host loads plugins.
-- `no_engineering`: the host's word that the engineering plugin is not loaded: `load_plugins` leaves it out before it is imported, as if it were not installed.
+- `no_engineering`: `load_plugins` leaves out the installed plugin named `etaluma_engineering` before it is imported, as if it were not installed.
 - `sim_model`: the model the simulated scope is, when it is not the one `settings` declares: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None (the default) is the declared model. Refused unless `simulate`.
 - `sim_model_answer`: the model the simulated motor board names as its own at bring-up, whatever it was built as (`scope.simulation.answer_model`), until the scope's faults are cleared. Refused unless `simulate`, and by the scope on any board but the fast motor board.
 - `sim_refused_stream_starts`: how many of the camera's stream starts it refuses from bring-up on (`scope.simulation.refuse_stream_start`), so bring-up's own start is refused; 0 (the default) refuses none. Refused unless `simulate`, and by the scope on any camera but the simulated FX2.
@@ -1710,7 +1710,7 @@ unwinding with no holder yet or any more);
 then what finishes after it lets go: a recording's file, a run's
 video steps, a finished run's images and its post-run builds;
 post-processing builds running and queued; a support report or logs
-zip; an engineering plugin run, from its press to its end; a still
+zip; a plugin's run, from its press to its end; a still
 being saved. Each item says how much it has left, and
 a build how far it has got. Read lock-free, owner by owner, from any
 thread; `closing` while the close runs, `closed` once the
@@ -1735,7 +1735,8 @@ The host's one call to have plugins; a session it is never made on
 has none. Each plugin's `register` is handed this session as its
 ctx. A plugin that does not load is reported and the rest load;
 nothing here raises for a plugin. Under `no_engineering` the
-engineering plugin is left out, unreported, as if not installed.
+plugin named `etaluma_engineering` is left out, unreported, as if
+not installed.
 Call it once, after `create`.
 
 **Raises**
@@ -6684,10 +6685,9 @@ Route: `POST /api/v1/scope/illumination/led_off`.
 
 Turn off a channel's LED, and wait for it.
 
-The channel is darkened at its LED's address (`led_off_by_address`
-takes the address itself). An off whose end state already holds is
-satisfied with no write: a channel the API holds dark, or any off
-with no LED controller and nothing believed lit. Only an off of a
+The channel is darkened at its LED's address. An off whose end state
+already holds is satisfied with no write: a channel the API holds
+dark, or any off with no LED controller and nothing believed lit. Only an off of a
 channel believed lit asks for the controller.
 
 **Args**
@@ -6750,9 +6750,8 @@ Route: `POST /api/v1/scope/illumination/led_on`.
 
 Turn on a channel's LED at the specified current, and wait for it.
 
-The channel is lit at its LED's address (`led_on_by_address`
-takes the address itself), as one command on the LED board's lane,
-waited for. The board lights at the nearest current its step can
+The channel is lit at its LED's address, as one command on the LED
+board's lane, waited for. The board lights at the nearest current its step can
 deliver, and a request above zero but below one step at one step;
 that commanded current, not the request, is what is stored and
 returned. 0 mA leaves the channel on at 0 mA, which the board treats
@@ -7382,7 +7381,7 @@ How the most recent capture on this scope waited, frame or not.
 
 What a capture leaves whether or not it returned a frame: the
 protocol file writer's log line, the manual still's retake bound
-and the engineering plugin's measure of the hold and drain read it.
+and a measure of the hold and drain read it.
 What a frame is -- its exposure and gain and where each came from,
 its auto-gain outcome, its judgments -- is its `FrameRecord`,
 handed back with it (`capture_still`), never this slot.
@@ -11063,8 +11062,8 @@ from the id alone (`objective_short_name`). Autofocus starts at
 `autofocus_step_max_um` and refines down to `autofocus_step_min_um`
 across `autofocus_half_range_um` either side of where it starts. A
 jog moves the `jog_*` distance on its axis. `focus_peak_fwhm_dense_um`
-is measured by the engineering plugin's characterization, None until an
-objective has been.
+is the objective's measured focus-peak width (full width at half
+maximum), None until it has been measured.
 
 **Fields**
 
@@ -12277,7 +12276,7 @@ enabled ones, this is the line that changes.
 - `parent_dir`: Parent directory for output. Defaults to 'Manual/Z-Stacks' under the live folder, where the button already puts it.
 - `events`: The run's event handlers (`RunEvents`); None for none.
 - `return_to_start`: Whether to put the stage back where the stack was centred when the run ends. On by default, because a stack leaves Z at whichever end it finished on, which is not where the operator was looking. A bool rather than a position, so a caller cannot hand back coordinates in a frame this run never used.
-- `enable_image_saving`: Whether the slices are written. On by default; the engineering panel's "disable image saving" switch is the one caller that turns it off, to exercise the stage without filling the disk.
+- `enable_image_saving`: Whether the slices are written. On by default; off, the stack moves and captures and writes no file, to exercise the stage without filling the disk.
 
 **Returns**
 
@@ -14165,7 +14164,7 @@ A refusal; bases `Refusal`, `TypeError`.
 An argument whose type its member does not take, refused before the member runs.
 
 Raised by the `@api` door for every caller alike -- the GUI, a
-script, the engineering plugin, a member calling another -- from the
+script, a plugin, a member calling another -- from the
 member's own annotation, so the body never meets a value of another
 type. A `TypeError`, as Python raises for a call it cannot take. The
 door judges the type only: a number's range and finiteness, a name's

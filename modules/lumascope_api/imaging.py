@@ -2401,7 +2401,7 @@ class ImagingAPI:
 
         What a capture leaves whether or not it returned a frame: the
         protocol file writer's log line, the manual still's retake bound
-        and the engineering plugin's measure of the hold and drain read it.
+        and a measure of the hold and drain read it.
         What a frame is -- its exposure and gain and where each came from,
         its auto-gain outcome, its judgments -- is its ``FrameRecord``,
         handed back with it (``capture_still``), never this slot.

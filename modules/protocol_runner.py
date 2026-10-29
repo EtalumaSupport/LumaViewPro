@@ -448,9 +448,8 @@ class ProtocolRunner:
                 position, so a caller cannot hand back coordinates in a
                 frame this run never used.
             enable_image_saving: Whether the slices are written. On by
-                default; the engineering panel's "disable image saving"
-                switch is the one caller that turns it off, to exercise the
-                stage without filling the disk.
+                default; off, the stack moves and captures and writes no
+                file, to exercise the stage without filling the disk.
 
         Returns:
             The run's operation, to wait on or to ignore; its result() is

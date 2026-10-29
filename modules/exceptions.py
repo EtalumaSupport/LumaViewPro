@@ -4245,7 +4245,7 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
     """An argument whose type its member does not take, refused before the member runs.
 
     Raised by the ``@api`` door for every caller alike -- the GUI, a
-    script, the engineering plugin, a member calling another -- from the
+    script, a plugin, a member calling another -- from the
     member's own annotation, so the body never meets a value of another
     type. A ``TypeError``, as Python raises for a call it cannot take. The
     door judges the type only: a number's range and finiteness, a name's
