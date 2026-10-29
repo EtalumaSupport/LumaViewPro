@@ -30,6 +30,13 @@ on, ``raises=<Class>`` the refusal it teaches, raised by its last statement,
 and ``norun`` a fence no simulator can run (serving forever, say), which is
 still resolved and bound.
 
+The ``bash`` fences are the REST walkthrough (polarity 4): each ``curl`` line
+is sent, in order, to ``TestClient(build_app(session))`` on such a session,
+and the status and reason its comment states are asserted. A handle's or a
+job's id is read from an earlier answer (``NAME=$(curl ... | jq -r .id)``),
+never typed: ids count every call held as a job, so a typed one names another
+call's job as soon as the server's history differs.
+
 Scope, and why prose is not resolved
 ------------------------------------
 Only fenced code blocks are resolved and bound -- ``python``-labelled and
@@ -54,8 +61,11 @@ import ast
 import enum
 import importlib
 import inspect
+import json
 import re
+import shlex
 import traceback
+import urllib.parse
 import warnings
 
 import pytest
@@ -711,6 +721,7 @@ class _ChapterSessions:
         self._made.append(session)
         session.run_application_session()
         self._namespace.update(session=session, scope=session.scope)
+        self.session = session
         self._key = (tier, model)
 
     def close(self):
@@ -851,3 +862,175 @@ class TestLumascopeSkillsFencesRun:
             assert expected in reported, reported
         assert 'planted:24' not in reported, reported
         assert 'planted:28' not in reported, reported
+
+
+# A walkthrough line's trailing comment: the status it answers, then for a
+# problem the reason it carries.
+_STATED = re.compile(r'(\d{3})\b:?\s*([a-z][a-z0-9_]*)?')
+# An id typed into a URL where it should be read from the answer that made it.
+_LITERAL_ID = re.compile(r'/(?:jobs|handles/[A-Za-z]+)/\d+\b')
+_CAPTURE = re.compile(r'^([A-Z_][A-Z0-9_]*)=\$\((.*)\| *jq -r (\S+)\)$')
+_ASSIGN = re.compile(r'^([A-Z_][A-Z0-9_]*)=(\S+)$')
+
+
+def _code_and_comment(line):
+    """A shell line split at its comment: a ``#`` after a space, outside quotes."""
+    quote = None
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = None
+            elif ch == '\\' and quote == '"':
+                continue
+        elif ch in '\'"':
+            quote = ch
+        elif ch == '#' and (i == 0 or line[i - 1].isspace()):
+            return line[:i].strip(), line[i + 1 :].strip()
+    return line.strip(), ''
+
+
+def _expand(token, variables):
+    return re.sub(
+        r'\$\{?([A-Z_][A-Z0-9_]*)\}?', lambda m: variables.get(m.group(1), m.group(0)), token
+    )
+
+
+def _curl_request(command, variables):
+    """``(method, path, headers, body)`` of a ``curl`` command, its variables expanded.
+
+    Reads the flags the guide uses: ``-s``, ``-X``, ``-H`` and ``--json``;
+    any other is refused, so a line the runner cannot send is never read as
+    sent.
+    """
+    words = shlex.split(command)
+    if words[0] != 'curl':
+        raise ValueError(f'not a curl command: {words[0]}')
+    method, headers, body, url = None, {}, None, None
+    rest = iter(words[1:])
+    for word in rest:
+        if word == '-s':
+            continue
+        if word == '-X':
+            method = next(rest)
+        elif word == '-H':
+            name, _, value = _expand(next(rest), variables).partition(':')
+            headers[name.strip()] = value.strip()
+        elif word == '--json':
+            body = _expand(next(rest), variables)
+            headers.setdefault('Content-Type', 'application/json')
+            headers.setdefault('Accept', 'application/json')
+        elif word.startswith('-'):
+            raise ValueError(f'the runner does not read {word}')
+        else:
+            url = urllib.parse.urlsplit(_expand(word, variables))
+    path = url.path + (f'?{url.query}' if url.query else '')
+    return method or ('POST' if body is not None else 'GET'), path, headers, body
+
+
+def _jq_raw(answer, path):
+    """``jq -r <path>`` of a JSON answer, for the paths the guide uses (``.``, ``.a.b``)."""
+    for key in filter(None, path.split('.')):
+        answer = answer[key]
+    return answer if isinstance(answer, str) else json.dumps(answer)
+
+
+def walkthrough_failures(text, label, client):
+    """A line per ``curl`` line of ``text``'s ``bash`` fences that does not answer as stated.
+
+    The lines run in order, as one shell: ``NAME=value`` sets a variable, and
+    ``NAME=$(curl ... | jq -r <path>)`` sets it from the answer. A comment's
+    status, and a problem's reason, are asserted; a line that states no
+    status must succeed. A line that fails ends the walkthrough: what follows
+    it assumed it ran.
+    """
+    variables, fence = {}, None
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.startswith('```'):
+            fence = fence_info(line)[0] if fence is None else None
+            continue
+        if fence != 'bash':
+            continue
+        code, comment = _code_and_comment(line)
+        assign = _ASSIGN.match(code)
+        if assign and not code.startswith(f'{assign.group(1)}=$('):
+            variables[assign.group(1)] = assign.group(2)
+            continue
+        capture = _CAPTURE.match(code)
+        command = capture.group(2).strip() if capture else code
+        if not command.startswith('curl '):
+            continue
+        if _LITERAL_ID.search(command):
+            return [
+                f'  {label}:{lineno}  an id typed into the URL: read it from the answer that made it'
+            ]
+        method, path, headers, body = _curl_request(command, variables)
+        answer = client.request(method, path, headers=headers, content=body)
+        stated = _STATED.match(comment)
+        status = int(stated.group(1)) if stated else None
+        reason = stated.group(2) if stated and status >= 400 else None
+        if status is None and answer.status_code >= 300:
+            return [f'  {label}:{lineno}  answered {answer.status_code}: {answer.text[:200]}']
+        if status is not None and answer.status_code != status:
+            return [
+                f'  {label}:{lineno}  answered {answer.status_code}, not the {status} it states: '
+                f'{answer.text[:200]}'
+            ]
+        if reason is not None and answer.json().get('reason') != reason:
+            return [
+                f'  {label}:{lineno}  answered reason {answer.json().get("reason")!r}, '
+                f'not the {reason} it states'
+            ]
+        if capture:
+            variables[capture.group(1)] = _jq_raw(answer.json(), capture.group(3))
+    return []
+
+
+def _walk(text, label):
+    from fastapi.testclient import TestClient
+
+    from modules import settings_init
+    from rest.app import build_app
+
+    prepared = settings_init.settings
+    sessions = _ChapterSessions({})
+    try:
+        sessions.use({})
+        with TestClient(build_app(sessions.session)) as client:
+            return walkthrough_failures(text, label, client)
+    finally:
+        sessions.close()
+        settings_init.settings = prepared
+
+
+class TestLumascopeSkillsWalkthroughRuns:
+    """Polarity 4: the REST walkthrough's ``curl`` lines answer what their comments state."""
+
+    @pytest.mark.slow
+    def test_every_curl_line_answers_as_stated(self, doc_text):
+        failures = _walk(doc_text, DOC)
+        assert not failures, (
+            'LumascopeSkills.md has a curl line that does not answer as its comment '
+            'states, on a simulated server. Correct the line or its comment.\n'
+            + '\n'.join(failures)
+        )
+
+    def test_a_line_that_does_not_answer_as_stated_is_reported(self):
+        cases = {
+            'a typed job id': '```bash\nAPI=http://h/api/v1\ncurl -s $API/jobs/1\n```\n',
+            'a wrong status': (
+                '```bash\nAPI=http://h/api/v1\ncurl -s "$API/scope/motion/get_axis_limits?axis=W"'
+                '   # 200\n```\n'
+            ),
+            'a wrong reason': (
+                '```bash\nAPI=http://h/api/v1\ncurl -s "$API/scope/motion/get_axis_limits?axis=W"'
+                '   # 422 axis_absent\n```\n'
+            ),
+            'an unstated failure': '```bash\nAPI=http://h/api/v1\ncurl -s $API/no_such_member\n```\n',
+        }
+        reported = {name: _walk(text, 'planted') for name, text in cases.items()}
+        assert reported['a typed job id'] == [
+            '  planted:3  an id typed into the URL: read it from the answer that made it'
+        ]
+        assert 'answered 422, not the 200 it states' in reported['a wrong status'][0]
+        assert "answered reason 'not_offered', not the axis_absent" in reported['a wrong reason'][0]
+        assert 'answered 404' in reported['an unstated failure'][0]
