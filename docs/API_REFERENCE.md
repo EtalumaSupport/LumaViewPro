@@ -2058,7 +2058,7 @@ Route: `GET /api/v1/plugin_api_level`.
 What this LumaViewPro does that a plugin may rely on.
 
 `modules.plugins.PLUGIN_API_LEVEL`; each level's additions are
-listed in LumascopeSkills.md, "Plugin API level".
+listed in PluginTutorial.md, "The plugin API level".
 
 **Raises**
 

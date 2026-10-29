@@ -67,7 +67,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # version: no version can say it, since version.txt names the promoted
 # release and many trunk commits share one beta number. A commit that
 # changes behaviour a plugin relies on raises it by one, in that commit,
-# with its row in docs/LumascopeSkills.md ("Plugin API level"). A plugin
+# with its row in docs/PluginTutorial.md ("The plugin API level"). A plugin
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
