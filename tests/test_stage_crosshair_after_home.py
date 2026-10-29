@@ -8,20 +8,20 @@ crosshair was last drawn -- a Home pressed at the centre ends at the centre
 redrawing is no longer on screen.
 
 The redraw's skip compares the position against what it last drew, so these
-drive it with a stub scope and stop it at the first step past the skip (the
-labware lookup): reaching that step is "drawn", returning before it is
-"skipped".
+drive it over a simulated session and stop it at the first step past the
+skip (the scope's labware lookup): reaching that step is "drawn", returning
+before it is "skipped".
 """
 
 from types import SimpleNamespace
 
 import pytest
 
-import modules.app_context as _app_ctx
 import ui.stage as stage_module
+from tests.scope_fakes import home_sim_scope
 from ui.stage import Stage
 
-CENTRE = (60616.06, 40598.40)
+HOME = (0.0, 0.0)
 
 
 class _DrawnError(Exception):
@@ -33,42 +33,36 @@ def _refuse_to_draw():
 
 
 @pytest.fixture
-def stage_and_motion(monkeypatch):
-    motion = SimpleNamespace(homed=True)
-    motion.axes_without_position = lambda: {} if motion.homed else {'X': 'unknown', 'Y': 'unknown'}
-    motion.get_target_positions = lambda: {'X': CENTRE[0], 'Y': CENTRE[1]}
-    motion.get_current_position = lambda axis: CENTRE['XY'.index(axis)]
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(
-            settings={},
-            scope=SimpleNamespace(
-                motion=motion,
-                capabilities=SimpleNamespace(has_xy_stage=True),
-                runtime_state=SimpleNamespace(get_labware=_refuse_to_draw),
-            ),
-        ),
-    )
-    stage = Stage.__new__(Stage)
-    stage._protocol_step_redraw = False
-    # The crosshair was last drawn at the centre.
-    stage._prev_x_target, stage._prev_y_target = CENTRE
-    stage._prev_x_current, stage._prev_y_current = CENTRE
-    return stage, motion
+def stage(gui_ctx, monkeypatch):
+    """The stage map over an unhomed simulated session; the crosshair was last
+    drawn where a home lands, the simulated stage's origin."""
+    monkeypatch.setattr(gui_ctx.scope.runtime_state, 'get_labware', _refuse_to_draw)
+    built = Stage.__new__(Stage)
+    built._protocol_step_redraw = False
+    built._prev_x_target, built._prev_y_target = HOME
+    built._prev_x_current, built._prev_y_current = HOME
+    return built
 
 
-def test_an_unchanged_known_position_is_not_redrawn(stage_and_motion):
-    stage, _motion = stage_and_motion
+def _home(scope):
+    home_sim_scope(scope)
+    motion = scope.motion
+    landed = [motion.get_target_positions()[a] for a in 'XY']
+    landed += [motion.get_current_position(a) for a in 'XY']
+    assert landed == [*HOME, *HOME], 'the home lands where the crosshair was last drawn'
+
+
+def test_an_unchanged_known_position_is_not_redrawn(stage, gui_ctx):
+    _home(gui_ctx.scope)
+
     assert stage.draw_labware_io_calculations() is None
 
 
-def test_after_the_position_was_unknown_the_same_position_is_drawn(stage_and_motion):
-    stage, motion = stage_and_motion
-    motion.homed = False  # homing: the redraw hides the crosshair
-    with pytest.raises(_DrawnError):
+def test_after_the_position_was_unknown_the_same_position_is_drawn(stage, gui_ctx):
+    assert gui_ctx.scope.motion.axes_without_position(), 'the scope comes up unhomed'
+    with pytest.raises(_DrawnError):  # no position: the redraw hides the crosshair
         stage.draw_labware_io_calculations()
-    motion.homed = True  # the home ended where the crosshair was last drawn
+    _home(gui_ctx.scope)
     with pytest.raises(_DrawnError):
         stage.draw_labware_io_calculations()
 
@@ -85,15 +79,19 @@ class _Plate:
 
 
 def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
-    stage_and_motion, monkeypatch
+    stage, gui_ctx, monkeypatch
 ):
     """The close swaps in the null board between the redraw's axes_without_position() and
     its position reads: the reads answer None, and the whole redraw runs,
     hiding the crosshair, rather than raising on the Kivy clock."""
-    stage, motion = stage_and_motion
-    motion.get_target_positions = lambda: {}
-    motion.get_current_position = lambda axis: None
-    monkeypatch.setattr(_app_ctx.ctx.scope.runtime_state, 'get_labware', lambda: _Plate())
+    scope = gui_ctx.scope
+    _home(scope)
+    # A stand-in by design: the simulator has no fault that lands the close's
+    # board swap between two reads of one redraw, so the reads answer as the
+    # null board does.
+    monkeypatch.setattr(scope.motion, 'get_target_positions', lambda: {})
+    monkeypatch.setattr(scope.motion, 'get_current_position', lambda axis: None)
+    monkeypatch.setattr(scope.runtime_state, 'get_labware', lambda: _Plate())
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))
     stage._cached_labware_name = 'plate'
     stage.width = stage.height = 100

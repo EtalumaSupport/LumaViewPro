@@ -19,7 +19,6 @@ the one a test has to hold.
 import ast
 import sys
 from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -241,18 +240,19 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
             remedy=remedy,
         )
 
-    def test_the_offer_s_confirm_applies_the_remedy_through_the_session(self, offers, monkeypatch):
-        import modules.app_context as app_context
+    def test_the_offer_s_confirm_applies_the_remedy_through_the_session(
+        self, offers, gui_ctx, monkeypatch
+    ):
+        """The confirm hands the remedy to the session, which decides: with no
+        write stuck, its recover refuses (``FileWriterNotStuckError``)."""
         import ui.ui_helpers as ui_helpers
-        from modules.exceptions import Remedy
+        from modules.exceptions import FileWriterNotStuckError, Remedy
 
         remedy = Remedy(
             member='recover_file_writer',
             confirm_text='Discard 3 unsaved and unlock',
             cancel_text='Keep waiting',
         )
-        session = MagicMock()
-        monkeypatch.setattr(app_context, 'ctx', SimpleNamespace(session=session), raising=False)
         submitted = []
         monkeypatch.setattr(
             ui_helpers,
@@ -271,8 +271,8 @@ class TestARefusalThatNamesItsRemedyIsAnOffer:
         )
         offer.confirm()
         ((call, _label),) = submitted
-        call()
-        session.apply_remedy.assert_called_once_with(remedy)
+        with pytest.raises(FileWriterNotStuckError):
+            call()
 
     def test_the_next_refusal_replaces_the_offer(self, offers, popup_surface):
         from modules.exceptions import Remedy

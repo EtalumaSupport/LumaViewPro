@@ -276,31 +276,25 @@ class TestTheLaneForm:
         assert [n.category for n in centre_posts] == [f'Task:UI:LED_{LED0}']
 
 
-def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch):
+def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(gui_ctx, monkeypatch):
     from ui import shader
 
+    motion = gui_ctx.scope.motion
+    coarse_um = motion.jog_step_um('Z', coarse=True)
+    assert coarse_um != motion.jog_step_um('Z', coarse=False)
     steps = []
-    moves = []
+    asked = motion.jog_step_um
     monkeypatch.setattr(
-        shader._app_ctx,
-        'ctx',
-        types.SimpleNamespace(
-            scope=types.SimpleNamespace(
-                motion=types.SimpleNamespace(
-                    jog_step_um=lambda axis, coarse: (
-                        steps.append(coarse) or (100.0 if coarse else 10.0)
-                    )
-                )
-            )
-        ),
+        motion, 'jog_step_um', lambda axis, coarse: steps.append(coarse) or asked(axis, coarse)
     )
+    moves = []
     monkeypatch.setattr(ui_helpers, 'jog_z', lambda um: moves.append(um))
     viewer = types.SimpleNamespace(_scroll_z_pending=None)
     for pending in [(1.0, False), (2.0, False), (-1.5, True)]:
         viewer._scroll_z_pending = pending
     shader.ShaderViewer._flush_scroll_z(viewer, 0)
 
-    assert moves == [-150.0]
+    assert moves == [-1.5 * coarse_um]
     assert steps == [True], 'the step is asked for once, at the move, with the last tick coarseness'
 
 

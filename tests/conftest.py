@@ -1105,6 +1105,45 @@ def sim_camera(sim_scope):
     return sim_scope.camera, sim_scope._camera_driver
 
 
+@pytest.fixture
+def sim_session(request, tmp_path):
+    """A session on the simulator over the shipped template, its live folder temporary.
+
+    Unhomed, as a scope comes up. A test names other settings by
+    parametrizing it indirectly with their overrides
+    (``@pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)``);
+    ``gui_ctx`` takes the same session.
+    """
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    overrides = getattr(request, 'param', {})
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), **overrides), simulate=True
+    )
+    yield session
+    session.shutdown()
+
+
+@pytest.fixture
+def gui_ctx(sim_session, monkeypatch):
+    """The GUI's app context over ``sim_session``, built as the GUI host builds it.
+
+    The widget fields start empty: the Kivy tree never runs here, so a test
+    hands in the panels its subject reads (``gui_ctx.motion_settings = ...``).
+    The main widget answers the scope, as the host's does.
+    """
+    from types import SimpleNamespace
+
+    import modules.app_context as app_context
+
+    ctx = app_context.AppContext.over_session(
+        sim_session, lumaview=SimpleNamespace(scope=sim_session.scope)
+    )
+    monkeypatch.setattr(app_context, 'ctx', ctx)
+    return ctx
+
+
 @pytest.fixture(scope='module')
 def sim_turreted_session(tmp_path_factory):
     """A homed LS850T session on the simulator, with the shipped template's plate and stage offset.

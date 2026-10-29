@@ -18,12 +18,11 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
-import modules.app_context as app_ctx_module
 from modules.exceptions import ObjectiveUnknownError
+from tests.scope_fakes import home_sim_scope
 
 
 @pytest.fixture
@@ -37,10 +36,6 @@ def popups(monkeypatch):
     return opened
 
 
-def _unknown():
-    return ObjectiveUnknownError('slot_unknown')
-
-
 def _assert_shown_once_as_a_refusal(centre_posts, popups, caplog, error):
     from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
 
@@ -52,15 +47,18 @@ def _assert_shown_once_as_a_refusal(centre_posts, popups, caplog, error):
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
+@pytest.mark.parametrize('sim_session', [{'microscope': 'LS850T'}], indirect=True)
 class TestNewProtocol:
     @pytest.fixture
-    def panel(self, monkeypatch):
+    def panel(self, gui_ctx):
+        """The Protocol panel over a homed LS850T whose turret has no objective
+        assigned to the slot in the light path."""
         import ui.protocol_settings as ps
 
-        error = _unknown()
-        session = MagicMock()
-        session.new_protocol.side_effect = error
-        monkeypatch.setattr(app_ctx_module, 'ctx', SimpleNamespace(session=session), raising=False)
+        home_sim_scope(gui_ctx.scope)
+        with pytest.raises(ObjectiveUnknownError) as refused:
+            gui_ctx.session.new_protocol()
+        assert refused.value.reason == 'slot_unassigned'
         stand = SimpleNamespace(
             ids={
                 'tiling_size_spinner': SimpleNamespace(text='1x1'),
@@ -71,7 +69,7 @@ class TestNewProtocol:
             # The protocol on screen, whose schedule New starts from.
             _protocol=SimpleNamespace(period_s=lambda: None, duration_s=lambda: None),
         )
-        return ps.ProtocolSettings.new_protocol, stand, error
+        return ps.ProtocolSettings.new_protocol, stand, refused.value
 
     def test_an_unknown_objective_is_shown_once_as_a_refusal(
         self, panel, centre_posts, popups, caplog

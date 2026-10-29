@@ -7,11 +7,9 @@ as a Z move when the user clicks away. Three of the four writers carried a
 focus guard and the autofocus writer did not; these tests pin every writer.
 """
 
-from types import SimpleNamespace
-
 import pytest
 
-from modules import app_context as _app_ctx
+from tests.scope_fakes import home_sim_scope
 from ui.vertical_control import VerticalControl
 
 
@@ -30,11 +28,11 @@ class _Slider:
 
 
 @pytest.fixture
-def control(monkeypatch):
-    """A VerticalControl with only the two widgets these writers touch."""
-    motion = SimpleNamespace(get_target_positions=lambda: {'Z': 3774.0})
-    ctx = SimpleNamespace(lumaview=SimpleNamespace(scope=SimpleNamespace(motion=motion)))
-    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
+def control(gui_ctx):
+    """A VerticalControl with only the two widgets these writers touch, over a
+    simulated session whose Z was sent to 3774 um."""
+    home_sim_scope(gui_ctx.scope)
+    gui_ctx.scope.motion.move_z(3774.0)
     ctrl = VerticalControl.__new__(VerticalControl)
     ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
     return ctrl

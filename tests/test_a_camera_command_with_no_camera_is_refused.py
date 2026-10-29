@@ -26,7 +26,6 @@ import logging
 
 import pytest
 
-import modules.app_context as _app_ctx
 from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
@@ -645,23 +644,24 @@ def test_a_camera_removed_during_bring_up_is_reported_once_and_the_scope_comes_u
     assert [n.message for n in _camera_posts(centre_posts)] == [MissingPart.CAMERA.sentence]
 
 
+class _CameraControls:
+    """A panel holding camera controls: what it was last told about the camera."""
+
+    camera_connected = None
+
+
 @pytest.mark.parametrize('connected', (True, False))
-def test_the_gui_camera_controls_follow_whether_a_camera_is_connected(monkeypatch, connected):
+def test_the_gui_camera_controls_follow_whether_a_camera_is_connected(gui_ctx, connected):
     from types import SimpleNamespace
 
     from modules import common_utils
     from ui.image_settings import ImageSettings
 
-    layers = {layer: SimpleNamespace(camera_connected=None) for layer in common_utils.get_layers()}
-    microscope = SimpleNamespace(camera_connected=None)
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(
-            scope=SimpleNamespace(camera_connected=connected),
-            motion_settings=SimpleNamespace(ids={'microscope_settings_id': microscope}),
-        ),
-    )
+    layers = {layer: _CameraControls() for layer in common_utils.get_layers()}
+    microscope = _CameraControls()
+    gui_ctx.motion_settings = SimpleNamespace(ids={'microscope_settings_id': microscope})
+    if not connected:
+        gui_ctx.scope.simulation.remove_camera()
 
     ImageSettings.set_camera_controls_support(
         SimpleNamespace(layer_lookup=lambda layer: layers[layer])
