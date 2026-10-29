@@ -180,6 +180,10 @@ class Outcome:
 def outcome_of(exception: BaseException) -> Outcome:
     """What *exception* is, as its type says: the one reading of an outcome's kind and words.
 
+    Args:
+        exception: The exception to read, raised or not: any exception, a
+            cancellation and one the API does not declare included.
+
     Raises:
         Nothing.
     """

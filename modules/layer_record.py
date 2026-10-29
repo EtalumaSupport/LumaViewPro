@@ -240,6 +240,10 @@ class ChannelIdentity:
         The deserialisation boundary: a name arriving from disk or from
         an API caller is mapped to its record exactly once, here.
 
+        Args:
+            key_name: The layer's stable key name, such as ``'BF'`` or
+                ``'Ex488'``.
+
         Raises:
             Nothing.
         """
@@ -263,6 +267,14 @@ class ChannelIdentity:
         its focus, a still or a recording named for it. The name first
         (``refuse_unknown_layer``), so a name that is no layer is never
         told it is missing hardware.
+
+        Args:
+            channel: The layer's key name the command was given.
+            member: The name of the command asking, which the hardware
+                refusal names as the command refused.
+            then: What the command would have the layer do, as words
+                completing "so <channel> cannot ...", such as ``'be
+                captured'``; the unresolved refusal's message ends with it.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``.

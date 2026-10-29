@@ -1168,6 +1168,9 @@ class DiagnosticsAPI:
         Returns the raw register value as int (caller decodes bits),
         or None when the firmware does not implement DRVSTAT_<axis>.
 
+        Args:
+            axis: The axis whose driver chip to read.
+
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name; nothing was read.
@@ -1216,6 +1219,9 @@ class DiagnosticsAPI:
         """Set motor-board fan PWM duty cycle (0..100), and wait for the board to take it.
 
         The fan reaches the new duty later: ``motor_fan_spin_times``.
+
+        Args:
+            duty_pct: The fan's PWM duty cycle, in percent, 0 to 100.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor

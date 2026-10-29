@@ -281,10 +281,17 @@ class RuntimeState:
     ) -> coord_transformations.PlatePosition:
         """Convert a stage position (um) to a plate position (mm).
 
-        ``plate_to_stage`` inverts it. Stated on the selected plate at the
-        live stage offset unless ``labware_id`` or ``stage_offset`` names
-        another: a protocol's positions are on the plate it stores, and a
-        run keeps the offset it started with.
+        ``plate_to_stage`` inverts it.
+
+        Args:
+            x_um: The stage X, in um.
+            y_um: The stage Y, in um.
+            labware_id: The plate the position is stated on; None for the
+                selected plate. A protocol's positions are on the plate it
+                stores.
+            stage_offset: Where the plate is mounted on the stage, in um;
+                None for the live offset. A run keeps the offset it started
+                with.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
@@ -311,9 +318,18 @@ class RuntimeState:
     ) -> coord_transformations.StagePosition:
         """Convert a plate position (mm) to a stage position (um), as ``stage_to_plate`` inverted.
 
-        The plate and offset are ``stage_to_plate``'s. Not bounded: a
-        position off the stage's travel converts, and the move to it is
-        refused.
+        Not bounded: a position off the stage's travel converts, and the
+        move to it is refused.
+
+        Args:
+            x_mm: The plate X, in mm.
+            y_mm: The plate Y, in mm.
+            labware_id: The plate the position is stated on; None for the
+                selected plate. A protocol's positions are on the plate it
+                stores.
+            stage_offset: Where the plate is mounted on the stage, in um;
+                None for the live offset. A run keeps the offset it started
+                with.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
@@ -342,9 +358,15 @@ class RuntimeState:
         call, so a caller converting many positions over time -- a recording
         writing one per frame, a run, a redraw -- would state its later ones
         against a plate or offset changed mid-way. The function returned is
-        bound to the plate and offset of this call (the arguments are
-        ``stage_to_plate``'s), so every position it converts is stated in one
-        frame of reference and a later change moves none of them.
+        bound to the plate and offset of this call, so every position it
+        converts is stated in one frame of reference and a later change moves
+        none of them.
+
+        Args:
+            labware_id: The plate the positions are stated on; None for the
+                plate selected when this is called.
+            stage_offset: Where the plate is mounted on the stage, in um;
+                None for the offset live when this is called.
 
         Returns:
             A function of ``(x_um, y_um)`` answering their ``PlatePosition``;

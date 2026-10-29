@@ -5,7 +5,7 @@ A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
-guard holds ten things over the declared API (``tests.marked_set``): the
+guard holds eleven things over the declared API (``tests.marked_set``): the
 marked members and fields of every class the API can name
 (``wire_encoding.project_classes``: each defined under ``modules/``, and each
 project class a marked annotation resolves to, a driver's record among them),
@@ -67,8 +67,10 @@ path (``rest.app.build_app``):
     outside a signature names a private member (``_name``, ``owner._name``):
     a reader cannot call it, so a published docstring says what it would
     have pointed to.
+11. **Every parameter is described.** Every parameter of a marked member
+    has an entry in its docstring's ``Args:`` section.
 
-Beside the ten, two hold the set itself whole. A module's function is
+Beside the eleven, two hold the set itself whole. A module's function is
 never marked for the wire, since nothing routes a function: it is
 ``in_process``. And every class defined in a project module that carries a
 mark is in the table, by identity, so no mark sits where the rules cannot
@@ -97,8 +99,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import wire_encoding
-from modules.api_surface import API, api
-from tests.api_reference import REFERENCE, REGENERATE, WRITE, render
+from modules.api_surface import API, api, entries_of
+from tests.api_reference import REFERENCE, REGENERATE, WRITE, member_function, render
 from tests.ast_seams import RetiredNames, Words
 from tests.marked_set import (
     Marked,
@@ -185,6 +187,26 @@ def test_the_reference_names_nothing_private(rendered: str) -> None:
         'the reference sends its reader to a name that is not API; say in the published '
         'docstring what the private one does:\n'
         + ''.join(f'  {entry}: {sorted(names)}\n' for entry, names in sorted(named.items()))
+    )
+
+
+def test_every_parameter_is_described(marked: dict[str, Marked]) -> None:
+    undescribed = {}
+    for key, item in sorted(marked.items()):
+        if item.field or isinstance(item.value, property):
+            continue
+        function = member_function(item.value)
+        described = {n.lstrip('*') for n in entries_of(inspect.getdoc(function) or '', 'Args')}
+        missing = [
+            name
+            for name in inspect.signature(function).parameters
+            if name not in ('self', 'cls') and name not in described
+        ]
+        if missing:
+            undescribed[key] = missing
+    assert not undescribed, (
+        f'{len(undescribed)} members take a parameter their docstring has no Args: entry for:\n'
+        + ''.join(f'  {key}: {names}\n' for key, names in undescribed.items())
     )
 
 

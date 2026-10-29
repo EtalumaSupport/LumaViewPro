@@ -59,6 +59,10 @@ class Labware:
     def get_well_position(self, i: int, j: int) -> tuple[float, float]:
         """The centre of the well in column ``i`` and row ``j``, in mm from the plate's top-left.
 
+        Args:
+            i: The well's column, counted from 0 at the left.
+            j: The well's row, counted from 0 at the top.
+
         Raises:
             Nothing.
         """
@@ -68,13 +72,17 @@ class Labware:
 
     @api(in_process=True, reads=True)
     def get_well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None:
-        """The (column, row) of the well centre nearest plate position (x_mm, y_mm).
+        """The (column, row) of the well centre nearest a plate position, each counted from 0.
 
         None when that centre is outside the grid: the position is more
         than half a pitch beyond the outer well centres, off the plate's
         wells, or the plate has no wells at all (the Blank labware). No
         shipped plate states a well size, so within the grid a position
         names its nearest well whether or not it is inside it.
+
+        Args:
+            x_mm: The plate X, in mm from the plate's left edge.
+            y_mm: The plate Y, in mm from the plate's top edge.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``x_mm`` or ``y_mm`` is

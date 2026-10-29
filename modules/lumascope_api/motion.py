@@ -1396,6 +1396,10 @@ class MotionAPI:
         ``jog_xy_coarse_um`` / ``jog_xy_fine_um`` for X and Y, the units
         ``move_xy_by`` and ``move_z_by`` take.
 
+        Args:
+            axis: The axis to jog: ``'X'``, ``'Y'`` or ``'Z'``.
+            coarse: True for the coarse step, False for the fine one.
+
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
                 'Y' or 'Z': the turret has no jog.
@@ -2684,6 +2688,10 @@ class MotionAPI:
         the new X at the old Y. Each is checked against the plate positions
         this stage can reach, and refused in mm, before either moves.
 
+        Args:
+            at: Where X and Y go, in mm on the selected plate; an axis that is None is
+                left where it is.
+
         Returns:
             One ``Operation`` for the moves started, done once every one is
             (``Operation.all_of``); its ``result()`` raises the first move's
@@ -2723,6 +2731,10 @@ class MotionAPI:
 
         ``start_move_to_plate`` followed by its operation's ``result()``.
 
+        Args:
+            at: Where X and Y go, in mm on the selected plate; an axis that is None is
+                left where it is.
+
         Raises:
             ArgumentRefusedError: ``'plate_frame_axis'`` or
                 ``'not_a_number'``, as ``start_move_to_plate``.
@@ -2754,6 +2766,9 @@ class MotionAPI:
         plate the well is found on is the plate the move converts on.
         Otherwise as ``start_move_to_plate`` for both axes.
 
+        Args:
+            well: The well's label on the selected plate, such as ``'A1'``.
+
         Raises:
             ArgumentRefusedError: ``'well_unknown'``, the selected plate has
                 no well of that label (a plate with no wells has none).
@@ -2782,6 +2797,9 @@ class MotionAPI:
         """Move X and Y to the centre of ``well`` on the selected plate, and return once they have arrived.
 
         ``start_move_to_well`` followed by its operation's ``result()``.
+
+        Args:
+            well: The well's label on the selected plate, such as ``'A1'``.
 
         Raises:
             ArgumentRefusedError: ``'well_unknown'``, as ``start_move_to_well``.
@@ -2850,9 +2868,12 @@ class MotionAPI:
         is, still, travelling or unknown, and is not read. With neither
         given nothing moves and the move is done at once.
 
-        ``ignore_limits`` drives past the configured travel, never past the
-        motor's safety limit. It is in-process only: a wire request that
-        sends it is refused as ``invalid_request``.
+        Args:
+            x_um: Where X goes, in um on the stage; None leaves X as it is.
+            y_um: Where Y goes, in um on the stage; None leaves Y as it is.
+            ignore_limits: True to drive past the configured travel,
+                never past the motor's safety limit. In-process only: a wire
+                request that sends it is refused as ``invalid_request``.
 
         Returns:
             One ``Operation`` for the axes given, done once every one is
@@ -2895,7 +2916,13 @@ class MotionAPI:
         """Move X and Y to a place, in um, each that is given, and return once they have arrived.
 
         ``start_move_xy`` followed by its operation's ``result()``.
-        ``ignore_limits`` is in-process only, as ``start_move_xy``'s.
+
+        Args:
+            x_um: Where X goes, in um on the stage; None leaves X as it is.
+            y_um: Where Y goes, in um on the stage; None leaves Y as it is.
+            ignore_limits: True to drive past the configured travel,
+                never past the motor's safety limit. In-process only: a wire
+                request that sends it is refused as ``invalid_request``.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as ``start_move_xy``.
@@ -2931,6 +2958,10 @@ class MotionAPI:
         target, so a move still under way on it is added to, and every
         target is read and refused before either axis drives.
 
+        Args:
+            dx_um: How far X moves, in um; None leaves X as it is.
+            dy_um: How far Y moves, in um; None leaves Y as it is.
+
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a distance given is not
                 a finite number. Nothing was driven.
@@ -2959,6 +2990,10 @@ class MotionAPI:
         """Move X and Y by a distance, in um, each that is given, and return once they have arrived.
 
         ``start_move_xy_by`` followed by its operation's ``result()``.
+
+        Args:
+            dx_um: How far X moves, in um; None leaves X as it is.
+            dy_um: How far Y moves, in um; None leaves Y as it is.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as
@@ -3002,13 +3037,16 @@ class MotionAPI:
         """Start Z moving to a place, in um; return the started move.
 
         A move of Z to a place approaches it from below, so the backlash
-        is always taken the same way. ``overshoot_enabled`` is for a bench
-        script that measures the backlash: None is the API's approach,
-        True or False the script's own.
+        is always taken the same way.
 
-        ``ignore_limits`` drives past Z's configured travel, never past the
-        motor's safety limit. It is in-process only: a wire request that
-        sends it is refused as ``invalid_request``.
+        Args:
+            z_um: Where Z goes, in um.
+            overshoot_enabled: None for the API's approach from below; True or False
+                forces the approach on or off, for a bench script measuring the
+                backlash.
+            ignore_limits: True to drive past Z's configured travel,
+                never past the motor's safety limit. In-process only: a wire
+                request that sends it is refused as ``invalid_request``.
 
         Returns:
             The move's ``Operation``. It is done once Z has been set at
@@ -3059,7 +3097,14 @@ class MotionAPI:
         """Move Z to a place, in um, and return once it has arrived.
 
         ``start_move_z`` followed by its operation's ``result()``.
-        ``ignore_limits`` is in-process only, as ``start_move_z``'s.
+
+        Args:
+            z_um: Where Z goes, in um.
+            overshoot_enabled: None for the API's approach from below; True or False
+                forces the approach on or off, as ``start_move_z`` says.
+            ignore_limits: True to drive past Z's configured travel,
+                never past the motor's safety limit. In-process only: a wire
+                request that sends it is refused as ``invalid_request``.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as ``start_move_z``.
@@ -3096,6 +3141,11 @@ class MotionAPI:
         ``overshoot_enabled`` is the bench script's override, as for
         ``start_move_z``.
 
+        Args:
+            dz_um: How far Z moves, in um.
+            overshoot_enabled: None for no approach from below; True or False forces it
+                on or off, for a bench script.
+
         Returns:
             The move's ``Operation``, as ``start_move_z``'s.
 
@@ -3127,6 +3177,11 @@ class MotionAPI:
         """Move Z by a distance, in um, and return once it has arrived.
 
         ``start_move_z_by`` followed by its operation's ``result()``.
+
+        Args:
+            dz_um: How far Z moves, in um.
+            overshoot_enabled: None for no approach from below; True or False forces it
+                on or off, for a bench script.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, as
@@ -3225,6 +3280,10 @@ class MotionAPI:
         returned or raised; its ``stop()`` is ``stop_motion`` while the home
         drives, refused ``'home_not_stoppable'`` on a board that cannot stop
         a home, and nothing once the home has ended.
+
+        Args:
+            axis: What to home: ``'Z'``, ``'T'`` (the turret) or ``'ALL'``, every axis
+                the scope has.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is not

@@ -528,9 +528,21 @@ class ProtocolRunner:
     ) -> RunOutcome:
         """``start_single_scan``, waited for: returns the run's outcome once it has let go of the scope.
 
-        Takes ``start_single_scan``'s arguments, and ``timeout_s``: how long to wait
-        for the run to end; None waits for its end. A run that ends any way
-        returns its outcome, a stopped one included.
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            protocol: The protocol whose steps the scan runs.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: The folder the run's own folder is made in; None for
+                ``ProtocolData`` under the live folder.
+            enable_image_saving: Whether the captured images are saved.
+            events: The run's event handlers (``RunEvents``); None for none.
+            return_to_position: Where to return once the scan ends, on the
+                protocol's plate; an axis that is None is left where the scan
+                left it. None returns nowhere.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
@@ -570,9 +582,19 @@ class ProtocolRunner:
     ) -> RunOutcome:
         """``start_protocol``, waited for: returns the run's outcome once it has let go of the scope.
 
-        Takes ``start_protocol``'s arguments, and ``timeout_s``: how long to wait
-        for the run to end; None waits for its end. A run that ends any way
-        returns its outcome, a stopped one included.
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            protocol: The protocol whose steps, period and duration the run
+                follows.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: The folder the run's own folder is made in; None for
+                ``ProtocolData`` under the live folder.
+            enable_image_saving: Whether the captured images are saved.
+            events: The run's event handlers (``RunEvents``); None for none.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
@@ -612,9 +634,24 @@ class ProtocolRunner:
     ) -> RunOutcome:
         """``start_autofocus``, waited for: returns the run's outcome once it has let go of the scope.
 
-        Takes ``start_autofocus``'s arguments, and ``timeout_s``: how long to wait
-        for the run to end; None waits for its end. A run that ends any way
-        returns its outcome, a stopped one included.
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            channel: Which channel to focus on ('BF', 'Ex488', ...).
+            save_characterization_data: Whether to write the focus scores the
+                sweep measured; the outcome says whether the file was written
+                and names it.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: Where characterization data goes; None for
+                ``Autofocus Characterization`` under the live folder. Unused
+                when no data is saved.
+            events: The run's event handlers (``RunEvents``); None for none.
+            claim: A claim the caller holds, the one
+                ``session.diagnostic_claim()`` yields, to run under instead of
+                taking the scope; None takes the scope for this run alone.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
@@ -651,9 +688,13 @@ class ProtocolRunner:
     ) -> RunOutcome:
         """``start_autofocus_all_steps``, waited for: returns the run's outcome once it has let go of the scope.
 
-        Takes ``start_autofocus_all_steps``'s arguments, and ``timeout_s``: how long to wait
-        for the run to end; None waits for its end. A run that ends any way
-        returns its outcome, a stopped one included.
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            protocol: The protocol to focus; only its Z values are written.
+            events: The run's event handlers (``RunEvents``); None for none.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
@@ -690,9 +731,20 @@ class ProtocolRunner:
     ) -> RunOutcome:
         """``start_zstack``, waited for: returns the run's outcome once it has let go of the scope.
 
-        Takes ``start_zstack``'s arguments, and ``timeout_s``: how long to wait
-        for the run to end; None waits for its end. A run that ends any way
-        returns its outcome, a stopped one included.
+        A run that ends any way returns its outcome, a stopped one included.
+
+        Args:
+            channel: Which channel to capture ('BF', 'Ex488', ...).
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
+            parent_dir: The folder the run's own folder is made in; None for
+                ``Manual/Z-Stacks`` under the live folder.
+            events: The run's event handlers (``RunEvents``); None for none.
+            return_to_start: Whether to put the stage back where the stack
+                was centred when the run ends.
+            enable_image_saving: Whether the slices are written.
+            timeout_s: How long to wait for the run to end, in seconds, from 0
+                to 30 days; None waits for its end.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,

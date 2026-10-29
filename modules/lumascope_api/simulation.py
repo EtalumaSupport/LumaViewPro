@@ -339,6 +339,9 @@ class SimulationAPI:
     def silence(self, board: Part) -> None:
         """The board answers no command from now on, until ``unsilence``.
 
+        Args:
+            board: ``MOTOR`` or ``LED``, a board this scope has.
+
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'not_offered'``, ``board`` is not a ``Part``;
@@ -365,6 +368,9 @@ class SimulationAPI:
     def unsilence(self, board: Part) -> None:
         """The board answers again after ``silence``.
 
+        Args:
+            board: ``MOTOR`` or ``LED``, a board this scope has.
+
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'not_offered'``, ``board`` is not a ``Part``;
@@ -384,6 +390,9 @@ class SimulationAPI:
     @_guarded_write
     def unplug(self, board: Part) -> None:
         """The board's cable is pulled: its port fails from the next command.
+
+        Args:
+            board: ``MOTOR`` or ``LED``, a board this scope has.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -410,6 +419,9 @@ class SimulationAPI:
     def replug(self, board: Part) -> None:
         """The board's cable goes back in: it is found again.
 
+        Args:
+            board: ``MOTOR`` or ``LED``, a board this scope has.
+
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'not_offered'``, ``board`` is not a ``Part``;
@@ -431,7 +443,12 @@ class SimulationAPI:
         """The board's firmware restarts and forgets everything it knew.
 
         Its port fails at once, as USB re-enumerates, and the board is found
-        again after ``booting_for_s`` seconds.
+        again once it has booted.
+
+        Args:
+            board: ``MOTOR`` or ``LED``, a board this scope has.
+            booting_for_s: How long the board takes to boot before it is
+                found again, in seconds, from 0 to 30 days.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -533,7 +550,15 @@ class SimulationAPI:
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def interlock(self, lid_open: bool | None = None, powered: bool | None = None) -> None:
-        """The stage's interlock inputs read as given; None leaves one as it is.
+        """The stage's interlock inputs read as given, until ``clear``.
+
+        ``clear`` reads the lid closed and the stage powered again.
+
+        Args:
+            lid_open: Whether the lid input reads open; None leaves it as it
+                is.
+            powered: Whether the stage's power input reads powered; None
+                leaves it as it is.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -558,12 +583,16 @@ class SimulationAPI:
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def answer_model(self, model: str | None) -> None:
-        """The motor board names ``model`` as its own, until ``clear``; None names none.
+        """The motor board names ``model`` as its own, until ``clear``.
 
         Its axes stay the ones it was built with, as a board whose firmware
         names a model its motors are not: ``diagnostics.get_motor_info``
         reports the answer, and bring-up reads it to decide the scope's
         model.
+
+        Args:
+            model: The model name the board's info answers with; None
+                names none.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -698,8 +727,12 @@ class SimulationAPI:
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def stall_stream(self, after_s: float, for_s: float) -> None:
-        """The camera's stream delivers no frame for ``for_s`` seconds,
-        starting ``after_s`` seconds from now; it stays connected and grabbing.
+        """The camera's stream delivers no frame for a while, staying connected and grabbing.
+
+        Args:
+            after_s: How long from now the stall starts, in seconds, 0 or
+                more.
+            for_s: How long the stall lasts, in seconds, more than 0.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -730,6 +763,10 @@ class SimulationAPI:
         call says it stands. ``clear`` takes it back and the held frames
         are stored at once.
 
+        Args:
+            frames: How many frames behind its hand-over each frame is
+                stored, 1 or more.
+
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'not_a_number'`` or ``'fault_bound'`` for fewer than 1
@@ -750,6 +787,9 @@ class SimulationAPI:
 
         A start the camera refuses raises its fault to whoever started the
         stream, and the camera is left connected and not streaming.
+
+        Args:
+            count: How many stream starts in a row are refused, 1 or more.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -816,7 +856,11 @@ class SimulationAPI:
 
         An LED command whose write is refused raises the LED board's
         ``BoardPortFailedError`` to its caller, and the LED stays connected
-        for the next command. On the FX2 each LED command is three writes.
+        for the next command.
+
+        Args:
+            count: How many writes in a row are refused, 1 or more; on the
+                FX2 each LED command is three writes.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -842,6 +886,10 @@ class SimulationAPI:
         change reaches before the frames already started show it; this is
         what the pixels show, so a test can judge a frame by what it was
         made under, never by its pixels or by the gate's own answer.
+
+        Args:
+            frame: A frame the simulated camera delivered, among the most
+                recent it keeps records of.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;

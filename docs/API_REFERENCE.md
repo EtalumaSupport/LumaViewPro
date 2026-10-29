@@ -199,6 +199,10 @@ is the lane work it hands on. A callback the API runs on a thread of
 its own -- an operation's done-callback -- runs outside the block,
 and is refused as any non-holder's call while the session is held.
 
+**Args**
+
+- `session_id`: The `id` the session was taken with.
+
 **Yields**
 
 The session.
@@ -222,9 +226,7 @@ Marks: in-process; event: [`Notification`](#Notification).
 
 Hear every outcome the scope reports from now on.
 
-`listener(notification)` is called once per delivery, on the thread
-that reported it, so it must return promptly and must not wait on the
-scope. Each `Notification` carries its `kind`, words, `reason`,
+Each `Notification` carries its `kind`, words, `reason`,
 `remedy`, `outcome_id` and `shown`: an outcome muted when it
 happened (an unattended run, the dedup window, shutdown) arrives with
 `shown` False, and arrives again with the same `outcome_id` and
@@ -234,6 +236,10 @@ Bring-up has happened by the time a session exists; pass the listener
 to `create(outcome_listener=...)` to hear it. The outcomes heard are
 every session's in this process, as the notification centre is one
 per process. `shutdown()` removes the listener.
+
+**Args**
+
+- `listener`: Called as `listener(notification)` once per delivery, on the thread that reported it, so it must return promptly and must not wait on the scope.
 
 **Raises**
 
@@ -258,6 +264,10 @@ edge but the camera's, which is asked just after
 (`status_at_edge`); a field that changes with no edge (an axis,
 a part, the camera) is as of that edge.
 
+**Args**
+
+- `listener`: Called with no arguments at each run-state transition, and once now; it re-reads whatever state it shows.
+
 **Raises**
 
 Nothing.
@@ -273,11 +283,12 @@ Marks: in-process; event: [`SettingsChanged`](#SettingsChanged).
 
 Tell `listener` `(paths)` each time a write stores settings, once it has let go of the store.
 
-The paths one hold stored, together: a member that writes several
-settings tells them once. Whoever wrote them -- the GUI, a client, a
-script, the camera storing what it applied. Called on the writer's
-thread, outside the settings lock, so a GUI listener schedules its
-drawing.
+Whoever wrote them -- the GUI, a client, a script, the camera
+storing what it applied.
+
+**Args**
+
+- `listener`: Called as `listener(paths)`, `paths` the dotted paths one hold stored, together: a member that writes several settings tells them once. Called on the writer's thread, outside the settings lock, so a GUI listener schedules its drawing.
 
 **Raises**
 
@@ -294,8 +305,9 @@ Marks: in-process; event: [`ShownChannel`](#ShownChannel).
 
 Tell `listener` `(channel, lit)` each time the shown channel changes.
 
-It is called on the thread that changed it, so a GUI listener
-schedules its drawing.
+**Args**
+
+- `listener`: Called as `listener(channel, lit)`, the layer now shown and whether its LED is lit, on the thread that changed it, so a GUI listener schedules its drawing.
 
 **Raises**
 
@@ -329,18 +341,17 @@ in the settings' channel order. The protocols API performs the add
 and refuses when nothing would be added; this composes its inputs
 from the session the same way the GUI's handler does.
 
-`channels` names the channels to add a step for, in that order,
-instead: each takes its stored settings, and one whose `acquire`
-is None is added as an image step, so a caller adds without
-changing the settings. `at` is where on the protocol's plate the
-steps are, instead of the live position: X and Y in mm, Z in um.
-
-`use_zstacking` makes each added step a z-stack of the stored
-z-stack settings, as `new_protocol` does for its steps; the
-protocol's other steps are left as they are.
-
 Returns the inserted step names, in protocol order: each stack's
 slices when stacked.
+
+**Args**
+
+- `protocol`: The protocol the steps are added to.
+- `channels`: The channels to add a step for, in that order, instead of the acquiring layers: each takes its stored settings, and one whose `acquire` is None is added as an image step, so a caller adds without changing the settings. None (the default) adds one step per acquiring layer.
+- `at`: Where on the protocol's plate the steps are, instead of the live position: X and Y in mm, Z in um. None (the default) takes the live position.
+- `before_step_index`: The step the new steps are placed before.
+- `after_step_index`: The step the new steps are placed after. With neither given, they follow the last step; both given is refused.
+- `use_zstacking`: Make each added step a z-stack of the stored z-stack settings, as `new_protocol` does for its steps; the protocol's other steps are left as they are.
 
 **Raises**
 
@@ -419,6 +430,10 @@ that layer's control as it was. A layer this release does not know
 (not in `common_utils.get_layers()`), or this scope does not have,
 is logged and dropped.
 
+**Args**
+
+- `protocol`: The protocol whose Layer Settings are applied, as `load_protocol` returned it or as built in memory.
+
 **Raises**
 
 - `ProtocolFormatError`: A protocol built in memory carries a Layer Settings cell that is not of its column's type; no layer is changed. A loaded protocol was refused at load.
@@ -442,6 +457,11 @@ Route: `POST /api/v1/apply_focus_to_channel_steps`.
 Save the live Z as `channel`'s focus and as the Z of its every step.
 
 Returns how many steps took it.
+
+**Args**
+
+- `protocol`: The protocol whose steps of `channel` take the Z.
+- `channel`: The layer whose focus is saved and whose steps take it.
 
 **Raises**
 
@@ -477,6 +497,10 @@ holds only a `RemedyName`, so only the members listed here are
 reachable through it. The member still decides whether the remedy
 applies now, and refuses if not.
 
+**Args**
+
+- `remedy`: The remedy the refusal carried; its `member` names the member taken: `recover_file_writer` or `repair_camera_driver`.
+
 **Returns**
 
 The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the bindings after the repair.
@@ -510,6 +534,11 @@ Expand every step of `protocol` into the tile grid `tiling`, as Apply does.
 The tiles are spaced for the configured frame, binning and tile
 overlap, laid out on the protocol's own plate.
 
+**Args**
+
+- `protocol`: The protocol whose steps are tiled.
+- `tiling`: The grid, one of `tiling_config().available`, such as `'3x3'`.
+
 **Raises**
 
 - `ProtocolRunRefusedError`: `tiling` is not a grid this installation offers, the protocol is already tiled, a step's objective is not in the catalogue, the scope has no X/Y motor, or a tile falls outside the stage's travel. Nothing changes.
@@ -540,7 +569,12 @@ Route: `POST /api/v1/apply_zstacking`.
 
 Expand every step of `protocol` not already in a stack into a z-stack.
 
-`z_reference` says where each step's Z sits in its stack.
+**Args**
+
+- `protocol`: The protocol whose steps are stacked.
+- `range_um`: The stack's extent in Z, in micrometres; greater than zero.
+- `step_size_um`: The distance between slices, in micrometres; greater than zero.
+- `z_reference`: Where each step's Z sits in its stack.
 
 **Raises**
 
@@ -566,6 +600,11 @@ Route: `PUT /api/v1/turret_objective`.
 Bind `objective_id` to the turret's `slot`.
 
 Binding the objective the slot already holds is a no-op.
+
+**Args**
+
+- `slot`: The turret slot, 1-4.
+- `objective_id`: The objective's catalogue key.
 
 **Raises**
 
@@ -667,12 +706,19 @@ Marks: in-process.
 
 Capture a frame-valid image and hand it back with its record.
 
-Given `channel`, the camera holds that layer's stored exposure,
-gain and auto-gain for the grab, as `apply_layer_camera` puts them
-on, in the capture's own camera-lane task; given None, it captures
-with the camera as set. The capture's arguments are
-`scope.imaging.capture_still`'s. In-process: the image does not
-travel the wire.
+In-process: the image does not travel the wire.
+
+**Args**
+
+- `channel`: The layer whose stored exposure, gain and auto-gain the camera holds for the grab, as `apply_layer_camera` puts them on, in the capture's own camera-lane task. None (the default) captures with the camera as set.
+- `force_to_8bit`: Convert the image to 8 bits; False keeps the camera's depth (`CapturedStill.significant_bits`).
+- `accept_dark`: Skip the dark-frame judgment: a frame with essentially no lit pixel while a channel is lit is kept at once, its record's `dark` None. False (the default) retries such a frame until `timeout_s` and then keeps it, its record's `dark` True.
+- `exclude_sources`: Hardware changes to ignore for validity, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame returned can predate an excluded change, so a frame that is measured or recorded never excludes one.
+- `all_ones_check`: Measure the frame's saturation: a blown frame is grabbed again once and, blown again, kept; the record carries the fraction either way. False leaves both None.
+- `timeout_s`: How long, in seconds, each grab keeps taking frames for one that passes its checks, from 0 to 30 days.
+- `sum_count`: How many frames are summed into the image.
+- `sum_delay_s`: The wait, in seconds, between summed frames.
+- `sum_iteration_callback`: Called with no arguments after each summed frame; None calls nothing.
 
 **Returns**
 
@@ -706,6 +752,10 @@ Route: `GET /api/v1/channel_acquire`.
 
 What `channel` captures: an `AcquireMode`, or None (nothing).
 
+**Args**
+
+- `channel`: The layer read.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
@@ -725,6 +775,10 @@ Marks: reads (changes nothing).
 Route: `GET /api/v1/channel_auto_gain`.
 
 Whether `channel`'s auto-gain is on, as `set_channel_auto_gain` set it.
+
+**Args**
+
+- `channel`: The layer read.
 
 **Raises**
 
@@ -754,6 +808,10 @@ layer. It describes that turning off, not the layer now: a later
 turning on, a step's values or a stored gain leave it as it was.
 None when the layer's auto-gain has not been turned off since the
 session started.
+
+**Args**
+
+- `channel`: The layer read.
 
 **Raises**
 
@@ -835,6 +893,10 @@ Logged for every host: with that slot in the light path the active
 objective is now unknown, and a support bundle can only explain a
 capture refused for that afterwards if the clear is in the record.
 
+**Args**
+
+- `slot`: The turret slot cleared, 1-4.
+
 **Raises**
 
 - `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` is judged; or a run, a diagnostic or a recording holds the scope and the slot has an assignment (`'exclusive_activity_running'`). Nothing is written.
@@ -857,13 +919,17 @@ Route: `POST /api/v1/confirm_objective`.
 
 Answer the objective question: this objective is in the light path.
 
-On a turret scope, assigns the objective to `slot`,
-which it requires: the answer records the glass in a slot and never
-turns the turret. With no turret, selects it (`select_objective`),
-and `slot` is refused. Records that a person has
+On a turret scope, assigns the objective to `slot`: the answer
+records the glass in a slot and never turns the turret. With no
+turret, selects it (`select_objective`). Records that a person has
 confirmed the objective for this light path, turret or turretless,
 so a scope brought up with the other asks again. Returns whether the
 active objective changed.
+
+**Args**
+
+- `objective_id`: The objective's catalogue key.
+- `slot`: The turret slot, 1-4, the objective is in; required on a turret scope, and refused on a scope with none. None is the default.
 
 **Raises**
 
@@ -950,11 +1016,8 @@ Create a session, constructing defaults for any missing components.
 This is the one composition path: the GUI, REST and scripts all
 build their session here, passing what only a host knows as the
 keyword arguments below. The factory builds the scope, so every
-session's scope is brought up the one way.
-
-`source_path` is the data folder the factory builds the scope on;
-None (default) is the installation's own folder. The session's data
-folder and catalogues are always its scope's.
+session's scope is brought up the one way. The session's data folder
+and catalogues are always its scope's.
 
 The executor bundle is always built, around the scope's own IO and
 CAMERA lanes, via executor_registry.create_default, so every caller
@@ -970,63 +1033,22 @@ The scope is brought up before this returns (`configure_scope`,
 then the camera start gate released) and is torn down by
 `shutdown()`.
 
-Keyword arguments, each with the one consumer it feeds:
-    simulate: build a simulated scope (the model from
-        `settings['microscope']`, the motor board's tier from
-        `settings['simulator_tier']`).
-    sim_model: the model the simulated scope is, when it is not the
-        one `settings` declares: a stored file that disagrees
-        with the scope attached, which bring-up settles by the
-        scope's answer. None (the default) is the declared model.
-        Refused unless `simulate`.
-    sim_model_answer: the model the simulated motor board names as
-        its own at bring-up, whatever it was built as
-        (`scope.simulation.answer_model`), until the scope's
-        faults are cleared. Refused unless `simulate`, and by the
-        scope on any board but the fast motor board.
-    sim_refused_stream_starts: how many of the camera's stream
-        starts it refuses from bring-up on
-        (`scope.simulation.refuse_stream_start`), so bring-up's
-        own start is refused; 0 (the default) refuses none. Refused
-        unless `simulate`, and by the scope on any camera but the
-        simulated FX2.
-    warn_pre_release: whether this construction fires the
-        pre-release FutureWarning -- the factory's own call and the
-        scope constructor's. A host that ships with the API passes
-        False; a separately shipped caller leaves the default.
-    engineering_mode: the session's engineering mode to begin with;
-        a plugin may turn it on when the host loads plugins.
-    no_engineering: the host's word that the engineering plugin is
-        not loaded: `load_plugins` leaves it out before it is
-        imported, as if it were not installed.
-    sim_camera_stall: a stall for the simulated camera's stream, so a
-        simulated scope shows a stream that stops delivering; refused
-        by the scope itself unless it is simulated with the
-        simulated camera.
-    sim_file_stall: a stall for the session's file lane, so a
-        simulated scope shows a save drive that stops answering:
-        `after_s` seconds after bring-up the lane's worker is held
-        for `for_s` seconds. Refused unless `simulate`.
-    sim_focal_spread_um: how far the simulated sample's focus may
-        lie from where bring-up places the stage, drawn once per
-        session, so every session needs a real autofocus; 0 (the
-        default) puts it in focus there. Refused as
-        `sim_camera_stall` is.
-    outcome_listener: heard from before the scope is built, so it
-        hears what bring-up reports; the session's
-        `add_outcome_listener` says what it receives. A factory
-        that raises takes it back; otherwise the session's
-        `shutdown()` does.
-    settings_file: the file the session saves its settings to,
-        one second after the first unsaved write and once at
-        `shutdown()`, whole or not at all; the hosts name the
-        installation's `user_settings_file(source_path)`. None (the default)
-        saves nothing: a script's or a test's handed dict stays in
-        memory. Writes are kept unsaved, and the session says so
-        once (`SettingsNotSavedNotice`), while the settings are
-        provisional or when the scope found no hardware at
-        bring-up. Saving starts once the scope is up, so a factory
-        that raises writes no file.
+**Args**
+
+- `settings`: The user configuration the session holds and configures the scope from (`load_user_settings` reads the installation's). It is completed from the shipped template as a stored file is, and every value in it is held to the ranges a write is.
+- `source_path`: The data folder the factory builds the scope on; None (the default) is the installation's own folder.
+- `simulate`: build a simulated scope (the model from `settings['microscope']`, the motor board's tier from `settings['simulator_tier']`).
+- `warn_pre_release`: whether this construction fires the pre-release FutureWarning -- the factory's own call and the scope constructor's. A host that ships with the API passes False; a separately shipped caller leaves the default.
+- `engineering_mode`: the session's engineering mode to begin with; a plugin may turn it on when the host loads plugins.
+- `no_engineering`: the host's word that the engineering plugin is not loaded: `load_plugins` leaves it out before it is imported, as if it were not installed.
+- `sim_model`: the model the simulated scope is, when it is not the one `settings` declares: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None (the default) is the declared model. Refused unless `simulate`.
+- `sim_model_answer`: the model the simulated motor board names as its own at bring-up, whatever it was built as (`scope.simulation.answer_model`), until the scope's faults are cleared. Refused unless `simulate`, and by the scope on any board but the fast motor board.
+- `sim_refused_stream_starts`: how many of the camera's stream starts it refuses from bring-up on (`scope.simulation.refuse_stream_start`), so bring-up's own start is refused; 0 (the default) refuses none. Refused unless `simulate`, and by the scope on any camera but the simulated FX2.
+- `sim_camera_stall`: a stall for the simulated camera's stream, so a simulated scope shows a stream that stops delivering; refused by the scope itself unless it is simulated with the simulated camera.
+- `sim_file_stall`: a stall for the session's file lane, so a simulated scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. Refused unless `simulate`.
+- `sim_focal_spread_um`: how far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; 0 (the default) puts it in focus there. Refused as `sim_camera_stall` is.
+- `outcome_listener`: heard from before the scope is built, so it hears what bring-up reports; the session's `add_outcome_listener` says what it receives. A factory that raises takes it back; otherwise the session's `shutdown()` does.
+- `settings_file`: the file the session saves its settings to, one second after the first unsaved write and once at `shutdown()`, whole or not at all; the hosts name the installation's `user_settings_file(source_path)`. None (the default) saves nothing: a script's or a test's handed dict stays in memory. Writes are kept unsaved, and the session says so once (`SettingsNotSavedNotice`), while the settings are provisional or when the scope found no hardware at bring-up. Saving starts once the scope is up, so a factory that raises writes no file.
 
 **Raises**
 
@@ -1133,6 +1155,11 @@ Marks: enters: `guarded_write`.
 Route: `POST /api/v1/delete_step`.
 
 Remove step `step_index` from `protocol`, as the Delete button does.
+
+**Args**
+
+- `protocol`: The protocol the step is removed from.
+- `step_index`: The step removed, counted from 0.
 
 **Raises**
 
@@ -1342,6 +1369,10 @@ one read: `get_setting('binning')` is refused for
 `objective_id`. The live folder and the protocol file, which only
 the host moves, are read here.
 
+**Args**
+
+- `path`: The setting's dotted path, each segment a key one level down the settings.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_setting'`, the settings have no value at `path`; `'has_member'`, the setting at or above `path` has its own read, named in `member`.
@@ -1407,6 +1438,10 @@ Move `axes` to the bookmark, and return once they have arrived.
 
 `start_go_to_bookmark` followed by its operation's `result()`.
 
+**Args**
+
+- `axes`: The axes moved, each `'X'`, `'Y'` or `'Z'`; an axis not named is left where it is.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, as `start_go_to_bookmark`.
@@ -1445,6 +1480,11 @@ work meanwhile.
 
 It raises what `start_go_to_step` raises, and the following.
 
+**Args**
+
+- `protocol`: The protocol whose step is gone to.
+- `step_index`: The step gone to, counted from 0.
+
 **Raises**
 
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
@@ -1471,9 +1511,12 @@ Route: `GET /api/v1/held_by_other`.
 
 Whether the scope is held by anything but *run*, the operation a run member returned.
 
-What a run control greys on while leaving its own run's Stop live;
-None, or no run given, asks whether anything holds the scope at all
-(`live_work` names what does).
+What a run control greys on while leaving its own run's Stop live
+(`live_work` names what holds the scope).
+
+**Args**
+
+- `run`: The operation a run member returned, whose own hold is not counted. None, the default, asks whether anything holds the scope at all.
 
 **Raises**
 
@@ -1560,6 +1603,10 @@ has nothing to light, and stays dark. The camera is left on the
 layer's stored settings (`apply_layer_camera`; nothing is written
 when it holds them already), unless no camera is connected.
 
+**Args**
+
+- `lit`: True lights the shown channel's LED at its stored current; False darkens it.
+
 **Returns**
 
 The shown channel now.
@@ -1592,12 +1639,16 @@ What the folder `name` under the live folder holds, one level, sorted by name.
 
 Each entry is named by its full name under the live folder,
 `/`-separated on every host, so it is taken as it is by any path
-parameter, a download and a further listing. `'.'` lists the live
-folder itself. An entry that is gone by the time it is read -- a
-file a run renames into place, a link to nothing -- is not listed. A
+parameter, a download and a further listing. An entry that is gone
+by the time it is read -- a file a run renames into place, a link to
+nothing -- is not listed. A
 link that leads outside the live folder is listed as what it leads
 to, and refused where its name is used, as `live_folder_path`
 refuses it.
+
+**Args**
+
+- `name`: The folder listed, a name under the live folder as `live_folder_path` takes it; `'.'` (the default) lists the live folder itself.
 
 **Raises**
 
@@ -1624,6 +1675,10 @@ caller reaches the live folder and nothing beside it. A Python or GUI
 caller passes any path straight to the member it calls. The live
 folder is not created here: one that is missing is an unplugged drive
 or a stale setting.
+
+**Args**
+
+- `name`: A path relative to the live folder, such as `ProtocolData/run1`.
 
 **Raises**
 
@@ -1708,6 +1763,10 @@ Its contract is the plate. The protocol's period, duration and
 per-layer settings are the protocol's own and are not applied to
 anything else.
 
+**Args**
+
+- `file_path`: The protocol file (`.tsv`) to read.
+
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at `file_path`; `'not_a_file'`, a folder is.
@@ -1741,8 +1800,9 @@ simulate=...)``. Reading is its own call rather than a default of
 refused for the missing argument instead of quietly configured
 from whatever is on disk.
 
-In a process that has already prepared its settings (the GUI's),
-those are answered and `source_path` is not read.
+**Args**
+
+- `source_path`: The installation folder whose settings are read: its `current.json` first, else its shipped `settings.json`. In a process that has already prepared its settings (the GUI's), those are answered and `source_path` is not read.
 
 **Raises**
 
@@ -1893,13 +1953,18 @@ Route: `POST /api/v1/new_protocol`.
 Build a protocol from this session's settings, as the GUI's New does.
 
 One step per acquiring layer at every well of the session's labware,
-at the current objective, tiled and z-stacked as asked. Its period and
-duration are the ones given, in seconds; one left out (None) is the
-stored default's. One scan is 0. The
+at the current objective, tiled and z-stacked as asked. The
 protocols API refuses the build when no layer acquires, where an
 empty protocol would otherwise come back for a click that meant
 steps; a labware with no wells still gives an empty protocol, which
 `add_step` fills at the current position.
+
+**Args**
+
+- `tiling`: The tile grid at each well, a grid the installation's tiling catalogue offers, such as `'3x3'`; `'1x1'` (the default) is one tile.
+- `use_zstacking`: Stack each step through the stored z-stack (`get_zstack_params`); False takes one plane.
+- `period_s`: The protocol's period, in seconds; None is the stored default's.
+- `duration_s`: The protocol's duration, in seconds; 0 is one scan, and None is the stored default's.
 
 **Raises**
 
@@ -2062,6 +2127,12 @@ Points exactly the steps `turret_slot_questions` names for
 `objective_id`; every other step keeps its slot. Returns
 the indexes of the steps pointed, which are empty when no question names it.
 
+**Args**
+
+- `protocol`: The protocol whose steps are pointed.
+- `objective_id`: The objective the question is about, as `turret_slot_questions` names it.
+- `slot`: The turret slot its steps record; it holds `objective_id` now.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'slot_not_holding_objective'`, `slot` does not hold `objective_id` now (`offered`: the slots that do). Nothing is changed.
@@ -2122,6 +2193,10 @@ as frames, and the global FPS cap) are the session's, resolved the
 way the run path resolves them, so the advisory and the run it is
 advising about cannot be sized differently.
 
+**Args**
+
+- `protocol`: The protocol sized, as a full run of it would be.
+
 **Raises**
 
 Nothing.
@@ -2137,11 +2212,14 @@ Marks: in-process.
 
 Write `data` as a new file under the live folder: a wire client's upload.
 
-`name` is a name under the live folder, as `live_folder_path`
-takes it, and the folders on its way are made. A file already there
-is refused, so an upload never replaces a file a capture wrote. On
-the wire it is `PUT /api/v1/files/<name>`, the body the file's
-bytes; a Python caller writes its own files.
+A file already there is refused, so an upload never replaces a file
+a capture wrote. On the wire it is `PUT /api/v1/files/<name>`, the
+body the file's bytes; a Python caller writes its own files.
+
+**Args**
+
+- `name`: The new file's name under the live folder, as `live_folder_path` takes it; the folders on its way are made.
+- `data`: The file's bytes.
 
 **Returns**
 
@@ -2204,6 +2282,10 @@ Marks: in-process.
 
 Stop `listener` hearing outcomes; a listener never added is a no-op.
 
+**Args**
+
+- `listener`: The callable `add_outcome_listener` (or `create`'s `outcome_listener`) registered.
+
 **Raises**
 
 Nothing.
@@ -2218,6 +2300,10 @@ def remove_run_state_listener(self, listener: Callable[[], None]) -> None
 Marks: in-process.
 
 Stop telling `listener` of run-state transitions; a listener never added is a no-op.
+
+**Args**
+
+- `listener`: The callable `add_run_state_listener` registered.
 
 **Raises**
 
@@ -2234,6 +2320,10 @@ Marks: in-process.
 
 Stop telling `listener`; a listener never added is a no-op.
 
+**Args**
+
+- `listener`: The callable `add_settings_listener` registered.
+
 **Raises**
 
 Nothing.
@@ -2248,6 +2338,10 @@ def remove_shown_channel_listener(self, listener: Callable[[str, bool], None]) -
 Marks: in-process.
 
 Stop telling `listener`; a listener never added is a no-op.
+
+**Args**
+
+- `listener`: The callable `add_shown_channel_listener` registered.
 
 **Raises**
 
@@ -2264,6 +2358,12 @@ Marks: enters: `guarded_write`.
 Route: `POST /api/v1/rename_step`.
 
 Give step `step_index` of `protocol` the label `name`; returns its new name.
+
+**Args**
+
+- `protocol`: The protocol whose step is renamed.
+- `step_index`: The step renamed, counted from 0.
+- `name`: The step's new label; it holds at least one letter, digit, dash or underscore.
 
 **Raises**
 
@@ -2363,6 +2463,12 @@ motion has ended and the scope is free, and raises what its
 operation would. Headless / REST callers use this exact call to apply the
 standard startup orchestration without copy-pasting from the App.
 
+**Args**
+
+- `disable_homing`: If True, issue no startup motion at all.
+- `home_fn`: Callable taking a `HomeTarget` that homes it and raises as `MotionAPI.home` does; the startup motion hands it `HomeTarget.ALL`. Defaults to the motion API.
+- `turret_fn`: Callable taking a turret slot. Defaults to the motion API.
+
 **Raises**
 
 - `BlockingCallRefusedError`: `'blocking_on_worker'`, called from an executor's worker. The motion runs on the diagnostics worker and waits on the io lane, so a worker waiting for it can be waiting on itself; `start_application_session` is the form a worker uses. Still a `RuntimeError`. `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_application_session` too. Nothing was started.
@@ -2415,6 +2521,10 @@ X and Y are stored in plate millimetres on the selected plate, Z in
 micrometres: the frame the go-to-bookmark moves read them in. The one
 writer of `bookmark`.
 
+**Args**
+
+- `axes`: The axes saved, each `'X'`, `'Y'` or `'Z'`; an axis not named keeps its stored bookmark.
+
 **Returns**
 
 The values stored, as `bookmark` reads them; an axis not in `axes` is None.
@@ -2449,6 +2559,11 @@ Autofocus button saving the Z its run chose, a script saving one it
 measured. It says only that the number is a Z this scope's focus can
 reach; it guarantees nothing about where the number came from.
 `save_focus`, which saves the live Z, writes through the same path.
+
+**Args**
+
+- `channel`: The layer whose focus is stored.
+- `z_um`: The focus, in micrometres; it must lie within Z's travel.
 
 **Raises**
 
@@ -2489,6 +2604,12 @@ of a layer is born at the same focus, so a step matching the old
 focus says nothing about whether its user wants the new one.
 `apply_focus_to_channel_steps` writes them all.
 
+**Args**
+
+- `protocol`: The protocol whose step may take the Z.
+- `channel`: The layer whose focus is saved.
+- `step_index`: The step, counted from 0, that takes the Z when it is a step of `channel`; None (the default) writes no step.
+
 **Raises**
 
 - `ProtocolRunRefusedError`: `'positions_unreachable'` -- this scope has no Z axis. Nothing is written.
@@ -2517,12 +2638,15 @@ Route: `POST /api/v1/save_protocol`.
 
 Write a protocol to a file, with this session's Layer Settings.
 
-The file is written under exactly `file_path`, which ends in
-`.tsv` (in any case); nothing is added to it. The block holds
-each layer set to acquire an image or a video, with the values its
-controls hold now; `apply_channel_settings` puts them back. What the
-GUI opens at its next start-up is not changed: a script's scratch
-save is not the person's protocol.
+The block holds each layer set to acquire an image or a video, with
+the values its controls hold now; `apply_channel_settings` puts them
+back. What the GUI opens at its next start-up is not changed: a
+script's scratch save is not the person's protocol.
+
+**Args**
+
+- `protocol`: The protocol whose steps are written.
+- `file_path`: The file written, exactly as given: it ends in `.tsv` (in any case), and nothing is added to it.
 
 **Returns**
 
@@ -2549,7 +2673,11 @@ def saved_focus_z_um(self, channel: str) -> float
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/saved_focus_z_um`.
 
-The Z saved as `channel`'s focus.
+The Z saved as `channel`'s focus, in micrometres.
+
+**Args**
+
+- `channel`: The channel (layer) whose saved focus is read.
 
 **Raises**
 
@@ -2600,6 +2728,10 @@ decided on the key rather than on how it was spelled.
 On a scope with no XY stage the one plate is Center Plate: another
 plate's wells are places it cannot move between, and a protocol made
 on one would image one field under every well's name.
+
+**Args**
+
+- `labware_id`: The plate's name in the labware catalogue, or a name the plate was known by before a rename.
 
 **Raises**
 
@@ -2671,6 +2803,10 @@ optics are recorded by the scope's runtime state the next time the
 objective is read, before any capture stamps it. Picking the
 objective already active is a no-op.
 
+**Args**
+
+- `objective_id`: The objective's catalogue key.
+
 **Raises**
 
 - `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, `objective_id` is not exactly a catalogue key. The refusal lands before any write or move.
@@ -2703,6 +2839,10 @@ Set the motors' acceleration limit, as a percent of the firmware's maximum, and 
 The one writer of `motion.acceleration_max_pct`, stored once the
 motor controller took the value.
 
+**Args**
+
+- `limit_pct`: The limit, a percent of the firmware's maximum acceleration, within the range the motion API accepts.
+
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller to take it. Nothing is stored.
@@ -2734,6 +2874,11 @@ stimulate at once.
 
 Nothing is changed on any refusal. Setting a layer to acquire
 nothing is always admitted.
+
+**Args**
+
+- `channel`: The layer set.
+- `mode`: What it captures, an `AcquireMode`; None sets it to capture nothing.
 
 **Raises**
 
@@ -2775,6 +2920,11 @@ turning the shown layer's off is refused.
 
 Nothing is changed on any refusal.
 
+**Args**
+
+- `channel`: The layer whose auto-gain is set.
+- `enabled`: True turns it on, False off.
+
 **Returns**
 
 The lock when turning off (its `state` is None when no arm stood), so a caller can read the state the camera reached, and `channel_auto_gain_lock` answers it from then on; None when turning on.
@@ -2803,8 +2953,11 @@ Marks: in-process.
 
 Make `folder` the live folder, where captures and runs are saved.
 
-The one writer of `live_folder`, stored as it is at load: a folder
-given relative to the installation is made absolute, and created.
+The one writer of `live_folder`, stored as it is at load.
+
+**Args**
+
+- `folder`: The folder's path; one given relative to the installation is made absolute, and the folder is created.
 
 **Raises**
 
@@ -2826,8 +2979,10 @@ Route: `POST /api/v1/set_protocol_capture_root`.
 
 Give `protocol` the capture root that prefixes its runs' file names.
 
-The protocol keeps `root` as given; the prefix a run's names take
-from it is `protocol.capture_prefix()`.
+**Args**
+
+- `protocol`: The protocol given the root.
+- `root`: The capture root, kept as given; the prefix a run's names take from it is `protocol.capture_prefix()`.
 
 **Raises**
 
@@ -2850,6 +3005,10 @@ Remember `file_path` as the protocol to open at the next start; `''` forgets it.
 
 The one writer of `protocol.filepath`, which the next start opens.
 
+**Args**
+
+- `file_path`: The protocol file to open at the next start; `''` opens none.
+
 **Raises**
 
 Nothing.
@@ -2868,6 +3027,11 @@ Put `protocol` on the plate `labware_id`; returns the key it took.
 
 The protocol's plate only: the scope's is `select_labware`'s. On a
 scope with no XY stage the protocol takes Center Plate.
+
+**Args**
+
+- `protocol`: The protocol put on the plate.
+- `labware_id`: The plate's name in the labware catalogue.
 
 **Raises**
 
@@ -2898,6 +3062,12 @@ Give `protocol` a new period and duration in seconds, as its two fields do.
 
 One scan is 0 for both.
 
+**Args**
+
+- `protocol`: The protocol rescheduled.
+- `period_s`: The time from one scan's start to the next, in seconds.
+- `duration_s`: How long the protocol runs, in seconds.
+
 **Raises**
 
 - `ProtocolScheduleRefusedError`: either cannot be run; the protocol keeps the schedule it had.
@@ -2921,6 +3091,10 @@ Draw the scale bar on captured images, or stop, and store it.
 
 The one writer of `scale_bar.enabled`, which the imaging API reads
 at each capture.
+
+**Args**
+
+- `enabled`: True draws the scale bar on captured images; False does not.
 
 **Raises**
 
@@ -2948,6 +3122,12 @@ Route: `POST /api/v1/set_step_autofocus`.
 
 Turn autofocus on or off for step `step_index` of `protocol`, or for every step.
 
+**Args**
+
+- `protocol`: The protocol whose steps are set.
+- `enabled`: True turns autofocus on, False off.
+- `step_index`: The step set, counted from 0; None (the default) sets every step.
+
 **Raises**
 
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
@@ -2974,13 +3154,11 @@ not for a session: every lane's completion callback, every run
 delivery and every listener the GUI marshals reads it at the moment
 it dispatches, whichever session or scope it belongs to. A GUI host
 sets it once, before it builds a session; a host with no UI thread
-(a script, a REST server) never sets it. None (the default) calls
-each callback directly on the thread that dispatches it, and a
-callback's raise is reported rather than raised.
+(a script, a REST server) never sets it.
 
-`dispatcher.thread` is the thread `schedule` delivers on: a
-run's `wait()` on that thread is refused, since what it waits for
-is delivered there.
+**Args**
+
+- `dispatcher`: What hands each callback to the UI thread: `dispatcher.thread` is the thread `schedule` delivers on, and a run's `wait()` on that thread is refused, since what it waits for is delivered there. None (the default) calls each callback directly on the thread that dispatches it, and a callback's raise is reported rather than raised.
 
 **Raises**
 
@@ -3025,6 +3203,10 @@ The one way the shown channel changes outside a run; a run's steps
 and `go_to_step` move it too. Each refusal is decided before any
 LED is turned off, so a refused call leaves the LEDs as they were.
 A layer this unit gives no LED is shown with every LED dark.
+
+**Args**
+
+- `channel`: The layer shown.
 
 **Returns**
 
@@ -3222,7 +3404,10 @@ Start `axes` moving to the bookmark, as the go-to-bookmark buttons do; return th
 Reads `bookmark` for the axes given, as `save_bookmark` wrote
 them: X and Y in mm on the selected plate (`start_move_to_plate`,
 the axes given on one lane task), Z in um (`start_move_z`).
-An axis not given is left where it is.
+
+**Args**
+
+- `axes`: The axes moved, each `'X'`, `'Y'` or `'Z'`; an axis not named is left where it is.
 
 **Returns**
 
@@ -3285,6 +3470,11 @@ Once that task has run, the step's layer goes on the camera
 (`apply_layer_camera`) before this returns, so a still asked after
 it is taken at the step's settings. It waits on the camera lane, so
 it is refused on the UI thread; a click calls it from a worker.
+
+**Args**
+
+- `protocol`: The protocol whose step is gone to.
+- `step_index`: The step gone to, counted from 0.
 
 **Raises**
 
@@ -3432,6 +3622,10 @@ The objective bound to the turret's `slot`, or None while it holds none.
 What `assign_turret_objective` bound; the active objective is the
 slot's in the light path (`objective_id`).
 
+**Args**
+
+- `slot`: The turret slot read, 1-4.
+
 **Raises**
 
 - `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` is judged.
@@ -3460,6 +3654,10 @@ to it until `point_steps_at_turret_slot` answers its question.
 LumaViewPro asks when a protocol is opened. Empty on a scope with no
 turret, and for steps whose objective no slot holds, which a load
 and a run refuse as `turret_objectives_unassigned`.
+
+**Args**
+
+- `protocol`: The protocol whose steps are read.
 
 **Raises**
 
@@ -3513,6 +3711,11 @@ profilers and debugging switches -- is read only from the
 installation's settings file, so no caller can reconfigure the scope
 it drives. A block (`'video'`) is not written whole: each of its
 settings has a path.
+
+**Args**
+
+- `path`: The setting's dotted path, each segment a key one level down the settings.
+- `value`: The value stored, of the setting's kind and within its range.
 
 **Raises**
 
@@ -3573,6 +3776,13 @@ other inputs from the session the same way `add_step` does.
 
 Returns the step's name after the update.
 
+**Args**
+
+- `protocol`: The protocol whose step is rewritten.
+- `step_index`: The step rewritten, counted from 0.
+- `channel`: The layer whose settings the step takes. When that layer's stimulation is enabled the edit is a stimulation edit, and the step keeps the channel it already acquires.
+- `label`: The step's new label; None (the default) keeps its label.
+
 **Raises**
 
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the live position is a place it is passing through. The step is unchanged.
@@ -3602,6 +3812,10 @@ For a host that saves accepted writes, to pass to `create`:
 settings_file=ScopeSession.user_settings_file(root))``, as the GUI
 and the REST server do. `load_user_settings` reads this file
 first. Nothing is read or created here.
+
+**Args**
+
+- `source_path`: The installation folder, as `create` and `load_user_settings` take it.
 
 **Raises**
 
@@ -3937,10 +4151,7 @@ so the call makes the chain's product and its inputs, not every
 combination the folder's images allow: z-project, stitch and
 composite of a 2x2 tiled, 3-slice, 2-channel scan make 8
 projections, 2 stitched projections and 1 composite, where the three
-builds run one by one make 36 files. A build is chosen by passing its
-settings record (*composite*, which has no settings of its own -- its
-format and thresholds are the user's configuration -- by True); one
-left None is not run. Every chosen build's
+builds run one by one make 36 files. Every chosen build's
 settings are checked before any build starts, and the call runs as
 one task on the post-processing lane, so no other build touches the
 folder between its steps. Each build alone (`stitch`,
@@ -3955,6 +4166,15 @@ again rebuilds nothing already made and resumes at the build that
 stopped, once its cause is gone. One that does not go -- a raw slice
 missing -- stops the call there every time; build that folder with
 the members one by one.
+
+**Args**
+
+- `folder`: The folder of a protocol's captures; the builds read it and write their files into it.
+- `zproject`: The z-projection's settings, or None for no z-projection.
+- `stitch`: The stitch's settings, or None for no stitch.
+- `composite`: True to merge each multi-channel position into one composite, its format and thresholds the user's configuration; False for no composite.
+- `video`: The video's settings, or None for no video.
+- `on_progress`: Called with the percentage of the whole call and a line naming the build running (that build's own detail on the line below it), from the thread the builds run on; None for no progress.
 
 **Raises**
 
@@ -3985,12 +4205,16 @@ Route: `POST /api/v1/post_processing/cell_count_size_scale`.
 The scale an image of *shape* is counted at by *method*, and what its size sliders stand for.
 
 The scale is the one `preview_cell_count` and `count_cells`
-measure at: the method's *pixels_per_um*, else *pixel_size_um*, the
-image's own (microns per pixel; None when it states none), else
+measure at: the method's *pixels_per_um*, else *pixel_size_um*, else
 pixels. Each slider's top stop is the largest size the image holds
 at that scale, and its low end is stretched, so the small sizes most
-methods bound get most of the travel. With *shape* None (no image
-yet) a position stands for its own size.
+methods bound get most of the travel.
+
+**Args**
+
+- `method`: The cell-count method the image is counted by.
+- `shape`: The image's rows and columns (and channels), or None for no image yet, when a slider position stands for its own size.
+- `pixel_size_um`: The image's own scale in microns per pixel, or None when it states none.
 
 **Raises**
 
@@ -4017,6 +4241,12 @@ Route: `POST /api/v1/post_processing/count_cells`.
 
 Count the cells in every image in *folder* by *method*, writing
 `results.csv` into the folder.
+
+**Args**
+
+- `folder`: The folder of images to count; a `results.csv` already there is replaced only once the new one is written whole.
+- `method`: The cell-count method to count by.
+- `on_progress`: Called with a percentage and what the count is doing, from the thread it runs on; None for no progress.
 
 **Returns**
 
@@ -4072,8 +4302,17 @@ Marks: in-process.
 The figure `graph` saves for the same arguments, for a GUI in this process to show.
 
 With no *results*, or *x* or *y* None, it is the empty frame a
-graph shows before its axes are chosen. Each label defaults to its
-column's name.
+graph shows before its axes are chosen.
+
+**Args**
+
+- `results`: The cell-count results file, or None for none yet.
+- `x`: The column on the X axis, or None for none yet.
+- `y`: The column on the Y axis, or None for none yet.
+- `trendline`: One of the kinds `graph_options` names for *x* and *y*, or None for none.
+- `x_label`: The X axis's label; None labels it with *x*.
+- `y_label`: The Y axis's label; None labels it with *y*.
+- `title`: The graph's title; empty for none.
 
 **Raises**
 
@@ -4107,6 +4346,8 @@ each to its own derived file beside its source.
 
 **Args**
 
+- `target`: The image file, or the folder of images, to enhance.
+- `on_progress`: Called with a percentage and what the enhance is doing, from the thread it runs on; None for no progress.
 - `on_derived_image`: Called with each enhanced image and its significant bits as it is saved, for a caller that shows it.
 
 **Returns**
@@ -4147,9 +4388,16 @@ Route: `POST /api/v1/post_processing/graph`.
 Save the graph of column *y* against column *x* of the cell-count
 *results* file to *path* as a PNG.
 
-*trendline* is one of the kinds `graph_options` names, or None for
-none. Each label defaults to its column's name. A missing folder is
-made where *path* sends it.
+**Args**
+
+- `results`: The cell-count results file, as `count_cells` writes it; None is refused.
+- `path`: The PNG to write, its name ending in `.png`; a missing folder is made where it sends it.
+- `x`: The column on the X axis; None is refused.
+- `y`: The column on the Y axis; None is refused.
+- `trendline`: One of the kinds `graph_options` names for *x* and *y*, or None for none.
+- `x_label`: The X axis's label; None labels it with *x*.
+- `y_label`: The Y axis's label; None labels it with *y*.
+- `title`: The graph's title; empty for none.
 
 **Returns**
 
@@ -4188,6 +4436,12 @@ the trendlines the axes given so far take.
 Read on the caller's thread, not the post-processing lane, so a form
 filling its choices does not wait behind a build.
 
+**Args**
+
+- `results`: The cell-count results file, as `count_cells` writes it.
+- `x`: The X axis's column chosen so far, or None for none yet.
+- `y`: The Y axis's column chosen so far, or None for none yet.
+
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *results*; `'not_a_file'`, a folder is.
@@ -4213,6 +4467,10 @@ form taking a method does not wait behind a build. A file saved
 before the count read each image's scale carries the old fixed
 default of 1.0 pixels per micron, which the load drops, saying so
 once.
+
+**Args**
+
+- `path`: The method file to read, as `save_cell_count_method` writes it.
 
 **Raises**
 
@@ -4243,16 +4501,16 @@ each image of a folder, and answer the outlines and the counts.
 
 Counted on the caller's thread, not the post-processing lane, so a
 form previewing a method while a build or a run goes on is not held
-behind it. *image* is the pixels the caller holds, so a form that
-adjusts the method reads no file. It is measured at the scale
-`count_cells` would measure its file at: the method's
-*pixels_per_um*, else *pixel_size_um*, the image's own (microns
-per pixel), else in pixels.
+behind it. The image is measured at the scale `count_cells` would
+measure its file at: the method's *pixels_per_um*, else
+*pixel_size_um*, else in pixels.
 
 **Args**
 
+- `image`: The pixels the caller holds, so a form that adjusts the method reads no file.
+- `method`: The cell-count method to count by.
 - `significant_bits`: The image's payload depth, by which a 16-bit image is scaled to the 8 bits the count reads.
-- `pixel_size_um`: The scale the image states, or None.
+- `pixel_size_um`: The scale the image states, in microns per pixel, or None when it states none.
 
 **Raises**
 
@@ -4290,8 +4548,12 @@ Route: `POST /api/v1/post_processing/save_cell_count_method`.
 Write *method* to *path* as a cell-count method file, which
 `load_cell_count_method` reads back.
 
-Written on the caller's thread, as the load is read. A missing
-folder is made where *path* sends it.
+Written on the caller's thread, as the load is read.
+
+**Args**
+
+- `method`: The cell-count method to write.
+- `path`: The file to write, its name ending in `.json`; a missing folder is made where it sends it.
 
 **Raises**
 
@@ -4572,6 +4834,10 @@ without hardware auto-gain runs manual whatever the layer stored, and
 the stored preference is left alone so a camera that has the mode
 takes it again.
 
+**Args**
+
+- `stored_auto_gain`: Whether a channel stores auto-gain on.
+
 **Raises**
 
 Nothing.
@@ -4590,6 +4856,10 @@ What a stored exposure becomes on the attached camera.
 
 See `applied_gain_db_for`; the same contract for the other
 quantity, so both travel the same path to hardware and to display.
+
+**Args**
+
+- `stored_exposure_ms`: The exposure a channel stores, in milliseconds.
 
 **Raises**
 
@@ -4615,6 +4885,10 @@ The one place the gain cap is applied. A caller that narrows a
 stored value itself -- against this cap or against a widget's
 range -- is a second answerer, and the store it writes back is
 how a user's setting gets destroyed by connecting a smaller body.
+
+**Args**
+
+- `stored_gain_db`: The gain a channel stores, in dB.
 
 **Raises**
 
@@ -4784,6 +5058,10 @@ and the camera's limits, so a display can show the new frame beside
 the new binning while the apply is still running. The camera's own
 answer (its grid, its minimum at the new binning) can differ; the
 saved frame after the apply is the truth.
+
+**Args**
+
+- `size`: The binning factor, one the camera offers.
 
 **Raises**
 
@@ -5527,6 +5805,10 @@ the camera's frame limits depend on the binning in force; one caller
 running both in order is what keeps a frame edit from being worked
 out against a binning the camera has not reached.
 
+**Args**
+
+- `size`: The binning factor, one the camera offers (`ScopeCapabilities.camera_binning_sizes`).
+
 **Returns**
 
 The frame the camera delivers.
@@ -5559,6 +5841,10 @@ value in effect.
 
 See `read_black_level` for what the value means. The value holds
 until the next connect, when the camera reloads its default user set.
+
+**Args**
+
+- `level`: The black level, in the camera's own units for its current pixel format.
 
 **Returns**
 
@@ -5636,6 +5922,11 @@ person sees and captures (post-binning); the unbinned region it
 implies is saved beside it. A size the camera already delivers is
 not written again.
 
+**Args**
+
+- `width`: The frame's width in pixels, after binning.
+- `height`: The frame's height in pixels, after binning.
+
 **Returns**
 
 The frame the camera delivers: the request floored to even sides.
@@ -5712,6 +6003,10 @@ the setting is saved only once the camera took it, so the saved
 settings never name a mode the camera is not in. Off on a camera
 without the mode is its state, and is saved.
 
+**Args**
+
+- `enabled`: True for high conversion gain, False for low.
+
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
@@ -5744,6 +6039,10 @@ format is set only this way, so a capture's depth and its save
 policy agree. A camera that reports none (none is connected) has
 nothing to apply; the mode is saved and bring-up applies it.
 
+**Args**
+
+- `mode`: The image mode, the capture depth and save encoding to use.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `mode` is not an image mode. Nothing is applied or saved.
@@ -5771,6 +6070,10 @@ Turn the camera's line-noise filter on or off, then save it.
 
 The one writer of `camera.line_noise_reduction`, saved only once
 the camera took it, as `set_high_conversion_gain` is.
+
+**Args**
+
+- `enabled`: True to turn the filter on, False to turn it off.
 
 **Raises**
 
@@ -6087,6 +6390,10 @@ Read TMC5072 DRV_STATUS register for an axis.
 Returns the raw register value as int (caller decodes bits),
 or None when the firmware does not implement DRVSTAT_&lt;axis>.
 
+**Args**
+
+- `axis`: The axis whose driver chip to read.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is no axis name; nothing was read.
@@ -6262,6 +6569,10 @@ Marks: in-process; engineering.
 Set motor-board fan PWM duty cycle (0..100), and wait for the board to take it.
 
 The fan reaches the new duty later: `motor_fan_spin_times`.
+
+**Args**
+
+- `duty_pct`: The fan's PWM duty cycle, in percent, 0 to 100.
 
 **Raises**
 
@@ -7099,6 +7410,10 @@ marked removed before the driver is asked, so a driver that fails to
 unregister it goes on calling a wrapper that no longer calls through.
 No-op when the listener was never registered.
 
+**Args**
+
+- `cb`: The callback given to `add_frame_listener`.
+
 **Raises**
 
 Nothing.
@@ -7127,6 +7442,11 @@ half black, so any caller judging whether an exposure is usable needs
 the pixel count, not a summary statistic. `significant_bits` is
 required rather than defaulted -- a caller that has to guess the
 payload depth is the case this measures wrong.
+
+**Args**
+
+- `arr`: The frame's pixels; None or an empty array answers 0.
+- `significant_bits`: The frame's payload depth in bits, 1 to 16, from which full scale is taken.
 
 **Raises**
 
@@ -7594,6 +7914,11 @@ record answers: `jog_z_coarse_um` / `jog_z_fine_um` for Z,
 `jog_xy_coarse_um` / `jog_xy_fine_um` for X and Y, the units
 `move_xy_by` and `move_z_by` take.
 
+**Args**
+
+- `axis`: The axis to jog: `'X'`, `'Y'` or `'Z'`.
+- `coarse`: True for the coarse step, False for the fine one.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not 'X', 'Y' or 'Z': the turret has no jog.
@@ -7617,6 +7942,10 @@ Route: `POST /api/v1/scope/motion/move_to_plate`.
 Move X and Y to `at` on the selected plate, and return once they have arrived.
 
 `start_move_to_plate` followed by its operation's `result()`.
+
+**Args**
+
+- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
 
 **Raises**
 
@@ -7648,6 +7977,10 @@ Route: `POST /api/v1/scope/motion/move_to_well`.
 Move X and Y to the centre of `well` on the selected plate, and return once they have arrived.
 
 `start_move_to_well` followed by its operation's `result()`.
+
+**Args**
+
+- `well`: The well's label on the selected plate, such as `'A1'`.
 
 **Raises**
 
@@ -7721,7 +8054,12 @@ Route: `POST /api/v1/scope/motion/move_xy`.
 Move X and Y to a place, in um, each that is given, and return once they have arrived.
 
 `start_move_xy` followed by its operation's `result()`.
-`ignore_limits` is in-process only, as `start_move_xy`'s.
+
+**Args**
+
+- `x_um`: Where X goes, in um on the stage; None leaves X as it is.
+- `y_um`: Where Y goes, in um on the stage; None leaves Y as it is.
+- `ignore_limits`: True to drive past the configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
 
 **Raises**
 
@@ -7753,6 +8091,11 @@ Route: `POST /api/v1/scope/motion/move_xy_by`.
 Move X and Y by a distance, in um, each that is given, and return once they have arrived.
 
 `start_move_xy_by` followed by its operation's `result()`.
+
+**Args**
+
+- `dx_um`: How far X moves, in um; None leaves X as it is.
+- `dy_um`: How far Y moves, in um; None leaves Y as it is.
 
 **Raises**
 
@@ -7789,7 +8132,12 @@ Route: `POST /api/v1/scope/motion/move_z`.
 Move Z to a place, in um, and return once it has arrived.
 
 `start_move_z` followed by its operation's `result()`.
-`ignore_limits` is in-process only, as `start_move_z`'s.
+
+**Args**
+
+- `z_um`: Where Z goes, in um.
+- `overshoot_enabled`: None for the API's approach from below; True or False forces the approach on or off, as `start_move_z` says.
+- `ignore_limits`: True to drive past Z's configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
 
 **Raises**
 
@@ -7821,6 +8169,11 @@ Route: `POST /api/v1/scope/motion/move_z_by`.
 Move Z by a distance, in um, and return once it has arrived.
 
 `start_move_z_by` followed by its operation's `result()`.
+
+**Args**
+
+- `dz_um`: How far Z moves, in um.
+- `overshoot_enabled`: None for no approach from below; True or False forces it on or off, for a bench script.
 
 **Raises**
 
@@ -7984,6 +8337,10 @@ returned or raised; its `stop()` is `stop_motion` while the home
 drives, refused `'home_not_stoppable'` on a board that cannot stop
 a home, and nothing once the home has ended.
 
+**Args**
+
+- `axis`: What to home: `'Z'`, `'T'` (the turret) or `'ALL'`, every axis the scope has.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
@@ -8015,6 +8372,10 @@ whether they know their position and are started on one task of the
 IO lane (`one_command`), so a capture asked meanwhile never takes
 the new X at the old Y. Each is checked against the plate positions
 this stage can reach, and refused in mm, before either moves.
+
+**Args**
+
+- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
 
 **Returns**
 
@@ -8051,6 +8412,10 @@ Start X and Y moving to the centre of `well` on the selected plate; return the s
 read from the plate selected when the move is on the lane, so the
 plate the well is found on is the plate the move converts on.
 Otherwise as `start_move_to_plate` for both axes.
+
+**Args**
+
+- `well`: The well's label on the selected plate, such as `'A1'`.
 
 **Raises**
 
@@ -8089,9 +8454,11 @@ a refusal of one moves neither. An axis that is None is left as it
 is, still, travelling or unknown, and is not read. With neither
 given nothing moves and the move is done at once.
 
-`ignore_limits` drives past the configured travel, never past the
-motor's safety limit. It is in-process only: a wire request that
-sends it is refused as `invalid_request`.
+**Args**
+
+- `x_um`: Where X goes, in um on the stage; None leaves X as it is.
+- `y_um`: Where Y goes, in um on the stage; None leaves Y as it is.
+- `ignore_limits`: True to drive past the configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
 
 **Returns**
 
@@ -8132,6 +8499,11 @@ As `start_move_xy`. Each distance is added to the axis's board
 target, so a move still under way on it is added to, and every
 target is read and refused before either axis drives.
 
+**Args**
+
+- `dx_um`: How far X moves, in um; None leaves X as it is.
+- `dy_um`: How far Y moves, in um; None leaves Y as it is.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'`, a distance given is not a finite number. Nothing was driven.
@@ -8165,13 +8537,13 @@ Route: `POST /api/v1/scope/motion/start_move_z`.
 Start Z moving to a place, in um; return the started move.
 
 A move of Z to a place approaches it from below, so the backlash
-is always taken the same way. `overshoot_enabled` is for a bench
-script that measures the backlash: None is the API's approach,
-True or False the script's own.
+is always taken the same way.
 
-`ignore_limits` drives past Z's configured travel, never past the
-motor's safety limit. It is in-process only: a wire request that
-sends it is refused as `invalid_request`.
+**Args**
+
+- `z_um`: Where Z goes, in um.
+- `overshoot_enabled`: None for the API's approach from below; True or False forces the approach on or off, for a bench script measuring the backlash.
+- `ignore_limits`: True to drive past Z's configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
 
 **Returns**
 
@@ -8212,6 +8584,11 @@ The distance is added to Z's board target, so a move still under
 way is added to. A move by a distance takes no approach from below;
 `overshoot_enabled` is the bench script's override, as for
 `start_move_z`.
+
+**Args**
+
+- `dz_um`: How far Z moves, in um.
+- `overshoot_enabled`: None for no approach from below; True or False forces it on or off, for a bench script.
 
 **Returns**
 
@@ -8498,9 +8875,15 @@ Route: `GET /api/v1/scope/runtime_state/plate_to_stage`.
 
 Convert a plate position (mm) to a stage position (um), as `stage_to_plate` inverted.
 
-The plate and offset are `stage_to_plate`'s. Not bounded: a
-position off the stage's travel converts, and the move to it is
-refused.
+Not bounded: a position off the stage's travel converts, and the
+move to it is refused.
+
+**Args**
+
+- `x_mm`: The plate X, in mm.
+- `y_mm`: The plate Y, in mm.
+- `labware_id`: The plate the position is stated on; None for the selected plate. A protocol's positions are on the plate it stores.
+- `stage_offset`: Where the plate is mounted on the stage, in um; None for the live offset. A run keeps the offset it started with.
 
 **Raises**
 
@@ -8533,9 +8916,14 @@ Marks: in-process; reads (changes nothing).
 call, so a caller converting many positions over time -- a recording
 writing one per frame, a run, a redraw -- would state its later ones
 against a plate or offset changed mid-way. The function returned is
-bound to the plate and offset of this call (the arguments are
-`stage_to_plate`'s), so every position it converts is stated in one
-frame of reference and a later change moves none of them.
+bound to the plate and offset of this call, so every position it
+converts is stated in one frame of reference and a later change moves
+none of them.
+
+**Args**
+
+- `labware_id`: The plate the positions are stated on; None for the plate selected when this is called.
+- `stage_offset`: Where the plate is mounted on the stage, in um; None for the offset live when this is called.
 
 **Returns**
 
@@ -8600,10 +8988,14 @@ Route: `GET /api/v1/scope/runtime_state/stage_to_plate`.
 
 Convert a stage position (um) to a plate position (mm).
 
-`plate_to_stage` inverts it. Stated on the selected plate at the
-live stage offset unless `labware_id` or `stage_offset` names
-another: a protocol's positions are on the plate it stores, and a
-run keeps the offset it started with.
+`plate_to_stage` inverts it.
+
+**Args**
+
+- `x_um`: The stage X, in um.
+- `y_um`: The stage Y, in um.
+- `labware_id`: The plate the position is stated on; None for the selected plate. A protocol's positions are on the plate it stores.
+- `stage_offset`: Where the plate is mounted on the stage, in um; None for the live offset. A run keeps the offset it started with.
 
 **Raises**
 
@@ -8638,12 +9030,16 @@ def answer_model(self, model: str | None) -> None
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/scope/simulation/answer_model`.
 
-The motor board names `model` as its own, until `clear`; None names none.
+The motor board names `model` as its own, until `clear`.
 
 Its axes stay the ones it was built with, as a board whose firmware
 names a model its motors are not: `diagnostics.get_motor_info`
 reports the answer, and bring-up reads it to decide the scope's
 model.
+
+**Args**
+
+- `model`: The model name the board's info answers with; None names none.
 
 **Raises**
 
@@ -8734,6 +9130,10 @@ frames, in which none is stored; the first frame stored after this
 call says it stands. `clear` takes it back and the held frames
 are stored at once.
 
+**Args**
+
+- `frames`: How many frames behind its hand-over each frame is stored, 1 or more.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for fewer than 1 frame; `'not_injectable_on_board'` on the FX2, whose frames come over its own link.
@@ -8821,6 +9221,10 @@ A frame's chunks name the register when it was tagged, which a
 change reaches before the frames already started show it; this is
 what the pixels show, so a test can judge a frame by what it was
 made under, never by its pixels or by the gate's own answer.
+
+**Args**
+
+- `frame`: A frame the simulated camera delivered, among the most recent it keeps records of.
 
 **Raises**
 
@@ -8919,7 +9323,14 @@ def interlock(self, lid_open: bool | None = None, powered: bool | None = None) -
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/scope/simulation/interlock`.
 
-The stage's interlock inputs read as given; None leaves one as it is.
+The stage's interlock inputs read as given, until `clear`.
+
+`clear` reads the lid closed and the stage powered again.
+
+**Args**
+
+- `lid_open`: Whether the lid input reads open; None leaves it as it is.
+- `powered`: Whether the stage's power input reads powered; None leaves it as it is.
 
 **Raises**
 
@@ -8943,7 +9354,12 @@ Route: `POST /api/v1/scope/simulation/reboot`.
 The board's firmware restarts and forgets everything it knew.
 
 Its port fails at once, as USB re-enumerates, and the board is found
-again after `booting_for_s` seconds.
+again once it has booted.
+
+**Args**
+
+- `board`: `MOTOR` or `LED`, a board this scope has.
+- `booting_for_s`: How long the board takes to boot before it is found again, in seconds, from 0 to 30 days.
 
 **Raises**
 
@@ -9041,7 +9457,11 @@ The LED board refuses its next `count` writes and stays on the bus.
 
 An LED command whose write is refused raises the LED board's
 `BoardPortFailedError` to its caller, and the LED stays connected
-for the next command. On the FX2 each LED command is three writes.
+for the next command.
+
+**Args**
+
+- `count`: How many writes in a row are refused, 1 or more; on the FX2 each LED command is three writes.
 
 **Raises**
 
@@ -9066,6 +9486,10 @@ The camera refuses its next `count` stream starts and stays on the bus.
 
 A start the camera refuses raises its fault to whoever started the
 stream, and the camera is left connected and not streaming.
+
+**Args**
+
+- `count`: How many stream starts in a row are refused, 1 or more.
 
 **Raises**
 
@@ -9112,6 +9536,10 @@ Route: `POST /api/v1/scope/simulation/replug`.
 
 The board's cable goes back in: it is found again.
 
+**Args**
+
+- `board`: `MOTOR` or `LED`, a board this scope has.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` where `unplug` is, and on the FX2, which re-enumerates on its own.
@@ -9133,6 +9561,10 @@ Route: `POST /api/v1/scope/simulation/silence`.
 
 The board answers no command from now on, until `unsilence`.
 
+**Args**
+
+- `board`: `MOTOR` or `LED`, a board this scope has.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` on the fast LED board and a firmware board, whose silence is `unplug`.
@@ -9152,8 +9584,12 @@ def stall_stream(self, after_s: float, for_s: float) -> None
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/scope/simulation/stall_stream`.
 
-The camera's stream delivers no frame for `for_s` seconds,
-starting `after_s` seconds from now; it stays connected and grabbing.
+The camera's stream delivers no frame for a while, staying connected and grabbing.
+
+**Args**
+
+- `after_s`: How long from now the stall starts, in seconds, 0 or more.
+- `for_s`: How long the stall lasts, in seconds, more than 0.
 
 **Raises**
 
@@ -9176,6 +9612,10 @@ Route: `POST /api/v1/scope/simulation/unplug`.
 
 The board's cable is pulled: its port fails from the next command.
 
+**Args**
+
+- `board`: `MOTOR` or `LED`, a board this scope has.
+
 **Raises**
 
 - `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` on the fast LED board, which has no link to lose.
@@ -9196,6 +9636,10 @@ Marks: enters: `guarded_write`.
 Route: `POST /api/v1/scope/simulation/unsilence`.
 
 The board answers again after `silence`.
+
+**Args**
+
+- `board`: `MOTOR` or `LED`, a board this scope has.
 
 **Raises**
 
@@ -9651,6 +10095,10 @@ Return the layer whose stable key name matches, else None.
 The deserialisation boundary: a name arriving from disk or from
 an API caller is mapped to its record exactly once, here.
 
+**Args**
+
+- `key_name`: The layer's stable key name, such as `'BF'` or `'Ex488'`.
+
 **Raises**
 
 Nothing.
@@ -9670,6 +10118,12 @@ The one question for a command that takes a layer: its settings,
 its focus, a still or a recording named for it. The name first
 (`refuse_unknown_layer`), so a name that is no layer is never
 told it is missing hardware.
+
+**Args**
+
+- `channel`: The layer's key name the command was given.
+- `member`: The name of the command asking, which the hardware refusal names as the command refused.
+- `then`: What the command would have the layer do, as words completing "so &lt;channel> cannot ...", such as `'be captured'`; the unresolved refusal's message ends with it.
 
 **Raises**
 
@@ -10383,13 +10837,18 @@ def get_well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None
 
 Marks: in-process; reads (changes nothing).
 
-The (column, row) of the well centre nearest plate position (x_mm, y_mm).
+The (column, row) of the well centre nearest a plate position, each counted from 0.
 
 None when that centre is outside the grid: the position is more
 than half a pitch beyond the outer well centres, off the plate's
 wells, or the plate has no wells at all (the Blank labware). No
 shipped plate states a well size, so within the grid a position
 names its nearest well whether or not it is inside it.
+
+**Args**
+
+- `x_mm`: The plate X, in mm from the plate's left edge.
+- `y_mm`: The plate Y, in mm from the plate's top edge.
 
 **Raises**
 
@@ -10409,6 +10868,11 @@ def get_well_position(self, i: int, j: int) -> tuple[float, float]
 Marks: in-process; reads (changes nothing).
 
 The centre of the well in column `i` and row `j`, in mm from the plate's top-left.
+
+**Args**
+
+- `i`: The well's column, counted from 0 at the left.
+- `j`: The well's row, counted from 0 at the top.
 
 **Raises**
 
@@ -11094,6 +11558,11 @@ and the GUI's job is to render what comes back.
 Advisory only. Nothing here refuses anything -- a legitimate large
 protocol runs untouched, and the run-start disk guard is unchanged.
 
+**Args**
+
+- `video_as_frames`: True when the run saves a video step as individual frames rather than one compressed file, which writes more.
+- `global_max_fps`: The run's video frame-rate cap, 0 for none, so a video step is sized at the rate it will record at.
+
 **Raises**
 
 Nothing.
@@ -11220,9 +11689,17 @@ Marks: in-process.
 
 `start_autofocus`, waited for: returns the run's outcome once it has let go of the scope.
 
-Takes `start_autofocus`'s arguments, and `timeout_s`: how long to wait
-for the run to end; None waits for its end. A run that ends any way
-returns its outcome, a stopped one included.
+A run that ends any way returns its outcome, a stopped one included.
+
+**Args**
+
+- `channel`: Which channel to focus on ('BF', 'Ex488', ...).
+- `save_characterization_data`: Whether to write the focus scores the sweep measured; the outcome says whether the file was written and names it.
+- `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
+- `parent_dir`: Where characterization data goes; None for `Autofocus Characterization` under the live folder. Unused when no data is saved.
+- `events`: The run's event handlers (`RunEvents`); None for none.
+- `claim`: A claim the caller holds, the one `session.diagnostic_claim()` yields, to run under instead of taking the scope; None takes the scope for this run alone.
+- `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
 **Raises**
 
@@ -11255,9 +11732,13 @@ Marks: in-process.
 
 `start_autofocus_all_steps`, waited for: returns the run's outcome once it has let go of the scope.
 
-Takes `start_autofocus_all_steps`'s arguments, and `timeout_s`: how long to wait
-for the run to end; None waits for its end. A run that ends any way
-returns its outcome, a stopped one included.
+A run that ends any way returns its outcome, a stopped one included.
+
+**Args**
+
+- `protocol`: The protocol to focus; only its Z values are written.
+- `events`: The run's event handlers (`RunEvents`); None for none.
+- `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
 **Raises**
 
@@ -11356,9 +11837,16 @@ Marks: in-process.
 
 `start_protocol`, waited for: returns the run's outcome once it has let go of the scope.
 
-Takes `start_protocol`'s arguments, and `timeout_s`: how long to wait
-for the run to end; None waits for its end. A run that ends any way
-returns its outcome, a stopped one included.
+A run that ends any way returns its outcome, a stopped one included.
+
+**Args**
+
+- `protocol`: The protocol whose steps, period and duration the run follows.
+- `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
+- `parent_dir`: The folder the run's own folder is made in; None for `ProtocolData` under the live folder.
+- `enable_image_saving`: Whether the captured images are saved.
+- `events`: The run's event handlers (`RunEvents`); None for none.
+- `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
 **Raises**
 
@@ -11395,9 +11883,17 @@ Marks: in-process.
 
 `start_single_scan`, waited for: returns the run's outcome once it has let go of the scope.
 
-Takes `start_single_scan`'s arguments, and `timeout_s`: how long to wait
-for the run to end; None waits for its end. A run that ends any way
-returns its outcome, a stopped one included.
+A run that ends any way returns its outcome, a stopped one included.
+
+**Args**
+
+- `protocol`: The protocol whose steps the scan runs.
+- `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
+- `parent_dir`: The folder the run's own folder is made in; None for `ProtocolData` under the live folder.
+- `enable_image_saving`: Whether the captured images are saved.
+- `events`: The run's event handlers (`RunEvents`); None for none.
+- `return_to_position`: Where to return once the scan ends, on the protocol's plate; an axis that is None is left where the scan left it. None returns nowhere.
+- `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
 **Raises**
 
@@ -11434,9 +11930,17 @@ Marks: in-process.
 
 `start_zstack`, waited for: returns the run's outcome once it has let go of the scope.
 
-Takes `start_zstack`'s arguments, and `timeout_s`: how long to wait
-for the run to end; None waits for its end. A run that ends any way
-returns its outcome, a stopped one included.
+A run that ends any way returns its outcome, a stopped one included.
+
+**Args**
+
+- `channel`: Which channel to capture ('BF', 'Ex488', ...).
+- `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
+- `parent_dir`: The folder the run's own folder is made in; None for `Manual/Z-Stacks` under the live folder.
+- `events`: The run's event handlers (`RunEvents`); None for none.
+- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends.
+- `enable_image_saving`: Whether the slices are written.
+- `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
 **Raises**
 
@@ -12219,6 +12723,10 @@ Marks: in-process; reads (changes nothing).
 
 The slider positions that show two sizes.
 
+**Args**
+
+- `sizes`: The low and high sizes, in the stops' unit; a size beyond the first or last stop is shown at that stop's position.
+
 **Raises**
 
 Nothing.
@@ -12233,6 +12741,10 @@ def size_at(self, positions: tuple[float, float]) -> tuple[float, float]
 Marks: in-process; reads (changes nothing).
 
 The sizes a slider's two positions stand for.
+
+**Args**
+
+- `positions`: The slider's low and high positions; a position beyond the first or last stop stands for that stop's size.
 
 **Raises**
 
@@ -12687,6 +13199,10 @@ Marks: in-process.
 
 What *exception* is, as its type says: the one reading of an outcome's kind and words.
 
+**Args**
+
+- `exception`: The exception to read, raised or not: any exception, a cancellation and one the API does not declare included.
+
 **Raises**
 
 Nothing.
@@ -12711,6 +13227,10 @@ The OpenAPI description is at `/api/v1/openapi.json` and the
 interactive reference at `/docs`. The event stream hears the scope
 while the application is served, from its startup to its shutdown.
 Its close is `app.state.closing`; its live view `app.state.live`.
+
+**Args**
+
+- `session`: The session the application serves, as `ScopeSession.create` brings it up; every route calls into it.
 
 **Raises**
 

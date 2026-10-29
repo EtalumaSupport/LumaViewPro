@@ -1521,6 +1521,11 @@ class ImagingAPI:
         required rather than defaulted -- a caller that has to guess the
         payload depth is the case this measures wrong.
 
+        Args:
+            arr: The frame's pixels; None or an empty array answers 0.
+            significant_bits: The frame's payload depth in bits, 1 to 16, from which
+                full scale is taken.
+
         Raises:
             ArgumentRefusedError: ``'out_of_range'``, *significant_bits* is
                 outside 1 to 16, the depths a frame's 16-bit container holds.
@@ -2813,6 +2818,9 @@ class ImagingAPI:
         marked removed before the driver is asked, so a driver that fails to
         unregister it goes on calling a wrapper that no longer calls through.
         No-op when the listener was never registered.
+
+        Args:
+            cb: The callback given to ``add_frame_listener``.
 
         Raises:
             Nothing.

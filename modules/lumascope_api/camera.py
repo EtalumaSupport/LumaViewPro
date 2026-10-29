@@ -1948,6 +1948,9 @@ class CameraAPI:
         settings never name a mode the camera is not in. Off on a camera
         without the mode is its state, and is saved.
 
+        Args:
+            enabled: True for high conversion gain, False for low.
+
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
@@ -1976,6 +1979,9 @@ class CameraAPI:
 
         The one writer of ``camera.line_noise_reduction``, saved only once
         the camera took it, as ``set_high_conversion_gain`` is.
+
+        Args:
+            enabled: True to turn the filter on, False to turn it off.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -2009,6 +2015,9 @@ class CameraAPI:
         format is set only this way, so a capture's depth and its save
         policy agree. A camera that reports none (none is connected) has
         nothing to apply; the mode is saved and bring-up applies it.
+
+        Args:
+            mode: The image mode, the capture depth and save encoding to use.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``mode`` is not an image
@@ -2049,6 +2058,10 @@ class CameraAPI:
         the camera's frame limits depend on the binning in force; one caller
         running both in order is what keeps a frame edit from being worked
         out against a binning the camera has not reached.
+
+        Args:
+            size: The binning factor, one the camera offers
+                (``ScopeCapabilities.camera_binning_sizes``).
 
         Returns:
             The frame the camera delivers.
@@ -2100,6 +2113,10 @@ class CameraAPI:
         implies is saved beside it. A size the camera already delivers is
         not written again.
 
+        Args:
+            width: The frame's width in pixels, after binning.
+            height: The frame's height in pixels, after binning.
+
         Returns:
             The frame the camera delivers: the request floored to even
             sides.
@@ -2143,6 +2160,9 @@ class CameraAPI:
         the new binning while the apply is still running. The camera's own
         answer (its grid, its minimum at the new binning) can differ; the
         saved frame after the apply is the truth.
+
+        Args:
+            size: The binning factor, one the camera offers.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -2692,6 +2712,10 @@ class CameraAPI:
         See ``read_black_level`` for what the value means. The value holds
         until the next connect, when the camera reloads its default user set.
 
+        Args:
+            level: The black level, in the camera's own units for its current pixel
+                format.
+
         Returns:
             float | None: The black level now in effect, which differs from
                 the request when the camera snapped it.
@@ -3225,6 +3249,9 @@ class CameraAPI:
         range -- is a second answerer, and the store it writes back is
         how a user's setting gets destroyed by connecting a smaller body.
 
+        Args:
+            stored_gain_db: The gain a channel stores, in dB.
+
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the gain is not a
                 finite number.
@@ -3240,6 +3267,9 @@ class CameraAPI:
 
         See ``applied_gain_db_for``; the same contract for the other
         quantity, so both travel the same path to hardware and to display.
+
+        Args:
+            stored_exposure_ms: The exposure a channel stores, in milliseconds.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
@@ -3260,6 +3290,9 @@ class CameraAPI:
         without hardware auto-gain runs manual whatever the layer stored, and
         the stored preference is left alone so a camera that has the mode
         takes it again.
+
+        Args:
+            stored_auto_gain: Whether a channel stores auto-gain on.
 
         Raises:
             Nothing.

@@ -2222,6 +2222,12 @@ class Protocol:
         Advisory only. Nothing here refuses anything -- a legitimate large
         protocol runs untouched, and the run-start disk guard is unchanged.
 
+        Args:
+            video_as_frames: True when the run saves a video step as individual frames
+                rather than one compressed file, which writes more.
+            global_max_fps: The run's video frame-rate cap, 0 for none, so a video step
+                is sized at the rate it will record at.
+
         Raises:
             Nothing.
         """

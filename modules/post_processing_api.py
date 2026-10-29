@@ -209,6 +209,10 @@ class SizeSliderStops:
     def size_at(self, positions: tuple[float, float]) -> tuple[float, float]:
         """The sizes a slider's two positions stand for.
 
+        Args:
+            positions: The slider's low and high positions; a position
+                beyond the first or last stop stands for that stop's size.
+
         Raises:
             Nothing.
         """
@@ -220,6 +224,10 @@ class SizeSliderStops:
     @api(in_process=True, reads=True)
     def positions_of(self, sizes: tuple[float, float]) -> tuple[float, float]:
         """The slider positions that show two sizes.
+
+        Args:
+            sizes: The low and high sizes, in the stops' unit; a size beyond
+                the first or last stop is shown at that stop's position.
 
         Raises:
             Nothing.
@@ -767,10 +775,7 @@ class PostProcessingAPI:
         combination the folder's images allow: z-project, stitch and
         composite of a 2x2 tiled, 3-slice, 2-channel scan make 8
         projections, 2 stitched projections and 1 composite, where the three
-        builds run one by one make 36 files. A build is chosen by passing its
-        settings record (*composite*, which has no settings of its own -- its
-        format and thresholds are the user's configuration -- by True); one
-        left None is not run. Every chosen build's
+        builds run one by one make 36 files. Every chosen build's
         settings are checked before any build starts, and the call runs as
         one task on the post-processing lane, so no other build touches the
         folder between its steps. Each build alone (``stitch``,
@@ -785,6 +790,21 @@ class PostProcessingAPI:
         stopped, once its cause is gone. One that does not go -- a raw slice
         missing -- stops the call there every time; build that folder with
         the members one by one.
+
+        Args:
+            folder: The folder of a protocol's captures; the builds read it
+                and write their files into it.
+            zproject: The z-projection's settings, or None for no
+                z-projection.
+            stitch: The stitch's settings, or None for no stitch.
+            composite: True to merge each multi-channel position into one
+                composite, its format and thresholds the user's
+                configuration; False for no composite.
+            video: The video's settings, or None for no video.
+            on_progress: Called with the percentage of the whole call and a
+                line naming the build running (that build's own detail on
+                the line below it), from the thread the builds run on; None
+                for no progress.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
@@ -1058,6 +1078,9 @@ class PostProcessingAPI:
         each to its own derived file beside its source.
 
         Args:
+            target: The image file, or the folder of images, to enhance.
+            on_progress: Called with a percentage and what the enhance is
+                doing, from the thread it runs on; None for no progress.
             on_derived_image: Called with each enhanced image and its
                 significant bits as it is saved, for a caller that shows it.
 
@@ -1104,6 +1127,10 @@ class PostProcessingAPI:
         default of 1.0 pixels per micron, which the load drops, saying so
         once.
 
+        Args:
+            path: The method file to read, as ``save_cell_count_method``
+                writes it.
+
         Raises:
             PostProcessingRefusedError: reason ``method_unreadable``, the
                 file cannot be read or is not a method file; reason
@@ -1119,8 +1146,12 @@ class PostProcessingAPI:
         """Write *method* to *path* as a cell-count method file, which
         ``load_cell_count_method`` reads back.
 
-        Written on the caller's thread, as the load is read. A missing
-        folder is made where *path* sends it.
+        Written on the caller's thread, as the load is read.
+
+        Args:
+            method: The cell-count method to write.
+            path: The file to write, its name ending in ``.json``; a missing
+                folder is made where it sends it.
 
         Raises:
             LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
@@ -1146,12 +1177,17 @@ class PostProcessingAPI:
         """The scale an image of *shape* is counted at by *method*, and what its size sliders stand for.
 
         The scale is the one ``preview_cell_count`` and ``count_cells``
-        measure at: the method's *pixels_per_um*, else *pixel_size_um*, the
-        image's own (microns per pixel; None when it states none), else
+        measure at: the method's *pixels_per_um*, else *pixel_size_um*, else
         pixels. Each slider's top stop is the largest size the image holds
         at that scale, and its low end is stretched, so the small sizes most
-        methods bound get most of the travel. With *shape* None (no image
-        yet) a position stands for its own size.
+        methods bound get most of the travel.
+
+        Args:
+            method: The cell-count method the image is counted by.
+            shape: The image's rows and columns (and channels), or None for
+                no image yet, when a slider position stands for its own size.
+            pixel_size_um: The image's own scale in microns per pixel, or
+                None when it states none.
 
         Raises:
             PostProcessingRefusedError: reason ``invalid_setting``, *shape*
@@ -1198,16 +1234,18 @@ class PostProcessingAPI:
 
         Counted on the caller's thread, not the post-processing lane, so a
         form previewing a method while a build or a run goes on is not held
-        behind it. *image* is the pixels the caller holds, so a form that
-        adjusts the method reads no file. It is measured at the scale
-        ``count_cells`` would measure its file at: the method's
-        *pixels_per_um*, else *pixel_size_um*, the image's own (microns
-        per pixel), else in pixels.
+        behind it. The image is measured at the scale ``count_cells`` would
+        measure its file at: the method's *pixels_per_um*, else
+        *pixel_size_um*, else in pixels.
 
         Args:
+            image: The pixels the caller holds, so a form that adjusts the
+                method reads no file.
+            method: The cell-count method to count by.
             significant_bits: The image's payload depth, by which a 16-bit
                 image is scaled to the 8 bits the count reads.
-            pixel_size_um: The scale the image states, or None.
+            pixel_size_um: The scale the image states, in microns per pixel,
+                or None when it states none.
 
         Raises:
             PostProcessingRefusedError: ``'no_scale'``, the image is
@@ -1246,6 +1284,13 @@ class PostProcessingAPI:
         """Count the cells in every image in *folder* by *method*, writing
         ``results.csv`` into the folder.
 
+        Args:
+            folder: The folder of images to count; a ``results.csv`` already
+                there is replaced only once the new one is written whole.
+            method: The cell-count method to count by.
+            on_progress: Called with a percentage and what the count is
+                doing, from the thread it runs on; None for no progress.
+
         Returns:
             The results table, how many images were counted, and the
             outcome in words.
@@ -1282,6 +1327,12 @@ class PostProcessingAPI:
         Read on the caller's thread, not the post-processing lane, so a form
         filling its choices does not wait behind a build.
 
+        Args:
+            results: The cell-count results file, as ``count_cells`` writes
+                it.
+            x: The X axis's column chosen so far, or None for none yet.
+            y: The Y axis's column chosen so far, or None for none yet.
+
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *results*; ``'not_a_file'``, a folder is.
@@ -1311,8 +1362,17 @@ class PostProcessingAPI:
         """The figure ``graph`` saves for the same arguments, for a GUI in this process to show.
 
         With no *results*, or *x* or *y* None, it is the empty frame a
-        graph shows before its axes are chosen. Each label defaults to its
-        column's name.
+        graph shows before its axes are chosen.
+
+        Args:
+            results: The cell-count results file, or None for none yet.
+            x: The column on the X axis, or None for none yet.
+            y: The column on the Y axis, or None for none yet.
+            trendline: One of the kinds ``graph_options`` names for *x* and
+                *y*, or None for none.
+            x_label: The X axis's label; None labels it with *x*.
+            y_label: The Y axis's label; None labels it with *y*.
+            title: The graph's title; empty for none.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
@@ -1343,9 +1403,18 @@ class PostProcessingAPI:
         """Save the graph of column *y* against column *x* of the cell-count
         *results* file to *path* as a PNG.
 
-        *trendline* is one of the kinds ``graph_options`` names, or None for
-        none. Each label defaults to its column's name. A missing folder is
-        made where *path* sends it.
+        Args:
+            results: The cell-count results file, as ``count_cells`` writes
+                it; None is refused.
+            path: The PNG to write, its name ending in ``.png``; a missing
+                folder is made where it sends it.
+            x: The column on the X axis; None is refused.
+            y: The column on the Y axis; None is refused.
+            trendline: One of the kinds ``graph_options`` names for *x* and
+                *y*, or None for none.
+            x_label: The X axis's label; None labels it with *x*.
+            y_label: The Y axis's label; None labels it with *y*.
+            title: The graph's title; empty for none.
 
         Returns:
             The PNG written and the outcome in words.

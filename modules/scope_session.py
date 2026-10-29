@@ -954,6 +954,9 @@ class ScopeSession:
         its own -- an operation's done-callback -- runs outside the block,
         and is refused as any non-holder's call while the session is held.
 
+        Args:
+            session_id: The ``id`` the session was taken with.
+
         Yields:
             The session.
 
@@ -997,9 +1000,13 @@ class ScopeSession:
     def held_by_other(self, run: 'Operation | None' = None) -> bool:
         """Whether the scope is held by anything but *run*, the operation a run member returned.
 
-        What a run control greys on while leaving its own run's Stop live;
-        None, or no run given, asks whether anything holds the scope at all
-        (``live_work`` names what does).
+        What a run control greys on while leaving its own run's Stop live
+        (``live_work`` names what holds the scope).
+
+        Args:
+            run: The operation a run member returned, whose own hold is not
+                counted. None, the default, asks whether anything holds the
+                scope at all.
 
         Raises:
             Nothing.
@@ -1318,6 +1325,10 @@ class ScopeSession:
         (``status_at_edge``); a field that changes with no edge (an axis,
         a part, the camera) is as of that edge.
 
+        Args:
+            listener: Called with no arguments at each run-state transition,
+                and once now; it re-reads whatever state it shows.
+
         Raises:
             Nothing.
         """
@@ -1327,6 +1338,9 @@ class ScopeSession:
     @api(in_process=True)
     def remove_run_state_listener(self, listener: Callable[[], None]) -> None:
         """Stop telling ``listener`` of run-state transitions; a listener never added is a no-op.
+
+        Args:
+            listener: The callable ``add_run_state_listener`` registered.
 
         Raises:
             Nothing.
@@ -1364,9 +1378,7 @@ class ScopeSession:
     def add_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Hear every outcome the scope reports from now on.
 
-        ``listener(notification)`` is called once per delivery, on the thread
-        that reported it, so it must return promptly and must not wait on the
-        scope. Each ``Notification`` carries its ``kind``, words, ``reason``,
+        Each ``Notification`` carries its ``kind``, words, ``reason``,
         ``remedy``, ``outcome_id`` and ``shown``: an outcome muted when it
         happened (an unattended run, the dedup window, shutdown) arrives with
         ``shown`` False, and arrives again with the same ``outcome_id`` and
@@ -1376,6 +1388,11 @@ class ScopeSession:
         to ``create(outcome_listener=...)`` to hear it. The outcomes heard are
         every session's in this process, as the notification centre is one
         per process. ``shutdown()`` removes the listener.
+
+        Args:
+            listener: Called as ``listener(notification)`` once per delivery,
+                on the thread that reported it, so it must return promptly
+                and must not wait on the scope.
 
         Raises:
             Nothing.
@@ -1388,6 +1405,10 @@ class ScopeSession:
     @api(in_process=True)
     def remove_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Stop ``listener`` hearing outcomes; a listener never added is a no-op.
+
+        Args:
+            listener: The callable ``add_outcome_listener`` (or ``create``'s
+                ``outcome_listener``) registered.
 
         Raises:
             Nothing.
@@ -1411,13 +1432,15 @@ class ScopeSession:
         delivery and every listener the GUI marshals reads it at the moment
         it dispatches, whichever session or scope it belongs to. A GUI host
         sets it once, before it builds a session; a host with no UI thread
-        (a script, a REST server) never sets it. None (the default) calls
-        each callback directly on the thread that dispatches it, and a
-        callback's raise is reported rather than raised.
+        (a script, a REST server) never sets it.
 
-        ``dispatcher.thread`` is the thread ``schedule`` delivers on: a
-        run's ``wait()`` on that thread is refused, since what it waits for
-        is delivered there.
+        Args:
+            dispatcher: What hands each callback to the UI thread:
+                ``dispatcher.thread`` is the thread ``schedule`` delivers on,
+                and a run's ``wait()`` on that thread is refused, since what
+                it waits for is delivered there. None (the default) calls
+                each callback directly on the thread that dispatches it, and
+                a callback's raise is reported rather than raised.
 
         Raises:
             Nothing.
@@ -1449,11 +1472,8 @@ class ScopeSession:
         This is the one composition path: the GUI, REST and scripts all
         build their session here, passing what only a host knows as the
         keyword arguments below. The factory builds the scope, so every
-        session's scope is brought up the one way.
-
-        ``source_path`` is the data folder the factory builds the scope on;
-        None (default) is the installation's own folder. The session's data
-        folder and catalogues are always its scope's.
+        session's scope is brought up the one way. The session's data folder
+        and catalogues are always its scope's.
 
         The executor bundle is always built, around the scope's own IO and
         CAMERA lanes, via executor_registry.create_default, so every caller
@@ -1469,10 +1489,26 @@ class ScopeSession:
         then the camera start gate released) and is torn down by
         ``shutdown()``.
 
-        Keyword arguments, each with the one consumer it feeds:
+        Args:
+            settings: The user configuration the session holds and configures
+                the scope from (``load_user_settings`` reads the
+                installation's). It is completed from the shipped template
+                as a stored file is, and every value in it is held to the
+                ranges a write is.
+            source_path: The data folder the factory builds the scope on;
+                None (the default) is the installation's own folder.
             simulate: build a simulated scope (the model from
                 ``settings['microscope']``, the motor board's tier from
                 ``settings['simulator_tier']``).
+            warn_pre_release: whether this construction fires the
+                pre-release FutureWarning -- the factory's own call and the
+                scope constructor's. A host that ships with the API passes
+                False; a separately shipped caller leaves the default.
+            engineering_mode: the session's engineering mode to begin with;
+                a plugin may turn it on when the host loads plugins.
+            no_engineering: the host's word that the engineering plugin is
+                not loaded: ``load_plugins`` leaves it out before it is
+                imported, as if it were not installed.
             sim_model: the model the simulated scope is, when it is not the
                 one ``settings`` declares: a stored file that disagrees
                 with the scope attached, which bring-up settles by the
@@ -1489,15 +1525,6 @@ class ScopeSession:
                 own start is refused; 0 (the default) refuses none. Refused
                 unless ``simulate``, and by the scope on any camera but the
                 simulated FX2.
-            warn_pre_release: whether this construction fires the
-                pre-release FutureWarning -- the factory's own call and the
-                scope constructor's. A host that ships with the API passes
-                False; a separately shipped caller leaves the default.
-            engineering_mode: the session's engineering mode to begin with;
-                a plugin may turn it on when the host loads plugins.
-            no_engineering: the host's word that the engineering plugin is
-                not loaded: ``load_plugins`` leaves it out before it is
-                imported, as if it were not installed.
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 by the scope itself unless it is simulated with the
@@ -1732,8 +1759,11 @@ class ScopeSession:
         refused for the missing argument instead of quietly configured
         from whatever is on disk.
 
-        In a process that has already prepared its settings (the GUI's),
-        those are answered and ``source_path`` is not read.
+        Args:
+            source_path: The installation folder whose settings are read:
+                its ``current.json`` first, else its shipped ``settings.json``.
+                In a process that has already prepared its settings (the
+                GUI's), those are answered and ``source_path`` is not read.
 
         Raises:
             ArgumentRefusedError: ``'not_an_installation'``, ``source_path``
@@ -1781,6 +1811,10 @@ class ScopeSession:
         settings_file=ScopeSession.user_settings_file(root))``, as the GUI
         and the REST server do. ``load_user_settings`` reads this file
         first. Nothing is read or created here.
+
+        Args:
+            source_path: The installation folder, as ``create`` and
+                ``load_user_settings`` take it.
 
         Raises:
             Nothing.
@@ -1979,6 +2013,11 @@ class ScopeSession:
         reachable through it. The member still decides whether the remedy
         applies now, and refuses if not.
 
+        Args:
+            remedy: The remedy the refusal carried; its ``member`` names the
+                member taken: ``recover_file_writer`` or
+                ``repair_camera_driver``.
+
         Returns:
             The remedy's own answer: ``recover_file_writer`` answers how many
             of the run's images it gave up on, ``repair_camera_driver`` the
@@ -2033,7 +2072,10 @@ class ScopeSession:
 
     @api(reads=True)
     def saved_focus_z_um(self, channel: str) -> float:
-        """The Z saved as ``channel``'s focus.
+        """The Z saved as ``channel``'s focus, in micrometres.
+
+        Args:
+            channel: The channel (layer) whose saved focus is read.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
@@ -2171,6 +2213,9 @@ class ScopeSession:
         per-layer settings are the protocol's own and are not applied to
         anything else.
 
+        Args:
+            file_path: The protocol file (``.tsv``) to read.
+
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 ``file_path``; ``'not_a_file'``, a folder is.
@@ -2268,6 +2313,10 @@ class ScopeSession:
         (not in ``common_utils.get_layers()``), or this scope does not have,
         is logged and dropped.
 
+        Args:
+            protocol: The protocol whose Layer Settings are applied, as
+                ``load_protocol`` returned it or as built in memory.
+
         Raises:
             ProtocolFormatError: A protocol built in memory carries a
                 Layer Settings cell that is not of its column's type; no
@@ -2313,12 +2362,15 @@ class ScopeSession:
     def save_protocol(self, protocol: 'Protocol', file_path: FilePath) -> pathlib.Path:
         """Write a protocol to a file, with this session's Layer Settings.
 
-        The file is written under exactly ``file_path``, which ends in
-        ``.tsv`` (in any case); nothing is added to it. The block holds
-        each layer set to acquire an image or a video, with the values its
-        controls hold now; ``apply_channel_settings`` puts them back. What the
-        GUI opens at its next start-up is not changed: a script's scratch
-        save is not the person's protocol.
+        The block holds each layer set to acquire an image or a video, with
+        the values its controls hold now; ``apply_channel_settings`` puts them
+        back. What the GUI opens at its next start-up is not changed: a
+        script's scratch save is not the person's protocol.
+
+        Args:
+            protocol: The protocol whose steps are written.
+            file_path: The file written, exactly as given: it ends in
+                ``.tsv`` (in any case), and nothing is added to it.
 
         Returns:
             The path written; a missing folder is made.
@@ -2363,6 +2415,11 @@ class ScopeSession:
         Nothing is changed on any refusal. Setting a layer to acquire
         nothing is always admitted.
 
+        Args:
+            channel: The layer set.
+            mode: What it captures, an ``AcquireMode``; None sets it to
+                capture nothing.
+
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'not_offered'``, ``mode`` is not an
@@ -2383,6 +2440,9 @@ class ScopeSession:
     @api(reads=True)
     def channel_acquire(self, channel: str) -> AcquireMode | None:
         """What ``channel`` captures: an ``AcquireMode``, or None (nothing).
+
+        Args:
+            channel: The layer read.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
@@ -2417,6 +2477,10 @@ class ScopeSession:
         turning the shown layer's off is refused.
 
         Nothing is changed on any refusal.
+
+        Args:
+            channel: The layer whose auto-gain is set.
+            enabled: True turns it on, False off.
 
         Returns:
             The lock when turning off (its ``state`` is None when no arm
@@ -2470,6 +2534,9 @@ class ScopeSession:
     def channel_auto_gain(self, channel: str) -> bool:
         """Whether ``channel``'s auto-gain is on, as ``set_channel_auto_gain`` set it.
 
+        Args:
+            channel: The layer read.
+
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
@@ -2488,6 +2555,9 @@ class ScopeSession:
         turning on, a step's values or a stored gain leave it as it was.
         None when the layer's auto-gain has not been turned off since the
         session started.
+
+        Args:
+            channel: The layer read.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
@@ -2546,12 +2616,33 @@ class ScopeSession:
     ) -> CapturedStill:
         """Capture a frame-valid image and hand it back with its record.
 
-        Given ``channel``, the camera holds that layer's stored exposure,
-        gain and auto-gain for the grab, as ``apply_layer_camera`` puts them
-        on, in the capture's own camera-lane task; given None, it captures
-        with the camera as set. The capture's arguments are
-        ``scope.imaging.capture_still``'s. In-process: the image does not
-        travel the wire.
+        In-process: the image does not travel the wire.
+
+        Args:
+            channel: The layer whose stored exposure, gain and auto-gain the
+                camera holds for the grab, as ``apply_layer_camera`` puts them
+                on, in the capture's own camera-lane task. None (the default)
+                captures with the camera as set.
+            force_to_8bit: Convert the image to 8 bits; False keeps the
+                camera's depth (``CapturedStill.significant_bits``).
+            accept_dark: Skip the dark-frame judgment: a frame with
+                essentially no lit pixel while a channel is lit is kept at
+                once, its record's ``dark`` None. False (the default) retries
+                such a frame until ``timeout_s`` and then keeps it, its
+                record's ``dark`` True.
+            exclude_sources: Hardware changes to ignore for validity, e.g.
+                ``(FrameValiditySource.Z_MOVE,)``. The frame returned can
+                predate an excluded change, so a frame that is measured or
+                recorded never excludes one.
+            all_ones_check: Measure the frame's saturation: a blown frame is
+                grabbed again once and, blown again, kept; the record carries
+                the fraction either way. False leaves both None.
+            timeout_s: How long, in seconds, each grab keeps taking frames
+                for one that passes its checks, from 0 to 30 days.
+            sum_count: How many frames are summed into the image.
+            sum_delay_s: The wait, in seconds, between summed frames.
+            sum_iteration_callback: Called with no arguments after each
+                summed frame; None calls nothing.
 
         Returns:
             CapturedStill: The image and the instrument's record of its frame.
@@ -2631,13 +2722,22 @@ class ScopeSession:
         """Build a protocol from this session's settings, as the GUI's New does.
 
         One step per acquiring layer at every well of the session's labware,
-        at the current objective, tiled and z-stacked as asked. Its period and
-        duration are the ones given, in seconds; one left out (None) is the
-        stored default's. One scan is 0. The
+        at the current objective, tiled and z-stacked as asked. The
         protocols API refuses the build when no layer acquires, where an
         empty protocol would otherwise come back for a click that meant
         steps; a labware with no wells still gives an empty protocol, which
         ``add_step`` fills at the current position.
+
+        Args:
+            tiling: The tile grid at each well, a grid the installation's
+                tiling catalogue offers, such as ``'3x3'``; ``'1x1'`` (the
+                default) is one tile.
+            use_zstacking: Stack each step through the stored z-stack
+                (``get_zstack_params``); False takes one plane.
+            period_s: The protocol's period, in seconds; None is the stored
+                default's.
+            duration_s: The protocol's duration, in seconds; 0 is one scan,
+                and None is the stored default's.
 
         Raises:
             ProtocolRunRefusedError: ``'no_acquiring_layer'``, logged
@@ -2720,18 +2820,26 @@ class ScopeSession:
         and refuses when nothing would be added; this composes its inputs
         from the session the same way the GUI's handler does.
 
-        ``channels`` names the channels to add a step for, in that order,
-        instead: each takes its stored settings, and one whose ``acquire``
-        is None is added as an image step, so a caller adds without
-        changing the settings. ``at`` is where on the protocol's plate the
-        steps are, instead of the live position: X and Y in mm, Z in um.
-
-        ``use_zstacking`` makes each added step a z-stack of the stored
-        z-stack settings, as ``new_protocol`` does for its steps; the
-        protocol's other steps are left as they are.
-
         Returns the inserted step names, in protocol order: each stack's
         slices when stacked.
+
+        Args:
+            protocol: The protocol the steps are added to.
+            channels: The channels to add a step for, in that order, instead
+                of the acquiring layers: each takes its stored settings, and
+                one whose ``acquire`` is None is added as an image step, so a
+                caller adds without changing the settings. None (the
+                default) adds one step per acquiring layer.
+            at: Where on the protocol's plate the steps are, instead of the
+                live position: X and Y in mm, Z in um. None (the default)
+                takes the live position.
+            before_step_index: The step the new steps are placed before.
+            after_step_index: The step the new steps are placed after. With
+                neither given, they follow the last step; both given is
+                refused.
+            use_zstacking: Make each added step a z-stack of the stored
+                z-stack settings, as ``new_protocol`` does for its steps; the
+                protocol's other steps are left as they are.
 
         Raises:
             AxisMovingError: ``'axis_moving'``, with no ``at``, an axis is
@@ -2807,6 +2915,14 @@ class ScopeSession:
 
         Returns the step's name after the update.
 
+        Args:
+            protocol: The protocol whose step is rewritten.
+            step_index: The step rewritten, counted from 0.
+            channel: The layer whose settings the step takes. When that
+                layer's stimulation is enabled the edit is a stimulation
+                edit, and the step keeps the channel it already acquires.
+            label: The step's new label; None (the default) keeps its label.
+
         Raises:
             AxisMovingError: ``'axis_moving'``, an axis is moving, so the live
                 position is a place it is passing through. The step is
@@ -2845,6 +2961,12 @@ class ScopeSession:
         of a layer is born at the same focus, so a step matching the old
         focus says nothing about whether its user wants the new one.
         ``apply_focus_to_channel_steps`` writes them all.
+
+        Args:
+            protocol: The protocol whose step may take the Z.
+            channel: The layer whose focus is saved.
+            step_index: The step, counted from 0, that takes the Z when it
+                is a step of ``channel``; None (the default) writes no step.
 
         Raises:
             ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
@@ -2886,6 +3008,10 @@ class ScopeSession:
         reach; it guarantees nothing about where the number came from.
         ``save_focus``, which saves the live Z, writes through the same path.
 
+        Args:
+            channel: The layer whose focus is stored.
+            z_um: The focus, in micrometres; it must lie within Z's travel.
+
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
@@ -2923,6 +3049,10 @@ class ScopeSession:
         X and Y are stored in plate millimetres on the selected plate, Z in
         micrometres: the frame the go-to-bookmark moves read them in. The one
         writer of ``bookmark``.
+
+        Args:
+            axes: The axes saved, each ``'X'``, ``'Y'`` or ``'Z'``; an axis
+                not named keeps its stored bookmark.
 
         Returns:
             The values stored, as ``bookmark`` reads them; an axis not in
@@ -2986,7 +3116,10 @@ class ScopeSession:
         Reads ``bookmark`` for the axes given, as ``save_bookmark`` wrote
         them: X and Y in mm on the selected plate (``start_move_to_plate``,
         the axes given on one lane task), Z in um (``start_move_z``).
-        An axis not given is left where it is.
+
+        Args:
+            axes: The axes moved, each ``'X'``, ``'Y'`` or ``'Z'``; an axis
+                not named is left where it is.
 
         Returns:
             One ``Operation`` for the moves started, done once every one is
@@ -3027,6 +3160,10 @@ class ScopeSession:
         """Move ``axes`` to the bookmark, and return once they have arrived.
 
         ``start_go_to_bookmark`` followed by its operation's ``result()``.
+
+        Args:
+            axes: The axes moved, each ``'X'``, ``'Y'`` or ``'Z'``; an axis
+                not named is left where it is.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, as
@@ -3083,6 +3220,10 @@ class ScopeSession:
 
         Returns how many steps took it.
 
+        Args:
+            protocol: The protocol whose steps of ``channel`` take the Z.
+            channel: The layer whose focus is saved and whose steps take it.
+
         Raises:
             ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
                 has no Z axis. Nothing is written.
@@ -3109,6 +3250,10 @@ class ScopeSession:
     def delete_step(self, protocol: 'Protocol', step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``, as the Delete button does.
 
+        Args:
+            protocol: The protocol the step is removed from.
+            step_index: The step removed, counted from 0.
+
         Raises:
             StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
                 step of ``protocol``. Nothing is removed.
@@ -3119,6 +3264,12 @@ class ScopeSession:
     @_guarded_write
     def rename_step(self, protocol: 'Protocol', step_index: int, name: str) -> str:
         """Give step ``step_index`` of ``protocol`` the label ``name``; returns its new name.
+
+        Args:
+            protocol: The protocol whose step is renamed.
+            step_index: The step renamed, counted from 0.
+            name: The step's new label; it holds at least one letter, digit,
+                dash or underscore.
 
         Raises:
             StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
@@ -3135,6 +3286,10 @@ class ScopeSession:
 
         The protocol's plate only: the scope's is ``select_labware``'s. On a
         scope with no XY stage the protocol takes Center Plate.
+
+        Args:
+            protocol: The protocol put on the plate.
+            labware_id: The plate's name in the labware catalogue.
 
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id`` is not a
@@ -3155,6 +3310,12 @@ class ScopeSession:
 
         One scan is 0 for both.
 
+        Args:
+            protocol: The protocol rescheduled.
+            period_s: The time from one scan's start to the next, in
+                seconds.
+            duration_s: How long the protocol runs, in seconds.
+
         Raises:
             ProtocolScheduleRefusedError: either cannot be run; the protocol
                 keeps the schedule it had.
@@ -3171,8 +3332,10 @@ class ScopeSession:
     def set_protocol_capture_root(self, protocol: 'Protocol', root: str) -> None:
         """Give ``protocol`` the capture root that prefixes its runs' file names.
 
-        The protocol keeps ``root`` as given; the prefix a run's names take
-        from it is ``protocol.capture_prefix()``.
+        Args:
+            protocol: The protocol given the root.
+            root: The capture root, kept as given; the prefix a run's names
+                take from it is ``protocol.capture_prefix()``.
 
         Raises:
             Nothing.
@@ -3185,6 +3348,12 @@ class ScopeSession:
         self, protocol: 'Protocol', *, enabled: bool, step_index: int | None = None
     ) -> None:
         """Turn autofocus on or off for step ``step_index`` of ``protocol``, or for every step.
+
+        Args:
+            protocol: The protocol whose steps are set.
+            enabled: True turns autofocus on, False off.
+            step_index: The step set, counted from 0; None (the default)
+                sets every step.
 
         Raises:
             StepNotFoundError: ``step_index`` is not a step of ``protocol``.
@@ -3207,6 +3376,9 @@ class ScopeSession:
         turret, and for steps whose objective no slot holds, which a load
         and a run refuse as ``turret_objectives_unassigned``.
 
+        Args:
+            protocol: The protocol whose steps are read.
+
         Raises:
             Nothing.
         """
@@ -3222,6 +3394,13 @@ class ScopeSession:
         Points exactly the steps ``turret_slot_questions`` names for
         ``objective_id``; every other step keeps its slot. Returns
         the indexes of the steps pointed, which are empty when no question names it.
+
+        Args:
+            protocol: The protocol whose steps are pointed.
+            objective_id: The objective the question is about, as
+                ``turret_slot_questions`` names it.
+            slot: The turret slot its steps record; it holds
+                ``objective_id`` now.
 
         Raises:
             ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``
@@ -3256,6 +3435,11 @@ class ScopeSession:
         The tiles are spaced for the configured frame, binning and tile
         overlap, laid out on the protocol's own plate.
 
+        Args:
+            protocol: The protocol whose steps are tiled.
+            tiling: The grid, one of ``tiling_config().available``, such as
+                ``'3x3'``.
+
         Raises:
             ProtocolRunRefusedError: ``tiling`` is not a grid this
                 installation offers, the protocol is already tiled, a step's
@@ -3287,7 +3471,13 @@ class ScopeSession:
     ) -> None:
         """Expand every step of ``protocol`` not already in a stack into a z-stack.
 
-        ``z_reference`` says where each step's Z sits in its stack.
+        Args:
+            protocol: The protocol whose steps are stacked.
+            range_um: The stack's extent in Z, in micrometres; greater than
+                zero.
+            step_size_um: The distance between slices, in micrometres;
+                greater than zero.
+            z_reference: Where each step's Z sits in its stack.
 
         Raises:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
@@ -3315,6 +3505,10 @@ class ScopeSession:
         work meanwhile.
 
         It raises what ``start_go_to_step`` raises, and the following.
+
+        Args:
+            protocol: The protocol whose step is gone to.
+            step_index: The step gone to, counted from 0.
 
         Raises:
             MoveFaultError: ``'driver_failed'``, the board did not take a
@@ -3380,6 +3574,10 @@ class ScopeSession:
         (``apply_layer_camera``) before this returns, so a still asked after
         it is taken at the step's settings. It waits on the camera lane, so
         it is refused on the UI thread; a click calls it from a worker.
+
+        Args:
+            protocol: The protocol whose step is gone to.
+            step_index: The step gone to, counted from 0.
 
         Raises:
             StepNotFoundError: ``step_index`` is not a step of ``protocol``.
@@ -3643,6 +3841,9 @@ class ScopeSession:
         LED is turned off, so a refused call leaves the LEDs as they were.
         A layer this unit gives no LED is shown with every LED dark.
 
+        Args:
+            channel: The layer shown.
+
         Returns:
             The shown channel now.
 
@@ -3713,6 +3914,10 @@ class ScopeSession:
         layer's stored settings (``apply_layer_camera``; nothing is written
         when it holds them already), unless no camera is connected.
 
+        Args:
+            lit: True lights the shown channel's LED at its stored current;
+                False darkens it.
+
         Returns:
             The shown channel now.
 
@@ -3744,11 +3949,15 @@ class ScopeSession:
     def add_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None:
         """Tell ``listener`` ``(paths)`` each time a write stores settings, once it has let go of the store.
 
-        The paths one hold stored, together: a member that writes several
-        settings tells them once. Whoever wrote them -- the GUI, a client, a
-        script, the camera storing what it applied. Called on the writer's
-        thread, outside the settings lock, so a GUI listener schedules its
-        drawing.
+        Whoever wrote them -- the GUI, a client, a script, the camera
+        storing what it applied.
+
+        Args:
+            listener: Called as ``listener(paths)``, ``paths`` the dotted
+                paths one hold stored, together: a member that writes
+                several settings tells them once. Called on the writer's
+                thread, outside the settings lock, so a GUI listener
+                schedules its drawing.
 
         Raises:
             Nothing.
@@ -3758,6 +3967,9 @@ class ScopeSession:
     @api(in_process=True)
     def remove_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None:
         """Stop telling ``listener``; a listener never added is a no-op.
+
+        Args:
+            listener: The callable ``add_settings_listener`` registered.
 
         Raises:
             Nothing.
@@ -3774,8 +3986,10 @@ class ScopeSession:
     def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
         """Tell ``listener`` ``(channel, lit)`` each time the shown channel changes.
 
-        It is called on the thread that changed it, so a GUI listener
-        schedules its drawing.
+        Args:
+            listener: Called as ``listener(channel, lit)``, the layer now
+                shown and whether its LED is lit, on the thread that changed
+                it, so a GUI listener schedules its drawing.
 
         Raises:
             Nothing.
@@ -3785,6 +3999,9 @@ class ScopeSession:
     @api(in_process=True)
     def remove_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
         """Stop telling ``listener``; a listener never added is a no-op.
+
+        Args:
+            listener: The callable ``add_shown_channel_listener`` registered.
 
         Raises:
             Nothing.
@@ -3801,6 +4018,9 @@ class ScopeSession:
         as frames, and the global FPS cap) are the session's, resolved the
         way the run path resolves them, so the advisory and the run it is
         advising about cannot be sized differently.
+
+        Args:
+            protocol: The protocol sized, as a full run of it would be.
 
         Raises:
             Nothing.
@@ -3857,6 +4077,10 @@ class ScopeSession:
         ``objective_id``. The live folder and the protocol file, which only
         the host moves, are read here.
 
+        Args:
+            path: The setting's dotted path, each segment a key one level
+                down the settings.
+
         Raises:
             ArgumentRefusedError: ``'not_a_setting'``, the settings have no
                 value at ``path``; ``'has_member'``, the setting at or above
@@ -3900,6 +4124,12 @@ class ScopeSession:
         installation's settings file, so no caller can reconfigure the scope
         it drives. A block (``'video'``) is not written whole: each of its
         settings has a path.
+
+        Args:
+            path: The setting's dotted path, each segment a key one level
+                down the settings.
+            value: The value stored, of the setting's kind and within its
+                range.
 
         Raises:
             SettingRefusedError: ``'has_member'``, ``path`` is owned by a
@@ -4003,8 +4233,11 @@ class ScopeSession:
     def set_live_folder(self, folder: str) -> None:
         """Make ``folder`` the live folder, where captures and runs are saved.
 
-        The one writer of ``live_folder``, stored as it is at load: a folder
-        given relative to the installation is made absolute, and created.
+        The one writer of ``live_folder``, stored as it is at load.
+
+        Args:
+            folder: The folder's path; one given relative to the installation
+                is made absolute, and the folder is created.
 
         Raises:
             SettingRefusedError: ``'out_of_range'``, ``folder`` is a string
@@ -4037,6 +4270,10 @@ class ScopeSession:
         caller passes any path straight to the member it calls. The live
         folder is not created here: one that is missing is an unplugged drive
         or a stale setting.
+
+        Args:
+            name: A path relative to the live folder, such as
+                ``ProtocolData/run1``.
 
         Raises:
             LiveFolderPathRefusedError: ``'outside_live_folder'``, ``name`` is
@@ -4075,11 +4312,15 @@ class ScopeSession:
     def put_live_folder_file(self, name: str, data: bytes) -> pathlib.Path:
         """Write ``data`` as a new file under the live folder: a wire client's upload.
 
-        ``name`` is a name under the live folder, as ``live_folder_path``
-        takes it, and the folders on its way are made. A file already there
-        is refused, so an upload never replaces a file a capture wrote. On
-        the wire it is ``PUT /api/v1/files/<name>``, the body the file's
-        bytes; a Python caller writes its own files.
+        A file already there is refused, so an upload never replaces a file
+        a capture wrote. On the wire it is ``PUT /api/v1/files/<name>``, the
+        body the file's bytes; a Python caller writes its own files.
+
+        Args:
+            name: The new file's name under the live folder, as
+                ``live_folder_path`` takes it; the folders on its way are
+                made.
+            data: The file's bytes.
 
         Returns:
             The file written.
@@ -4106,12 +4347,17 @@ class ScopeSession:
 
         Each entry is named by its full name under the live folder,
         ``/``-separated on every host, so it is taken as it is by any path
-        parameter, a download and a further listing. ``'.'`` lists the live
-        folder itself. An entry that is gone by the time it is read -- a
-        file a run renames into place, a link to nothing -- is not listed. A
+        parameter, a download and a further listing. An entry that is gone
+        by the time it is read -- a file a run renames into place, a link to
+        nothing -- is not listed. A
         link that leads outside the live folder is listed as what it leads
         to, and refused where its name is used, as ``live_folder_path``
         refuses it.
+
+        Args:
+            name: The folder listed, a name under the live folder as
+                ``live_folder_path`` takes it; ``'.'`` (the default) lists the
+                live folder itself.
 
         Raises:
             LiveFolderPathRefusedError: as ``live_folder_path`` raises it;
@@ -4144,6 +4390,10 @@ class ScopeSession:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
 
         The one writer of ``protocol.filepath``, which the next start opens.
+
+        Args:
+            file_path: The protocol file to open at the next start; ``''``
+                opens none.
 
         Raises:
             Nothing.
@@ -5102,13 +5352,18 @@ class ScopeSession:
     def confirm_objective(self, objective_id: str, slot: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
 
-        On a turret scope, assigns the objective to ``slot``,
-        which it requires: the answer records the glass in a slot and never
-        turns the turret. With no turret, selects it (``select_objective``),
-        and ``slot`` is refused. Records that a person has
+        On a turret scope, assigns the objective to ``slot``: the answer
+        records the glass in a slot and never turns the turret. With no
+        turret, selects it (``select_objective``). Records that a person has
         confirmed the objective for this light path, turret or turretless,
         so a scope brought up with the other asks again. Returns whether the
         active objective changed.
+
+        Args:
+            objective_id: The objective's catalogue key.
+            slot: The turret slot, 1-4, the objective is in; required on a
+                turret scope, and refused on a scope with none. None is the
+                default.
 
         Raises:
             ArgumentRefusedError: ``'slot_required'``, no
@@ -5173,6 +5428,9 @@ class ScopeSession:
         optics are recorded by the scope's runtime state the next time the
         objective is read, before any capture stamps it. Picking the
         objective already active is a no-op.
+
+        Args:
+            objective_id: The objective's catalogue key.
 
         Raises:
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
@@ -5288,6 +5546,10 @@ class ScopeSession:
         plate's wells are places it cannot move between, and a protocol made
         on one would image one field under every well's name.
 
+        Args:
+            labware_id: The plate's name in the labware catalogue, or a name
+                the plate was known by before a rename.
+
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
@@ -5323,6 +5585,10 @@ class ScopeSession:
 
         Binding the objective the slot already holds is a no-op.
 
+        Args:
+            slot: The turret slot, 1-4.
+            objective_id: The objective's catalogue key.
+
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
                 turret, said before ``slot`` or ``objective_id`` is
@@ -5352,6 +5618,9 @@ class ScopeSession:
         What ``assign_turret_objective`` bound; the active objective is the
         slot's in the light path (``objective_id``).
 
+        Args:
+            slot: The turret slot read, 1-4.
+
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
                 turret, said before ``slot`` is judged.
@@ -5369,6 +5638,9 @@ class ScopeSession:
         Logged for every host: with that slot in the light path the active
         objective is now unknown, and a support bundle can only explain a
         capture refused for that afterwards if the clear is in the record.
+
+        Args:
+            slot: The turret slot cleared, 1-4.
 
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
@@ -5486,6 +5758,10 @@ class ScopeSession:
         The one writer of ``scale_bar.enabled``, which the imaging API reads
         at each capture.
 
+        Args:
+            enabled: True draws the scale bar on captured images; False does
+                not.
+
         Raises:
             Nothing.
         """
@@ -5522,6 +5798,10 @@ class ScopeSession:
 
         The one writer of ``motion.acceleration_max_pct``, stored once the
         motor controller took the value.
+
+        Args:
+            limit_pct: The limit, a percent of the firmware's maximum
+                acceleration, within the range the motion API accepts.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -5959,6 +6239,14 @@ class ScopeSession:
         motion has ended and the scope is free, and raises what its
         operation would. Headless / REST callers use this exact call to apply the
         standard startup orchestration without copy-pasting from the App.
+
+        Args:
+            disable_homing: If True, issue no startup motion at all.
+            home_fn: Callable taking a ``HomeTarget`` that homes it and
+                raises as ``MotionAPI.home`` does; the startup motion hands it
+                ``HomeTarget.ALL``. Defaults to the motion API.
+            turret_fn: Callable taking a turret slot. Defaults to
+                the motion API.
 
         Raises:
             BlockingCallRefusedError: ``'blocking_on_worker'``, called from

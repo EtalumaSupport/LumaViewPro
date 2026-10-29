@@ -139,7 +139,7 @@ def _names(text: str) -> set[str]:
     return found
 
 
-def _function(value: object) -> typing.Callable | None:
+def member_function(value: object) -> typing.Callable | None:
     """The function a member's value calls: a property's getter, a classmethod's function; None for a field."""
     if isinstance(value, property):
         return value.fget
@@ -235,7 +235,7 @@ class _Index:
 
 def _edges(item: Marked) -> list[tuple[str, str]]:
     """``(edge, annotation text)``: a field's annotation, or a member's return and parameters."""
-    function = _function(item.value)
+    function = member_function(item.value)
     if item.field or function is None:
         text = _field_annotation(item.owner, item.member)
         return [] if text is None else [('field', text)]
@@ -404,7 +404,7 @@ def _refusals(doc: str, item: Marked, index: _Index) -> str:
 def _member(item: Marked, index: _Index) -> str:
     key = f'{item.owner_name}.{item.member}'
     value = item.value
-    function = _function(value)
+    function = member_function(value)
     if isinstance(value, property):
         returned = inspect.signature(function).return_annotation
         code = f'{item.member}: {annotation_text(returned)}  # property'
