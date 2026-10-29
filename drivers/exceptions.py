@@ -46,7 +46,9 @@ class MotionInterlockError(Fault, HardwareError):
     to stop the motors in refusing it.
 
     Attributes:
-        reason: ``'lid_open'`` or ``'stage_unpowered'``.
+        reason: ``'stage_unpowered'`` -- the stage has no power. Or
+            ``'lid_open'``, the stage's lid is open, or was opened while the
+            command moved, as ``HomingFaultError`` explains it for a home.
         moved: Whether anything of the refused command had moved.
         stopped: Whether the driver sent every motor a stop in refusing it,
             settled or not; False when no stop was sent, as for a stage

@@ -803,7 +803,26 @@ class ConfigurationDefectError(Fault, ConfigError):
     the reason's are written for the person.
 
     Attributes:
-        reason: One of ``_TITLES``' keys.
+        reason: ``'settings_not_prepared'`` -- a capture configuration names
+            an output format this build does not write, so the stored image
+            output format was never judged by the settings' preparation.
+            ``'composite_thresholds_missing'`` -- a composite was asked for
+            without a brightness threshold for every fluorescence layer it
+            blends. ``'composite_threshold_out_of_range'`` -- a composite's
+            brightness threshold is not a number from 0 to 100 percent.
+            ``'capture_config_inconsistent'`` -- a capture configuration's
+            capture depth and save encoding do not match its image mode.
+            ``'tail_id_mode_unknown'`` -- a file name was asked for with a
+            tail id mode the namer does not implement.
+            ``'labware_not_given'`` -- an image's record was written with no
+            labware to state. ``'layers_unresolved'`` -- this scope's layers
+            could not be resolved from its model, so no layer can be acted
+            on. ``'scope_not_composed'`` -- a scope that no session has
+            bound was used for work that reads or saves settings.
+            ``'zstack_reference_unchecked'`` -- a Z-stack's position
+            reference is none of top, center and bottom.
+            ``'route_shadowed'`` -- a Session member has the name of one of
+            the REST server's own routes, so a client could not reach it.
     """
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -909,14 +928,19 @@ class CameraNotAvailableError(Fault, BringUpError):
     """The camera did not come up; the heading and the advice follow the cause.
 
     Attributes:
-        reason: ``'port_in_use'``, ``'not_detected'`` (the registry's own
-            causes, the LED board's too), ``'camera_driver_unavailable'`` (none found, and a camera driver
-            did not load on this installation), ``'camera_firmware_missing'``
-            (the firmware file a Classic's driver uploads is not installed),
-            ``'camera_driver_unusable'`` (Windows has a Classic on no driver,
-            or on one LumaViewPro cannot use) or ``'camera_not_initialized'``
-            (anything else, a camera that was found and could not be opened
-            among it, one another application holds included).
+        reason: ``'port_in_use'`` -- the part was found and its port could
+            not be opened, most often because another program holds it.
+            ``'not_detected'`` -- no driver found the part on USB. These two
+            are the hardware registry's own causes, the LED board's too.
+            ``'camera_driver_unavailable'`` -- no camera was found, and a
+            camera driver did not load on this installation.
+            ``'camera_firmware_missing'`` -- the firmware file a Classic's
+            driver uploads to the camera is not installed.
+            ``'camera_driver_unusable'`` -- Windows has a Classic on no
+            driver, or on one LumaViewPro cannot use.
+            ``'camera_not_initialized'`` -- the camera did not come up for any
+            other cause, among them a camera that was found and could not be
+            opened, one another application holds included.
     """
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
@@ -968,7 +992,7 @@ class CameraNotAvailableError(Fault, BringUpError):
         """Build the notice for ``reason``.
 
         Args:
-            reason: One of ``_WORDS``' keys.
+            reason: One of the class's reasons.
             repairable: Offer Repair (``repair()``) as the answer; only for
                 ``'camera_driver_unusable'``.
         """
@@ -1005,16 +1029,19 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
     question whether to install Etaluma's driver, and a binding that needs it.
 
     Attributes:
-        reason: ``'repair_needs_windows'``, ``'repair_needs_installed_build'``
-            (a source run or a build run from ``dist``),
-            ``'repair_needs_driver_package'`` (an installation built without
-            the Classic driver), ``'no_classic_bindings'`` (a scope that reads
-            no Classic USB devices, such as a simulated one without an FX2),
-            ``'repair_declined'`` (the administrator's prompt was not
-            approved), ``'driver_not_accepted'`` (Windows did not take the
+        reason: ``'repair_needs_windows'`` -- the computer is not Windows,
+            which alone binds a USB device to a driver.
+            ``'repair_needs_installed_build'`` -- LumaViewPro is running from
+            source or from a build in ``dist``, not from an installation.
+            ``'repair_needs_driver_package'`` -- the installation was built
+            without the Classic driver package.
+            ``'no_classic_bindings'`` -- the scope reads no Classic USB
+            device, such as a simulated one without an FX2.
+            ``'repair_declined'`` -- the administrator's prompt was not
+            approved. ``'driver_not_accepted'`` -- Windows did not take the
             package: installing it was declined at its question, or Windows
-            refused it) or ``'driver_already_usable'`` (a camera is up, or
-            every present device is on a driver LumaViewPro can use).
+            refused it. ``'driver_already_usable'`` -- a camera is up, or
+            every present device is on a driver LumaViewPro can use.
     """
 
     title = 'Camera Driver Not Repaired'
@@ -1137,7 +1164,23 @@ class ServerRefusedError(Refusal, Exception):
     read from this record.
 
     Attributes:
-        reason: The machine-readable code.
+        reason: The machine-readable code. ``'not_found'`` -- the route, the
+            handle or the job asked for is not there.
+            ``'invalid_request'`` -- the request's arguments do not fit its
+            member. ``'method_not_allowed'`` -- the route does not answer the
+            method it was asked with. ``'unsupported_media_type'`` -- the
+            request's body is not JSON. ``'handle_shared'`` -- the handle
+            asked to be forgotten is one every client shares, and it is kept.
+            ``'overloaded'`` -- the server holds as many handles or jobs as
+            it keeps; asking again later may succeed. ``'server_closing'`` --
+            the server is closing: it finishes what is under way, answers
+            nothing new, and exits. ``'no_frame_yet'`` -- the live view has
+            no frame to show, because the camera sent none in time; asking
+            again later may succeed. ``'not_cancellable'`` -- the job is a
+            call held as a job when it outlived its wait, and holds no
+            operation to stop. ``'idempotency_key_reused'`` -- the
+            ``Idempotency-Key`` was sent before with a different request; a
+            key is sent again only to retry the same request.
         title: The heading, the reason's.
         errors: For ``'invalid_request'`` from the request reader, each
             argument that does not fit; None otherwise.
@@ -1210,9 +1253,12 @@ class LedBoardUnavailableError(Fault, BringUpError):
     controls that appear to do nothing. The advice follows the cause.
 
     Attributes:
-        reason: The registry's fallback cause: ``'not_detected'``,
-            ``'port_in_use'``, ``'not_responding'``, ``'connect_failed'`` or
-            ``'no_driver'``.
+        reason: The hardware registry's cause, ``'not_detected'`` and
+            ``'port_in_use'`` as ``CameraNotAvailableError`` explains them,
+            or: ``'not_responding'`` -- the board's port opened and the board
+            answered nothing. ``'connect_failed'`` -- the board's driver
+            raised while connecting. ``'no_driver'`` -- no real LED board
+            driver is registered on this installation.
     """
 
     title = 'LED Board Unavailable'
@@ -1329,8 +1375,13 @@ class ObjectiveUnknownError(Refusal, ConfigError):
     selected.
 
     Attributes:
-        reason: ``'slot_unknown'``, ``'slot_unassigned'``,
-            ``'not_in_catalogue'`` or ``'none_selected'``.
+        reason: ``'slot_unknown'`` -- the turret is in no known slot: it has
+            not been homed or moved since its slot was last lost.
+            ``'slot_unassigned'`` -- the slot in the light path has no
+            objective assigned. ``'not_in_catalogue'`` -- the slot in the
+            light path is assigned an objective that is not in the objective
+            catalogue. ``'none_selected'`` -- no objective has been selected,
+            as on a scope with no turret before its first selection.
         slot: The slot in the light path, or None when that is what is
             unknown.
     """
@@ -1380,7 +1431,9 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
     name is refused every time it is sent.
 
     Attributes:
-        reason: ``'labware_unknown'`` or ``'objective_not_in_catalogue'``.
+        reason: ``'labware_unknown'`` -- the labware name is no plate in the
+            labware catalogue. ``'objective_not_in_catalogue'`` -- the
+            objective name is no key of the objective catalogue.
         argument: The owner's parameter: ``labware_id`` or ``objective_id``.
         value: What was given, as given.
         offered: The catalogue's keys.
@@ -1784,8 +1837,78 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     Attributes:
         reason: Machine-readable refusal code for callers that map
             refusals to responses (REST status codes, UI branches).
-        title: The heading shown above the sentence, the reason's
-            (``_TITLES``).
+            ``'already_running'`` -- a run already holds the scope.
+            ``'exclusive_activity_running'`` -- another exclusive activity,
+            such as a diagnostic, a home or a run, holds the scope, and the
+            work asked for is not made under it.
+            ``'recording_active'`` -- a video recording is in progress, or
+            a previous one is still finishing.
+            ``'files_writing'`` -- the last run is still writing its files.
+            ``'files_writing_stalled'`` -- the last run's file writer has
+            stopped making progress, and has to be recovered before a new
+            run starts. ``'post_processing_running'`` -- a build is on the
+            post-processing lane, and a capture never overlaps one.
+            ``'autofocus_running'`` -- an autofocus sweep from a run that
+            has ended did not stop, and still occupies the autofocus
+            thread. ``'not_connected'`` -- a part the work needs is not
+            connected, and none reconnects during a session.
+            ``'camera_not_streaming'`` -- the camera is connected and
+            delivers no frames. ``'position_unknown'`` -- an axis this
+            scope has does not know its position, so the scope has to be
+            homed first. ``'lid_open_before_motion'`` -- the stage's lid is
+            open, so the stage refuses to move.
+            ``'no_acquiring_layer'`` -- no channel, or not the step's, is
+            set to acquire, so there is no step to make.
+            ``'channel_already_in_add'`` -- another step added with this one
+            already takes the channel, and steps added together are one
+            composite with one image per channel.
+            ``'composite_two_transmitted_layers'`` -- a composite run has
+            more than one transmitted channel set to capture.
+            ``'turret_slot_ambiguous'`` -- a step recorded no turret slot,
+            and its objective is assigned to two or more.
+            ``'turret_slot_reassigned'`` -- the turret slot a step recorded
+            now holds another objective. ``'step_position_unknown'`` -- a
+            step cannot be added or updated while an axis does not know its
+            position. ``'turret_objectives_unassigned'`` -- the protocol
+            uses an objective no turret slot is assigned.
+            ``'objective_not_mounted'`` -- on a scope with no turret, the
+            protocol names an objective other than the selected one.
+            ``'sequence_name_invalid'`` -- the run's name is a path: it
+            holds a separator or a drive, or is ``..``.
+            ``'empty_protocol'`` -- the protocol has no steps.
+            ``'validation_failed'`` -- the protocol's steps fail the
+            pre-run validation; the message names the errors.
+            ``'composite_needs_two_channels'`` -- a composite run has fewer
+            than two channels set to capture. ``'tiling_unknown'`` -- the
+            tile grid asked for is not one this installation offers.
+            ``'tiling_scale_unknown'`` -- the scope cannot report its pixel
+            size, so a tile grid's spacing is unknown.
+            ``'zstack_not_configured'`` -- a z-stack's range or step size is
+            not greater than zero. ``'already_tiled'`` -- the protocol is
+            tiled already, and a second grid cannot be laid over it.
+            ``'tiles_outside_travel'`` -- tiles of the grid fall outside the
+            stage's travel. ``'zslices_outside_travel'`` -- z-slices of the
+            stack fall outside Z's travel.
+            ``'positions_outside_travel'`` -- steps of the protocol fall
+            outside the stage's travel.
+            ``'camera_setting_out_of_range'`` -- a step's gain or exposure is
+            outside this camera's range. ``'positions_unreachable'`` -- the
+            work needs motion on an axis this scope has no motor for.
+            ``'step_position_missing'`` -- steps have no position on an axis
+            this scope moves, having been recorded on a scope without it.
+            ``'layer_not_on_scope'`` -- steps take or stimulate a layer this
+            scope does not have, or this scope's layers could not be
+            resolved. ``'objectives_require_turret'`` -- the protocol
+            changes objective between steps, and this scope has no turret
+            to change it. ``'objective_not_given'`` -- a protocol with a
+            channel set to acquire was built from a configuration that
+            names no objective. ``'focus_not_given'`` -- a layer has no
+            saved focus, and the configuration names no current Z to image
+            it at. ``'overlap_out_of_range'`` -- the tile overlap is outside
+            0 to 50 percent. ``'values_out_of_range'`` -- layer settings the
+            protocol would store hold values no layer setting takes; the
+            message names each.
+        title: The heading shown above the sentence, the reason's.
         message: The sentence; the same text as the exception's message.
         holder: What holds the microscope at refusal time (the
             exclusive-activity claim's kind, or ``AUTOFOCUS`` for a sweep
@@ -1932,7 +2055,7 @@ class RunCheckFailedError(Fault, ProtocolError):
     """A run could not be checked before it started: a check itself crashed.
 
     Raised by SequencedCaptureRunner.prepare() when validating the protocol,
-    reading whether the hardware is connected, or reading the stage's
+    reading whether the camera is streaming, or reading the stage's
     interlocks, raised instead of answering. Not a refusal: nothing was
     declined -- the question could not be asked, and the crash that stopped
     it is chained as ``__cause__`` so its traceback is logged with this.
@@ -1941,7 +2064,11 @@ class RunCheckFailedError(Fault, ProtocolError):
     it where its flight ends.
 
     Attributes:
-        reason: Machine-readable cause, one of ``_TITLES``' keys.
+        reason: Machine-readable cause. ``'validation_crashed'`` -- the
+            protocol's pre-run validation raised before it produced an
+            answer. ``'hardware_state_unknown'`` -- a hardware read the
+            check needs, whether the camera is streaming or which of the
+            stage's interlocks are open, raised instead of answering.
         title: Short heading for the user, the reason's.
         message: The sentence a user reads; the same text as the
             exception's message.
@@ -1973,7 +2100,8 @@ class RunStartError(Fault, ProtocolError):
     and the popup.
 
     Attributes:
-        reason: Machine-readable cause, a run ending's reason.
+        reason: Machine-readable cause, a run ending's reason, as
+            ``RunFailedError`` explains it.
         title: Short heading for the user, the run ending's.
         message: The sentence a user reads -- never a raw exception
             string; those belong in the log.
@@ -2008,8 +2136,17 @@ class RecordingRefusedError(Refusal, CaptureError):
 
     Attributes:
         reason: Machine-readable refusal code for callers that map
-            refusals to responses (REST status codes, UI branches), one of
-            ``_TITLES``' keys.
+            refusals to responses (REST status codes, UI branches). A
+            reason it shares with another refusal is explained there: with
+            ``ProtocolRunRefusedError``, and ``'capture_location_unusable'``
+            and ``'names_exhausted'`` with ``CaptureLocationError``. Its
+            own: ``'camera_exposure_unknown'`` -- the camera has not
+            reported its exposure time, from which the recording's
+            dead-feed bound derives. ``'insufficient_disk'`` -- free disk
+            at the save location is below the floor a recording needs to
+            start. ``'falsifying_change_in_flight'`` -- an objective or
+            camera frame change is under way, which a recording would
+            capture through.
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body; the same text as
             the exception's message.
@@ -2156,6 +2293,39 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     Attributes:
         operation: The operation's name as a person reads it ("Stitch").
         reason: Machine-readable refusal code.
+            ``'axis_not_plottable'`` -- a graph's X or Y names a column of
+            the results file that axis cannot take. ``'collision'`` -- every
+            image group would write an output under a name another group's
+            output shares, so nothing could be built.
+            ``'excluded_inputs'`` -- the folder holds only derived outputs,
+            which the build does not take as input. ``'fit_impossible'`` --
+            the graphed values cannot give the trendline asked for.
+            ``'graph_incomplete'`` -- a graph was asked for without a results
+            file, an X axis and a Y axis. ``'invalid_path'`` -- no folder
+            was given to process. ``'invalid_setting'`` -- a setting of the
+            build is not one it can use, such as no build chosen, an image
+            shape or scale that is not one, or a playback rate below 1 frame
+            per second. ``'method_invalid'`` -- the cell-count method holds
+            something the count cannot use. ``'method_unreadable'`` -- the
+            cell-count method file cannot be read, is not JSON, or has no
+            metadata naming its type and version. ``'no_data'`` -- the
+            folder holds images, but not the data this operation needs: no
+            Z-stack for a z-projection, no recording frames for a video,
+            nothing a count could count, or a recording where stills are
+            needed. ``'no_images'`` -- the folder holds no image files.
+            ``'no_scale'`` -- the image states no scale, so it is counted in
+            pixels, and the method filters a size in microns.
+            ``'output_outside_folder'`` -- the folder's protocol names a
+            step whose output would be written outside the folder.
+            ``'protocol_data_unreadable'`` -- the folder's protocol data
+            could not be loaded. ``'results_unreadable'`` -- the cell-count
+            results file cannot be read as one LumaViewPro writes.
+            ``'unsupported_source_format'`` -- the source images are not
+            TIFF or OME-TIFF, which the build re-reads. ``'scope_held'`` --
+            something holds the scope, and a build now would share the
+            computer with its work. ``'files_writing'``, as
+            ``ProtocolRunRefusedError`` explains it, and ``'unreadable'``, as
+            ``InputFramesUnusableError`` explains it, are the same facts.
     """
 
     causes: ClassVar[dict[str, RefusalCause]] = {
@@ -2252,6 +2422,9 @@ class PostProcessingFailedError(Fault, CaptureError):
         excluded_inputs: The files of each kind the build did not take, as
             a complete build's result names them; empty for an operation
             that reads no protocol folder (Quick Enhance, a cell count).
+        reason: ``'post_processing_failed'`` -- the build produced nothing.
+            ``'post_processing_incomplete'`` -- the build produced part of
+            what it was asked for, named in ``produced_paths``.
     """
 
     excluded_inputs: tuple[ExcludedInput, ...]
@@ -2305,7 +2478,10 @@ class RecordingStoppedError(Fault, CaptureError):
     frames written so far are on disk.
 
     Attributes:
-        reason: ``camera_disconnected``, ``camera_stalled`` or ``disk_floor``.
+        reason: ``'camera_disconnected'`` -- the camera is no longer active.
+            ``'camera_stalled'`` -- the camera stopped delivering frames for
+            longer than the recording's exposure allows.
+            ``'disk_floor'`` -- free disk fell below the safety floor.
     """
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -2341,6 +2517,10 @@ class RecordingFinalizeError(Fault, CaptureError):
     are on disk.
 
     Attributes:
+        reason: ``'video_step_finalize_failed'`` -- a protocol video step's
+            output could not be fully assembled.
+            ``'recording_finalize_failed'`` -- a manual recording's output
+            could not be fully assembled.
         protocol_step: True for a protocol video step, False for a manual
             recording; each is named in its own words.
     """
@@ -2484,21 +2664,20 @@ class RunFilesNotWrittenError(Fault, CaptureError):
     folder that is still filling or that lost images: the artifact would be
     silently incomplete. Nothing is built.
 
-    Reasons:
-        ``write_batch_timeout``: the run's writes did not finish within the
-            build's bound.
-        ``write_batch_abandoned``: some of the run's writes never ran -- the
-            file writer was recovered, or the app shut down, while they were
-            outstanding.
-        ``write_batch_not_taken``: some of the run's images never reached
-            the file writer -- it was stuck, or had stopped taking work,
-            when they were handed over.
-        ``write_batch_save_failed``: saving some of the run's images failed
-            on disk.
-        ``write_batch_disk_full``: some of the run's images were refused
-            because the save drive was nearly full.
-        ``write_batch_video_unfinished``: a video step's file did not
-            finish.
+    Attributes:
+        reason: ``'write_batch_timeout'`` -- the run's writes did not finish
+            within the build's bound. ``'write_batch_abandoned'`` -- some of
+            the run's writes never ran: the file writer was recovered, or
+            the app shut down, while they were outstanding.
+            ``'write_batch_not_taken'`` -- some of the run's images never
+            reached the file writer: it was stuck, or had stopped taking
+            work, when they were handed over. ``'write_batch_save_failed'``
+            -- saving some of the run's images failed on disk.
+            ``'write_batch_disk_full'`` -- some of the run's images were
+            refused because the save drive was nearly full.
+            ``'write_batch_video_unfinished'`` -- a video step's file did
+            not finish. ``RunImagesNotSavedError`` carries all but the
+            first as the same facts.
     """
 
     title = 'Run Images Not Written'
@@ -2559,6 +2738,8 @@ class RunImagesNotSavedError(Fault, CaptureError):
     count is known, since a run's images keep landing after it ends.
 
     Attributes:
+        reason: Why images are not on disk, as ``RunFilesNotWrittenError``
+            explains it.
         not_written: Images the run captured that are not on disk.
         written: Images that landed.
     """
@@ -2702,7 +2883,39 @@ class RunFailedError(Fault, CaptureError):
 
     Attributes:
         title: The ending's heading, its reason's (``ENDING_TITLES``).
-        reason: The ending's machine-readable cause.
+        reason: The ending's machine-readable cause, a run ending's reason;
+            ``RunStartError`` and ``RunFailedToStartError`` carry the same.
+            ``'captures_failed'`` -- the run reached its end without every
+            capture it was asked for. ``'start_failed'`` -- the run's setup
+            raised a fault of no other reason after the run was committed.
+            ``'dispatch_refused'`` -- the run loop was refused when it was
+            dispatched, so it never ran. ``'capture_location_failed'`` --
+            the run's folder could not be made at the capture location.
+            ``'run_dir_init_failed'`` -- the run's folder was made and could
+            not be initialized. ``'camera_lane_stalled'`` -- a camera
+            command did not finish, so the run could not take the camera.
+            ``'camera_read_failed'`` -- the camera's settings could not be
+            read when the run took its snapshot of them.
+            ``'run_loop_crashed'`` -- the run loop raised, or stopped
+            without saying how the run ended.
+            ``'hardware_disconnected'`` -- a part the run needs was found
+            disconnected. ``'consecutive_scan_failures'`` -- the scan failed
+            too many times in a row with the hardware still present.
+            ``'interlock'`` -- the stage's interlock refused a move during a
+            scan. ``'position_lost'`` -- an axis lost its position during a
+            scan, and nothing in a run homes it again.
+            ``'disk_space_critical'`` -- free disk at the save location fell
+            below what the run needs, so the run stopped to save what it
+            has. ``'file_writer_stalled'`` -- saving stopped making progress,
+            so the run stopped before it lost more captures.
+            ``'video_writer_died'`` -- the writer of a video step failed.
+            ``'led_channel_unavailable'`` -- steps of the run take an LED
+            channel this scope does not have, and their captures kept
+            failing. ``'camera_failure'`` -- the camera failed too many steps
+            in a row. ``'autofocus_failed'`` -- a single-autofocus run's
+            autofocus did not find focus. ``'autofocus_not_started'`` -- a
+            single-autofocus run's autofocus was refused before the stage
+            moved, its first window reaching past Z's travel.
     """
 
     fatal = True
@@ -2724,7 +2937,8 @@ class RunFailedToStartError(Fault, CaptureError):
 
     Attributes:
         title: The ending's heading, its reason's (``ENDING_TITLES``).
-        reason: The ending's machine-readable cause.
+        reason: The ending's machine-readable cause, as ``RunFailedError``
+            explains it.
     """
 
     _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
@@ -2798,15 +3012,15 @@ class AutofocusFailedError(Fault, CaptureError):
     """An autofocus sweep chose no focus; the stage goes back to where it started.
 
     Attributes:
-        reason: ``'flat_focus_curve'`` (the final pass's curve has no peak:
+        reason: ``'flat_focus_curve'`` -- the final pass's curve has no peak:
             every score zero or invalid, a fit that cannot be made, or a
-            curve with no contrast -- every point above half its maximum --
+            curve with no contrast (every point above half its maximum)
             whose fit is not concave, peaks outside the measured range, or
-            shifts past twice the step spacing),
-            ``'travel_exhausted'`` (a window the sweep reached after it moved
-            the stage reaches past Z's travel; refused before the stage
-            moves there) or
-            ``'unexpected_error'`` (the sweep raised; its cause is chained).
+            shifts past twice the step spacing. ``'travel_exhausted'`` -- a
+            window the sweep reached after it moved the stage reaches past
+            Z's travel; refused before the stage moves there.
+            ``'unexpected_error'`` -- the sweep raised; its cause is
+            chained.
     """
 
     title = ENDING_TITLES['autofocus_failed']
@@ -2878,9 +3092,12 @@ class RunWriteRefusedError(Refusal, CaptureError):
     says what was not saved. Nothing broke in declining it, and the same
     write into a live run is taken, so its cause is the state.
 
-    Reasons: ``run_writes_ended`` (closed by the run's cleanup),
-    ``writes_abandoned`` (abandoned by a recovery or a shutdown) or
-    ``writer_shut_down`` (the file lane itself no longer takes work).
+    Attributes:
+        reason: ``'run_writes_ended'`` -- the run's cleanup closed its
+            writes. ``'writes_abandoned'`` -- a writer recovery or a
+            shutdown abandoned the run's remaining writes.
+            ``'writer_shut_down'`` -- the file lane itself no longer takes
+            work.
     """
 
     title = 'Not Saved'
@@ -3209,6 +3426,25 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
     Attributes:
         reason: Machine-readable refusal code.
+            ``'exclusive_activity_running'``, ``'not_connected'``,
+            ``'camera_not_streaming'`` and ``'lid_open_before_motion'`` are
+            explained by ``ProtocolRunRefusedError``, which carries them as
+            the same fact. ``'capture_in_flight'`` -- an earlier still has
+            not finished. ``'home_in_flight'`` -- another home holds the
+            scope. ``'home_not_stoppable'`` -- a home drives on a motor
+            controller that cannot stop one. ``'scope_disconnected'`` -- the
+            scope's lanes are closed, so it takes no command until the
+            application restarts. ``'monitor_ended'`` -- the motion monitor
+            has ended, so nothing would judge the move.
+            ``'position_unread'`` -- the move's drive needs a position the
+            motor controller did not report: the relative base, or Z for the
+            backlash approach. ``'stage_unpowered_before_motion'`` -- the
+            stage has no power, so its interlock refuses to move it.
+            ``'axis_absent'`` -- the scope does not have the motion part
+            asked for. ``'not_on_this_scope'`` -- the scope does not have
+            another part asked for, such as an LED channel or fan control.
+            ``'activity_ended'`` -- the command was made under an activity
+            that has ended.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
         holder_trigger: The holding run's starter, for a run (``'gui'``,
@@ -3496,8 +3732,9 @@ class DiagnosticRefusedError(Refusal, Exception):
 
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
-            to responses (REST status codes, SDK branches), one of
-            ``_TITLES``' keys.
+            to responses (REST status codes, SDK branches):
+            ``'exclusive_activity_running'``, as ``ProtocolRunRefusedError``
+            explains it.
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body.
         holder: The activity kind holding the claim at refusal time.
@@ -3582,7 +3819,15 @@ class ControlSessionRefusedError(Refusal, Exception):
     was taken or written.
 
     Attributes:
-        reason: One of ``causes``' keys.
+        reason: ``'control_session_held'`` -- a control session is held, and
+            the request is not its holder's. ``'write_in_flight'`` -- a
+            setting or a file is still being written, so control is not
+            taken over it half done. ``'work_finishing'`` -- a run or a
+            recording that has ended is still finishing.
+            ``'control_session_ended'`` -- the request names a control
+            session that is not the live one: it has ended, or was never
+            issued. ``'exclusive_activity_running'``, an activity holding
+            the scope, is ``ProtocolRunRefusedError``'s to explain.
         title: The heading the person reads, the reason's.
         holder: The kind of activity holding the scope, for
             ``'exclusive_activity_running'``; None otherwise.
@@ -4690,11 +4935,10 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     notifies it.
 
     Attributes:
-        reason: One of ``_TITLES``' keys. ``'camera_rejected'``: the camera
-            refused the write, or its driver raised from it.
-            ``'camera_no_answer'``: the camera did not answer the write,
-            sent twice, so whether it took it is not known. The setting is
-            in ``setting`` and in the words.
+        reason: ``'camera_rejected'`` -- the camera refused the write, or
+            its driver raised from it. ``'camera_no_answer'`` -- the camera
+            did not answer the write, sent twice, so whether it took it is
+            not known. The setting is in ``setting`` and in the words.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
     """
@@ -4727,6 +4971,18 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
 
     Attributes:
         reason: Machine-readable refusal code, ``'<setting>_unsupported'``.
+            ``'auto_gain_unsupported'`` -- this camera has no automatic
+            gain to turn on. ``'auto_exposure_unsupported'`` -- this camera
+            has no automatic exposure to turn on.
+            ``'auto_gain_target_brightness_unsupported'`` -- this camera has
+            no automatic gain, so it takes no target brightness.
+            ``'binning_unsupported'`` -- the binning size is not one this
+            camera reports. ``'black_level_unsupported'`` -- this camera has
+            no black level setting. ``'conversion_gain_mode_unsupported'``
+            -- this camera has no high conversion gain, or the mode asked
+            for is neither High nor Low.
+            ``'line_noise_reduction_unsupported'`` -- this camera has no
+            line noise reduction to turn on.
         setting: Machine-readable setting name (e.g. 'binning').
         requested: The value asked for.
         offered: The values the camera reports it supports.
@@ -4769,8 +5025,16 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
 
     Attributes:
         reason: Machine-readable refusal code, ``'<setting>_out_of_range'``.
+            ``'gain_db_out_of_range'`` -- the gain is outside the camera's
+            declared range. ``'exposure_ms_out_of_range'`` -- the exposure
+            is outside the camera's declared range.
+            ``'frame_width_out_of_range'`` -- the frame width is outside the
+            widths the camera declares. ``'frame_height_out_of_range'`` --
+            the frame height is outside the heights the camera declares.
+            ``'black_level_out_of_range'`` -- the black level is outside the
+            camera's declared range.
         setting: Machine-readable setting name ('gain_db', 'exposure_ms',
-            'frame_width', 'frame_height').
+            'frame_width', 'frame_height', 'black_level').
         requested: The value asked for.
         limits: The camera's declared floor and ceiling, in the setting's
             unit; either is None when the camera declares none, and is not

@@ -13,10 +13,18 @@ checks each declaration where the class is defined
 here: a subclass is a different outcome, and one that took its parent's
 codes would be indistinguishable from it. An umbrella names a subject and
 is never raised, so it declares none.
+
+Each reason of a class with several also has its sentence, in the class's
+docstring as ``'reason'`` -- what it means, so the reference tells a
+caller what each code it branches on says. A class with one reason is
+explained by its docstring; a reason several classes carry as one fact
+(a base's, or ``same_fact_as``) is explained once, by any of them.
 """
 
 import ast
+import re
 
+from tests.api_reference import own_doc, outcome_classes
 from tests.ast_seams import iter_package_modules, production_modules
 
 
@@ -107,4 +115,52 @@ def test_every_outcome_states_its_reasons():
         'these outcomes declare no reasons of their own, so a caller branching on '
         f"reason reads its parent's: {offenders}. State causes in the class body, "
         'each reason mapped to its cause.'
+    )
+
+
+def _same_fact(cls, classes):
+    """*cls* and every class carrying its reasons as the same fact: its bases, and ``same_fact_as`` either way."""
+    linked = {c: {*c.__mro__, *c.same_fact_as} for c in classes}
+    for c, others in list(linked.items()):
+        for other in others:
+            linked.setdefault(other, set()).add(c)
+    found, queue = set(), [cls]
+    while queue:
+        c = queue.pop()
+        if c not in found:
+            found.add(c)
+            queue += linked.get(c, ())
+    return found
+
+
+def _explains(cls, reason):
+    """*cls*'s own docstring gives *reason* its sentence: ``'reason'`` -- the sentence."""
+    doc = ' '.join(own_doc(cls).split())
+    return re.search(rf"``'{re.escape(reason)}'`` -- \S", doc) is not None
+
+
+def test_every_reason_is_explained():
+    # A class with one reason is explained by its own docstring. A reason
+    # several classes carry as one fact is explained once, by any of them.
+    classes = list(outcome_classes().values())
+    unexplained = {}
+    for cls in sorted(classes, key=lambda c: c.__name__):
+        causes = vars(cls).get('causes') or {}
+        if len(causes) < 2:
+            continue
+        carriers = _same_fact(cls, classes)
+        missing = [
+            reason
+            for reason in causes
+            if not any(
+                reason in (getattr(c, 'causes', None) or {}) and _explains(c, reason)
+                for c in carriers
+            )
+        ]
+        if missing:
+            unexplained[cls.__name__] = missing
+    assert not unexplained, (
+        f'{sum(map(len, unexplained.values()))} reasons a caller branches on are explained '
+        "nowhere: give each its sentence in its class's docstring, ``'reason'`` -- what it "
+        'means:\n' + ''.join(f'  {name}: {reasons}\n' for name, reasons in unexplained.items())
     )

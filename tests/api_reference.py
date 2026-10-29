@@ -156,7 +156,7 @@ def _field_annotation(cls: type, name: str) -> str | None:
     return None
 
 
-def _own_doc(cls: type) -> str:
+def own_doc(cls: type) -> str:
     """The class's own docstring, never a base's nor the one ``dataclass`` writes from the signature."""
     doc = vars(cls).get('__doc__') or ''
     if doc.startswith(f'{cls.__name__}('):
@@ -437,7 +437,7 @@ def _fields(owner: _Owner) -> str:
         return ''
     described: dict[str, str] = {}
     for klass in reversed(owner.owner.__mro__):
-        described |= entries_of(_own_doc(klass), 'Attributes')
+        described |= entries_of(own_doc(klass), 'Attributes')
     lines = []
     for item in fields:
         key = f'{owner.name}.{item.member}'
@@ -489,7 +489,7 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
     facts += _reached(cls, index)
     if facts:
         parts.append('  \n'.join(facts))
-    doc = _own_doc(cls)
+    doc = own_doc(cls)
     if doc:
         parts.append(markdown_of(doc, leave_out=() if outcome else ('Attributes',)))
     for text in (_fields(owner), _reasons(cls) if outcome else ''):
@@ -522,7 +522,7 @@ def _closed_set(cls: type[enum.Enum], index: _Index) -> str:
     facts = _reached(cls, index)
     if facts:
         parts.append('  \n'.join(facts))
-    doc = _own_doc(cls)
+    doc = own_doc(cls)
     if doc:
         parts.append(markdown_of(doc))
     parts.append(
