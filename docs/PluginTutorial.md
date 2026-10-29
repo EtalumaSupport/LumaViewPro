@@ -387,9 +387,8 @@ nothing, so the rest of the plugin can be tried.
 
 `session.plugin_api_level` says what
 this LumaViewPro does that a plugin may rely on, within its major version.
-A version cannot say it: `version.txt` names the promoted release, and many
-trunk commits share one beta number. A commit that changes behaviour a
-plugin relies on raises the level by one. A plugin that needs a level checks
+A version cannot say it: many builds share one beta number. A change to
+behaviour a plugin relies on raises the level by one. A plugin that needs a level checks
 it at its own entry and refuses below it, naming both levels; a host older
 than the level has no `plugin_api_level`, which reads as 0
 (`getattr(session, 'plugin_api_level', 0)`). `PluginSpec.requires_lvp_version`
