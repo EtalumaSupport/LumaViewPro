@@ -242,6 +242,24 @@ def test_stop_a_run_over_rest_ends_its_job_aborted(served):
     assert outcome['captures']['captured'] < outcome['captures']['asked']
 
 
+def test_refusals_and_faults_meets_one_refusal_of_each_cause():
+    from modules.exceptions import RefusalCause
+
+    refusals = _run_example('refusals_and_faults')
+    assert [(r.reason, r.cause) for r in refusals] == [
+        ('position_unknown', RefusalCause.STATE),
+        ('position_out_of_range', RefusalCause.REQUEST),
+        ('not_connected', RefusalCause.RESTART),
+    ]
+
+
+def test_refusals_and_faults_over_rest_answers_each_problem(served):
+    client, run = served('refusals_and_faults')
+    job = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()
+    assert job['status'] == 'failed', job
+    assert (job['error']['reason'], job['error']['status']) == ('not_connected', 503)
+
+
 def _scope_session_calls(path):
     """Every ``ScopeSession.<member>(...)`` call an example makes, as
     (member, positional count, keyword names, line)."""
