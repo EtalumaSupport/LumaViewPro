@@ -148,6 +148,7 @@ def test_first_still_over_rest_saves_the_same_still(served, tmp_path):
     assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
 
 
+@pytest.mark.slow
 def test_first_still_standalone_subprocess(tmp_path):
     """The one standalone witness: the example runs in its own interpreter,
     outside the suite's mock environment, against the real installed deps.
