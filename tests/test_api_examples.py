@@ -51,7 +51,7 @@ EXAMPLES = sorted(path.stem for path in EXAMPLES_DIR.glob('*.py'))
 # The examples written before each had a task, a twin and an outcome test:
 # they are only run. Each leaves this set when the example for its task
 # replaces it, and the set and test_example_runs_in_suite go with the last.
-_NOT_YET_REWRITTEN = frozenset({'multi_channel_capture', 'protocol_execution', 'z_stack'})
+_NOT_YET_REWRITTEN = frozenset({'protocol_execution', 'z_stack'})
 
 _SENTINEL = object()
 
@@ -169,6 +169,59 @@ def test_first_still_standalone_subprocess():
         timeout=180,
     )
     assert proc.returncode == 0, f'stderr tail: {proc.stderr[-2000:]}'
+
+
+# What channel_settings asks of each still, in both its forms: the channel
+# it is named for, the channel the camera held, the current of each LED lit,
+# the exposure and the gain.
+_CHANNEL_STILLS = (
+    ('BF', 'BF', [5.0], 2.0, 1.0),
+    ('Ex488', 'Ex488', [300.0], 100.0, 10.0),
+    ('BF', None, [5.0], 1.5, 3.0),
+)
+
+
+def _lit_and_unsaturated(dark, maximum, bits):
+    return dark is False and maximum < _full_scale(bits)
+
+
+def test_channel_settings_takes_each_still_with_the_settings_it_wrote():
+    stored, raw = _run_example('channel_settings')
+    stills = [stored['BF'], stored['Ex488'], raw]
+    assert [
+        (
+            s.channel,
+            s.frame.held_channel,
+            list(s.frame.illumination_ma.values()),
+            s.frame.exposure_ms,
+            s.frame.gain_db,
+        )
+        for s in stills
+    ] == list(_CHANNEL_STILLS)
+    for s in stills:
+        assert _lit_and_unsaturated(s.frame.dark, s.statistics.maximum, s.significant_bits), s
+
+
+def test_channel_settings_over_rest_takes_the_same_stills(served):
+    client, run = served('channel_settings')
+    stills = [
+        client.get(f'/api/v1/jobs/{run.variables[job]}').json()['result'][0]
+        for job in ('BF_JOB', 'EX488_JOB', 'RAW_JOB')
+    ]
+    assert [
+        (
+            s['channel'],
+            s['frame']['held_channel'],
+            list(s['frame']['illumination_ma'].values()),
+            s['frame']['exposure_ms'],
+            s['frame']['gain_db'],
+        )
+        for s in stills
+    ] == list(_CHANNEL_STILLS)
+    for s in stills:
+        assert _lit_and_unsaturated(
+            s['frame']['dark'], s['statistics']['maximum'], s['significant_bits']
+        ), s
 
 
 def _scope_session_calls(path):
