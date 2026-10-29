@@ -303,8 +303,10 @@ built-in:
 3. Check the spec: a `subscribes_to` naming keys, or a
    `requires_lvp_version` the running LVP version does not meet ->
    not loaded.
-4. Call `register(ctx)` with the session. Exception -> call
-   `unregister(ctx)`, if the plugin has one, for cleanup -> not loaded.
+4. Call `register(ctx)` with the session. Exception -> remove whatever
+   it registered before the exception (a widget, a processor, a frame
+   listener), then call `unregister(ctx)`, if the plugin has one, for
+   its own cleanup -> not loaded.
 5. Track the module so `session.unload_plugins()` can call its
    `unregister` at shutdown.
 
@@ -509,8 +511,10 @@ pre-release suffixes (`-beta8`, `-rc1`) before comparing, so
 
 ### Startup notification: `The "foo" plugin did not load: its register() raised <ExceptionType>: <message>`
 
-Your `register(ctx)` raised. The host already called your
-`unregister(ctx)` for cleanup, so partial state should be released.
+Your `register(ctx)` raised. The host removed whatever it had
+registered before the exception -- nothing of the plugin is mounted,
+run or called -- and then called your `unregister(ctx)` for any other
+cleanup.
 Read the log for the full traceback; common causes are typos in the
 spec (e.g. `capabilities=("modules.image_save",)` vs `capabilities="modules.image_save"`), or
 your processor closing over a missing module-level binding.

@@ -15,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 import re
+import threading
 import types
 from unittest.mock import MagicMock, patch
 
@@ -600,6 +601,71 @@ def test_load_plugins_continues_past_register_failure(harness_ctx):
     assert 'bad' not in harness_ctx.plugins.post_processing.names()
     # Failed plugin's unregister was called for cleanup attempt
     assert len(bad._unregister_calls) == 1
+
+
+def test_a_plugin_whose_register_raises_after_registering_leaves_nothing_registered(
+    harness_ctx, sim_scope
+):
+    """A plugin reported as not loaded has nothing registered: what its
+    register() registered before it raised is not mounted, not handed a
+    run's folder, not called on a frame, and not listed as loaded."""
+    harness_ctx.scope = sim_scope
+    harness_ctx.plugins = PluginRegistry(sim_scope)
+    mod = _make_plugin_module('half_loaded')
+    frames_seen = []
+
+    def register(ctx):
+        ctx.plugins.ui.register(mod.spec, 'left_sidebar.accordion', lambda: None)
+        ctx.plugins.post_processing.register(mod.spec, _trivial_processor)
+        ctx.plugins.live_processing.register(mod.spec, frames_seen.append)
+        raise RuntimeError('half_loaded register failed after registering')
+
+    mod.register = register
+    with patch(
+        'importlib.metadata.entry_points', return_value=[_FakeEntryPoint('half_loaded', mod)]
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+
+    plugins = harness_ctx.plugins
+    assert [r.name for r in plugins.not_loaded()] == ['half_loaded']
+    assert plugins.ui.mounts() == ()
+    assert 'half_loaded' not in plugins.post_processing.names()
+    assert plugins.live_processing.names() == ()
+    for health in plugins.all_health():
+        assert 'half_loaded' not in [s.name for s in health.loaded], health.namespace
+    # Frames still flow -- a listener of the test's own sees three -- and
+    # none of them reaches the failed plugin's.
+    seen_at_load = len(frames_seen)
+    three = threading.Event()
+    control = []
+
+    def control_listener(frame):
+        control.append(frame)
+        if len(control) >= 3:
+            three.set()
+
+    sim_scope.imaging.add_frame_listener(control_listener)
+    try:
+        assert three.wait(timeout=5.0), 'the simulated camera delivered no frames'
+    finally:
+        sim_scope.imaging.remove_frame_listener(control_listener)
+    assert len(frames_seen) == seen_at_load
+    assert len(mod._unregister_calls) == 1
+
+
+def test_a_failed_register_under_a_taken_name_leaves_the_holders_registration(harness_ctx):
+    """An installed plugin that claims the built-in stitcher's name is
+    loaded first; the built-in's register then raises name_taken, and taking
+    back what the built-in registered leaves the installed one's processor."""
+    installed = _make_plugin_module('stitcher')
+    processor = _trivial_processor
+    installed.register = lambda ctx: ctx.plugins.post_processing.register(installed.spec, processor)
+    with patch(
+        'importlib.metadata.entry_points', return_value=[_FakeEntryPoint('stitcher', installed)]
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    assert harness_ctx.plugins.post_processing.get('stitcher') is processor
+    assert [r.name for r in harness_ctx.plugins.not_loaded()] == ['stitcher']
 
 
 def test_load_plugins_skips_module_without_spec(harness_ctx):

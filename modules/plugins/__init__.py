@@ -278,6 +278,15 @@ class _BaseNamespace:
                 'name_taken', f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
             )
 
+    def _discard(self, plugin_name: str) -> None:
+        """Remove *plugin_name*'s registration, if it has one here.
+
+        The host's, for a plugin that did not load: what its register()
+        registered before it raised goes with it.
+        """
+        with self._lock:
+            self._entries.pop(plugin_name, None)
+
 
 class UIRegistry(_BaseNamespace):
     """UI-extending plugins. Adds widgets at named mount points.
@@ -407,6 +416,10 @@ class LiveProcessingRegistry(_BaseNamespace):
             return
         _spec, handler = entry
         self._scope.imaging.remove_frame_listener(handler)
+
+    def _discard(self, plugin_name: str) -> None:
+        # The listener is the registration here: it leaves the camera too.
+        self.unregister(plugin_name)
 
     def names(self) -> tuple[str, ...]:
         """Return the names of all currently-registered live_processing plugins."""
@@ -644,12 +657,7 @@ class PluginRegistry:
 
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""
-        return (
-            self.ui.health(),
-            self.post_processing.health(),
-            self.live_processing.health(),
-            self.rest.health(),
-        )
+        return tuple(ns.health() for ns in self._namespaces())
 
     def load(self, host: Any, host_version: str) -> None:
         """Discover the installed plugins, then the built-ins, and register each.
@@ -747,12 +755,20 @@ class PluginRegistry:
             self.record_load_failure(spec.name, spec.version, 'it has no register(ctx) function')
             return 0
 
+        held_before = [ns for ns in self._namespaces() if spec.name in ns._entries]
         try:
             register_fn(host)
         except Exception as e:
             self.record_load_failure(
                 spec.name, spec.version, f'its register() raised {type(e).__name__}: {e}', e
             )
+            # A plugin that did not load has nothing registered: what it
+            # registered before the raise is taken back here, whatever its
+            # own unregister does. A namespace that held the name before the
+            # call holds another plugin's registration, which stays.
+            for ns in self._namespaces():
+                if ns not in held_before:
+                    ns._discard(spec.name)
             # Give the plugin a chance to clean up partial state.
             unregister_fn = getattr(module, 'unregister', None)
             if callable(unregister_fn):
@@ -801,9 +817,8 @@ class PluginRegistry:
         write outcome; on ``INCOMPLETE`` -- some images are not on disk
         -- nothing runs, since a plugin reading the folder as whole would
         build from a partial one. Only a loaded plugin's processor runs: one
-        unloaded since, or whose register failed after it registered the
-        processor, is not handed the folder; one unloaded since -- the
-        session's close unloads plugins first -- is reported as skipped,
+        unloaded since is not handed the folder -- the session's close
+        unloads plugins first -- and is reported as skipped,
         naming the run (``PluginProcessorSkippedError``). Each plugin's processor runs in
         turn; a processor that raises, returns something other than a
         ProcessorResult, or returns one that reports failure is recorded
@@ -851,13 +866,11 @@ class PluginRegistry:
                     spec.name, 'auto_run_on_protocol_complete', detail=result.message
                 )
 
+    def _namespaces(self) -> tuple[_BaseNamespace, ...]:
+        return (self.ui, self.post_processing, self.live_processing, self.rest)
+
     def _find_namespace(self, plugin_name: str) -> _BaseNamespace | None:
-        for ns in (
-            self.ui,
-            self.post_processing,
-            self.live_processing,
-            self.rest,
-        ):
+        for ns in self._namespaces():
             if plugin_name in ns._entries:
                 return ns
         return None
