@@ -285,7 +285,6 @@ ALLOWED = frozenset(
         'tests/test_run_encoding_ssot.py::TestOneRunOneEncoding._writer',
         'tests/test_run_outcome_reports_autofocus_data.py::TestTheSweepDoesNotReturnBeforeItsWriteLands._bare_runner',
         'tests/test_start_zstack_entry_point.py::_runner',
-        'tests/test_saving_an_unknown_position_is_refused_once.py::unknown',
         'tests/test_scope_api.py::TestGetCurrentPlatePosition.test_an_expected_motor_board_that_is_absent_is_refused',
         'tests/test_scope_bringup.py::_make_spec_session',
         'tests/test_serial_logging_coverage.py::test_stim_probe_logs_to_serial_log',
