@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 139
+ALLOWED_ENTRIES = 133
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -194,7 +194,6 @@ ALLOWED = frozenset(
         'tests/test_a_runs_writes_run_on_its_lanes.py::test_a_step_darken_the_lane_refuses_falls_to_the_safety_off',
         'tests/test_a_stalled_writer_is_reported_by_the_api.py::session',
         'tests/test_a_stalled_writer_refusal_names_its_remedy.py::session',
-        'tests/test_a_video_step_announces_its_finish.py::_scope',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter._make_scope_with_fake_camera',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter.test_no_camera_returns_false',
         'tests/test_audit_fixes.py::TestDeviceLinkThroughputLimitSetter._make_scope_with_fake_camera',
@@ -222,7 +221,6 @@ ALLOWED = frozenset(
         'tests/test_autogain_support_capability_gate.py::TestCapabilityMapping._caps_for',
         'tests/test_camera_capabilities.py::TestScopeCapabilitiesIntegration._stub_motion',
         'tests/test_camera_getter_sentinel_containment.py::_build_camera',
-        'tests/test_capture_collision_policy.py::test_video_step_row_records_writers_actual_path',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
         'tests/test_composite_run_outcome.py::_runner',
         'tests/test_diagnostic_claim.py::_make_session',
@@ -242,7 +240,6 @@ ALLOWED = frozenset(
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',
         'tests/test_issue_239_first_interval_anchor.py::_make_parent',
         'tests/test_issue_653_skip_guard.py::handler_and_log',
-        'tests/test_issue_655_ag_ae_exposure_cap.py::_video_session_autogain_call',
         'tests/test_issue_690_jpg_orientation.py::test_tiff_and_jpg_save_identical_orientation',
         'tests/test_jpg_export.py::_scope_with_depth',
         'tests/test_led_ack_and_tsr_filename.py::TestLedDriverRejectsNonAckResponses._make_led',
@@ -310,9 +307,6 @@ ALLOWED = frozenset(
         'tests/test_tsr_cluster_fix.py::TestMotorAndLedConnectionProbes.test_no_motor_board_on_a_model_built_without_one',
         'tests/test_tsr_cluster_fix.py::TestMotorAndLedConnectionProbes.test_target_str_resolves_illumination_not_legacy_led',
         'tests/test_two_diagnostics_runs_never_share_a_file.py::_scope_with',
-        'tests/test_video_camera_lost_outcome.py::_make_recorder',
-        'tests/test_video_timestamp_overlay.py::_video_step',
-        'tests/test_video_writer.py::TestProtocolVideoDropNotification._run_one_frame_step',
     }
 )
 
