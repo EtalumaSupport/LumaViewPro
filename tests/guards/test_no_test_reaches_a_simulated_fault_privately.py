@@ -105,6 +105,9 @@ _OWN_DOORS: dict[str, str] = {
     'tests/test_led_ack_and_tsr_filename.py': (
         "the LED driver's block ack on the firmware simulator, no scope"
     ),
+    'tests/test_serial_safety.py': (
+        "the EL-0940 drivers' exchange, lock and acks on the firmware simulator, no scope"
+    ),
 }
 
 
