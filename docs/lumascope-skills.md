@@ -1,49 +1,58 @@
-# LumaViewPro -- the Lumascope API guide
+# The Lumascope API guide
 
-How the API that drives an Etaluma microscope fits together, and how to use it
-from Python and over REST. Every member, field, closed set and outcome class is
-in the [API reference](api-reference.md), generated from the code; this guide
-links to it rather than repeating it. Every Python block below runs, in order,
-on the simulator in LumaViewPro's test suite, and so does the REST walkthrough.
+This guide shows how to drive an Etaluma Lumascope from your own program, in
+Python or over REST: how the API fits together, and how to do each task with
+it. Every member, field, closed set and outcome class is in the
+[API reference](api-reference.md), generated from the code; this guide links to
+it rather than repeating it.
 
-## PRE-RELEASE API
+> **Pre-release.** Until LumaViewPro `4.0.0` ships, the API may change without a
+> deprecation cycle: members, routes, records and outcome reasons may be
+> renamed, moved or removed. Most likely to move are the REST surface (its
+> routes, handles, jobs, problems and event stream) and the protocol members
+> and file columns. If you build on the API before `4.0.0`, **contact Etaluma
+> support**, so we can consult you before a structural change. From `4.0.0` the
+> API is frozen for the 4.x versions, and every change is recorded in the
+> [Changelog](#changelog). What freezes is what the
+> [API reference](api-reference.md) lists, and the plugin contract
+> ([Plugins](#plugins)), with one exception: the simulator's surface,
+> [`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
+> release ([The simulator](#the-simulator)). Etaluma's bench and support
+> members are not in the reference and are outside the freeze.
 
-The Lumascope SDK API is **subject to breaking changes** until `4.0.0` ships.
-Members, routes, records and outcome reasons may still be renamed, moved or
-removed without a deprecation cycle. What is most likely to move:
-
-- The REST surface: its routes, handles, jobs, problems and event stream.
-- The protocol members and the protocol file's columns, as their wire forms
-  settle.
-
-If you build on this API before `4.0.0`, **contact Etaluma support**, so we
-can consult you before a structural change.
-
-When the first LumaViewPro release that is not a beta ships (`4.0.0`), the API
-freezes for the 4.x versions, and every change after it is recorded in the
-[Changelog](#changelog) at the end of this guide. What freezes is what the
-[API reference](api-reference.md) lists, and the plugin contract
-([Plugins](#plugins)), with one exception: the simulator's surface,
-[`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
-release ([The simulator](#the-simulator)). Etaluma's bench and support members
-are not in the reference and are outside the freeze.
+**Contents.** [What LumaViewPro is](#what-lumaviewpro-is) ·
+[Supported Lumascopes](#supported-lumascopes) · [Examples](#examples) ·
+[Architecture](#architecture) · [Bringing a session up](#bringing-a-session-up) ·
+[Outcomes](#outcomes) · [Who may act](#who-may-act) ·
+[State and settings](#state-and-settings) ·
+[Units and coordinate frames](#units-and-coordinate-frames) ·
+[Motion](#motion) · [Illumination](#illumination) · [Camera](#camera) ·
+[Frames and captures](#frames-and-captures) · [Saved files](#saved-files) ·
+[Protocols and runs](#protocols-and-runs) ·
+[Events and listeners](#events-and-listeners) · [REST](#rest) ·
+[The simulator](#the-simulator) · [Plugins](#plugins) · [Changelog](#changelog)
 
 ## What LumaViewPro is
 
 LumaViewPro controls Etaluma's Lumascope microscopes: the LEDs that light the
 sample, the stage, focus and objective turret that move it, and the camera that
-images it. It runs as a desktop application, and the same API it is built on is
-open to your own programs:
+images it. It runs as a desktop application, and the API it is built on is open
+to your own programs:
 
 - **Python**, in the same process: a script, a notebook, MATLAB calling Python,
   or a plugin loaded into LumaViewPro.
 - **REST**, over HTTP from any language: a server LumaViewPro starts beside its
   window, or one you start without a window at all.
 
-Every shipped Lumascope is supported. The models differ in what they have -- an
-XY stage, a focus axis, a turret, which LEDs, which camera -- and the API tells
-your program what the attached scope has rather than leaving it to know models
-by name (see [Who may act](#who-may-act)):
+This guide is for researchers who script an experiment and for developers who
+integrate a Lumascope into a larger system. LumaViewPro runs on Python 3.12 and
+3.13, on Windows, macOS and Linux.
+
+## Supported Lumascopes
+
+Every shipped Lumascope is supported. The models differ in what they have, and
+the API tells your program what the attached scope has, so it never needs to
+know models by name:
 
 ```python
 caps = scope.capabilities                   # read once, when the scope came up
@@ -51,20 +60,50 @@ print(caps.axes, caps.has_xy_stage, caps.has_turret)
 print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
 ```
 
-This guide is for researchers who script an experiment and for developers who
-integrate a Lumascope into a larger system. It runs on Python 3.12 and 3.13, on
-Windows, macOS and Linux.
+| Model | Focus (Z) | XY stage | Turret | Channels | Controller |
+|---|---|---|---|---|---|
+| LS820 | yes | -- | -- | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
+| LS850 | yes | yes | -- | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
+| LS850-0 | yes | yes | -- | BF | EL-0940 |
+| LS850T | yes | yes | yes | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
+| LS850T-0 | yes | yes | yes | BF, PC | EL-0940 |
+| Lumi | yes | -- | -- | BF, PC, DF, Lumi | EL-0940 |
+| LS560 | -- | -- | -- | BF, Ex488 | FX2 |
+| LS620 | -- | -- | -- | BF, Ex405, Ex488, Ex589 | FX2 |
+| LS720 | yes | yes | -- | BF, Ex405, Ex488, Ex589 | FX2, with a TMCM-6110 motor board |
 
-**Examples.** [`api_examples/`](api_examples) holds a Python script per task,
-run on the simulator, and beside each a `.sh` twin that does the same over REST
-with `curl`: a first saved still (`first_still`), channels with their own
-current, exposure and gain (`channel_settings`), a scan whose images are kept
-(`scan`), stopping a run (`stop_a_run`), a saved z-stack (`z_stack_saved`),
-refusals and an injected fault (`refusals_and_faults`), and the control session
-(`control_session`). Its [README](api_examples/README.md) says, step by step,
-how to run them: a script from LumaViewPro's source, a twin against the
-installed app or `python -m rest --simulate`. LumaViewPro's test suite runs
-each, script and twin, and checks what it leaves.
+- **Channels.** `BF` brightfield, `PC` phase contrast, `DF` darkfield, `Ex405`,
+  `Ex488` and `Ex589` fluorescence named for its excitation wavelength in nm, and
+  `Lumi` luminescence, which lights no LED. The FX2 models label brightfield
+  "BF-Phase". The release also knows `Ex550` and `Ex640`. Which channels the
+  attached scope has, and which LEDs each drives, is `scope.channel_identity`
+  ([Illumination](#illumination)).
+- **EL-0940 models** have one mainboard carrying the LED controller and the
+  motor controller, and a Basler or IDS camera.
+- **FX2 models** have one USB device that serves both the camera and the LEDs.
+  The LS720 adds a TMCM-6110 motor board for X, Y and focus; the LS560 and LS620
+  have no motion.
+
+## Examples
+
+[`api_examples/`](api_examples) holds a Python script per task, each with a
+`.sh` twin that does the same over REST with `curl`. Its
+[README](api_examples/README.md) says how to run them: a script from
+LumaViewPro's source, a twin against the installed app or
+`python -m rest --simulate`.
+
+| Example | What it shows |
+|---|---|
+| `first_still` | a first saved still |
+| `channel_settings` | channels with their own current, exposure and gain |
+| `scan` | a scan whose images are kept |
+| `stop_a_run` | stopping a run |
+| `z_stack_saved` | a saved z-stack |
+| `refusals_and_faults` | refusals and an injected fault |
+| `control_session` | the control session |
+
+Every example, script and twin, and every Python block and the REST
+walkthrough in this guide, runs on the simulator in LumaViewPro's test suite.
 
 ## Architecture
 
@@ -96,13 +135,19 @@ so every host -- the GUI, the REST server, your script -- brings a scope up the
 same way.
 
 **The scope.** `session.scope` is the `Lumascope`: the instrument, split into
-sub-APIs, one per part. `scope.motion` moves the stage, the focus and the
-turret; `scope.illumination` lights the LEDs; `scope.camera` holds the camera's
-settings; `scope.imaging` takes frames; `scope.capabilities` says what this
-scope has; `scope.channel_identity` names its channels; `scope.runtime_state`
-answers derived state (the objective, the pixel size, plate coordinates);
-`scope.diagnostics` reads the boards for support; `scope.simulation` injects
-faults into a simulated scope.
+sub-APIs, one per part.
+
+| Sub-API | What it does |
+|---|---|
+| `scope.motion` | moves the stage, the focus and the turret |
+| `scope.illumination` | lights the LEDs |
+| `scope.camera` | holds the camera's settings |
+| `scope.imaging` | takes frames |
+| `scope.capabilities` | says what this scope has |
+| `scope.channel_identity` | names its channels |
+| `scope.runtime_state` | answers derived state: the objective, the pixel size, plate coordinates |
+| `scope.diagnostics` | reads the boards for support |
+| `scope.simulation` | injects faults into a simulated scope |
 
 **The lanes.** Each bus is driven by one thread, its lane: the IO lane carries
 every LED and motion command, the CAMERA lane every camera command. Commands from
