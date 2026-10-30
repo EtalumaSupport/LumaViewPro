@@ -18,14 +18,14 @@ from modules import live_work
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import EngineRun
-from tests.test_diagnostic_claim import _make_session
 from modules.caller import Caller
 from tests.protocol_drives import run_identity
+from tests.scope_fakes import session_on_a_simulated_scope
 
 
 class TestALentRun:
     def test_a_run_lent_a_diagnostics_claim_is_the_run_in_progress(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         with session.diagnostic_claim() as held:
             run = held.lend().try_claim('protocol', run=run_identity(Caller.REST))
             try:
@@ -41,7 +41,7 @@ class TestALentRun:
             assert session.sequenced_capture_runner.run_started_by() is None
 
     def test_the_lend_and_the_return_are_each_announced(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         heard = []
         session.add_run_state_listener(
             lambda: heard.append(session.live_work.has(live_work.WorkKind.PROTOCOL))
@@ -55,7 +55,7 @@ class TestALentRun:
             assert heard == [True, False], f'the return was not announced; heard {heard}'
 
     def test_a_recording_lent_from_a_run_leaves_the_run_holding(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             recording = run.lend().try_claim('recording')
@@ -67,7 +67,7 @@ class TestALentRun:
             run.release()
 
     def test_a_lent_run_does_not_outlive_its_lender(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         with session.diagnostic_claim() as held:
             held.lend().try_claim('protocol', run=run_identity())
         assert not session.live_work.has(live_work.WorkKind.PROTOCOL), (
@@ -77,12 +77,12 @@ class TestALentRun:
 
 class TestHeldByOther:
     def test_nothing_holds(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         assert session.held_by_other(None) is False
 
     @pytest.mark.parametrize('kind', ['diagnostic', 'recording', 'protocol'])
     def test_any_holder_but_the_given_run_is_other(self, kind):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         run = run_identity() if kind == 'protocol' else None
         held = session.activity_claim.try_claim(kind, run=run)
         try:
@@ -93,7 +93,7 @@ class TestHeldByOther:
             held.release()
 
     def test_the_session_answers_the_engines_answer(self, monkeypatch):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         asked = []
 
         def _held_by_other(run):

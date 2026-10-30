@@ -132,9 +132,9 @@ class TestADiagnosticHold:
             held.release()
 
     def test_the_session_diagnostic_enters_its_taking(self):
-        from tests.test_diagnostic_claim import _make_session
+        from tests.scope_fakes import session_on_a_simulated_scope
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         with session.diagnostic_claim() as held:
             assert current_taking() is held
         assert current_taking() is None
@@ -484,9 +484,9 @@ class TestRunCleanupIsTheRunsOwnWork:
         """A stop pressed in the GUI or a script's reset ends the run on its own
         thread; the return moves and the LED end-state cleanup submits are the
         run's, and a lane refuses them under the run's hold without its taking."""
-        from tests.test_diagnostic_claim import _make_session
+        from tests.scope_fakes import session_on_a_simulated_scope
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
         seen = {}
         monkeypatch.setattr(

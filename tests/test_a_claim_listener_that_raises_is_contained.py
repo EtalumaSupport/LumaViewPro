@@ -55,9 +55,9 @@ def test_a_release_completes_and_the_releaser_goes_on(reported):
 
 
 def test_the_session_reports_each_listener_that_raises_and_tells_the_rest(reported):
-    from tests.test_session_run_state import _make_session
+    from tests.scope_fakes import session_on_a_simulated_scope
 
-    session = _make_session()
+    session = session_on_a_simulated_scope()
     told = []
     session._run_state_listeners.append(_raising)
     session._run_state_listeners.append(lambda: told.append(True))

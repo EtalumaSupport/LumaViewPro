@@ -182,6 +182,28 @@ def shut_down_when_the_test_ends(session):
     _TEARDOWNS.append(stop)
 
 
+def session_on_a_simulated_scope(*, settings=None, file_io_executor=None, **kwargs):
+    """A `ScopeSession` over a simulated scope that is never brought up.
+
+    For the claims the session itself owns -- its activity claim, its
+    run-state records, its metrics lifecycle -- where bring-up's motion and
+    settings are not the subject; a test of what bring-up does takes the
+    `sim_session` fixture. *settings* defaults to none at all;
+    *file_io_executor* replaces the file lane, for a test that plants writes
+    and decides when they land; *kwargs* go to the constructor. The test's
+    teardown shuts the session down.
+    """
+    from modules.scope_session import ScopeSession
+
+    lanes = {} if file_io_executor is None else {'file_io_executor': file_io_executor}
+    return ScopeSession(
+        settings={} if settings is None else settings,
+        scope=build_scope(simulate=True),
+        executor_bundle=real_executor_bundle(**lanes),
+        **kwargs,
+    )
+
+
 def give_stub_lanes(scope):
     """Give a `Lumascope.__new__` stub the two started lanes a built scope has.
 

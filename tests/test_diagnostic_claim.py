@@ -20,19 +20,8 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     Holder,
 )
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import session_on_a_simulated_scope
 from tests.protocol_drives import run_identity
-
-
-def _make_session():
-    from modules.scope_session import ScopeSession
-
-    file_io_executor = MagicMock()
-    return ScopeSession(
-        settings={},
-        scope=spec_scope(),
-        executor_bundle=real_executor_bundle(file_io_executor=file_io_executor),
-    )
 
 
 @pytest.fixture
@@ -61,7 +50,7 @@ def sim_session(tmp_path):
 
 class TestTheDiagnosticHoldsTheScope:
     def test_it_holds_the_claim_for_the_block_and_releases_after(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         with session.diagnostic_claim() as held:
             assert held.holds
             assert session.activity_claim.owner == 'diagnostic'
@@ -69,7 +58,7 @@ class TestTheDiagnosticHoldsTheScope:
         assert session.activity_claim.owner is None
 
     def test_a_raise_inside_the_block_still_releases(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         with (
             pytest.raises(RuntimeError, match='the diagnostic failed'),
             session.diagnostic_claim(),
@@ -81,7 +70,7 @@ class TestTheDiagnosticHoldsTheScope:
         )
 
     def test_the_controls_lock_while_it_holds_and_listeners_see_both_edges(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         seen = []
         session.add_run_state_listener(lambda: seen.append(session.controls_lock.controls_locked))
         seen.clear()
@@ -115,7 +104,7 @@ class TestTheDiagnosticHoldsTheScope:
         from modules.exceptions import RecordingRefusedError
         from modules.video_recording import VideoRecordingEngine
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         engine = VideoRecordingEngine(
             write_frame=MagicMock(), claim=session.activity_claim, clock=lambda: 0.0
         )
@@ -128,7 +117,7 @@ class TestTheDiagnosticHoldsTheScope:
 class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
     @pytest.mark.parametrize('holder_kind', ['protocol', 'recording', 'diagnostic'])
     def test_refused_naming_the_holder_and_nothing_taken(self, holder_kind):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         run = run_identity() if holder_kind == 'protocol' else None
         other = session.activity_claim.try_claim(holder_kind, run=run)
         try:
@@ -151,7 +140,7 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
             )
 
     def test_who_started_the_holding_run_is_named(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             with pytest.raises(DiagnosticRefusedError) as excinfo, session.diagnostic_claim():
@@ -219,7 +208,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
     def test_a_run_still_live_past_the_wait_keeps_the_claim_until_it_ends(self, monkeypatch):
         from modules.protocol_state_machine import ProtocolState
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
@@ -246,7 +235,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         caller that raised between starting a run and waiting on it."""
         from modules.protocol_state_machine import ProtocolState
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
@@ -264,7 +253,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         exception state: a caller handling an exception is not a block that raised."""
         from modules.protocol_state_machine import ProtocolState
 
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         runner = session.sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
@@ -277,7 +266,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         _end_the_run(runner, monkeypatch)
 
     def test_it_waits_for_the_run_before_it_releases(self, monkeypatch):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         order = []
 
         def _wait(timeout_s):

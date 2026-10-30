@@ -30,7 +30,7 @@ import pytest
 import tests.ast_seams as ast_seams
 from modules.exceptions import AlreadyStartedError, RefusalCause
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import session_on_a_simulated_scope
 
 
 # Identity sentinel: restart must reuse THIS instance. A mock (not a bare
@@ -42,15 +42,13 @@ _SCHEDULER = MagicMock()
 def _make_session(**kwargs):
     defaults = {
         'settings': {'profiling': {'metrics_interval_s': 42}},
-        'scope': spec_scope(),
-        'executor_bundle': real_executor_bundle(),
         'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)
     # The session builds its own metrics logger; a stand-in shows what the
     # session asks of it.
     with patch('modules.scope_session.MetricsLogger'):
-        return ScopeSession(**defaults)
+        return session_on_a_simulated_scope(**defaults)
 
 
 class TestStartStop:

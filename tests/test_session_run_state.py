@@ -20,18 +20,18 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import live_work
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import session_on_a_simulated_scope
 from tests.protocol_drives import run_identity
 
 
-def _make_session():
-    from modules.scope_session import ScopeSession
+def _held_file_lane():
+    """A file lane that runs nothing it is given until the test runs it.
 
-    return ScopeSession(
-        settings={},
-        scope=spec_scope(),
-        executor_bundle=real_executor_bundle(file_io_executor=MagicMock()),
-    )
+    A stand-in by design: the subject is what the session's records say
+    while a run's writes are still to land, and a real lane would land them
+    before the test could read the records.
+    """
+    return MagicMock()
 
 
 def _draining_run(session, writes=1):
@@ -50,7 +50,7 @@ class TestDerivations:
     def test_draining_recording_frees_controls_while_claim_refuses(self, monkeypatch):
         # The recording drain window: claim held (new runs refuse), but
         # capturing is over so the control surface frees.
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         held = session.activity_claim.try_claim('recording')
         assert held
         monkeypatch.setattr(
@@ -64,7 +64,7 @@ class TestDerivations:
 
     @pytest.mark.slow
     def test_the_pending_count_is_the_write_batchs_own(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = _draining_run(session, writes=7)
         assert [item.left for item in session.live_work.work] == [7]
         batch.abandon('the test is over')
@@ -74,7 +74,7 @@ class TestDerivations:
         the lane are not a finished run's files still to land."""
         from modules.protocol_image_writer import RunWriteBatch
 
-        session = _make_session()
+        session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = RunWriteBatch(session.file_io_executor)
         batch.submit(lambda: None, {}, what='an image', pace_until=None)
         session.sequenced_capture_runner._write_batch = batch
@@ -92,7 +92,7 @@ class TestDerivations:
         # the refusal of a new run over it must not disagree.
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
-        session = _make_session()
+        session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = _draining_run(session)
         executor = session.file_io_executor
         executor.in_flight_task_stalled.return_value = True
@@ -101,7 +101,7 @@ class TestDerivations:
         batch.abandon('the test is over')
 
     def test_the_close_discard_drops_both_video_drain_sources(self, monkeypatch):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         recording_engine = MagicMock()
         monkeypatch.setattr(session.manual_recording, '_engine', recording_engine)
         monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock())
@@ -114,7 +114,7 @@ class TestDerivations:
 
 class TestTransitionNotification:
     def test_claim_grant_and_release_notify(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
         held = session.activity_claim.try_claim('protocol', run=run_identity())
@@ -126,7 +126,7 @@ class TestTransitionNotification:
     def test_registration_level_syncs_immediately(self):
         # Transitions are edges; a listener registered after a grant
         # must still see current truth, so registration republishes.
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         fired = []
         session.add_run_state_listener(lambda: fired.append(True))
         assert fired, 'registration must invoke the listener once (level sync)'
@@ -138,7 +138,7 @@ class TestTransitionNotification:
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_events import RunEvents
 
-        session = _make_session()
+        session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         runner = session.sequenced_capture_runner
         # The run's fields start() sets that the completion captures.
         runner._events = RunEvents()
@@ -164,7 +164,7 @@ class TestTransitionNotification:
         )
 
     def test_failed_claim_does_not_notify(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         held = session.activity_claim.try_claim('protocol', run=run_identity())
         assert held
         fired = []
@@ -174,7 +174,7 @@ class TestTransitionNotification:
         held.release()
 
     def test_listener_exception_does_not_break_others(self):
-        session = _make_session()
+        session = session_on_a_simulated_scope()
         fired = []
         session._run_state_listeners.append(lambda: (_ for _ in ()).throw(RuntimeError('x')))
         session._run_state_listeners.append(lambda: fired.append(True))

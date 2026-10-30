@@ -10,13 +10,11 @@ board command records that it was skipped and why, the firmware-info step
 writes what the drivers cached at connect, and the camera step still runs.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from modules.caller import Caller, calling
 from modules.tech_support_report import TechSupportReport
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import session_on_a_simulated_scope
 
 WRITING_STEPS = ('_step_firmware_tests', '_step_led_checks', '_step_fan_test', '_step_homing_test')
 BOARD_QUERY_STEPS = ('_step_configbackup', '_step_tmc_registers', '_step_serial_latency')
@@ -33,18 +31,6 @@ SKIPPED_FILES = (
 )
 
 
-def _make_session():
-    from modules.scope_session import ScopeSession
-
-    scope = spec_scope()
-    file_io_executor = MagicMock()
-    return ScopeSession(
-        settings={},
-        scope=scope,
-        executor_bundle=real_executor_bundle(file_io_executor=file_io_executor),
-    )
-
-
 @pytest.fixture
 def report_and_calls(monkeypatch):
     """A report over a session whose nine scope steps are spies.
@@ -52,7 +38,7 @@ def report_and_calls(monkeypatch):
     Each spy records the scope's holder at the moment it ran, which is the
     fact under test: the hardware itself is not.
     """
-    session = _make_session()
+    session = session_on_a_simulated_scope()
     report = TechSupportReport(session=session)
     calls = []
     for name in WRITING_STEPS + READING_STEPS:
@@ -124,7 +110,7 @@ def test_under_a_held_control_session_the_board_steps_are_skipped_and_say_so(
 
 
 def test_the_session_supplies_the_scope(tmp_path):
-    session = _make_session()
+    session = session_on_a_simulated_scope()
     report = TechSupportReport(session=session)
     assert report.scope is session.scope
 
