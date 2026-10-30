@@ -108,7 +108,6 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
         'ui/scope_display.py', 'ScopeDisplay', 'hold_derived_image'
     )
     assert 'image_to_texture' in viewer_method
-    assert 'bump_protocol_hold' in viewer_method
 
 
 def test_enhance_completion_hides_the_derived_output_path(tmp_path):

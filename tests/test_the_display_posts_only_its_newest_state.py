@@ -216,3 +216,23 @@ def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(gui_ctx, displa
     assert ui_backlog() == 1, f'{ui_backlog()} held frames pending'
     held.run()
     assert shown == [49]
+
+
+def test_a_saved_frame_is_held_its_whole_time_from_its_draw(gui_ctx, display, held):
+    # The hold began on the run's thread when the frame was posted, so the
+    # time the post waited for a slow UI thread came out of it: here all of
+    # it. Counted from the draw, the frame is held its whole time.
+    display._PROTOCOL_HOLD_MS = 0
+    display.hold_protocol_saved_image(_frame(7), 8)
+    assert not gui_ctx.scope_display_thread.protocol_hold_in_force
+    display._PROTOCOL_HOLD_MS = 60_000
+    held.run()
+    assert _drawn(display) == _frame(7).tobytes()
+    assert gui_ctx.scope_display_thread.protocol_hold_in_force
+
+
+def test_a_derived_image_drawn_is_held_its_time(gui_ctx, display):
+    display._PROTOCOL_HOLD_MS = 60_000
+    assert not gui_ctx.scope_display_thread.protocol_hold_in_force
+    display.hold_derived_image(np.zeros((4, 4, 3), dtype=np.uint8), 8)
+    assert gui_ctx.scope_display_thread.protocol_hold_in_force

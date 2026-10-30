@@ -1062,6 +1062,13 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         return thread.generation if thread is not None else 0
 
+    def _hold_from_now(self):
+        """Keep live frames off the screen for a held frame's time, from now."""
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        if thread is not None:
+            thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
+
     def _protocol_hold_in_force(self):
         """Whether a held frame is still due its time on screen, from the
         thread that keeps the deadline; False before the thread exists."""
@@ -1077,6 +1084,10 @@ class ScopeDisplay(Image):
             return  # Stale callback from previous start/stop cycle
         if live and self._protocol_hold_in_force():
             return  # a held frame is on screen for its time
+        if not live:
+            # Its time on screen is counted from here: the wait for a slow
+            # UI thread does not come out of it.
+            self._hold_from_now()
         if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
@@ -1136,13 +1147,10 @@ class ScopeDisplay(Image):
         shape = arr.shape
         data = arr.tobytes()
         gen = self._current_generation()
-        # Bump hold deadline on the thread (was self._protocol_hold_until).
-        ctx = _app_ctx.ctx
-        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
-        if thread is not None:
-            thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
-        # A live frame already rendering when the hold began is posted after
-        # this one; the live blit draws nothing while the hold is in force.
+        # Held from the post as well as the draw: a live frame already
+        # rendering when the hold began is posted after this one, and the
+        # live blit draws nothing while the hold is in force.
+        self._hold_from_now()
         self.post_held_frame(
             lambda b=data, s=shape, g=gen: self.create_and_set_texture(
                 b, s, generation=g, live=False
@@ -1179,9 +1187,7 @@ class ScopeDisplay(Image):
             display = image_utils.convert_to_8bit(display, significant_bits)
         if display.ndim == 3:
             display = display[..., :3][..., ::-1].copy()
-        thread = getattr(_app_ctx.ctx, 'scope_display_thread', None)
-        if thread is not None:
-            thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
+        self._hold_from_now()
         self.texture = image_to_texture(display)
         self.canvas.ask_update()
 
