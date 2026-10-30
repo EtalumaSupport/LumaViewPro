@@ -24,10 +24,15 @@ callables instead of importing Kivy.
 
 from __future__ import annotations
 
+import sys
+import threading
+import time
+import traceback
 from collections.abc import Callable
 
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
+from modules.kivy_utils import schedule_ui, ui_thread
 from modules.scheduler import Scheduler, _CallablePairScheduler
 
 
@@ -94,10 +99,19 @@ class MetricsLogger:
         # Scheduler bound at start() -- None means not started.
         self._scheduler: Scheduler | None = None
         # Active schedule handles per tick (so each can be cancelled
-        # independently). Keys: 'system_metrics', 'executor_watchdog'.
+        # independently). Keys: 'system_metrics', 'executor_watchdog',
+        # 'ui_watch'.
         # Camera-temp lives on Lumascope already (LVP-A-2) -- not stored
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
+
+        # The UI thread's watch: the probe posted to it and not yet run (its
+        # token and when it was posted), and whether its hold was reported.
+        # Written by the watchdog tick and by the probe on the UI thread.
+        self._ui_watch_lock = threading.Lock()
+        self._ui_probe: object | None = None
+        self._ui_probe_posted_at = 0.0
+        self._ui_hold_reported = False
 
     # ---- Tick implementations (also callable on-demand) ----
 
@@ -130,26 +144,80 @@ class MetricsLogger:
         SCOPEDISPLAY queue >20 is pruned (UI-responsiveness guard). The
         thresholds are carried unchanged from the inline watchdog this
         replaced, so log lines stay comparable across that change.
-        """
-        try:
-            snap = self._bundle.snapshot()
-            total_q = sum(q for q in snap.values() if q > 0)
-            fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
-            if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
-                logger.warning(f'[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}')
-            else:
-                logger.debug(f'[Watchdog  ] Queues -- {fmt}')
 
-            # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
-            # the prune-on-backlog branch retires. The snapshot reports
-            # 0 (running) / -1 (stopped). Watchdog has no actionable
-            # response if the thread itself is wedged -- that's a
-            # daemon=True process-exit-reap scenario, not a queue
-            # prune.
-        except Exception:
-            # Best-effort -- a watchdog that crashes silently mid-tick
-            # is preferable to one that takes the app down with it.
-            pass
+        A snapshot that fails raises to the scheduler, whose error hook
+        reports it; the timer re-arms either way.
+        """
+        snap = self._bundle.snapshot()
+        total_q = sum(q for q in snap.values() if q > 0)
+        fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
+        if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
+            logger.warning(f'[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}')
+        else:
+            logger.debug(f'[Watchdog  ] Queues -- {fmt}')
+
+        # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
+        # the prune-on-backlog branch retires. The snapshot reports
+        # 0 (running) / -1 (stopped). Watchdog has no actionable
+        # response if the thread itself is wedged -- that's a
+        # daemon=True process-exit-reap scenario, not a queue
+        # prune.
+
+    def tick_ui_watch(self) -> None:
+        """Post a probe to the UI thread; report once when the last one has not run.
+
+        Internal metrics scheduling -- driven by the host's periodic
+        scheduler and not part of the L2 API surface.
+
+        A field GUI froze for four days and no log said so: the executor
+        watchdog ran on its own timer thread throughout but read only the
+        lanes. A probe posted at one tick and still waiting at the next
+        means the UI thread has run nothing for at least a tick, so a hold
+        is reported one to two ticks after it starts, with the stack the
+        thread is in. One probe is outstanding at a time. A host with no UI
+        thread posts none. A freeze that holds the GIL stops this timer
+        too, so it cannot be seen from here.
+        """
+        thread = ui_thread()
+        if thread is None:
+            return
+        now = time.monotonic()
+        with self._ui_watch_lock:
+            if self._ui_probe is None:
+                probe = self._ui_probe = object()
+                self._ui_probe_posted_at = now
+                self._ui_hold_reported = False
+            elif self._ui_hold_reported:
+                return
+            else:
+                self._ui_hold_reported = True
+                probe = None
+                waited_s = now - self._ui_probe_posted_at
+        if probe is not None:
+            schedule_ui(lambda dt: self._ui_probe_ran(probe))
+            return
+        frame = sys._current_frames().get(thread.ident)
+        stack = ''.join(traceback.format_stack(frame)) if frame is not None else '(no frame)\n'
+        logger.warning(
+            f'[Watchdog  ] UI thread has run nothing for at least {waited_s:.0f} s; '
+            f'it is in:\n{stack.rstrip()}'
+        )
+
+    def _ui_probe_ran(self, probe: object) -> None:
+        """The probe, on the UI thread: the thread ran; say so if its hold was reported.
+
+        The probe was posted at a tick inside the hold, not at its start, so
+        its wait is the hold's lower bound, and the line says so.
+        """
+        now = time.monotonic()
+        with self._ui_watch_lock:
+            if probe is not self._ui_probe:
+                return
+            self._ui_probe = None
+            reported = self._ui_hold_reported
+            waited_s = now - self._ui_probe_posted_at
+        if reported:
+            logger.info(f'[Watchdog  ] UI thread ran again; it was held at least {waited_s:.0f} s')
 
     def snapshot_executors(self) -> dict[str, int]:
         """On-demand executor depth snapshot for status endpoints.
@@ -239,6 +307,11 @@ class MetricsLogger:
         self._handles['executor_watchdog'] = self._scheduler.schedule_interval(
             self.tick_executor_watchdog, executor_watchdog_interval_s
         )
+        # Its own handle at the watchdog's cadence, so a snapshot that
+        # raises every tick cannot also stop the UI thread's watch.
+        self._handles['ui_watch'] = self._scheduler.schedule_interval(
+            self.tick_ui_watch, executor_watchdog_interval_s
+        )
 
         if start_camera_temp is False:
             return
@@ -266,6 +339,10 @@ class MetricsLogger:
 
     def stop(self) -> None:
         """Cancel every scheduled tick. Idempotent."""
+        # A probe still queued on the UI thread runs after this; it finds
+        # none outstanding and logs nothing.
+        with self._ui_watch_lock:
+            self._ui_probe = None
         if self._scheduler is None:
             return
         for name, handle in list(self._handles.items()):
