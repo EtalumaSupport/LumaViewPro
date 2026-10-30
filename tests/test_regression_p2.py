@@ -83,21 +83,20 @@ def _make_tiling_configs(tmp_path):
 
 
 class TestAFRaceCondition:
-    """Verify the AF "done" signal is not raised until the final move is in.
+    """Verify the AF "done" signal is not raised until the final moves are issued.
 
     The original bug: AFE.protocol_end() (the legacy "done" signal) fired
     between the two final moves, so the protocol executor stopped processing
-    while the second move was still pending. The synchronous AutofocusThread
-    contract makes this structurally impossible -- AFE.run() returns to its
-    worker thread only AFTER the inline move_z calls
-    complete, and the Future resolves AFTER AFE.run() returns. The
-    protocol thread polls p._af_future.done(), so it cannot see "done"
-    before the final move is finished.
+    while the second move was still pending. Now AFE.run() issues both final
+    moves before it returns to its worker thread, and the Future resolves
+    AFTER AFE.run() returns. The moves are started, not waited: the step
+    runner, which polls p._af_future.done(), then holds its capture while
+    the stage reports motion (``modules/protocol_step_runner.py``).
     """
 
-    def test_final_moves_complete_before_run_returns(self, monkeypatch):
+    def test_final_moves_are_issued_before_run_returns(self, sim_scope, monkeypatch):
         """The fine pass must issue both final moves (approach-from-below,
-        then best) inline, so they are already on the driver when run()
+        then best) inline, so they are already on the motion API when run()
         returns and the AutofocusThread Future resolves.
 
         AFE.run() is synchronous; protect against a future refactor that
@@ -105,23 +104,17 @@ class TestAFRaceCondition:
         re-introduces the race that the AutofocusThread + Future contract
         currently prevents.
         """
-        from unittest.mock import call
+        from tests.af_drives import AF_OBJECTIVE, af_runner_on, sweep, z_asked
 
-        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+        runner = af_runner_on(sim_scope)
+        asked = z_asked(sim_scope, monkeypatch)
 
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        result = drive_af(runner)
-        assert result == AF_CENTER_Z, 'the drive must complete with the pinned best focus'
-        moves = scope.motion.start_move_z.call_args_list
-        fine_resolution = runner._params['resolution']
-        assert moves[-2:] == [
-            call(AF_CENTER_Z - fine_resolution),
-            call(AF_CENTER_Z),
-        ], (
+        result = sweep(runner, sim_scope)
+
+        fine_resolution = sim_scope.objectives[AF_OBJECTIVE].autofocus_step_min_um
+        assert asked[-2:] == [pytest.approx(result - fine_resolution), result], (
             'the last pass must issue the approach-from-below move and the '
-            'final best-focus move inline before run() returns; '
-            f'recorded moves: {moves}'
+            f'final best-focus move inline before run() returns; asked: {asked}'
         )
 
 

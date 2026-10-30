@@ -7,25 +7,24 @@ The runner judges each window against Z's travel before any move into it
 and never narrows one to fit: a focus beyond the travel would come back as
 the travel's edge, a plausible wrong result. The first, refined and
 extended windows are driven on the simulated scope through the autofocus
-thread, the way a run drives them. The final approach from below, which a
-real sweep reaches too rarely to drive there, is pinned on the drive
-helper's stand-in scope (``tests/af_drives.py``) until a start that reaches
-it on the simulator is found.
+thread, the way a run drives them; the final approach from below is driven
+on the runner itself, from a start and a curve chosen so every window
+before it fits.
 """
 
 from __future__ import annotations
 
+import math
 import time
 
 import pytest
 
 import modules.autofocus_runner as autofocus_runner_module
-from modules.autofocus_runner import AutofocusRunner, FocusPick
+from modules.autofocus_runner import AutofocusRunner
 from modules.autofocus_thread import AutofocusThread
-from modules.coord_transformations import AxisLimits
 from modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
-from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.af_drives import af_runner_on, park_z, sweep, z_asked
 from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import home_sim_scope
 
@@ -120,58 +119,62 @@ def reported(monkeypatch):
     return outcomes
 
 
-def _z_moves(scope):
-    return [c.args[0] for c in scope.motion.start_move_z.call_args_list]
-
-
-def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, reported):
-    # The stand-in completes each pass on one sample: the coarse pass picks
-    # the centre, the last pass the floor of its window, which is the travel
-    # minimum; the approach from one AF_min step below it would leave travel.
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 1.0)
-    runner, scope = af_runner_and_scope()
-    floor = AF_CENTER_Z - 30.0  # the refined window's floor: centre - AF_max
-    scope.motion.get_axis_limits.return_value = AxisLimits(min_um=floor, max_um=14000.0)
-    bests = iter([FocusPick(AF_CENTER_Z, None), FocusPick(floor, None)])
-    runner._find_best = lambda df: next(bests)
+def test_a_final_approach_past_the_travel_minimum_is_refused(sim_scope, monkeypatch):
+    # A curve peaking 2 um above the floor, swept from 123 um above it:
+    # the first window's samples (step 36) start at floor + 48, its nearest
+    # to the peak; the refined window (+-36, step 12) starts at floor + 12;
+    # the last window (+-12, step 8) finds the peak at the floor, and the
+    # approach from one step below it would leave travel.
+    runner = af_runner_on(sim_scope)
+    floor = sim_scope.motion.get_axis_limits('Z').min_um
+    peak = floor + 2.0
+    monkeypatch.setattr(
+        'modules.autofocus_functions.focus_function',
+        lambda image: (
+            1e6 * math.exp(-(((sim_scope.motion.get_current_position('Z') - peak) / 15.0) ** 2))
+        ),
+    )
+    park_z(sim_scope, floor + 123.0)
+    asked = z_asked(sim_scope, monkeypatch)
 
     with pytest.raises(AutofocusFailedError) as refused:
-        drive_af(runner)
+        sweep(runner, sim_scope)
 
     assert refused.value.reason == 'travel_exhausted'
-    assert all(z >= floor for z in _z_moves(scope)), _z_moves(scope)
+    assert all(z >= floor for z in asked), asked
 
 
-def test_a_refusal_is_reported_once_as_itself(monkeypatch, reported):
+def test_a_refusal_is_reported_once_as_itself(sim_scope, reported):
     """The runner reports the first window's refusal and raises the same object.
 
     The autofocus worker is the boundary of its own flight: inside a run
     its future is read only by a log line, so no caller above it reports.
     """
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 1.0)
-    runner, scope = af_runner_and_scope()
-    # The first window (centre +- AF_range) reaches below this minimum.
-    scope.motion.get_axis_limits.return_value = AxisLimits(min_um=AF_CENTER_Z - 5.0, max_um=14000.0)
+    runner = af_runner_on(sim_scope)
+    # At the floor, the first window (centre +- AF_range) reaches below it.
+    park_z(sim_scope, sim_scope.motion.get_axis_limits('Z').min_um)
 
     with pytest.raises(CaptureError) as raised:
-        drive_af(runner)
+        sweep(runner, sim_scope)
 
     assert raised.value.reason == 'out_of_travel'
     assert outcome_of(raised.value).kind == OutcomeKind.REFUSAL
     assert reported == [raised.value]
 
 
-def test_an_unexpected_failure_is_raised_as_the_failure_it_reported(monkeypatch, reported):
+def test_an_unexpected_failure_is_raised_as_the_failure_it_reported(
+    sim_scope, monkeypatch, reported
+):
     """One failure is one object: the one reported, raised, its cause chained."""
 
     def broken(image):
         raise RuntimeError('focus measure broke')
 
+    runner = af_runner_on(sim_scope)
     monkeypatch.setattr('modules.autofocus_functions.focus_function', broken)
-    runner, _scope = af_runner_and_scope()
 
     with pytest.raises(AutofocusFailedError) as raised:
-        drive_af(runner)
+        sweep(runner, sim_scope)
 
     assert raised.value.reason == 'unexpected_error'
     assert isinstance(raised.value.__cause__, RuntimeError)

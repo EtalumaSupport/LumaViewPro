@@ -14,9 +14,9 @@ failure path takes the stage back to where the sweep started.
 import pandas as pd
 import pytest
 
-from modules.autofocus_runner import AutofocusRunner, FocusPick
+from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import AutofocusFailedError
-from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.af_drives import PARKED_Z_UM, af_runner_on, settled_z, sweep, z_asked
 
 # The LS720's sweep with no sample, 2026-10-14 (20x with collar, range 40,
 # step 18): every point the three passes measured, as autofocus.log has them.
@@ -49,27 +49,24 @@ def test_the_empty_field_sweep_has_no_peak_the_fit_trusts():
     assert pick == (117.76, 'fit shifted past twice the step spacing')
 
 
-def _z_moves(scope):
-    return [c.args[0] for c in scope.motion.start_move_z.call_args_list]
+def _an_empty_field(scope, monkeypatch):
+    """Score every frame as the LS720's empty field scored: within about 1%
+    of each other, in no order the fit can trust, whatever Z it was made at."""
+    monkeypatch.setattr(
+        'modules.autofocus_functions.focus_function',
+        lambda image: 1.75e7 + 2e5 * ((scope.motion.get_current_position('Z') * 7.31) % 1.0),
+    )
 
 
-def test_a_final_pass_with_no_trusted_peak_fails_and_moves_to_no_focus():
+def test_a_final_pass_with_no_trusted_peak_fails_and_moves_to_no_focus(sim_scope, monkeypatch):
     # Which arm made it untrusted is _find_best's (tests/test_find_best.py).
-    runner, scope = af_runner_and_scope()
-    runner._find_best = lambda df: FocusPick(AF_CENTER_Z + 7.0, 'fit not concave')
+    runner = af_runner_on(sim_scope)
+    _an_empty_field(sim_scope, monkeypatch)
+    asked = z_asked(sim_scope, monkeypatch)
 
     with pytest.raises(AutofocusFailedError) as failed:
-        drive_af(runner)
+        sweep(runner, sim_scope)
 
     assert failed.value.reason == 'flat_focus_curve'
-    assert AF_CENTER_Z + 7.0 not in _z_moves(scope)
-
-
-def test_a_final_pass_whose_peak_is_trusted_is_the_focus():
-    runner, scope = af_runner_and_scope()
-    runner._find_best = lambda df: FocusPick(AF_CENTER_Z + 7.0, None)
-
-    focus = drive_af(runner)
-
-    assert focus == AF_CENTER_Z + 7.0
-    assert AF_CENTER_Z + 7.0 in _z_moves(scope)
+    assert asked[-1] == PARKED_Z_UM, f'the stage went somewhere after the failure: {asked}'
+    assert settled_z(sim_scope) == pytest.approx(PARKED_Z_UM, abs=0.01)

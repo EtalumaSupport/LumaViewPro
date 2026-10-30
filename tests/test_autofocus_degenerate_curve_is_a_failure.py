@@ -24,39 +24,44 @@ from __future__ import annotations
 
 import pytest
 
+from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import AutofocusFailedError
+from modules.lumascope_api.illumination import LedState
 from modules.notification_center import Severity
-from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
-from tests.stock_channels import LED1
+from tests.af_drives import (
+    FOCAL_Z_UM,
+    PARKED_Z_UM,
+    af_runner_on,
+    settled_z,
+    sweep,
+    z_asked,
+)
 
 
-def _flat_curve(monkeypatch):
-    """Every frame scores zero -- the degenerate case the exit detects."""
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
+def _lit(scope):
+    return [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
 
 
-def _z_moves(scope):
-    """Every absolute Z move autofocus issued, started or waited, in order."""
-    return [
-        call.args[0] for call in scope.motion.mock_calls if call[0] in ('start_move_z', 'move_z')
-    ]
-
-
-def _drive_flat(runner, **overrides):
-    """Drive a sweep over a flat curve; it raises the flat-curve failure."""
+def _sweep_flat(runner, scope, **overrides):
+    """Sweep a field with nothing in it; every frame scores zero, and it raises the flat-curve failure."""
     with pytest.raises(AutofocusFailedError) as raised:
-        drive_af(runner, **overrides)
+        sweep(runner, scope, **overrides)
     assert raised.value.reason == 'flat_focus_curve'
 
 
+@pytest.fixture
+def flat(sim_scope):
+    """A runner over a white field, and its scope."""
+    return af_runner_on(sim_scope, pattern='white'), sim_scope
+
+
 class TestDegenerateCurveReportsFailure:
-    def test_it_raises_and_is_reported_once(self, monkeypatch, centre_posts):
+    def test_it_raises_and_is_reported_once(self, flat, centre_posts):
         """The failure is raised, told once as 'Autofocus Failed' in the
         flat curve's words, and no focus is stored."""
-        _flat_curve(monkeypatch)
-        runner, _scope = af_runner_and_scope()
+        runner, scope = flat
 
-        _drive_flat(runner)
+        _sweep_flat(runner, scope)
 
         errors = [(n.title, n.message) for n in centre_posts if n.severity is Severity.ERROR]
         assert errors == [('Autofocus Failed', str(AutofocusFailedError('flat_focus_curve')))], (
@@ -64,54 +69,50 @@ class TestDegenerateCurveReportsFailure:
         )
         assert runner.best_focus_position() is None, 'a flat curve chose no focus'
 
-    def test_complete_is_false(self, monkeypatch):
+    def test_complete_is_false(self, flat):
         """Nothing completed, so complete() must not say it did.
 
         This is also what re-points the Z readout: the step runner
         suppresses its own Z push only while complete() is True.
         """
-        _flat_curve(monkeypatch)
-        runner, _scope = af_runner_and_scope()
+        runner, scope = flat
 
-        _drive_flat(runner)
+        _sweep_flat(runner, scope)
 
         assert runner.complete() is False, (
             'a degenerate curve completed nothing; complete() must be False'
         )
 
-    def test_the_stage_returns_to_the_pre_autofocus_z(self, monkeypatch):
+    def test_the_stage_returns_to_the_pre_autofocus_z(self, flat, monkeypatch):
         """The whole point: a failed autofocus is a no-op in position, so
         a protocol step never captures at the sweep's end."""
-        _flat_curve(monkeypatch)
-        runner, scope = af_runner_and_scope()
+        runner, scope = flat
+        asked = z_asked(scope, monkeypatch)
 
-        _drive_flat(runner)
+        _sweep_flat(runner, scope)
 
-        moves = _z_moves(scope)
-        assert moves, 'the sweep must have moved the stage at all'
-        assert moves[-1] == AF_CENTER_Z, (
+        assert asked, 'the sweep must have moved the stage at all'
+        assert asked[-1] == PARKED_Z_UM, (
             'the last Z move on a degenerate curve must be the restore to the '
-            f'pre-autofocus position {AF_CENTER_Z}; got {moves[-1]} (all: {moves})'
+            f'pre-autofocus position {PARKED_Z_UM}; got {asked[-1]} (all: {asked})'
         )
+        assert settled_z(scope) == pytest.approx(PARKED_Z_UM, abs=0.01)
 
-    def test_the_channel_led_is_handed_back_not_held(self, monkeypatch):
+    def test_the_channel_led_is_handed_back_not_held(self, flat):
         """A failure, like every failure, restores the pre-autofocus LED
         state even when the step asked to keep the channel lit: the
         capture that follows is not the failed sweep's to light for, and
         re-lights its own channel."""
-        _flat_curve(monkeypatch)
-        runner, scope = af_runner_and_scope()
+        runner, scope = flat
+        assert _lit(scope) == [], 'precondition: nothing lit before the sweep'
 
-        _drive_flat(runner, keep_led_on=True, led_color=LED1)
+        _sweep_flat(runner, scope, keep_led_on=True)
 
-        lease = af_lease(scope)
-        assert lease.apply.called, 'the AF-end LED transition must be applied'
-        ctx = lease.apply.call_args_list[-1].args[1]
-        assert ctx.keep_led_on is False, (
-            f'a degenerate curve must not hold the channel; got keep_led_on={ctx.keep_led_on}'
+        assert _lit(scope) == [], (
+            f'a degenerate curve must not hold the channel; lit: {_lit(scope)}'
         )
 
-    def test_the_pre_autofocus_snapshot_field_is_gone(self):
+    def test_the_pre_autofocus_snapshot_field_is_gone(self, sim_scope):
         """One value, one store.
 
         The restore used to read `_saved_z_position`, a second snapshot of
@@ -120,7 +121,7 @@ class TestDegenerateCurveReportsFailure:
         and assigned None -- which silently switched the restore OFF. The
         field is deleted rather than guarded.
         """
-        runner, _scope = af_runner_and_scope()
+        runner = AutofocusRunner(scope=sim_scope)
 
         assert not hasattr(runner, '_saved_z_position'), (
             'the duplicate pre-AF Z snapshot must be gone; the restore reads '
@@ -129,20 +130,25 @@ class TestDegenerateCurveReportsFailure:
 
 
 class TestTheSuccessPathIsUnchanged:
-    def test_success_still_reports_and_leaves_the_stage_at_the_result(self, monkeypatch):
+    def test_success_still_reports_and_leaves_the_stage_at_the_result(self, sim_scope, monkeypatch):
         """D6: the fix must not touch the path that works.
 
-        A positive score drives the two-pass success exit, whose last
-        move is to the found position -- NOT to the pre-autofocus Z.
+        A sweep over the focus target drives the success exit, whose last
+        move is to the found position -- NOT to the pre-autofocus Z. It
+        holds the channel when asked to, as the failure does not.
         """
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
+        runner = af_runner_on(sim_scope)
+        asked = z_asked(sim_scope, monkeypatch)
 
-        result = drive_af(runner)
+        result = sweep(runner, sim_scope, keep_led_on=True)
 
-        assert result == AF_CENTER_Z, f'the success path must report its result; got {result}'
+        assert result == pytest.approx(FOCAL_Z_UM, abs=10.0), (
+            f'the success path must report the focus it found; got {result}'
+        )
         assert runner.complete() is True, 'a completed autofocus must say so'
-        moves = _z_moves(scope)
-        assert moves[-1] == AF_CENTER_Z, (
-            f'success must leave the stage at the found position; got {moves[-1]}'
+        assert asked[-1] == result, (
+            f'success must leave the stage at the found position; got {asked}'
+        )
+        assert _lit(sim_scope) == ['BF'], (
+            f'a success holds the channel asked for; lit: {_lit(sim_scope)}'
         )
