@@ -110,13 +110,17 @@ class TestCreateTakesTheHostInjections:
             ScopeSession.create(settings=complete_settings(), scope=None)
 
     def test_a_simulators_fault_is_refused_for_a_real_scope_before_anything_is_built(self):
-        from modules.lumascope_api.simulation import SimulatedModelAnswer
+        from modules.lumascope_api.simulation import (
+            SimulatedCameraWriteRefusal,
+            SimulatedModelAnswer,
+        )
 
         wrong = {}
         for argument, value in (
             ('sim_model', 'LS850T'),
             ('sim_model_answer', SimulatedModelAnswer('LS850T')),
             ('sim_refused_stream_starts', 1),
+            ('sim_refused_camera_writes', (SimulatedCameraWriteRefusal('gain', 'false'),)),
         ):
             with pytest.raises(ArgumentRefusedError) as refused:
                 ScopeSession.create(settings=complete_settings(), **{argument: value})

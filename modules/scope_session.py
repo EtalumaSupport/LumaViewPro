@@ -177,7 +177,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.diagnostics import UsbIdentityBindings
     from modules.lumascope_api.camera import AutoGainLock
-    from modules.lumascope_api.simulation import SimulatedModelAnswer
+    from modules.lumascope_api.simulation import SimulatedCameraWriteRefusal, SimulatedModelAnswer
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_image_writer import RunWriteBatch
     from modules.lumascope_api.protocols import StepTargets, TurretSlotQuestion
@@ -1476,6 +1476,7 @@ class ScopeSession:
         sim_model: str | None = None,
         sim_model_answer: 'SimulatedModelAnswer | None' = None,
         sim_refused_stream_starts: int = 0,
+        sim_refused_camera_writes: 'tuple[SimulatedCameraWriteRefusal, ...]' = (),
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
@@ -1540,6 +1541,11 @@ class ScopeSession:
                 own start is refused; 0 (the default) refuses none. Refused
                 unless ``simulate``, and by the scope on any camera but the
                 simulated FX2.
+            sim_refused_camera_writes: camera writes the simulated camera
+                refuses from bring-up on (``scope.simulation.refuse_camera_write``,
+                each in turn), so bring-up's own writes meet them; empty (the
+                default) refuses none. Refused unless ``simulate``, and by
+                the scope on the FX2 camera.
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 by the scope itself unless it is simulated with the
@@ -1575,10 +1581,12 @@ class ScopeSession:
                 writes to a real drive, and only a simulated scope's boards
                 and camera take a fault. ``'needs_simulated_camera'``,
                 ``sim_camera_stall`` for a model simulated with an FX2.
-                ``'not_injectable_on_board'``, ``sim_model_answer`` or
-                ``sim_refused_stream_starts`` for a scope whose board or
-                camera cannot show it; ``'fault_bound'``, a negative
-                ``sim_refused_stream_starts``. ``'wrong_kind'``, a block of
+                ``'not_injectable_on_board'``, ``sim_model_answer``,
+                ``sim_refused_stream_starts`` or ``sim_refused_camera_writes``
+                for a scope whose board or camera cannot show it;
+                ``'fault_bound'``, a negative ``sim_refused_stream_starts``
+                or a refusal's count below 1; ``'not_offered'``, a node or an
+                answer the camera's write does not give. ``'wrong_kind'``, a block of
                 ``settings`` that is not the kind the shipped template holds
                 (``argument`` names it).
             SettingRefusedError: ``'wrong_kind'`` or ``'out_of_range'``, a
@@ -1598,6 +1606,7 @@ class ScopeSession:
                 ('sim_model', sim_model),
                 ('sim_model_answer', sim_model_answer),
                 ('sim_refused_stream_starts', sim_refused_stream_starts or None),
+                ('sim_refused_camera_writes', sim_refused_camera_writes or None),
                 ('sim_file_stall', sim_file_stall),
             ):
                 if value is not None:
@@ -1653,6 +1662,10 @@ class ScopeSession:
                     scope.simulation.answer_model(sim_model_answer.model)
                 if sim_refused_stream_starts != 0:
                     scope.simulation.refuse_stream_start(sim_refused_stream_starts)
+                for refusal in sim_refused_camera_writes:
+                    scope.simulation.refuse_camera_write(
+                        refusal.node, refusal.answer, refusal.count
+                    )
             except BaseException:
                 cls._report_teardown_failure(scope.disconnect)
                 raise
@@ -4833,7 +4846,9 @@ class ScopeSession:
         slot. The scope reads the plate and objective from these settings
         whenever it acts on them. Last, the camera takes BF's stored
         settings (``apply_layer_camera``), the one step that waits on the
-        camera lane. The
+        camera lane; a setting it does not take, a write that outlasts the
+        lane's bound and a camera that leaves are kept on the bring-up
+        record and told once, and the bring-up goes on. The
         factories run this for the scope they build; a host that constructs
         the session directly, or hands ``create`` its own scope, calls it
         once itself. Every other step runs on the calling thread.
@@ -4842,8 +4857,6 @@ class ScopeSession:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
                 turret); or that ``objective_id`` names no shipped objective.
-            CameraSettingRejected: the camera refused a write of BF's
-                settings.
             HardwareCommandRefusedError: a run, a diagnostic or a recording
                 holds the scope. The configuration rewrites the LEDs, the
                 camera geometry and acceleration under whatever holds it,
@@ -4954,10 +4967,12 @@ class ScopeSession:
         there is no camera to set (bring-up has already reported it missing;
         a second report would only repeat it) or this scope has no BF layer
         (a newer unit whose layers this release cannot resolve still comes
-        up). The values are capped to the
-        camera's range first, so a refusal here is the camera failing a
-        write, and it fails bring-up like any other part that does not come
-        up.
+        up). The values are capped to the camera's range first, so a
+        refusal here is the camera failing a write. It is one of bring-up's
+        camera writes (``scope.write_camera_at_bring_up``): a setting the
+        camera refuses or does not answer, a write that outlasts the camera
+        lane's bound and a camera that leaves are kept on the camera's part
+        of the bring-up record and told once, and the scope comes up.
         """
         layer = common_utils.DEFAULT_LAYER
         self._show_layer(layer)
@@ -4970,7 +4985,7 @@ class ScopeSession:
                 'so no layer is applied to the camera'
             )
             return
-        self.apply_layer_camera(layer)
+        self.scope.write_camera_at_bring_up(lambda: self.apply_layer_camera(layer))
 
     @api(reads=True)
     def bring_up_record(self) -> 'BringUpRecord':

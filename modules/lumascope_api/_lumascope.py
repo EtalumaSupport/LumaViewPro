@@ -74,8 +74,10 @@ from modules.exceptions import (
     FrameRefittedNotice,
     HardwareCommandRefusedError,
     InstallationFileError,
+    LaneCallStillRunningError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
+    MissingPart,
     NoHardwareDetectedNotice,
     PartialHardwareError,
     ScopeDisconnectError,
@@ -259,6 +261,12 @@ def _camera_failure_cause(exc: BaseException) -> str:
     if isinstance(exc, HardwareError):
         return 'camera_not_initialized'
     return 'camera_bring_up_failed'
+
+
+# The causes a camera that came up can meet coming up, the one a person acts
+# on first last: a camera that has gone outranks a stream that did not
+# start, which outranks a setting it did not take.
+_CAMERA_CAUSE_ORDER = ('settings_not_applied', 'stream_not_started', 'camera_left')
 
 
 def _host_fx2_bindings(identity: str) -> list | None:
@@ -1183,7 +1191,10 @@ class Lumascope:
         once the capture pixel format is on the camera. A start that fails
         is recorded on the camera's part (cause ``'stream_not_started'``)
         and reported once; the scope is initialized all the same, its camera
-        connected and not streaming. A motor controller that does not take
+        connected and not streaming. A geometry or feature setting the
+        camera does not take is recorded and reported the same way (cause
+        ``'settings_not_applied'``), and so is a camera that leaves during
+        those writes (``'camera_left'``). A motor controller that does not take
         the stored acceleration limit is recorded the same way, on its part
         (cause ``'acceleration_not_set'``), and moves at the limit it holds.
 
@@ -1351,20 +1362,13 @@ class Lumascope:
             applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
             filtered = config.line_noise_reduction and caps.camera_supports_line_noise_reduction
             applies.append(lambda: self.camera._set_line_noise_reduction_impl(filtered))
+            # Bring-up continues at the value the camera holds. A refused
+            # conversion gain or line-noise value stays saved: no driver
+            # reads either back, so what the camera holds instead is not
+            # known. A camera that left has nothing to apply the rest to,
+            # and each would be refused again.
             for apply_fn in applies:
-                try:
-                    apply_fn()
-                except CameraSettingRejected as ex:
-                    # Bring-up continues at the value the camera holds. A
-                    # refused conversion gain or line-noise value stays
-                    # saved: no driver reads either back, so what the camera
-                    # holds instead is not known.
-                    notifications.report_outcome(ex, solicited=False, category='Camera')
-                except HardwareCommandRefusedError as ex:
-                    # The camera left during bring-up (an impl's only refusal):
-                    # there is nothing to apply the rest to, and each would
-                    # be refused again.
-                    notifications.report_outcome(ex, solicited=False, category='Camera')
+                if not self.write_camera_at_bring_up(apply_fn):
                     break
             # What the camera took is saved, through the session's writer: the
             # binning and frame it delivers, and the standard setting of a
@@ -1393,13 +1397,67 @@ class Lumascope:
             self.imaging._enable_streaming_impl()
         except HardwareError as fault:
             self._camera_failure = fault
-            self._bring_up_parts[Part.CAMERA] = dataclasses.replace(
-                self._bring_up_parts[Part.CAMERA],
-                cause='stream_not_started',
-                detail=f'{type(fault).__name__}: {fault}',
-            )
+            self._record_camera_problem('stream_not_started', fault)
         self._report_camera()
         logger.info('[SCOPE API ] Scope initialized')
+
+    def write_camera_at_bring_up(self, write: Callable[[], object]) -> bool:
+        """Make one of bring-up's camera writes; a problem the camera meets does not stop bring-up.
+
+        Composition wiring, not part of the L2 API surface: ``initialize``'s
+        geometry and feature writes and the session's BF hold each come
+        through here, so bring-up's camera writes have one rule. Bring-up is
+        where their flight stops -- nobody waits on one, and a raise would
+        tear the whole session down over a camera with a flaky link -- so a
+        setting the camera refuses or does not answer, a write that
+        outlasts the camera lane's bound (it may still finish), and a
+        camera that leaves are each kept on the camera's part of the
+        bring-up record and told once. Anything else is raised.
+
+        Args:
+            write: The write, run on the calling thread.
+
+        Returns:
+            False when the camera left, so nothing more can be written to
+            it; else True.
+        """
+        try:
+            write()
+        except (CameraSettingRejected, LaneCallStillRunningError) as fault:
+            self._record_camera_problem('settings_not_applied', fault)
+            notifications.report_outcome(fault, solicited=False, category='Camera')
+        except HardwareCommandRefusedError as refusal:
+            if refusal.missing is not MissingPart.CAMERA:
+                raise
+            self._record_camera_problem('camera_left', refusal)
+            notifications.report_outcome(refusal, solicited=False, category='Camera')
+            return False
+        return True
+
+    def _record_camera_problem(self, cause: str, fault: BaseException) -> None:
+        """Keep a problem the camera met coming up on its part of the bring-up record.
+
+        Kept before it is told, so a client reading the record when it
+        hears it reads it there. The part keeps one cause, the one a person
+        acts on first (``_CAMERA_CAUSE_ORDER``), and every problem's words
+        in its detail. Nothing is reported here: whoever caught the fault
+        tells it.
+
+        Args:
+            cause: ``'settings_not_applied'``, ``'stream_not_started'`` or
+                ``'camera_left'``.
+            fault: What the camera's write or start raised.
+        """
+        camera = self._bring_up_parts[Part.CAMERA]
+        words = f'{type(fault).__name__}: {fault}'
+        held = camera.cause
+        if held is not None and _CAMERA_CAUSE_ORDER.index(held) > _CAMERA_CAUSE_ORDER.index(cause):
+            cause = held
+        self._bring_up_parts[Part.CAMERA] = dataclasses.replace(
+            camera,
+            cause=cause,
+            detail=f'{camera.detail}; {words}' if camera.detail else words,
+        )
 
     def _store_absent_camera_features(self, config: 'ScopeInitConfig') -> None:
         """Save off a conversion gain or line-noise filter saved on that this camera does not have.

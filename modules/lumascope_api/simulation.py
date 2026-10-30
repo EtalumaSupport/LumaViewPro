@@ -135,6 +135,22 @@ class SimulatedModelAnswer:
     model: str | None
 
 
+@api_fields('node', 'answer', 'count')
+@dataclasses.dataclass(frozen=True)
+class SimulatedCameraWriteRefusal:
+    """Camera writes of one setting that a simulated camera refuses (``refuse_camera_write``).
+
+    Attributes:
+        node: The setting written.
+        answer: What each refused write answers.
+        count: How many writes in a row meet it, 1 or more.
+    """
+
+    node: CameraWriteNode
+    answer: CameraWriteAnswer
+    count: int = 1
+
+
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is
 # asked, so a held session never answers for a fault the scope cannot have.
 _guarded_write = guarded_write(
