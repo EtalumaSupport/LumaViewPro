@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 103
+ALLOWED_ENTRIES = 98
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -252,18 +252,13 @@ ALLOWED = frozenset(
         'tests/test_protocol_run_loop_iterate_scan_count.py::_make_two_scan_parent',
         'tests/test_pylon_gain_reports_its_rejection.py::pylon_camera',
         'tests/test_pylon_setter_short_circuit.py::_mock_camera',
-        'tests/test_regression_p2.py::_make_serial_board',
         'tests/test_start_autofocus_entry_point.py::_runner',
         'tests/test_run_encoding_ssot.py::TestOneRunOneEncoding._writer',
         'tests/test_run_outcome_reports_autofocus_data.py::TestTheSweepDoesNotReturnBeforeItsWriteLands._bare_runner',
         'tests/test_start_zstack_entry_point.py::_runner',
         'tests/test_scope_api.py::TestGetCurrentPlatePosition.test_an_expected_motor_board_that_is_absent_is_refused',
         'tests/test_scope_bringup.py::_make_spec_session',
-        'tests/test_serial_safety.py::TestExchangeCommandStopOnEmpty._make_led_board',
-        'tests/test_serial_safety.py::TestLEDBoardLocking._make_board',
         'tests/test_serial_safety.py::TestLEDFirmwareVersion._make_board',
-        'tests/test_serial_safety.py::TestMotorBoardSafety._make_board',
-        'tests/test_serial_safety.py::TestSilentBoardHandling._make_silent_board',
         'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone.test_a_directly_constructed_session_is_the_same_row',
         'tests/test_still_pending_writes.py::_writer',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_whose_layers_are_unresolved_still_comes_up',

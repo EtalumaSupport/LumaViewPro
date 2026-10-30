@@ -8,12 +8,14 @@ own. A file-wide board serves the tests that leave it as they found it; a
 test that pulls the cable, ends the connection or needs another firmware
 builds its own.
 
-Left on a scripted port, each class named for the simulator gap it waits
-on: a write that times out, a board that sends nothing at all, and an LED
-firmware that reports a version (the emulation carries only the field LED
-firmware, which reports none).
+A claim about the port itself -- a write that times out, a port that
+fails, a board that sends nothing at all -- runs the production driver over
+a scripted port behind its own ``backend=`` seam (`tests/scripted_port.py`).
+Left on scripted replies: an LED firmware that reports a version (the
+emulation carries only the field LED firmware, which reports none).
 """
 
+import logging
 import threading
 import time
 from contextlib import contextmanager
@@ -25,12 +27,14 @@ import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
+import drivers.serialboard as serialboard
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
 from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from drivers.motorconfig import MotorConfig
+from drivers.serialboard import SerialBoard
 from drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
+from tests.log_capture import capture_module_log, messages
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.scripted_port import LED_PID, LED_VID, ScriptedBackend, ScriptedLink
 from tests.wire_boards import led_on_the_wire, motor_on_the_wire
 
 # Past the LED driver's 0.3 s wait for a reply line.
@@ -473,7 +477,181 @@ class TestTheFirmwareVersion:
 
 
 # ---------------------------------------------------------------------------
-# Left on a scripted port: what the emulation cannot yet produce
+# The port itself, on a scripted port (tests/scripted_port.py): the
+# firmware plays no part in these claims
+# ---------------------------------------------------------------------------
+
+_ANSWERING = {'INFO': ['EL-0940 board'], 'PING': ['PONG']}
+_WRITE_TIMEOUT = serial.SerialTimeoutException('Write timeout')
+_PORT_LOST = serial.SerialException('write failed: [Errno 6] Device not configured')
+
+
+def _connected(link, board_cls=SerialBoard):
+    """The production driver, connected over a scripted port onto *link*."""
+    if board_cls is SerialBoard:
+        board = SerialBoard(LED_VID, LED_PID, '[Test]', backend=ScriptedBackend(link))
+        board.connect()
+    else:
+        board = board_cls(backend=ScriptedBackend(link))
+    assert board.is_connected()
+    return board
+
+
+def _lines(caplog, text):
+    return [r for r in caplog.records if r.name == 'LVP.serial' and text in r.getMessage()]
+
+
+class TestAWriteThatTimesOut:
+    def test_it_is_no_reply_and_the_port_stays_open_for_the_next_command(self):
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        link.write_fault = _WRITE_TIMEOUT
+        with pytest.raises(BoardNoReplyError, match=r'^PING: the write to the board timed out'):
+            board.exchange_command('PING')
+        link.write_fault = None
+        assert board.exchange_command('PING') == 'PONG'
+        assert link.opens == 1, 'the timeout closed the port'
+
+    def test_a_second_inside_the_log_window_is_not_logged_again(self, caplog):
+        """#539: a link that keeps timing out must not flood serial.log."""
+        board = _connected(link := ScriptedLink(_ANSWERING))
+        link.write_fault = _WRITE_TIMEOUT
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            for command in ('PING', 'PING'):
+                with pytest.raises(BoardNoReplyError):
+                    board.exchange_command(command)
+        assert len(_lines(caplog, '-> TIMEOUT')) == 1
+
+    def test_one_past_the_log_window_is_logged_again(self, monkeypatch, caplog):
+        board = _connected(link := ScriptedLink(_ANSWERING))
+        now = [100.0]
+        monkeypatch.setattr(
+            serialboard, 'time', SimpleNamespace(monotonic=lambda: now[0], sleep=time.sleep)
+        )
+        link.write_fault = _WRITE_TIMEOUT
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            for at in (100.0, 103.0):
+                now[0] = at
+                with pytest.raises(BoardNoReplyError):
+                    board.exchange_command('PING')
+        assert len(_lines(caplog, '-> TIMEOUT')) == 2
+
+
+class TestAPortThatFails:
+    """A failed port is closed and stays closed until a connect; a board
+    connected again whose port fails inside the log window is not logged
+    twice (#539)."""
+
+    def test_a_failure_before_the_send_closes_the_port_and_nothing_reopens_it(self):
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        link.write_fault = _PORT_LOST
+        with pytest.raises(BoardPortFailedError, match=r'^PING: the port failed'):
+            board.exchange_command('PING')
+        link.write_fault = None
+        with pytest.raises(BoardPortFailedError, match=r'^PING: the port is closed'):
+            board.exchange_command('PING')
+        assert link.opens == 1
+
+    def test_a_read_lost_after_the_send_is_no_reply_and_closes_the_port(self):
+        """The board may have taken the command whose answer was lost."""
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        link.read_fault = OSError('port disappeared')
+        with pytest.raises(
+            BoardNoReplyError, match=r'^FULLINFO: the port failed after the command was sent'
+        ):
+            board.exchange_multiline('FULLINFO', timeout=1)
+        assert not board.is_connected()
+
+    def test_an_exchange_failing_again_inside_the_log_window_is_not_logged_again(self, caplog):
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link)
+        with caplog.at_level(logging.ERROR, logger='LVP.serial'):
+            for _ in range(2):
+                link.write_fault = _PORT_LOST
+                with pytest.raises(BoardPortFailedError):
+                    board.exchange_command('PING')
+                link.write_fault = None
+                board.connect()
+        assert len(_lines(caplog, '-> EXCEPTION')) == 1
+
+    def test_a_fast_write_failing_again_inside_the_log_window_is_not_logged_again(
+        self, monkeypatch
+    ):
+        records = capture_module_log(monkeypatch, serialboard)
+        link = ScriptedLink(_ANSWERING)
+        board = _connected(link, LEDBoard)
+        for _ in range(2):
+            link.write_fault = _PORT_LOST
+            with pytest.raises(BoardPortFailedError):
+                board.leds_off_fast()
+            link.write_fault = None
+            board.connect()
+        failed = [m for m in messages(records) if '_write_command_fast(LEDS_OFF) failed' in m]
+        assert len(failed) == 1
+
+
+class TestABoardThatSendsNothing:
+    """#619: a board that sends no byte through the whole connect is hung
+    firmware or a stuck USB hub, and needs a power cycle; a board that
+    answers without a version is not silent
+    (`test_sim_wire_led.py::TestTheFirmwareBoots`)."""
+
+    @pytest.fixture(autouse=True)
+    def _no_recovery_waits(self, monkeypatch):
+        """The reset's waits (5 s after the soft reset) give a real board
+        time to boot; the scripted board answers at once or never."""
+        monkeypatch.setattr(
+            serialboard, 'time', SimpleNamespace(monotonic=time.monotonic, sleep=lambda _: None)
+        )
+
+    @pytest.fixture
+    def silent(self):
+        link = ScriptedLink()
+        return _connected(link), link
+
+    def test_it_is_not_responsive_and_has_no_version(self, silent):
+        board, _link = silent
+        assert board.is_responsive() is False
+        assert board.firmware_version is None
+
+    def test_the_soft_reset_is_tried_before_it_is_called_silent(self, silent):
+        """A board Thonny left in raw REPL looks silent until Ctrl-B and
+        Ctrl-D wake it (seen 2026-04-14 on an LS850T), so the recovery runs
+        before the verdict."""
+        _board, link = silent
+        assert b'\x02' in link.written and b'\x04' in link.written
+
+    def test_every_command_is_refused_at_once_with_nothing_sent_or_reopened(self, silent):
+        board, link = silent
+        sent, opens = len(link.written), link.opens
+        for _ in range(10):
+            with pytest.raises(BoardNoReplyError, match='power cycle it'):
+                board.exchange_command('LEDS_OFF')
+        assert len(link.written) == sent
+        assert link.opens == opens
+
+    def test_info_still_reaches_it_and_no_line_at_all_is_no_reply(self, silent):
+        """INFO is let through so a later connect can re-probe the board;
+        the detection's own read, every line empty, is no reply."""
+        board, link = silent
+        sent = link.commands().count('INFO')
+        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
+            board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
+        assert link.commands().count('INFO') == sent + 1
+
+    def test_a_board_that_answers_again_is_not_silent_at_its_next_connect(self, silent):
+        board, link = silent
+        link.answers.update(_ANSWERING)
+        board.connect()
+        assert board.is_responsive() is True
+        assert board.exchange_command('PING') == 'PONG'
+
+
+# ---------------------------------------------------------------------------
+# Left on scripted replies: an LED firmware that reports a version (the
+# emulation carries only the field LED firmware, which reports none)
 # ---------------------------------------------------------------------------
 
 
@@ -490,100 +668,9 @@ def _make_mock_serial(**overrides):
     return mock
 
 
-class TestLEDBoardLocking:
-    """A write that times out: the emulated port's write never does."""
-
-    def _make_board(self):
-        """Create an LEDBoard with a mock serial driver."""
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.firmware_version = None
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        return board
-
-    def test_a_write_timeout_is_no_reply(self):
-        """A write that times out raises BoardNoReplyError naming the command."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        with pytest.raises(BoardNoReplyError, match=r'^LED0_100: the write to the board timed out'):
-            board.exchange_command('LED0_100')
-
-    def test_driver_stays_open_on_timeout(self):
-        """H-17: Timeout is transient -- driver stays open for retry.
-
-        Only fatal exceptions close the driver. SerialTimeoutException
-        keeps it open so the next command can succeed without reconnecting.
-        """
-        board = self._make_board()
-        mock_driver = board.driver
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        with pytest.raises(BoardNoReplyError):
-            board.exchange_command('LED0_100')
-        mock_driver.close.assert_not_called()
-        assert board.driver is not None
-
-
-class TestMotorBoardSafety:
-    """A write that times out: the emulated port's write never does."""
-
-    def _make_board(self):
-        """Create a MotorBoard with a mock serial driver."""
-        board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        board.found = True
-        board._state_lock = threading.Lock()
-        board._has_turret = False
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.port = '/dev/fake'
-        board._lock = threading.RLock()
-        board._label = '[XYZ Class ]'
-        board.thread_lock = board._lock
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 30
-        board.write_timeout = 5
-        board.driver = _make_mock_serial()
-        board._fullinfo = None
-        board.axes_config = {}
-        board.firmware_version = None
-        return board
-
-    def test_a_write_timeout_is_no_reply(self):
-        """A write that times out raises BoardNoReplyError, not a hang."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        with pytest.raises(BoardNoReplyError, match=r'^HOME: the write to the board timed out'):
-            board.exchange_command('HOME')
-
-    def test_a_multiline_read_the_port_lost_after_the_send_is_no_reply(self):
-        # a stand-in by design: the emulated port has no "unplugged mid-read"
-        # fault; the board may have taken the command whose answer was lost
-        board = self._make_board()
-        board.driver.readline.side_effect = OSError('port disappeared')
-        with pytest.raises(
-            BoardNoReplyError, match=r'^FULLINFO: the port failed after the command was sent'
-        ):
-            board.exchange_multiline('FULLINFO', timeout=1)
-        assert board.driver is None
-
-
 class TestLEDFirmwareVersion:
-    """An LED firmware that reports a version, and a write that times out:
-    the emulation carries only the field LED firmware, which reports none."""
+    """An LED firmware that reports a version: the emulation carries only
+    the field LED firmware, which reports none."""
 
     def _make_board(self):
         board = LEDBoard.__new__(LEDBoard)
@@ -675,14 +762,6 @@ class TestLEDFirmwareVersion:
         assert board.firmware_version == '3.0.0'
         assert board.is_v2 is True
 
-    def test_detect_timeout(self):
-        """If INFO times out, version should be None."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        board._detect_firmware_version()
-        assert board.firmware_version is None
-        assert board.is_v2 is False
-
 
 class TestSimulatorFirmwareVersion:
     """Test that simulators expose firmware_version and is_v2."""
@@ -723,281 +802,6 @@ class TestSimulatorFirmwareVersion:
         )
         assert board.firmware_version is None
         assert board.is_v2 is False
-
-
-class TestSilentBoardHandling:
-    """Regression tests for #619 Phase B -- silent board detection.
-
-    A "silent" board sends zero bytes during the entire connect
-    sequence. Distinguished from a legacy (pre-v3.0) board that
-    responds to INFO with unparseable text but still echoes bytes.
-    Silent boards are hung firmware or a stuck USB hub and cannot
-    recover via Ctrl-D -- they need a hardware power cycle.
-
-    The structural fix:
-    - _reset_firmware tracks bytes_ever_seen and skips the Ctrl-D
-      soft-reset recovery path when no bytes were captured
-    - _reset_firmware marks firmware_silent = True when all retries
-      produce zero bytes
-    - connect() surfaces firmware_silent via notifications.error
-      instead of silently degrading to "legacy, no version info"
-    - exchange_command() fails fast (returns None immediately)
-      when firmware_silent is True
-    """
-
-    @pytest.fixture(autouse=True)
-    def _skip_recovery_waits(self, monkeypatch):
-        """Skip the real firmware-boot wait (~5s in _reset_firmware step
-        4) plus the smaller per-step waits. The recovery sequence is
-        exercised end-to-end logically; the wall-clock waits exist to
-        give real hardware time to come back up after Ctrl-D and
-        contribute nothing to a mock-driver test."""
-        import drivers.serialboard
-
-        monkeypatch.setattr(
-            drivers.serialboard,
-            'time',
-            SimpleNamespace(monotonic=time.monotonic, sleep=lambda _: None),
-        )
-
-    def _make_silent_board(self):
-        """Build an LEDBoard whose serial driver returns zero bytes
-        for every read and reports in_waiting=0 forever. Simulates
-        the #619 hung-firmware scenario at the driver level."""
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = True
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake_silent'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.01  # Keep test fast; we don't care about real timing
-        board.write_timeout = 0.01
-        board.firmware_version = None
-        board.firmware_date = None
-        board.firmware_responding = False
-        board.firmware_silent = False
-        board._detect_response_bytes = 0
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        board._min_command_interval = 0.0
-        board._last_command_time = 0.0
-        board._in_raw_repl = False
-        from drivers.serialboard import ProtocolVersion
-
-        board.protocol_version = ProtocolVersion.LEGACY
-        # Silent driver: every read is empty, in_waiting is always 0,
-        # writes succeed (bytes go into the void)
-        board.driver = _make_mock_serial()
-        board.driver.readline.return_value = b''
-        board.driver.read.return_value = b''
-        board.driver.in_waiting = 0
-        return board
-
-    def _make_responsive_legacy_board(self):
-        """Build an LEDBoard that responds to INFO with unparseable
-        bytes (old LED firmware that has no version string). This is
-        the case the silent-board path must NOT trigger on -- it's a
-        genuinely legacy board, not a hung one."""
-        board = self._make_silent_board()
-        # readline returns SOMETHING (the legacy firmware's INFO reply)
-        # on the first few calls. Content doesn't need to be parseable,
-        # it just needs to be non-empty so _detect_response_bytes > 0.
-        import itertools
-
-        responses = itertools.cycle(
-            [
-                b'EL-0940 Mainboard\r\n',
-                b'No version\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-            ]
-        )
-        board.driver.readline.side_effect = lambda: next(responses)
-        return board
-
-    def test_silent_board_marks_firmware_silent_true(self):
-        """After _reset_firmware on a silent board, firmware_silent
-        must be True and firmware_responding must be False."""
-        board = self._make_silent_board()
-        board._reset_firmware()
-        assert board.firmware_silent is True
-        assert board.firmware_responding is False
-
-    def test_silent_board_still_attempts_ctrl_d_recovery(self):
-        """The soft-reset recovery path (step 4) must run even when
-        `bytes_ever_seen == 0`. Ctrl-D is the only way to wake up a
-        board that was just used by Thonny and left in raw REPL
-        state -- in that state, MicroPython doesn't echo or execute
-        anything until Ctrl-D arrives, so the board looks silent to
-        drain + INFO detect but is actually alive.
-
-        History: an earlier version of `_reset_firmware()` skipped
-        step 4 entirely when `bytes_ever_seen == 0`, assuming a
-        silent board wouldn't respond to Ctrl-D either. That skip
-        was correct for the in-house bench brick case (board
-        genuinely hung, Ctrl-D did nothing) but wrong for the
-        Thonny-left-in-raw-REPL case (board alive, Ctrl-D is the
-        wake-up signal). Verified in-session 2026-04-14 on a real
-        LS850T test board after a Thonny connect/disconnect cycle:
-        LVP with the skip in place falsely flagged both boards as
-        silent and LVP couldn't recover them.
-
-        **The guiding principle: robust startup trumps 5 seconds
-        of optimization.** Always run the recovery sequence
-        before declaring a board silent.
-
-        This test asserts Ctrl-B (b'\\x02', exit raw REPL) and
-        Ctrl-D (b'\\x04', soft reset) are both written during the
-        recovery path, even on a silent board. It replaces the
-        earlier `test_silent_board_skips_ctrl_d` which pinned the
-        now-reverted optimization.
-        """
-        board = self._make_silent_board()
-        board._reset_firmware()
-        all_writes = [call.args[0] for call in board.driver.write.call_args_list]
-        assert b'\x04' in all_writes, (
-            f"Ctrl-D (b'\\x04') MUST be sent during recovery even "
-            f'on a silent board, to handle Thonny-left-in-raw-REPL '
-            f'state. Writes were: {all_writes}'
-        )
-        assert b'\x02' in all_writes, (
-            f"Ctrl-B (b'\\x02', raw REPL exit) must also be sent as "
-            f'part of the recovery sequence. Writes were: {all_writes}'
-        )
-
-    def test_silent_board_exchange_command_fails_fast(self):
-        """After a silent _reset_firmware, exchange_command on any
-        non-INFO command raises BoardNoReplyError naming the power cycle
-        at once, without touching the driver."""
-        board = self._make_silent_board()
-        board._reset_firmware()
-        assert board.firmware_silent is True
-
-        # Clear the write history so we only see calls after the reset.
-        board.driver.write.reset_mock()
-        board.driver.readline.reset_mock()
-
-        t0 = time.monotonic()
-        with pytest.raises(BoardNoReplyError, match='power cycle it'):
-            board.exchange_command('LEDS_OFF')
-        elapsed_ms = (time.monotonic() - t0) * 1000
-
-        assert elapsed_ms < 100, (
-            f'Silent board exchange must fail fast (<100ms), took {elapsed_ms:.0f}ms -- '
-            f'suggests the timeout path was hit'
-        )
-        board.driver.write.assert_not_called()
-
-    def test_silent_board_exchange_allows_info(self):
-        """INFO is exempted from fail-fast so a reconnect attempt can
-        re-probe the board (e.g. after the user power-cycles it).
-        Otherwise firmware_silent becomes sticky."""
-        board = self._make_silent_board()
-        board.firmware_silent = True  # simulate prior silent connect
-
-        # INFO should still reach the driver. We don't care about the
-        # response (the silent stand-in sends nothing, so it is no reply) --
-        # just that write was called.
-        board.driver.write.reset_mock()
-        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
-            board.exchange_command('INFO')
-        # At least one write happened (driver.write called with b'INFO\n')
-        assert board.driver.write.called, (
-            'INFO must be allowed through exchange_command even when '
-            'firmware_silent is True, so reconnect probes can clear the flag'
-        )
-
-    def test_responsive_legacy_board_does_not_trigger_silent(self):
-        """Pre-v3.0 LED boards respond to INFO with unparseable text
-        (no version string) but still echo bytes. They must take the
-        normal legacy path -- firmware_silent must stay False."""
-        board = self._make_responsive_legacy_board()
-        board._reset_firmware()
-        assert board.firmware_silent is False, (
-            "A board that sent ANY bytes is not silent -- it's legacy"
-        )
-
-    def test_silent_board_reset_clears_stale_silent_flag(self):
-        """After a power cycle, the user reconnects. _reset_firmware
-        must clear any stale silent flag at the start so a board
-        that now responds gets a fresh verdict."""
-        board = self._make_silent_board()
-        board.firmware_silent = True  # simulate carried-over stale flag
-        board._detect_response_bytes = 0
-
-        # Swap to a responsive driver mid-test (simulate power cycle)
-        import itertools
-
-        responses = itertools.cycle(
-            [
-                b'Firmware: 2026-03-18 v3.0.4\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-                b'\r\n',
-            ]
-        )
-        board.driver.readline.side_effect = lambda: next(responses)
-
-        board._reset_firmware()
-        assert board.firmware_silent is False, (
-            '_reset_firmware must clear stale firmware_silent at entry'
-        )
-
-    def test_silent_board_cannot_auto_reconnect_loop(self):
-        """Repeated exchange_command on a silent board must not loop
-        forever -- each call raises at once without touching the port."""
-        board = self._make_silent_board()
-        board.firmware_silent = True
-        board.driver.write.reset_mock()
-
-        for _ in range(10):
-            with pytest.raises(BoardNoReplyError, match='power cycle it'):
-                board.exchange_command('LEDS_OFF')
-
-        board.driver.write.assert_not_called()
-
-
-class TestExchangeCommandStopOnEmpty:
-    """A board that sends nothing at all: the emulation has no hung board."""
-
-    def _make_led_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = True
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.firmware_version = None
-        board._last_error_log_time = 0.0
-        board._error_log_interval = 2.0
-        board._min_command_interval = 0.0
-        board._last_command_time = 0.0
-        board.driver = _make_mock_serial()
-        return board
-
-    def test_stop_on_empty_without_any_content_reads_all(self):
-        """Silent board case: every line is empty -- must read all 6
-        (the 'no content at all' signal is what Phase B's silent
-        detection relies on)."""
-        board = self._make_led_board()
-        board.driver.readline.side_effect = [b'', b'', b'', b'', b'', b'']
-        # No line at all is no reply, which silent detection reads as a
-        # silent board.
-        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
-            board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert board.driver.readline.call_count == 6
 
 
 class TestCameraStateLock:
