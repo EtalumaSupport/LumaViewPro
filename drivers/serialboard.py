@@ -13,6 +13,7 @@ import re
 import time
 import serial
 from enum import Enum
+from typing import ClassVar
 from lvp_logger import logger
 from lib.profile_trace import TimedLock
 import threading
@@ -27,9 +28,14 @@ from drivers.raw_repl import (
 )
 
 from lib import profile_trace
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, HardwareError
 from drivers.serial_backend import PYSERIAL, SerialBackend
 
 _serial_log = logging.getLogger('LVP.serial')
+
+# What a board's connect meets from the board or its port. Anything else
+# raised during a connect is our own defect and leaves as itself.
+CONNECT_FAILURES = (HardwareError, serial.SerialException, OSError)
 
 
 def _describe_port(port) -> str:
@@ -44,6 +50,9 @@ class ProtocolVersion(Enum):
 
 
 class SerialBoard:
+    # Whether the diagnostic door may send it text commands.
+    takes_text_commands: ClassVar[bool] = True
+
     def __init__(
         self,
         vid,
@@ -79,6 +88,10 @@ class SerialBoard:
         # a hardware power cycle -- see #619. Callers should check
         # this before issuing commands; exchange_command fails fast.
         self.firmware_silent = False
+        # True when the last connect opened the port and the board then did
+        # not answer: closed again, it reads as a board not responding, not
+        # as a port another program holds.
+        self._connect_unanswered = False
         # Running total of non-empty bytes captured by
         # _detect_firmware_version(). _reset_firmware() reads the
         # delta to know whether each detection attempt saw any bytes,
@@ -128,7 +141,7 @@ class SerialBoard:
     def _open_serial(self):
         """Open serial port and create driver."""
         if self.port is None:
-            raise ValueError(f'No port found for {self._label}')
+            raise BoardPortFailedError(f'No port found for {self._label}')
         try:
             self.driver = self._backend.open(
                 port=self.port,
@@ -512,6 +525,7 @@ class SerialBoard:
         that DO respond to INFO with unparseable bytes.
         """
         with self._lock:
+            self._connect_unanswered = False
             try:
                 self._open_serial()
                 self._reset_firmware()
@@ -533,11 +547,12 @@ class SerialBoard:
                     )
                 else:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
-            except Exception as e:
+            except CONNECT_FAILURES as e:
                 self._connect_failed(e)
 
     def _connect_failed(self, exc: Exception) -> None:
         """The one failure path of every board's connect: close and log."""
+        self._connect_unanswered = isinstance(exc, BoardNoReplyError)
         self._close_driver()
         logger.error(f'{self._label} connect() failed: {exc}')
 
@@ -586,9 +601,11 @@ class SerialBoard:
         asked to do, one user-visible failure per command, until a hardware
         power cycle. The connect-time reset already distinguishes the two
         cases; this exposes that verdict so a caller can decline the board
-        instead of discovering it one rejected command at a time.
+        instead of discovering it one rejected command at a time. A board
+        whose port opened and that then did not answer the connect's own
+        commands is not responsive either, though connect closed its port.
         """
-        return not self.firmware_silent
+        return not (self.firmware_silent or self._connect_unanswered)
 
     def _close_driver(self):
         """Safely close and clear the serial driver."""
@@ -817,11 +834,17 @@ class SerialBoard:
                 their content.
 
         Returns:
-            str | list[str] | None: The reply line, or the reply lines
-                (padded with '' to ``response_numlines``) for a
-                multi-line read. None when the board gave no reply: no
-                line arrived, the write timed out, or there is no
-                connection.
+            str | list[str]: The reply line, or the reply lines (padded
+                with '' to ``response_numlines``) for a multi-line read.
+
+        Raises:
+            BoardNoReplyError: no line arrived, the write timed out, or
+                the board was found silent at connect, and the port stays
+                open; or the port failed after the command was sent, which
+                closes it: the board may have done what it was told.
+            BoardPortFailedError: the port is closed, or it failed before
+                the command was sent, which closes it: nothing reached the
+                board.
         """
         with self._lock:
             # Fail fast on silent boards (#619). exchange_command()
@@ -842,10 +865,12 @@ class SerialBoard:
                 _serial_log.warning(
                     f'{self._label} {command} -> REJECTED (board silent, power cycle required)'
                 )
-                return None
+                raise BoardNoReplyError(
+                    f'{command}: the board sent nothing at connect; power cycle it'
+                )
 
             if self.driver is None:
-                return None
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             # Rate limiting: enforce minimum interval between commands
             min_interval = getattr(self, '_min_command_interval', 0)
@@ -864,6 +889,7 @@ class SerialBoard:
             cmd_upper = command.strip().upper()
             stream = command.encode('utf-8') + b'\n'
             t_start = time.monotonic()
+            sent = False
             try:
                 # Flush any stale data in the input buffer before writing.
                 # If a previous readline() timed out, the firmware's response
@@ -875,6 +901,7 @@ class SerialBoard:
                     _serial_log.info(f'{self._label} FLUSH {stale}B: {discarded!r}')
 
                 self.driver.write(stream)
+                sent = True
                 resp_lines = []
                 saw_content = False
                 for _ in range(response_numlines):
@@ -927,7 +954,7 @@ class SerialBoard:
                     resp_repr = resp_repr[:200] + '...'
                 if response is None:
                     _serial_log.info(f'{self._label} {command} -> NO REPLY ({elapsed_ms:.1f}ms)')
-                    return None
+                    raise BoardNoReplyError(f'{command}: no reply from the board')
                 _serial_log.info(f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
 
                 resp_str = str(response)
@@ -944,7 +971,7 @@ class SerialBoard:
 
                 return response
 
-            except serial.SerialTimeoutException:
+            except serial.SerialTimeoutException as e:
                 elapsed_ms = (time.monotonic() - t_start) * 1000
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
@@ -952,8 +979,9 @@ class SerialBoard:
                 if now - last >= interval:
                     _serial_log.warning(f'{self._label} {command} -> TIMEOUT ({elapsed_ms:.1f}ms)')
                     self._last_error_log_time = now
+                raise BoardNoReplyError(f'{command}: the write to the board timed out') from e
 
-            except Exception as e:
+            except (serial.SerialException, OSError) as e:
                 elapsed_ms = (time.monotonic() - t_start) * 1000
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
@@ -964,12 +992,15 @@ class SerialBoard:
                     )
                     self._last_error_log_time = now
                 self._close_driver()
+                if sent:
+                    raise BoardNoReplyError(
+                        f'{command}: the port failed after the command was sent: {e}'
+                    ) from e
+                raise BoardPortFailedError(f'{command}: the port failed: {e}') from e
 
             finally:
                 if saved_timeout is not None and self.driver is not None:
                     self.driver.timeout = saved_timeout
-
-            return None
 
     def exchange_multiline(
         self,
@@ -977,7 +1008,7 @@ class SerialBoard:
         timeout: float = 60,
         end_markers: list[str] | None = None,
         line_end: bytes = b'\n',
-    ) -> str | None:
+    ) -> str:
         """Send command and read variable-length multi-line response.
 
         Reads lines until an end marker is found, no more data arrives,
@@ -996,20 +1027,32 @@ class SerialBoard:
                 return only.
 
         Returns:
-            Joined multi-line string, or None on error.
+            The reply lines joined, or the lines that arrived before a
+            write timeout.
+
+        Raises:
+            BoardNoReplyError: no line arrived, and the port stays open; or
+                the port failed after the command was sent, which closes
+                it: the board may have done what it was told.
+            BoardPortFailedError: the port is closed, or it failed before
+                the command was sent, which closes it: nothing reached the
+                board.
         """
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
 
         with self._lock:
             if self.driver is None:
-                return None
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             saved_timeout = self.driver.timeout
             self.driver.timeout = min(timeout, 5.0)  # per-readline timeout
 
             cmd_upper = command.strip().upper()
             t_start = time.monotonic()
+            # Before the write: a write that times out is answered from it.
+            lines = []
+            sent = False
             try:
                 # Flush stale data
                 stale = self.driver.in_waiting
@@ -1018,7 +1061,7 @@ class SerialBoard:
                     _serial_log.info(f'{self._label} FLUSH {stale}B')
 
                 self.driver.write(command.encode('utf-8') + line_end)
-                lines = []
+                sent = True
                 start = time.monotonic()
                 while time.monotonic() - start < timeout:
                     raw = self.driver.readline()
@@ -1056,7 +1099,6 @@ class SerialBoard:
                         break
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000
-                result = '\n'.join(lines) or None
                 # Log the full response content, not just the line count, so a
                 # multi-line diagnostic / calibration reply is recoverable from
                 # serial.log. Joined onto one line (grep-friendly); these
@@ -1065,18 +1107,26 @@ class SerialBoard:
                 _serial_log.info(
                     f'{self._label} {command} -> {len(lines)} lines: {shown!r} ({elapsed_ms:.1f}ms)'
                 )
-                return result
+                if not lines:
+                    raise BoardNoReplyError(f'{command}: no reply from the board')
+                return '\n'.join(lines)
 
-            except serial.SerialTimeoutException:
+            except serial.SerialTimeoutException as e:
                 elapsed_ms = (time.monotonic() - t_start) * 1000
                 _serial_log.warning(f'{self._label} {command} -> TIMEOUT ({elapsed_ms:.1f}ms)')
-                return '\n'.join(lines) if lines else None
+                if not lines:
+                    raise BoardNoReplyError(f'{command}: the write to the board timed out') from e
+                return '\n'.join(lines)
 
-            except Exception as e:
+            except (serial.SerialException, OSError) as e:
                 elapsed_ms = (time.monotonic() - t_start) * 1000
                 _serial_log.error(f'{self._label} {command} -> EXCEPTION: {e} ({elapsed_ms:.1f}ms)')
                 self._close_driver()
-                return None
+                if sent:
+                    raise BoardNoReplyError(
+                        f'{command}: the port failed after the command was sent: {e}'
+                    ) from e
+                raise BoardPortFailedError(f'{command}: the port failed: {e}') from e
 
             finally:
                 if self.driver is not None:
@@ -1090,12 +1140,17 @@ class SerialBoard:
         fast path is exactly what stim uses and without this line every stim
         write is invisible in serial.log. Also reports in_waiting at entry so
         response backlog from prior fast-path writes shows up in the trace.
+
+        Raises:
+            BoardNoReplyError: the write timed out; the port stays open.
+            BoardPortFailedError: the port is closed, or the write failed,
+                which closes it.
         """
         t_enter = time.monotonic()
         with self._lock:
             t_lock = time.monotonic()
             if self.driver is None:
-                return
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             try:
                 in_waiting = self.driver.in_waiting
@@ -1106,7 +1161,10 @@ class SerialBoard:
             t_before_write = time.monotonic()
             try:
                 self.driver.write(stream)
-            except Exception as e:
+            except serial.SerialTimeoutException as e:
+                logger.error(f'{self._label} _write_command_fast({command}) timed out')
+                raise BoardNoReplyError(f'{command}: the write to the board timed out') from e
+            except (serial.SerialException, OSError) as e:
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
                 interval = getattr(self, '_error_log_interval', 2.0)
@@ -1114,7 +1172,7 @@ class SerialBoard:
                     logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
                     self._last_error_log_time = now
                 self._close_driver()
-                return
+                raise BoardPortFailedError(f'{command}: the port failed: {e}') from e
 
             t_after_write = time.monotonic()
             lock_wait_ms = (t_lock - t_enter) * 1000

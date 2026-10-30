@@ -231,8 +231,9 @@ def test_the_members_the_api_reads(board):
     assert board.detect_present_axes() == ['X', 'Y', 'Z']
     assert board.detect_homed_axes() == []
     assert board.get_microscope_model() == 'LS720'
+    assert board.takes_text_commands is False
+    assert not hasattr(board, 'exchange_command')
     assert not hasattr(board, 'exchange_multiline')
-    assert board.exchange_command('INFO') is None
     assert board.get_axis_limits('Y') == {'min': 950.0, 'max': pytest.approx(79_740.0)}
 
 

@@ -125,9 +125,9 @@ class MotorBoardProtocol(Protocol):
     def t_pos2ustep(self, position: int) -> int: ...
 
     # --- Serial ---
-    def exchange_command(
-        self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> str | None: ...
+    # Whether the board takes text commands; only one that does has
+    # ``exchange_command`` and ``exchange_multiline``.
+    takes_text_commands: bool
 
 
 @runtime_checkable
@@ -186,4 +186,6 @@ class LEDBoardProtocol(Protocol):
     def read_led_current(self, channel: int) -> float | None: ...
 
     # --- Serial ---
-    def exchange_command(self, command: str, **kwargs) -> str | None: ...
+    # Whether the board takes text commands; only one that does has
+    # ``exchange_command`` and ``exchange_multiline``.
+    takes_text_commands: bool

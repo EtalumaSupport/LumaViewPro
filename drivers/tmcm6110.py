@@ -37,7 +37,7 @@ import threading
 import time
 from collections.abc import Mapping
 from functools import partial
-from typing import NamedTuple, NoReturn
+from typing import ClassVar, NamedTuple, NoReturn
 
 import serial
 
@@ -266,6 +266,9 @@ class Tmcm6110Board:
     ``found = False``.
     """
 
+    # The board speaks TMCL, not text: the diagnostic door sends it nothing.
+    takes_text_commands: ClassVar[bool] = False
+
     def __init__(self, *, motorconfig_defaults: Mapping, backend: SerialBackend = PYSERIAL):
         # One datagram in flight: the board must not get a second command
         # before it has replied to the first. Re-entrant so a lid refusal
@@ -382,9 +385,12 @@ class Tmcm6110Board:
                 raise BoardPortFailedError(f'{what}: the TMCM-6110 is not connected')
             if starts_lid_gated_motion(command, type_, motor) and self._lid_open():
                 self._refuse_for_lid(moved=False)
+            # Encoded outside the port's try: a value it cannot encode is
+            # our defect, not a lost board.
+            datagram = encode_command(command, type_, motor, value)
             try:
                 self._serial.reset_input_buffer()
-                self._serial.write(encode_command(command, type_, motor, value))
+                self._serial.write(datagram)
                 raw = self._serial.read(DATAGRAM_BYTES)
             except serial.SerialTimeoutException as e:
                 raise BoardPortFailedError(
@@ -997,10 +1003,3 @@ class Tmcm6110Board:
 
     def spi_write(self, axis: str, addr: int, payload: int | str) -> str:
         raise RuntimeError('the TMCM-6110 gives no SPI register access')
-
-    def exchange_command(
-        self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> None:
-        """None: the board takes no text commands, so no text has a reply."""
-        logger.warning(f'[TMCM-6110 ] Text command {command!r} not sent: the board speaks TMCL')
-        return None

@@ -222,15 +222,13 @@ class TestSendFwupdateCommand:
         board.exchange_command.assert_called_once_with('FWUPDATE', timeout=3.0)
         board.disconnect.assert_called()
 
-    def test_raises_on_exchange_exception(self):
-        """UpdateError raised when exchange_command throws."""
+    def test_a_defect_in_the_exchange_leaves_as_itself(self):
+        """Only the board's failures become UpdateError; our own leaves as itself."""
         cfg = self._make_motor_config()
         board = MagicMock()
-        board.exchange_command.side_effect = Exception('serial error')
-        with pytest.raises(UpdateError) as exc_info:
+        board.exchange_command.side_effect = TypeError('a defect')
+        with pytest.raises(TypeError, match='a defect'):
             _send_fwupdate_command(board, cfg)
-        assert exc_info.value.stage == UpdateStage.SENDING_FWUPDATE
-        board.disconnect.assert_called()
 
     @pytest.mark.firmware_tier
     def test_fallback_to_raw_repl_on_not_found(self):

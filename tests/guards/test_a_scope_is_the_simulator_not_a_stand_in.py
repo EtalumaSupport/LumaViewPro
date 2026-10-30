@@ -226,7 +226,7 @@ ALLOWED = frozenset(
         'tests/test_firmware_updater.py::TestBackupConfigs._make_board',
         'tests/test_firmware_updater.py::TestRestoreConfigs._make_board',
         'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_led_sends_fwupdate',
-        'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_raises_on_exchange_exception',
+        'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_a_defect_in_the_exchange_leaves_as_itself',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',
         'tests/test_issue_239_first_interval_anchor.py::_make_parent',
         'tests/test_issue_653_skip_guard.py::handler_and_log',

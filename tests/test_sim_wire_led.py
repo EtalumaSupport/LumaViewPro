@@ -19,7 +19,7 @@ import time
 import pytest
 import serial
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire import backend as sim_backend
@@ -462,7 +462,7 @@ class TestTheConsole:
 
         monkeypatch.setattr(board, 'exchange_multiline', _newline_framed)
         try:
-            with pytest.raises(HardwareError, match='did not enter engineering mode'):
+            with pytest.raises(BoardNoReplyError, match=r'^Y: no reply from the board'):
                 board.enter_engineering_mode(timeout=1.0)
             assert 'Version' in board.exchange_command('INFO', timeout=2)
         finally:

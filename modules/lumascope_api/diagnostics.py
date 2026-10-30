@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from drivers.exceptions import BoardNoReplyError, HardwareError
 from lvp_logger import log_dir, logger
 from modules.finite_number import refuse_outside, refuse_unless_wait_s
 from modules.api_surface import Admission, ProgressCallback, api, api_fields
@@ -1019,9 +1020,10 @@ class DiagnosticsAPI:
                 driver's default.
 
         Returns:
-            str: Response from the board, ``'Board not connected'`` with no
-                board connected (``_board_connected``), or ``'Error: <msg>'``
-                if the exchange raised.
+            str: Response from the board, ``'None'`` when it did not answer,
+                ``'Board not connected'`` with no board connected
+                (``_board_connected``), or ``'Error: <msg>'`` if its port
+                failed.
 
         Raises:
             ValueError: A motor command that moves, stops or repositions a
@@ -1029,7 +1031,10 @@ class DiagnosticsAPI:
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope and this call is not made under its taking; the
                 command is not sent. An exchange that fails once sent is
-                still answered with ``'Error: <msg>'``.
+                still answered with ``'Error: <msg>'``. Or
+                ``'not_on_this_scope'``, ``MissingPart.TEXT_COMMANDS``: the
+                board takes no text commands (a TMCM-6110, a Classic's FX2
+                LED controller); nothing is sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
                 sent.
@@ -1046,6 +1051,7 @@ class DiagnosticsAPI:
 
         if not self._board_connected(board):
             return NOT_CONNECTED
+        self._refuse_no_text_commands(board, 'send_diagnostic_command')
 
         logger.debug(
             f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
@@ -1067,11 +1073,18 @@ class DiagnosticsAPI:
         )
 
     @staticmethod
+    def _refuse_no_text_commands(board, member: str) -> None:
+        if not board.takes_text_commands:
+            part = MissingPart.TEXT_COMMANDS
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    @staticmethod
     def _exchange_command_impl(board, target: str, command: str, **kwargs) -> str:
         try:
-            resp = board.exchange_command(command, **kwargs)
-            return resp if resp is not None else NO_REPLY
-        except Exception as e:
+            return board.exchange_command(command, **kwargs)
+        except BoardNoReplyError:
+            return NO_REPLY
+        except HardwareError as e:
             logger.warning(
                 f'[SCOPE API ] send_diagnostic_command({target}, {command!r}) failed: {e}'
             )
@@ -1099,7 +1112,8 @@ class DiagnosticsAPI:
 
         Returns:
             Response (driver-defined; typically str or list[str]),
-            ``'Board not connected'``, or ``'Error: <msg>'``.
+            ``'No response'`` when the board did not answer, ``'Board not
+            connected'``, or ``'Error: <msg>'`` if its port failed.
 
         Raises:
             ValueError: A motor command that moves, stops or repositions a
@@ -1107,7 +1121,9 @@ class DiagnosticsAPI:
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope and this call is not made under its taking; the
                 command is not sent. An exchange that fails once sent is
-                still answered with ``'Error: <msg>'``.
+                still answered with ``'Error: <msg>'``. Or
+                ``'not_on_this_scope'``, ``MissingPart.TEXT_COMMANDS``: the
+                board takes no text commands; nothing is sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
                 sent.
@@ -1123,6 +1139,7 @@ class DiagnosticsAPI:
 
         if not self._board_connected(board):
             return NOT_CONNECTED
+        self._refuse_no_text_commands(board, 'send_diagnostic_command_multiline')
 
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
@@ -1143,9 +1160,10 @@ class DiagnosticsAPI:
     def _exchange_multiline_impl(board, target, command, timeout_s, end_markers):
         try:
             # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
-            result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
-            return result if result else NO_RESPONSE
-        except Exception as e:
+            return board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
+        except BoardNoReplyError:
+            return NO_RESPONSE
+        except HardwareError as e:
             logger.warning(
                 f'[SCOPE API ] send_diagnostic_command_multiline({target}, {command!r}) failed: {e}'
             )
@@ -1366,12 +1384,11 @@ class DiagnosticsAPI:
                 command_set=None,
             )
         driver = self._scope._motion_driver
-        speaks_text = hasattr(driver, 'exchange_multiline')
         return MotorBoardInfo(
             model=driver.get_microscope_model(),
             serial_number=driver.get_serial_number(),
             **_firmware_identity(driver),
-            command_set=MotorCommandSet.TEXT if speaks_text else None,
+            command_set=MotorCommandSet.TEXT if driver.takes_text_commands else None,
         )
 
     @api(reads=True)
@@ -1389,7 +1406,7 @@ class DiagnosticsAPI:
         if not drv or not drv.is_connected():
             return LedBoardInfo(firmware_version=None, firmware_date=None, command_set=None)
 
-        if not hasattr(drv, 'exchange_multiline'):
+        if not drv.takes_text_commands:
             command_set = None
         elif drv.is_v2:
             command_set = LedCommandSet.V2

@@ -20,6 +20,7 @@ import logging
 
 import pytest
 
+from drivers.exceptions import BoardNoReplyError
 from tests.wire_boards import motor_on_the_wire
 
 pytestmark = pytest.mark.firmware_tier
@@ -69,11 +70,14 @@ class TestSupportsPredicates:
     @pytest.mark.slow
     def test_no_reply_is_inconclusive_and_asked_again(self, caplog):
         """No reply (board absent / wedged) is not a capability answer:
-        False, and not kept, so the next probe asks the firmware again.
+        it raises and is not kept, so the next probe asks the firmware again.
         Slow: the lost reply is waited out for the read's own bound."""
         board, sim = motor_on_the_wire(dialect='3.0')
         sim.drop_next_reply()
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
-            assert board.supports_diagnostics() is False
-            assert board.supports_diagnostics() is True
+        with (
+            caplog.at_level(logging.INFO, logger='LVP.serial'),
+            pytest.raises(BoardNoReplyError, match=r'^VOLTAGE: '),
+        ):
+            board.supports_diagnostics()
+        assert board.supports_diagnostics() is True
         assert sim.replies_dropped == 1

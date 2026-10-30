@@ -349,7 +349,7 @@ class TestFX2LEDProtocolConformance:
             'leds_disable',
             'available_channels',
             'read_led_current',
-            'exchange_command',
+            'takes_text_commands',
         ]
         for name in required:
             assert hasattr(fx2driver.FX2LEDController, name), f'missing: {name}'

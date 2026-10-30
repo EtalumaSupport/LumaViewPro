@@ -46,6 +46,8 @@ import hashlib
 import logging
 import time
 
+import serial
+
 # Parent under the LVP tree so raw-REPL flash / bootloader / config-backup
 # I/O reaches the log handlers. Bare __name__ ('drivers.raw_repl') has no
 # handler, so this board-bricking-capable transport was logging into the
@@ -248,7 +250,9 @@ def enter_raw_repl(serial_port, soft_reset=True):
     return False
 
 
-def raw_exec(serial_port, code, timeout=10):
+def raw_exec(
+    serial_port: serial.Serial, code: str, timeout: float = 10
+) -> tuple[bytes, bytes] | None:
     """Execute Python code in raw REPL and return (stdout, stderr).
 
     The raw REPL protocol:
@@ -292,7 +296,7 @@ def raw_exec(serial_port, code, timeout=10):
             logger.warning(f'Raw REPL stderr: {stderr.decode("utf-8", "ignore").strip()}')
 
         return (stdout, stderr)
-    except Exception as e:
+    except (serial.SerialException, OSError) as e:
         logger.warning(f'Raw REPL exec error: {e}')
         return None
     finally:

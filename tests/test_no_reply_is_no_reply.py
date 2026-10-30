@@ -6,7 +6,8 @@ exchange used to hand that on as the reply ''. Neither board ever answers
 a command with an empty line, so '' always meant silence, and every caller
 that checked for None took silence for an answer: a move nobody
 acknowledged was a move, a fan write was a success, a stop probe cached
-STOP as supported.
+STOP as supported. The exchange now raises BoardNoReplyError naming the
+command, and each caller hands it on.
 
 Each test runs the production driver over the firmware-backed simulator
 (the field firmware) and loses one reply on the wire.
@@ -57,17 +58,18 @@ def test_a_motor_read_is_bounded(motor):
     assert board.timeout is not None and board.timeout > 0
 
 
-def test_a_lost_reply_is_none(motor):
+def test_a_lost_reply_raises_no_reply(motor):
     board, sim = motor
     sim.drop_next_reply()
-    assert board.exchange_command('ACTUAL_RZ', timeout=0.5) is None
+    with pytest.raises(BoardNoReplyError, match=r'^ACTUAL_RZ: no reply from the board'):
+        board.exchange_command('ACTUAL_RZ', timeout=0.5)
 
 
 @pytest.mark.slow
 def test_a_move_the_board_did_not_acknowledge_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='did not happen'):
+    with pytest.raises(BoardNoReplyError, match=r'^TARGET_WZ1000: no reply from the board'):
         board.move('Z', 1000)
 
 
@@ -75,7 +77,7 @@ def test_a_move_the_board_did_not_acknowledge_raises(motor):
 def test_a_status_read_with_no_reply_is_a_hardware_error(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^STATUS_RZ: no reply from the board'):
         board.target_status('Z')
 
 
@@ -83,7 +85,7 @@ def test_a_status_read_with_no_reply_is_a_hardware_error(motor):
 def test_an_spi_write_with_no_reply_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^SPIZ0xcb100: no reply from the board'):
         board.spi_write('Z', 0x4B, 100)
 
 
@@ -91,7 +93,7 @@ def test_an_spi_write_with_no_reply_raises(motor):
 def test_a_fan_write_with_no_reply_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    with pytest.raises(HardwareError, match='no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^FAN:50: no reply from the board'):
         board.set_fan_duty(50)
 
 
@@ -129,7 +131,9 @@ def test_a_diagnostic_command_with_no_reply_is_no_reply(motor):
 def test_the_tools_move_reports_a_move_with_no_reply(motor):
     board, sim = motor
     sim.drop_next_reply()
-    assert 'did not happen' in firmware_tools._move_to_step(board, 'Z', 1000, timeout=2)
+    assert firmware_tools._move_to_step(board, 'Z', 1000, timeout=2) == (
+        'TARGET_WZ1000: no reply from the board'
+    )
 
 
 def test_the_tools_homing_cycle_moves_away_and_homes_through_the_driver(monkeypatch, capsys, motor):
@@ -166,7 +170,7 @@ def test_an_led_write_the_slowest_shipped_firmware_answers_is_confirmed(led):
 def test_an_led_write_answered_past_the_wait_raises(led):
     board, sim = led
     sim.delay_next_reply(0.5)
-    with pytest.raises(BoardNoReplyError, match=r'^led_on\(ch=1, mA=1000\): no response'):
+    with pytest.raises(BoardNoReplyError, match=r'^LED1_1000: no reply from the board'):
         board.led_on(1, 1000)
 
 

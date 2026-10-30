@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Mapping
+from typing import ClassVar
 
 from drivers.exceptions import PartAbsentError
 from drivers.registry import motor_registry
@@ -34,6 +35,9 @@ class NullMotionBoard:
     Attributes match what ``lumascope_api.py`` and other callers access
     directly (``driver``, ``thread_lock``, etc.).
     """
+
+    # No board, so no text wire: the diagnostic door sends it nothing.
+    takes_text_commands: ClassVar[bool] = False
 
     def __init__(self):
         # Required attributes accessed directly by lumascope_api and callers
@@ -418,22 +422,6 @@ class NullMotionBoard:
             dict: ``{'status': False}``.
         """
         return {'status': False}
-
-    def exchange_command(self, command, response_numlines=1, timeout=None):
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            None: Always.
-        """
-        return None
-
-    def exchange_multiline(self, command, timeout=60, end_markers=None) -> list:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            list: Always empty.
-        """
-        return []
 
     def motor_stop(self) -> bool:
         """No motor, so nothing is left moving.

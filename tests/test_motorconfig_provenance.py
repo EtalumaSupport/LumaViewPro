@@ -35,7 +35,14 @@ def make_config(tmp_path, defaults=None):
 def bare_board(monkeypatch, response):
     """A MotorBoard with no serial machinery: only what get_config touches."""
     board = MotorBoard.__new__(MotorBoard)
-    monkeypatch.setattr(board, 'exchange_command', lambda cmd, **kw: response, raising=False)
+
+    def exchange(cmd, **kw):
+        # an exception is raised, as the wire raises a dropped reply
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(board, 'exchange_command', exchange, raising=False)
     return board
 
 
@@ -70,7 +77,7 @@ class TestGetConfig:
         """Slow: the lost reply is waited out for the read's own bound."""
         board, sim = motor_on_the_wire()
         sim.drop_next_reply()
-        with pytest.raises(ConfigReadError):
+        with pytest.raises(ConfigReadError, match='board did not answer CONFIG'):
             board.get_config()
 
     @pytest.mark.firmware_tier

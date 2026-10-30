@@ -6,7 +6,12 @@ import math
 import re
 import time
 from lvp_logger import logger
-from drivers.exceptions import BoardNoReplyError, BoardReportedError, LedFirmwareWedgedError
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    LedFirmwareWedgedError,
+)
 from drivers.serialboard import SerialBoard
 from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import led_registry
@@ -116,31 +121,15 @@ class LEDBoard(SerialBoard):
     #   {"cmd": "LED_DISABLE"}
     # Currently all commands use the legacy text format.
 
-    @staticmethod
-    def _raise_unless_answered(response: str | None, op: str) -> None:
-        """Raise unless the board answered ``op``'s command.
-
-        Neither the board's answer nor its echo is ever empty, so an empty
-        or missing reply is silence. A board that did not answer may still
-        have done what it was told, so its caller cannot say what the LEDs
-        are doing.
-
-        Raises:
-            BoardNoReplyError: ``response`` is None or empty.
-        """
-        if not response:
-            logger.error(f'[LED Class ] {op} got no response')
-            raise BoardNoReplyError(f'{op}: no response from LED board')
-
     def leds_enable(self) -> None:
         """Enable all LED channels (master enable).
 
         Sends ``LEDS_ENT``.
 
         Raises:
-            BoardNoReplyError: the board did not answer.
+            HardwareError: the board did not answer, or its port failed.
         """
-        self._raise_unless_answered(self.exchange_command('LEDS_ENT'), 'leds_enable')
+        self.exchange_command('LEDS_ENT')
 
     def leds_disable(self) -> None:
         """Disable all LED channels (master disable).
@@ -148,10 +137,10 @@ class LEDBoard(SerialBoard):
         Sends ``LEDS_ENF``.
 
         Raises:
-            BoardNoReplyError: the board did not answer; a stuck-enabled
-                board can still emit light.
+            HardwareError: the board did not answer, or its port failed; a
+                stuck-enabled board can still emit light.
         """
-        self._raise_unless_answered(self.exchange_command('LEDS_ENF'), 'leds_disable')
+        self.exchange_command('LEDS_ENF')
 
     def supports_firmware_stim(self) -> bool:
         """Probe firmware for STIM command support. Result cached after first call.
@@ -286,8 +275,11 @@ class LEDBoard(SerialBoard):
 
         Raises:
             ValueError: ``channel`` or ``mA`` is outside the safe range.
-            BoardNoReplyError: the board did not answer; with ``block``, its
-                last ask before the poll gave up.
+            HardwareError: the board did not answer, or its port failed;
+                with ``block``, its last ask before the poll gave up.
+            BoardReplyUnreadableError: with ``block``, the board answered
+                until the poll gave up but never confirmed the command, so
+                the LED is not known to be lit.
         """
         command = self._validate_and_build_led_cmd(channel, mA)
         if mA == 0:
@@ -295,48 +287,42 @@ class LEDBoard(SerialBoard):
             # only the board's off command darkens the channel.
             self.led_off(channel)
             return
-        response = self.exchange_command(command)
+        if not block:
+            self.exchange_command(command)
+            return
 
         def check_each_substr(substrings, result):
             return all(sub_str in result for sub_str in substrings)
 
-        if block:
-            # Poll until the firmware echoes the command back, OR the
-            # response contains 'LED' + channel + mA as substrings (the
-            # firmware response shape: 'LED N set to X mA.'). An empty
-            # response is NOT treated as ack: empty responses are observed
-            # when the LED firmware is wedged (e.g. left mid-engineering-
-            # mode by a diagnostic flow that exited without draining), and
-            # in that state the LED is NOT actually energized. The
-            # substring check protects callers from silently succeeding
-            # while the hardware is dark.
-            deadline = time.monotonic() + timeout_s
-            while response is None or (
-                command not in response
-                and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)
-            ):
-                if getattr(self, 'firmware_silent', False):
-                    # The board connected silent: its firmware never echoes a
-                    # command until a power cycle, and exchange_command already
-                    # fast-rejects every non-INFO command in that state. Polling
-                    # to the deadline here only burns the full timeout for
-                    # nothing, and on a multi-step protocol that compounds into
-                    # minutes -- so the loop must honor the same silent contract
-                    # and give up now. The caller sees the unconfirmed write.
-                    logger.warning(
-                        f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '
-                        'aborted: board silent, power cycle required'
-                    )
-                    break
-                if time.monotonic() > deadline:
-                    logger.warning(
-                        f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '
-                        f'timed out after {timeout_s}s'
-                    )
-                    break
-                time.sleep(0.01)
+        # Poll until the firmware echoes the command back, OR the response
+        # contains 'LED' + channel + mA as substrings (the firmware response
+        # shape: 'LED N set to X mA.'). No reply is NOT an ack: it is seen
+        # when the LED firmware is wedged (e.g. left mid-engineering-mode by
+        # a diagnostic flow that exited without draining), and in that state
+        # the LED is NOT actually energized. The substring check protects
+        # callers from silently succeeding while the hardware is dark.
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
                 response = self.exchange_command(command)
-        self._raise_unless_answered(response, f'led_on(ch={channel}, mA={mA})')
+            except BoardNoReplyError:
+                # A board that connected silent never echoes a command until
+                # a power cycle, so polling it to the deadline only burns the
+                # full timeout, which on a multi-step protocol compounds into
+                # minutes. Any other dropped reply is asked again.
+                if getattr(self, 'firmware_silent', False) or time.monotonic() > deadline:
+                    raise
+            else:
+                if command in response or check_each_substr(
+                    ['LED', str(int(channel)), str(int(mA))], response
+                ):
+                    return
+                if time.monotonic() > deadline:
+                    raise BoardReplyUnreadableError(
+                        f'led_on(ch={channel}, mA={mA}): the board answered {response!r} '
+                        f'for {timeout_s}s and never confirmed {command}'
+                    )
+            time.sleep(0.01)
 
     def led_off(self, channel: int) -> None:
         """Turn off the LED on a channel.
@@ -345,10 +331,10 @@ class LEDBoard(SerialBoard):
             channel: LED address (0-7).
 
         Raises:
-            BoardNoReplyError: the board did not answer.
+            HardwareError: the board did not answer, or its port failed.
         """
         command = 'LED' + str(int(channel)) + '_OFF'
-        self._raise_unless_answered(self.exchange_command(command), f'led_off(ch={channel})')
+        self.exchange_command(command)
 
     def led_on_fast(self, channel: int, mA: int) -> None:
         """Fast write-only version of led_on for time-critical toggling.
@@ -361,6 +347,7 @@ class LEDBoard(SerialBoard):
 
         Raises:
             ValueError: ``channel`` or ``mA`` is outside the safe range.
+            HardwareError: the write timed out, or the port failed.
         """
         self._write_command_fast(self._validate_and_build_led_cmd(channel, mA))
 
@@ -369,6 +356,9 @@ class LEDBoard(SerialBoard):
 
         Args:
             channel: LED address (0-7).
+
+        Raises:
+            HardwareError: the write timed out, or the port failed.
         """
         command = 'LED' + str(int(channel)) + '_OFF'
         self._write_command_fast(command)
@@ -377,14 +367,17 @@ class LEDBoard(SerialBoard):
         """Turn off every LED channel.
 
         Raises:
-            BoardNoReplyError: the board did not answer.
+            HardwareError: the board did not answer, or its port failed.
         """
-        self._raise_unless_answered(self.exchange_command('LEDS_OFF'), 'leds_off')
+        self.exchange_command('LEDS_OFF')
 
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off.
 
         Dispatches LEDS_OFF without waiting for a response.
+
+        Raises:
+            HardwareError: the write timed out, or the port failed.
         """
         command = 'LEDS_OFF'
         self._write_command_fast(command)
@@ -409,10 +402,6 @@ class LEDBoard(SerialBoard):
         resp = self.exchange_multiline(
             'FACTORY', timeout=timeout, end_markers=['Y/N', 'y/n', 'FACTORY']
         )
-        if resp is None:
-            raise BoardNoReplyError(
-                'enter_engineering_mode(): no response from LED board (timeout or disconnect)'
-            )
         if 'Y/N' not in resp.upper():
             raise BoardReportedError(
                 f'enter_engineering_mode(): no Y/N prompt seen -- '
@@ -424,16 +413,20 @@ class LEDBoard(SerialBoard):
         # factory() waiting, and every command after it goes unanswered.
         # A bare CR, not CRLF: once input() returns, a trailing newline
         # would reach the main loop as an empty command.
-        confirm = self.exchange_multiline(
-            'Y',
-            timeout=timeout,
-            end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'],
-            line_end=b'\r',
-        )
-        if confirm is None or 'ENGINEERING MODE' not in confirm.upper():
-            # A caller told entry failed has no reason to call exit, so the
-            # board is brought back here: out of factory() if it is still
-            # waiting there, back to safe mode if it declined.
+        # A caller told entry failed has no reason to call exit, so the
+        # board is brought back here: out of factory() if it is still
+        # waiting there, back to safe mode if it declined.
+        try:
+            confirm = self.exchange_multiline(
+                'Y',
+                timeout=timeout,
+                end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'],
+                line_end=b'\r',
+            )
+        except BoardNoReplyError:
+            self.exit_engineering_mode()
+            raise
+        if 'ENGINEERING MODE' not in confirm.upper():
             self.exit_engineering_mode()
             raise BoardReportedError(
                 f'enter_engineering_mode(): the LED board did not enter engineering '
@@ -471,7 +464,11 @@ class LEDBoard(SerialBoard):
             HardwareError: Q failed AND the Ctrl-D soft reset did not
                 bring the firmware back. Power-cycle is needed.
         """
-        self.exchange_command('Q', timeout=3)
+        try:
+            self.exchange_command('Q', timeout=3)
+        except BoardNoReplyError:
+            # A board that left factory() may not answer Q: INFO decides.
+            logger.info('[LED Class ] exit_engineering_mode: no reply to Q')
         time.sleep(0.3)
         # Drain any remaining output from Q (firmware may print help).
         with self._lock:
@@ -487,7 +484,10 @@ class LEDBoard(SerialBoard):
         # 'EL-0925 Gen3 LED Controller' or similar -- the exact
         # controller string depends on hardware revision, so 'Version:'
         # is the stable marker across revisions).
-        info_resp = self.exchange_command('INFO', timeout=2)
+        try:
+            info_resp = self.exchange_command('INFO', timeout=2)
+        except BoardNoReplyError:
+            info_resp = None
         if info_resp and 'Version' in info_resp:
             logger.info('[LED Class ] Exited engineering mode')
             return True
@@ -517,7 +517,10 @@ class LEDBoard(SerialBoard):
                     self.driver.read(stale)
 
         # Re-verify after recovery
-        info_resp2 = self.exchange_command('INFO', timeout=3)
+        try:
+            info_resp2 = self.exchange_command('INFO', timeout=3)
+        except BoardNoReplyError:
+            info_resp2 = None
         if info_resp2 and 'Version' in info_resp2:
             logger.info('[LED Class ] Exited engineering mode (after Ctrl-D recovery)')
             return True
@@ -545,14 +548,13 @@ class LEDBoard(SerialBoard):
 
         Returns:
             list: One stripped line per row of the firmware response.
-                Empty list when no response was received.
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         resp = self.exchange_multiline(
             'SELFTEST', timeout=timeout, end_markers=['Complete', 'COMPLETE', 'DONE', 'ERROR']
         )
-        if resp is None:
-            logger.warning('[LED Class ] selftest(): no response')
-            return []
         lines = [line.strip() for line in resp.split('\n') if line.strip()]
         logger.info(f'[LED Class ] selftest(): {len(lines)} lines')
         return lines
@@ -566,12 +568,12 @@ class LEDBoard(SerialBoard):
 
         Returns:
             dict: Parsed fields including ``version``, ``date``,
-                ``cal_status``, and ``raw`` (full response text). Empty
-                dict when no response was received.
+                ``cal_status``, and ``raw`` (full response text).
+
+        Raises:
+            HardwareError: the board did not answer, or its port failed.
         """
         resp = self.exchange_command('INFO', response_numlines=6, timeout=2)
-        if resp is None:
-            return {}
         if isinstance(resp, list):
             raw = '\n'.join(resp)
         else:

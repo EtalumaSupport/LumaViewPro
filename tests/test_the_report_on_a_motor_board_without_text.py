@@ -39,7 +39,7 @@ def session(tmp_path):
 
 def _without_text(monkeypatch, session):
     """The connected simulated board, as a board with no text channel; its text sends recorded."""
-    monkeypatch.delattr(SimulatedMotorBoard, 'exchange_multiline')
+    monkeypatch.setattr(SimulatedMotorBoard, 'takes_text_commands', False)
     diagnostics = session.scope.diagnostics
     sent = []
     single = diagnostics.send_diagnostic_command
@@ -74,7 +74,7 @@ class TestTheMotorInfoNamesTheCommandSet:
         assert session.scope.diagnostics.get_motor_info().command_set == MotorCommandSet.TEXT
 
     def test_a_board_without_text_names_none(self, session, monkeypatch):
-        monkeypatch.delattr(SimulatedMotorBoard, 'exchange_multiline')
+        monkeypatch.setattr(SimulatedMotorBoard, 'takes_text_commands', False)
 
         assert session.scope.diagnostics.get_motor_info().command_set is None
 

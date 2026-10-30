@@ -10,7 +10,7 @@ Timing modes:
   'realistic' -- serial delays matching real hardware (~12ms per command)
 
 Failure injection (for testing error recovery):
-  fail_on={'LEDS_ENT'} -- return None for specific commands (simulates timeout)
+  fail_on={'LEDS_ENT'} -- no reply to specific commands (simulates timeout)
 """
 
 import logging
@@ -18,6 +18,7 @@ import threading
 import time
 from typing import ClassVar
 from lvp_logger import logger
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
 from drivers.registry import led_registry
 
@@ -31,6 +32,8 @@ _serial_log = logging.getLogger('LVP.serial')
 
 @led_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedLEDBoard:
+    # Whether the diagnostic door may send it text commands.
+    takes_text_commands: ClassVar[bool] = True
     TIMING_INSTANT: ClassVar[dict] = {'delay': 0.0}  # Zero delay -- for unit tests only
     TIMING_FAST: ClassVar[dict] = {'delay': 0.001}  # 1ms minimum -- nothing returns instantly
     TIMING_REALISTIC: ClassVar[dict] = {
@@ -74,7 +77,7 @@ class SimulatedLEDBoard:
         self._supports_firmware_stim = supports_firmware_stim
 
         # Failure injection
-        self._fail_on = fail_on or set()  # return None for these commands
+        self._fail_on = fail_on or set()  # no reply to these commands
 
         # The timing preset is the one setter of the command delay.
         self.set_timing_mode(timing)
@@ -172,7 +175,7 @@ class SimulatedLEDBoard:
 
     def exchange_command(
         self, command: str, response_numlines: int = 1, timeout: float | None = None
-    ) -> str | list[str] | None:
+    ) -> str | list[str]:
         """Exchange a single command with the simulated firmware.
 
         Honors failure injection (``fail_on``) so callers
@@ -184,12 +187,17 @@ class SimulatedLEDBoard:
             timeout: Accepted for API parity; ignored by the simulator.
 
         Returns:
-            Response string ``f'RE: {command}'``, or None on injected failure.
+            Response string ``f'RE: {command}'``.
+
+        Raises:
+            BoardNoReplyError: an injected failure, as the driver raises a
+                missed reply.
+            BoardPortFailedError: the port is closed.
         """
         with self._lock:
             t_start = time.monotonic()
             if self.driver is None:
-                return None
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             # Failure injection: fail on specific commands, matched by first
             # word as the motor board matches them
@@ -200,7 +208,7 @@ class SimulatedLEDBoard:
                     f'[LED Sim] {command} -> INJECTED TIMEOUT '
                     f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
                 )
-                return None
+                raise BoardNoReplyError(f'{command}: no reply from the board')
 
             self._sim_delay()
             response = f'RE: {command}'
@@ -218,7 +226,7 @@ class SimulatedLEDBoard:
         timeout: float = 60,
         end_markers: list[str] | None = None,
         line_end: bytes = b'\n',
-    ) -> str | None:
+    ) -> str:
         """Simulated multi-line response.
 
         Args:
@@ -236,7 +244,7 @@ class SimulatedLEDBoard:
         with self._lock:
             t_start = time.monotonic()
             if self.driver is None:
-                return
+                raise BoardPortFailedError(f'{command}: the port is closed')
 
             # No delay on fast path
             elapsed_ms = (time.monotonic() - t_start) * 1000

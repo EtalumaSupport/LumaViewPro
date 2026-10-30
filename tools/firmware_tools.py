@@ -71,11 +71,10 @@ def cmd_info(args):
     """Show board info via FULLINFO."""
     board = _connect_motor_board()
     try:
-        resp = board.exchange_command('FULLINFO', response_numlines=1)
-        if resp:
-            print(resp)
-        else:
-            print('ERROR: No response from FULLINFO')
+        try:
+            print(board.exchange_command('FULLINFO', response_numlines=1))
+        except HardwareError as e:
+            print(f'ERROR: No response from FULLINFO: {e}')
     finally:
         board.disconnect()
 

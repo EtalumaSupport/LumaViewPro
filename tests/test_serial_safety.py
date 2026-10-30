@@ -25,7 +25,7 @@ import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-from drivers.exceptions import BoardNoReplyError, PartAbsentError
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
@@ -147,12 +147,13 @@ class TestTheMotorExchange:
             'EL-0940-01 Integrated Mainboard Firmware:     2024-09-10'
         )
 
-    def test_an_exchange_over_a_pulled_cable_closes_the_port(self):
-        """Today the exchange answers a lost link with None, as it does
-        silence; the held serial-exchange plan's C1 makes it raise."""
+    def test_an_exchange_over_a_pulled_cable_raises_and_closes_the_port(self):
+        """A lost link is not silence: the exchange raises the port's
+        failure, and the port is closed."""
         board, sim = motor_on_the_wire()
         sim.unplug()
-        assert board.exchange_command('INFO') is None
+        with pytest.raises(BoardPortFailedError, match=r'^INFO: the port failed'):
+            board.exchange_command('INFO')
         assert board.driver is None
 
     def test_a_disconnect_waits_for_the_exchange_in_flight(self):
@@ -236,16 +237,16 @@ class TestTheLedWrites:
         assert sim.state('DAC')[3] == lit
 
     @pytest.mark.parametrize(
-        'op,call',
+        'command,call',
         [
-            ('leds_enable', lambda b: b.leds_enable()),
-            ('leds_disable', lambda b: b.leds_disable()),
-            ('led_on', lambda b: b.led_on(channel=3, mA=5)),
-            ('led_off', lambda b: b.led_off(channel=3)),
-            ('leds_off', lambda b: b.leds_off()),
+            ('LEDS_ENT', lambda b: b.leds_enable()),
+            ('LEDS_ENF', lambda b: b.leds_disable()),
+            ('LED3_5', lambda b: b.led_on(channel=3, mA=5)),
+            ('LED3_OFF', lambda b: b.led_off(channel=3)),
+            ('LEDS_OFF', lambda b: b.leds_off()),
         ],
     )
-    def test_a_write_answered_past_the_wait_is_not_an_ack(self, led, op, call):
+    def test_a_write_answered_past_the_wait_is_not_an_ack(self, led, command, call):
         """A wedged board accepts the write and does not answer in time.
 
         Treating that as success cleared the error field and left the API
@@ -253,7 +254,10 @@ class TestTheLedWrites:
         wedge in the SNlogs-2026-05-14-134147 bundle.
         """
         board, sim = led
-        with _answered_late(board, sim), pytest.raises(BoardNoReplyError, match=rf'^{op}\b'):
+        with (
+            _answered_late(board, sim),
+            pytest.raises(BoardNoReplyError, match=rf'^{command}: no reply from the board'),
+        ):
             call(board)
 
     def test_concurrent_led_on_and_led_off_are_each_answered(self, led):
@@ -508,12 +512,12 @@ class TestLEDBoardLocking:
         board._error_log_interval = 2.0
         return board
 
-    def test_exchange_command_none_on_timeout(self):
-        """exchange_command should return None on SerialTimeoutException."""
+    def test_a_write_timeout_is_no_reply(self):
+        """A write that times out raises BoardNoReplyError naming the command."""
         board = self._make_board()
         board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        resp = board.exchange_command('LED0_100')
-        assert resp is None
+        with pytest.raises(BoardNoReplyError, match=r'^LED0_100: the write to the board timed out'):
+            board.exchange_command('LED0_100')
 
     def test_driver_stays_open_on_timeout(self):
         """H-17: Timeout is transient -- driver stays open for retry.
@@ -524,7 +528,8 @@ class TestLEDBoardLocking:
         board = self._make_board()
         mock_driver = board.driver
         board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        board.exchange_command('LED0_100')
+        with pytest.raises(BoardNoReplyError):
+            board.exchange_command('LED0_100')
         mock_driver.close.assert_not_called()
         assert board.driver is not None
 
@@ -557,12 +562,23 @@ class TestMotorBoardSafety:
         board.firmware_version = None
         return board
 
-    def test_exchange_command_none_on_timeout(self):
-        """exchange_command should return None on timeout, not hang."""
+    def test_a_write_timeout_is_no_reply(self):
+        """A write that times out raises BoardNoReplyError, not a hang."""
         board = self._make_board()
         board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        resp = board.exchange_command('HOME')
-        assert resp is None
+        with pytest.raises(BoardNoReplyError, match=r'^HOME: the write to the board timed out'):
+            board.exchange_command('HOME')
+
+    def test_a_multiline_read_the_port_lost_after_the_send_is_no_reply(self):
+        # a stand-in by design: the emulated port has no "unplugged mid-read"
+        # fault; the board may have taken the command whose answer was lost
+        board = self._make_board()
+        board.driver.readline.side_effect = OSError('port disappeared')
+        with pytest.raises(
+            BoardNoReplyError, match=r'^FULLINFO: the port failed after the command was sent'
+        ):
+            board.exchange_multiline('FULLINFO', timeout=1)
+        assert board.driver is None
 
 
 class TestLEDFirmwareVersion:
@@ -856,8 +872,8 @@ class TestSilentBoardHandling:
 
     def test_silent_board_exchange_command_fails_fast(self):
         """After a silent _reset_firmware, exchange_command on any
-        non-INFO command must return None immediately without
-        touching the driver."""
+        non-INFO command raises BoardNoReplyError naming the power cycle
+        at once, without touching the driver."""
         board = self._make_silent_board()
         board._reset_firmware()
         assert board.firmware_silent is True
@@ -867,10 +883,10 @@ class TestSilentBoardHandling:
         board.driver.readline.reset_mock()
 
         t0 = time.monotonic()
-        result = board.exchange_command('LEDS_OFF')
+        with pytest.raises(BoardNoReplyError, match='power cycle it'):
+            board.exchange_command('LEDS_OFF')
         elapsed_ms = (time.monotonic() - t0) * 1000
 
-        assert result is None, 'Silent board must return None from exchange_command'
         assert elapsed_ms < 100, (
             f'Silent board exchange must fail fast (<100ms), took {elapsed_ms:.0f}ms -- '
             f'suggests the timeout path was hit'
@@ -885,9 +901,11 @@ class TestSilentBoardHandling:
         board.firmware_silent = True  # simulate prior silent connect
 
         # INFO should still reach the driver. We don't care about the
-        # response -- just that write was called.
+        # response (the silent stand-in sends nothing, so it is no reply) --
+        # just that write was called.
         board.driver.write.reset_mock()
-        board.exchange_command('INFO')
+        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
+            board.exchange_command('INFO')
         # At least one write happened (driver.write called with b'INFO\n')
         assert board.driver.write.called, (
             'INFO must be allowed through exchange_command even when '
@@ -934,15 +952,14 @@ class TestSilentBoardHandling:
 
     def test_silent_board_cannot_auto_reconnect_loop(self):
         """Repeated exchange_command on a silent board must not loop
-        forever -- each call returns None fast without calling
-        self.connect()."""
+        forever -- each call raises at once without touching the port."""
         board = self._make_silent_board()
         board.firmware_silent = True
         board.driver.write.reset_mock()
 
         for _ in range(10):
-            result = board.exchange_command('LEDS_OFF')
-            assert result is None
+            with pytest.raises(BoardNoReplyError, match='power cycle it'):
+                board.exchange_command('LEDS_OFF')
 
         board.driver.write.assert_not_called()
 
@@ -976,11 +993,11 @@ class TestExchangeCommandStopOnEmpty:
         detection relies on)."""
         board = self._make_led_board()
         board.driver.readline.side_effect = [b'', b'', b'', b'', b'', b'']
-        resp = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert board.driver.readline.call_count == 6
         # No line at all is no reply, which silent detection reads as a
         # silent board.
-        assert resp is None
+        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
+            board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
+        assert board.driver.readline.call_count == 6
 
 
 class TestCameraStateLock:

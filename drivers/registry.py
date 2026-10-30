@@ -222,10 +222,13 @@ class DriverRegistry:
           (another program holds it), and the driver swallowed that and
           left itself half-built; handed on, it crashes later on its
           first command rather than here.
-        - ``responsive``: the port opened and stayed open, but the board
-          answered zero bytes to the whole connect-time reset sequence and
-          will reject every command until a power cycle; selected anyway,
-          the operator gets one failure per command for the session.
+        - ``responsive``: the port opened, but the board answered zero
+          bytes to the whole connect-time reset sequence, or did not answer
+          the connect's own commands, and will reject every command until a
+          power cycle; selected anyway, the operator gets one failure per
+          command for the session. Asked before ``connected``: a connect
+          the board did not answer closes the port, and that board is not
+          a port another program holds.
 
         A check the driver does not implement passes. Each check reads the
         driver's own flags, so one that raises is a defect in the driver,
@@ -234,13 +237,13 @@ class DriverRegistry:
         """
         if getattr(instance, 'found', True) is False:
             return 'found', 'found=False'
-        if hasattr(instance, 'is_connected') and not instance.is_connected():
-            return 'connected', 'constructed but is_connected()=False (port held / open failed)'
         if hasattr(instance, 'is_responsive') and not instance.is_responsive():
             return (
                 'responsive',
-                'connected but not responding (zero bytes to the connect sequence)',
+                'not responding (no answer to the connect sequence)',
             )
+        if hasattr(instance, 'is_connected') and not instance.is_connected():
+            return 'connected', 'constructed but is_connected()=False (port held / open failed)'
         return None
 
     def get(self, name: str) -> type[Any]:

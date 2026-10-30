@@ -3070,6 +3070,9 @@ class FX2LEDController:
     same as "normal".
     """
 
+    # The LEDs are driven over I2C, not text: the diagnostic door sends nothing.
+    takes_text_commands: ClassVar[bool] = False
+
     # Channel count is fixed at 4 by the hardware. Which layer each
     # address lights, and per-model LED presence (e.g. LS560 having only
     # BF + Ex488), is the unit's layer identity's (scopes.json Layers),
@@ -3319,10 +3322,3 @@ class FX2LEDController:
 
     def read_led_current(self, channel: int):
         return None  # no ADC feedback on FX2 LED peripheral
-
-    def exchange_command(self, command: str, **kwargs):
-        # LEDBoardProtocol requires this method for drivers that speak
-        # a serial command protocol. FX2 uses I2C, not ASCII commands,
-        # so there's nothing to exchange. Return None to match the
-        # NullLEDBoard sentinel pattern.
-        return None

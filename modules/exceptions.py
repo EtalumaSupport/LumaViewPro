@@ -3547,7 +3547,7 @@ class MissingPart:
         reason: ``'not_connected'`` for a controller, ``'axis_absent'``
             for a motion part (the motors, an axis, the turret, the XY
             stage), ``'not_on_this_scope'`` for any other part (a layer, an LED,
-            fan control, LED engineering mode).
+            fan control, LED engineering mode, a controller's text commands).
         sentence: What the person at the scope is told.
     """
 
@@ -3566,6 +3566,7 @@ class MissingPart:
     CAMERA: ClassVar['MissingPart']
     FAN_CONTROL: ClassVar['MissingPart']
     LED_ENGINEERING_MODE: ClassVar['MissingPart']
+    TEXT_COMMANDS: ClassVar['MissingPart']
 
     @classmethod
     def axis(cls, axis: str) -> 'MissingPart':
@@ -3644,6 +3645,11 @@ MissingPart.LED_ENGINEERING_MODE = MissingPart(
     'LED engineering mode',
     'not_on_this_scope',
     "This microscope's LED controller has no engineering mode.",
+)
+MissingPart.TEXT_COMMANDS = MissingPart(
+    'text commands',
+    'not_on_this_scope',
+    "This microscope's controller takes no text commands.",
 )
 _AXIS_PARTS = {
     'X': MissingPart.X,

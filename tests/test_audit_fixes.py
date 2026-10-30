@@ -1507,9 +1507,13 @@ class TestHomeRaises:
         so sim-backed tests exercise the same raise path as production."""
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
-        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: None)
-        with pytest.raises(HardwareError, match='no response'):
+        from drivers.exceptions import BoardNoReplyError
+
+        command = method.upper()
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant', fail_on={command}
+        )
+        with pytest.raises(BoardNoReplyError, match=rf'^{command}: no reply from the board'):
             getattr(board, method)()
         monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed')
         with pytest.raises(HardwareError, match='firmware error'):
@@ -1641,22 +1645,27 @@ class TestEnterEngineeringModeRaises:
 
     @staticmethod
     def _make_ledboard(multiline_reply):
-        """LEDBoard stub with exchange_multiline returning a fixed reply
-        (None simulates the no-response / timeout path)."""
+        """LEDBoard stub with exchange_multiline answering a fixed reply
+        (an exception is raised, as the wire raises a dropped reply)."""
         from drivers.ledboard import LEDBoard
 
         board = LEDBoard.__new__(LEDBoard)
         board._lock = threading.RLock()
         board._label = '[LED Class ]'
         board.driver = None
-        board.exchange_multiline = MagicMock(return_value=multiline_reply)
+        board.exchange_multiline = MagicMock(
+            side_effect=[multiline_reply] if isinstance(multiline_reply, Exception) else None,
+            return_value=multiline_reply,
+        )
         return board
 
     def test_enter_engineering_mode_raises_on_no_response(self):
-        """Driver contract (Rule 29): no serial response raises
-        HardwareError instead of returning False."""
-        board = self._make_ledboard(None)
-        with pytest.raises(HardwareError, match='no response'):
+        """Driver contract (Rule 29): no serial response raises the wire's
+        BoardNoReplyError instead of returning False."""
+        from drivers.exceptions import BoardNoReplyError
+
+        board = self._make_ledboard(BoardNoReplyError('FACTORY: no reply from the board'))
+        with pytest.raises(BoardNoReplyError, match=r'^FACTORY: no reply from the board'):
             board.enter_engineering_mode(timeout=0.1)
 
     def test_enter_engineering_mode_raises_without_yn_prompt(self):

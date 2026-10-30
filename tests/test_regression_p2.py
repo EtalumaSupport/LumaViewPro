@@ -24,6 +24,7 @@ import serial
 
 
 import drivers.serialboard as serialboard
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.serialboard import SerialBoard
 from modules.protocol import Protocol
 from modules.tiling_config import TilingGrids
@@ -255,7 +256,7 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
 
-        with patch.object(serialboard, '_serial_log', mock_log):
+        with patch.object(serialboard, '_serial_log', mock_log), pytest.raises(BoardNoReplyError):
             board.exchange_command('TEST')
 
         mock_log.warning.assert_called()
@@ -273,13 +274,15 @@ class TestSerialErrorRateLimiting:
             # First call -- should log warning
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST1')
+            with pytest.raises(BoardNoReplyError):
+                board.exchange_command('TEST1')
             assert mock_log.warning.call_count == 1
 
             # Second call immediately after -- should be suppressed
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST2')
+            with pytest.raises(BoardNoReplyError):
+                board.exchange_command('TEST2')
             assert mock_log.warning.call_count == 1, (
                 'Second error within rate-limit window should be suppressed (bug #539)'
             )
@@ -304,14 +307,16 @@ class TestSerialErrorRateLimiting:
             mock_time.return_value = 100.0
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST1')
+            with pytest.raises(BoardNoReplyError):
+                board.exchange_command('TEST1')
             assert mock_log.warning.call_count == 1
 
             # Second error at t=3 (past 2s interval) -- should be logged
             mock_time.return_value = 103.0
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-            board.exchange_command('TEST2')
+            with pytest.raises(BoardNoReplyError):
+                board.exchange_command('TEST2')
             assert mock_log.warning.call_count == 2, (
                 'Error after rate-limit interval should be logged'
             )
@@ -324,41 +329,45 @@ class TestSerialErrorRateLimiting:
 
         with patch.object(serialboard, 'logger', mock_log):
             # First call -- should log
-            board.driver.write.side_effect = Exception('write failed')
-            board._write_command_fast('TEST1')
+            board.driver.write.side_effect = OSError('write failed')
+            with pytest.raises(BoardPortFailedError):
+                board._write_command_fast('TEST1')
             assert mock_log.error.call_count == 1
 
             # Second call immediately -- should be suppressed
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = Exception('write failed')
-            board._write_command_fast('TEST2')
+            board.driver.write.side_effect = OSError('write failed')
+            with pytest.raises(BoardPortFailedError):
+                board._write_command_fast('TEST2')
             assert mock_log.error.call_count == 1, (
                 '_write_command_fast errors should also be rate-limited (bug #539)'
             )
 
     def test_generic_exception_also_rate_limited(self):
-        """Generic exceptions (not just timeout) should be rate-limited."""
+        """A failed port (not just a timeout) is rate-limited too."""
         mock_log = MagicMock()
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
         with patch.object(serialboard, '_serial_log', mock_log):
-            # First generic error
-            board.driver.write.side_effect = Exception('USB disconnected')
-            board.exchange_command('TEST1')
+            # First port failure
+            board.driver.write.side_effect = OSError('USB disconnected')
+            with pytest.raises(BoardPortFailedError):
+                board.exchange_command('TEST1')
             assert mock_log.error.call_count == 1
 
-            # Second generic error immediately
+            # Second port failure immediately
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = Exception('USB disconnected')
-            board.exchange_command('TEST2')
+            board.driver.write.side_effect = OSError('USB disconnected')
+            with pytest.raises(BoardPortFailedError):
+                board.exchange_command('TEST2')
             assert mock_log.error.call_count == 1
 
     def test_driver_stays_open_on_timeout(self):
         """H-17: Timeout is transient -- driver stays open for retry.
 
-        Only fatal exceptions (IOError, OSError, generic Exception) close
-        the driver. SerialTimeoutException keeps it open.
+        Only a failed port (SerialException, OSError) closes the driver.
+        SerialTimeoutException keeps it open.
         """
         board = _make_serial_board()
         board._error_log_interval = 2.0
@@ -366,6 +375,7 @@ class TestSerialErrorRateLimiting:
         # Timeout -- driver stays open
         mock_driver1 = board.driver
         board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
-        board.exchange_command('TEST1')
+        with pytest.raises(BoardNoReplyError):
+            board.exchange_command('TEST1')
         mock_driver1.close.assert_not_called()
         assert board.driver is not None

@@ -31,6 +31,9 @@ class NullLEDBoard:
     directly (``driver``, ``found``, ``port``, etc.).
     """
 
+    # No board, so no text wire: the diagnostic door sends it nothing.
+    takes_text_commands: ClassVar[bool] = False
+
     # The addresses a real EL-0940 LED board drives (LEDBoard).
     _ADDRESSES: ClassVar[tuple[int, ...]] = tuple(range(8))
 
@@ -145,14 +148,6 @@ class NullLEDBoard:
             bool: Always False.
         """
         return False
-
-    def exchange_command(self, command, **kwargs):
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            None: Always.
-        """
-        return None
 
     # ------------------------------------------------------------------
     # Write-only (no-ops)

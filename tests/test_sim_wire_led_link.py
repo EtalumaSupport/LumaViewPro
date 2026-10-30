@@ -23,7 +23,7 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
-from drivers.exceptions import BoardNoReplyError
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from lib.lumascope_error import Fault
 from modules.exceptions import HardwareCommandRefusedError
 from modules.lumascope_api.bring_up import Part
@@ -134,17 +134,42 @@ def test_a_garbled_reply_does_not_confirm_a_write(scope):
 
 def test_a_write_the_board_never_got_is_refused_and_not_believed(scope):
     # The write is what finds the board gone, so the call is answered as one
-    # made with no LED controller, chained to the no-answer.
+    # made with no LED controller, chained to the port's failure. Nothing
+    # reached the board, so the LED is believed what it was: dark.
     illumination, board, posts, simulation = scope
+    assert _state(illumination, 1) is LedState.DARK
     simulation.unplug('led')
     with pytest.raises(HardwareCommandRefusedError) as refused:
         illumination.led_on_by_address(1, 10)
     assert refused.value.reason == 'not_connected'
-    assert isinstance(refused.value.__cause__, BoardNoReplyError)
+    assert isinstance(refused.value.__cause__, BoardPortFailedError)
     assert _driven(board) == {}
     assert _believed(illumination) == {}
-    assert _state(illumination, 1) is LedState.UNKNOWN
+    assert _state(illumination, 1) is LedState.DARK
     assert _warnings(posts) == []
+
+
+def test_a_write_sent_before_the_port_failed_is_held_unknown(scope, monkeypatch):
+    # The command went out and the cable was pulled while the driver read
+    # the answer: the board may have lit the LED, so it is believed neither
+    # lit nor dark, and the caller hears the no-answer.
+    illumination, _board, _posts, simulation = scope
+    # A simulator gap: the emulated port has no "unplugged mid-read" fault,
+    # so the pull is made inside the driver's first read after the write.
+    port = illumination._driver.driver
+    readline = port.readline
+
+    def pulled_while_reading():
+        simulation.unplug('led')
+        return readline()
+
+    monkeypatch.setattr(port, 'readline', pulled_while_reading)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        illumination.led_on_by_address(1, 10)
+    assert refused.value.reason == 'not_connected'
+    assert isinstance(refused.value.__cause__, BoardNoReplyError)
+    assert 'after the command was sent' in str(refused.value.__cause__)
+    assert _state(illumination, 1) is LedState.UNKNOWN
 
 
 def test_a_write_to_a_lost_board_fails_out_loud(scope):

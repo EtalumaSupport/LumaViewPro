@@ -6,9 +6,8 @@ same bench session:
 
 1. ``LEDBoard.led_on(block=True)`` polling shape. An ack is only
    trusted when the response echoes the command back OR contains
-   ``'LED'`` + channel + mA as substrings. An empty-string response
-   is NOT an ack -- empty responses are observed when the LED
-   firmware is wedged (e.g. left mid-engineering-mode by a
+   ``'LED'`` + channel + mA as substrings. No reply is NOT an ack --
+   it is observed when the LED firmware is wedged (e.g. left mid-engineering-mode by a
    diagnostic flow that exited without draining), and the LED is
    NOT actually energized in that state. The substring check
    protects callers from silently succeeding while the hardware is
@@ -26,7 +25,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
+from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
 from tests.wire_boards import led_on_the_wire
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -51,10 +50,10 @@ class TestLedOnBlockAckShape:
         from drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)  # bypass __init__ (needs serial)
-        responses = list(response_sequence)
-        led.exchange_command = MagicMock(
-            side_effect=lambda cmd: responses.pop(0) if responses else None
-        )
+        # a stand-in by design: the subject is led_on's poll, and the wire's
+        # exchange is its interchangeable collaborator; an entry that is
+        # an exception is raised, as the wire raises a dropped reply
+        led.exchange_command = MagicMock(side_effect=list(response_sequence))
         return led
 
     def test_command_echo_response_breaks_polling_loop(self):
@@ -74,7 +73,7 @@ class TestLedOnBlockAckShape:
         assert 'LED 3 set to 2 mA.' in asked.getMessage()
 
     @pytest.mark.firmware_tier
-    def test_none_response_keeps_polling(self, caplog):
+    def test_no_reply_keeps_polling(self, caplog):
         """No serial bytes back at all: the loop keeps asking until its
         timeout, then raises rather than return to a silent dark capture.
         The board's reply is held past the whole poll."""
@@ -95,18 +94,20 @@ class TestLedOnBlockAckShape:
         autofocus entry) stalls the whole timeout, compounding to minutes over a
         run. Distinct from a live-but-transiently-empty firmware (above), which
         keeps polling for a visible timeout."""
-        led = self._make_led([None] * 200)
+        led = self._make_led(
+            [BoardNoReplyError('LED3_2: the board sent nothing at connect; power cycle it')] * 200
+        )
         led.firmware_silent = True
         import time
 
         t0 = time.monotonic()
-        with pytest.raises(BoardNoReplyError):
+        with pytest.raises(BoardNoReplyError, match='power cycle it'):
             led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         elapsed = time.monotonic() - t0
         assert elapsed < 0.5, (
             f'silent-board block must abort fast, not poll: elapsed={elapsed:.3f}s'
         )
-        # Only the pre-loop exchange ran; the loop aborted on the silent check
+        # Only the first exchange ran; the loop aborted on the silent check
         # before any retry.
         assert led.exchange_command.call_count == 1
 
@@ -122,21 +123,22 @@ class TestLedDriverRejectsNonAckResponses:
         from drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)
-        responses = list(response_sequence)
-        led.exchange_command = MagicMock(
-            side_effect=lambda cmd: responses.pop(0) if responses else None
-        )
+        # a stand-in by design: the subject is led_on's poll, and the wire's
+        # exchange is its interchangeable collaborator; an entry that is
+        # an exception is raised, as the wire raises a dropped reply
+        led.exchange_command = MagicMock(side_effect=list(response_sequence))
         return led
 
     def test_unrelated_response_keeps_polling(self):
         """A non-empty, non-None reply that is neither the command echo
         nor an LED/channel/mA substring match must NOT be accepted as
-        an ack -- the loop keeps polling until timeout."""
+        an ack -- the loop keeps polling until timeout, then raises."""
         import time
 
         led = self._make_led(['ERROR: unknown command'] * 200)
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        with pytest.raises(BoardReplyUnreadableError, match='never confirmed LED3_2'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, (
             f'an unrelated reply must not break the polling loop early; elapsed={elapsed:.3f}s'
@@ -152,7 +154,8 @@ class TestLedDriverRejectsNonAckResponses:
 
         led = self._make_led(['LED 5 set to 9 mA.'] * 200)
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        with pytest.raises(BoardReplyUnreadableError, match='never confirmed LED3_2'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, (
             f'a wrong-channel reply must not count as an ack; elapsed={elapsed:.3f}s'

@@ -16,7 +16,7 @@ home returns.
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardPortFailedError, HardwareError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import tmc5072
@@ -92,12 +92,12 @@ def test_a_turret_home_marks_the_turret_homed(homing_boards):
 
 
 @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
-def test_a_home_with_no_reply_raises(method):
+def test_a_home_on_a_pulled_cable_raises_the_port_failure(method):
     """The cable is pulled before the command is sent."""
     driver, sim = _firmware_board('LS850T', 'XYZT')
     try:
         sim.unplug()
-        with pytest.raises(HardwareError, match='no response'):
+        with pytest.raises(BoardPortFailedError, match=rf'^{method.upper()}: the port failed'):
             getattr(driver, method)()
         assert driver.has_homed() is False
         assert driver.has_thomed() is False

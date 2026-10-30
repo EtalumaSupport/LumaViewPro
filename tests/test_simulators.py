@@ -18,7 +18,7 @@ import numpy as np
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-from drivers.exceptions import CameraWriteFailedError
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, CameraWriteFailedError
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
@@ -56,7 +56,8 @@ class TestSimulatedLEDBoard:
     def test_a_disconnected_board_is_not_reopened_by_its_next_command(self):
         board = SimulatedLEDBoard()
         board.disconnect()
-        assert board.exchange_command('STATUS') is None
+        with pytest.raises(BoardPortFailedError, match=r'^STATUS: the port is closed'):
+            board.exchange_command('STATUS')
         assert not board.is_connected()
 
     def test_thread_safety(self):
@@ -192,7 +193,8 @@ class TestSimulatedMotorBoard:
     def test_a_disconnected_board_is_not_reopened_by_its_next_command(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.disconnect()
-        assert board.exchange_command('INFO') is None
+        with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed'):
+            board.exchange_command('INFO')
         assert not board.is_connected()
 
     def test_acceleration_stubs(self):
@@ -1657,10 +1659,13 @@ class TestFailureInjection:
     # --- Motor board ---
 
     def test_motor_fail_on_specific_command(self):
-        """Motor board should return None for targeted commands only."""
+        """Motor board goes unanswered for targeted commands only."""
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_on={'ZHOME'})
         assert m.exchange_command('INFO') is not None  # OK
-        assert m.exchange_command('ZHOME') is None  # targeted failure
+        with pytest.raises(
+            BoardNoReplyError, match=r'^ZHOME: no reply from the board'
+        ):  # targeted failure
+            m.exchange_command('ZHOME')
         assert m.exchange_command('INFO') is not None  # still connected
         assert m.driver is not None  # not disconnected
 
@@ -1671,8 +1676,10 @@ class TestFailureInjection:
             fail_on={'ZHOME', 'THOME'},
             timing='instant',
         )
-        assert m.exchange_command('ZHOME') is None
-        assert m.exchange_command('THOME') is None
+        with pytest.raises(BoardNoReplyError, match=r'^ZHOME: no reply from the board'):
+            m.exchange_command('ZHOME')
+        with pytest.raises(BoardNoReplyError, match=r'^THOME: no reply from the board'):
+            m.exchange_command('THOME')
         assert m.exchange_command('HOME') is not None  # not in fail set
 
     def test_motor_no_failure_by_default(self):
@@ -1684,9 +1691,12 @@ class TestFailureInjection:
     # --- LED board ---
 
     def test_led_fail_on_specific_command(self):
-        """LED board should return None for targeted commands only."""
+        """LED board goes unanswered for targeted commands only."""
         led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
-        assert led.exchange_command('LEDS_ENT') is None  # targeted
+        with pytest.raises(
+            BoardNoReplyError, match=r'^LEDS_ENT: no reply from the board'
+        ):  # targeted
+            led.exchange_command('LEDS_ENT')
         assert led.exchange_command('LED0_100') is not None  # OK
         assert led.driver is not None  # still connected
 
@@ -1700,27 +1710,35 @@ class TestFailureInjection:
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         m.unplug()
         assert m.is_connected(), 'a pulled cable is found by a write, not before'
-        assert m.exchange_command('INFO') is None
+        with pytest.raises(
+            BoardPortFailedError, match=r'^INFO: the port failed: the cable is unplugged'
+        ):
+            m.exchange_command('INFO')
         assert (m.is_connected(), m.found) == (False, False)
         m.connect()
         assert not m.is_connected(), 'no port opens while the cable is out'
         m.replug()
-        assert m.exchange_command('INFO') is None, 'a replug is not reopened by a command'
+        # a replug is not reopened by a command
+        with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed'):
+            m.exchange_command('INFO')
         assert not m.is_connected()
 
     def test_a_counted_drop_takes_that_many_of_its_command(self):
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         m.drop_replies('ACTUAL_RZ', count=2)
         assert m.exchange_command('INFO') is not None
-        assert m.exchange_command('ACTUAL_RZ') is None
-        assert m.exchange_command('ACTUAL_RZ') is None
+        for _ in range(2):
+            with pytest.raises(BoardNoReplyError, match=r'^ACTUAL_RZ: no reply from the board'):
+                m.exchange_command('ACTUAL_RZ')
         assert m.exchange_command('ACTUAL_RZ') is not None
 
     def test_a_drop_of_any_command_lasts_until_lifted(self):
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         m.drop_replies()
-        assert m.exchange_command('INFO') is None
-        assert m.exchange_command('ACTUAL_RX') is None
+        with pytest.raises(BoardNoReplyError, match=r'^INFO: no reply from the board'):
+            m.exchange_command('INFO')
+        with pytest.raises(BoardNoReplyError, match=r'^ACTUAL_RX: no reply from the board'):
+            m.exchange_command('ACTUAL_RX')
         m.stop_dropping()
         assert m.exchange_command('INFO') is not None
 
@@ -1731,7 +1749,8 @@ class TestFailureInjection:
 
     def test_led_fail_on_matches_by_first_word_as_the_motor_board_does(self):
         led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
-        assert led.exchange_command('LEDS_ENT 1') is None
+        with pytest.raises(BoardNoReplyError, match=r'^LEDS_ENT 1: no reply from the board'):
+            led.exchange_command('LEDS_ENT 1')
 
 
 class TestTheCamerasFaultDoors:

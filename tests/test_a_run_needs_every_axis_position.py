@@ -21,6 +21,7 @@ import time
 import pytest
 
 import modules.protocol_run_loop as protocol_run_loop
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import MoveFaultError, ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
@@ -77,7 +78,7 @@ def _drop_board_writes(session, prefix, which):
         if isinstance(command, str) and command.startswith(prefix):
             seen['n'] += 1
             if seen['n'] == which:
-                return None
+                raise BoardNoReplyError(f'{command}: no reply from the board')
         return original(command, *args, **kwargs)
 
     driver.exchange_command = _exchange

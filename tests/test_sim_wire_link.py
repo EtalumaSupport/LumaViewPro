@@ -19,6 +19,7 @@ import psutil
 import pytest
 import serial
 
+from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.port import EmulatedPort
@@ -187,9 +188,11 @@ class TestTheLinkThroughTheDriver:
         try:
             backend.motor_board.unplug()
             # The driver meets the pulled cable on its next exchange and closes.
-            assert not board.exchange_command('INFO')
+            with pytest.raises(BoardPortFailedError, match=r'^INFO: the port failed'):
+                board.exchange_command('INFO')
             backend.motor_board.replug()
-            assert board.exchange_command('FULLINFO') is None
+            with pytest.raises(BoardPortFailedError, match=r'^FULLINFO: the port is closed'):
+                board.exchange_command('FULLINFO')
             assert not board.is_connected()
         finally:
             board.disconnect()
@@ -198,7 +201,8 @@ class TestTheLinkThroughTheDriver:
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
             backend.motor_board.drop_next_reply()
-            assert not board.exchange_command('ZHOME', timeout=0.5)
+            with pytest.raises(BoardNoReplyError, match=r'^ZHOME: no reply from the board'):
+                board.exchange_command('ZHOME', timeout=0.5)
             assert board.exchange_command('ZHOME') == 'Z home successful'
         finally:
             board.disconnect()

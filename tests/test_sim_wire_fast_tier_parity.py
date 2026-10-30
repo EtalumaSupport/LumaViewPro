@@ -39,7 +39,6 @@ _GROUPS = groups(_content_group)
 
 _IDENTITY = "the fast tier names itself SIMULATED rather than giving the board's identity"
 _ERROR_WORDING = "an unknown command is answered 'ERROR: unknown command', not the board's wording"
-_BAD_PARAMETER = "a malformed parameter is answered with Python's error, not 'Invalid parameter'"
 _NEWER_FIRMWARE = (
     'the field firmware has no such command; the fast tier answers it as newer firmware '
     'does, and the tech-support report tests rely on the answer'
@@ -60,8 +59,6 @@ _GAPS = {
     'query_multiline DRVSTAT': _ERROR_WORDING,
     'error_probe NOSUCHCMD': _ERROR_WORDING,
     'error_probe ' + 'Q' * 100: _ERROR_WORDING,
-    'error_probe STATUS_RQ': _BAD_PARAMETER,
-    'error_probe ACTUAL_R': _BAD_PARAMETER,
     'query STATUS_RX': _STATUS,
     'query STATUS_RY': _STATUS,
     'query STATUS_RZ': _STATUS,
