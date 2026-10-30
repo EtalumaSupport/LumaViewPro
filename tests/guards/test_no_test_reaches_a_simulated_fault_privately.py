@@ -90,6 +90,21 @@ _OWN_DOORS: dict[str, str] = {
     'tests/test_a_home_is_believed_only_when_it_happened.py': (
         "the motor driver's reading of a home, on the firmware simulator"
     ),
+    'tests/test_motor_capability_probes.py': (
+        "the motor driver's capability probes on the firmware simulator, no scope"
+    ),
+    'tests/test_motorboard_fullinfo_legacy_firmware.py': (
+        "the motor driver's FULLINFO parse on the firmware simulator, no scope"
+    ),
+    'tests/test_motorconfig_provenance.py': (
+        "the motor driver's CONFIG read on the firmware simulator, no scope"
+    ),
+    'tests/test_led_supports_firmware_stim.py': (
+        "the LED driver's STIM probe on the firmware simulator, no scope"
+    ),
+    'tests/test_led_ack_and_tsr_filename.py': (
+        "the LED driver's block ack on the firmware simulator, no scope"
+    ),
 }
 
 
