@@ -53,6 +53,7 @@ from modules.exceptions import (
     ControlSessionRefusedError,
     FileWriterStalledError,
     Holder,
+    ProtocolNotSavedError,
     ProtocolRunRefusedError,
     RecordIncompleteError,
     Remedy,
@@ -1170,8 +1171,8 @@ class SequencedCaptureRunner:
                 be used, a sequence_name that is a path rather than a
                 name).
             RunCheckFailedError: the run's checks could not be asked:
-                ``'validation_crashed'``, the protocol's validation failed to
-                run; ``'hardware_state_unknown'``, the scope's state could not
+                ``'validation_crashed'``, the protocol's validation failed
+                inside LumaViewPro; ``'hardware_state_unknown'``, the scope's state could not
                 be read.
             ControlSessionRefusedError: ``'control_session_held'``, a
                 control session is held by someone else.
@@ -1249,12 +1250,14 @@ class SequencedCaptureRunner:
             # list -- e.g. a pandas exception inside the steps DataFrame.
             # Without this the
             # run would proceed past validation and hit hardware mid-run with
-            # bad coordinates.
+            # bad coordinates. It does no I/O (the catalogues were read at
+            # bring-up), so whatever it raised is LumaViewPro's own failure,
+            # never the person's configuration.
             raise RunCheckFailedError(
                 reason='validation_crashed',
                 message=(
-                    'Pre-run validation could not run. '
-                    'Check the labware + objectives configuration and try again.'
+                    "The check of the protocol's steps failed inside LumaViewPro, so the "
+                    'run did not start. The log has the details.'
                 ),
             ) from ex
         if validation_errors:
@@ -1821,7 +1824,7 @@ class SequencedCaptureRunner:
 
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
-        except FileNotFoundError:
+        except OSError:
             raise RunStartError(
                 'capture_location_failed',
                 f'Unable to save data to {self._parent_dir!s}. '
@@ -1834,15 +1837,20 @@ class SequencedCaptureRunner:
             # the capture location, so it shares that code.
             raise RunStartError('capture_location_failed', result['error'])
 
+        # The folder's own failures are the run's start failure, in words
+        # naming the file and the operating system's reason; anything else is
+        # LumaViewPro's own defect and leaves as itself.
         try:
             self._initialize_run_dir()
-        except Exception as ex:
-            # The exception text stays in the log. A message field is read by
-            # a popup and serialised by a remote caller; a raw traceback
-            # string is neither a sentence nor safe to put in front of them.
+        except ProtocolNotSavedError as ex:
+            raise RunStartError(
+                'run_dir_init_failed', f'The run folder could not be initialized. {ex}'
+            ) from ex
+        except OSError as ex:
             raise RunStartError(
                 'run_dir_init_failed',
-                'The run folder could not be initialized. See the log for details.',
+                f'The run folder {self._run_dir!s} could not be initialized '
+                f'({ex.strerror or type(ex).__name__}).',
             ) from ex
 
     def _fail_run_at_start(self, exc: Exception, run: EngineRun) -> None:

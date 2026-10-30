@@ -21,7 +21,7 @@ import time
 import pytest
 
 import modules.protocol_run_loop as protocol_run_loop
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import MoveFaultError, ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from modules.run_events import RunEvents
@@ -276,16 +276,18 @@ class TestALostPositionEndsTheRunOnce:
 
 
 def test_a_scan_that_captured_is_not_a_strike(session_factory, tmp_path, monkeypatch):
-    # Every between-scan return fails with every position known: each scan
+    # Every between-scan return faults with every position known: each scan
     # itself captures, so the run completes rather than tripping the strike
-    # ceiling that counts only scans that failed.
+    # ceiling that counts only scans that failed. A fault, not our defect,
+    # which ends the run at once.
+    # a stand-in by design: a move fault the return meets with no axis lost
     session = session_factory()
     home_sim_scope(session.scope)
     original = protocol_run_loop.ProtocolRunLoop._return_to_first_step_between_scans
 
     def _failing_return(self):
         if self._inter_scan_wait_follows():
-            raise RuntimeError('return move refused')
+            raise MoveFaultError('X', 'driver_failed')
         return original(self)
 
     monkeypatch.setattr(

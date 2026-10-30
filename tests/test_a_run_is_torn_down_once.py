@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from drivers.exceptions import BoardNoReplyError
 from modules.lumascope_api.bring_up import Part
 
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
@@ -92,7 +93,7 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
 
     def the_move_fails(*args, **kwargs):
         unplugged.set()
-        raise RuntimeError('the stage did not answer')
+        raise BoardNoReplyError('the stage did not answer')
 
     monkeypatch.setattr(executor._step_executor, 'go_to_step', the_move_fails)
     monkeypatch.setattr(

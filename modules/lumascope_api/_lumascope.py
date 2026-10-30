@@ -238,7 +238,8 @@ def _camera_failure_cause(exc: BaseException) -> str:
     covers a camera another application holds, or the driver's own typed
     fault). When no driver raised, the registry raises the cause it found:
     no camera, or a port held, with any driver that did not load on this
-    installation beside it.
+    installation beside it. Anything outside the hardware's family is
+    LumaViewPro's own failure, never the cable's.
     """
     if isinstance(exc, NoLiveDriverError):
         fallback = exc.fallback
@@ -255,7 +256,9 @@ def _camera_failure_cause(exc: BaseException) -> str:
         return 'camera_driver_unusable'
     if isinstance(exc, PermissionError):
         return 'port_in_use'
-    return 'camera_not_initialized'
+    if isinstance(exc, HardwareError):
+        return 'camera_not_initialized'
+    return 'camera_bring_up_failed'
 
 
 def _host_fx2_bindings(identity: str) -> list | None:
@@ -1130,11 +1133,8 @@ class Lumascope:
         motorconfig = getattr(self._motion_driver, 'motorconfig', None)
         board_block = motorconfig.led_block() if motorconfig is not None else None
         read_ok = motorconfig.board_config_read_ok if motorconfig is not None else True
-        try:
-            motor_model = self._motion_driver.get_microscope_model()
-        except Exception as e:
-            logger.warning(f'[SCOPE API ] motor model unavailable for layer identity: {e}')
-            motor_model = None
+        # The board's cached record, read with no exchange.
+        motor_model = self._motion_driver.get_microscope_model()
         return resolve_layer_identity(
             board_block=board_block,
             board_config_read_ok=read_ok,
@@ -1752,8 +1752,8 @@ class Lumascope:
 
         Raises:
             ScopeDisconnectError: after every step has run, naming each part
-                that did not shut down cleanly (the motor STOP, the LED
-                board, the motor board, the camera), chained from the first
+                that did not shut down cleanly (the LEDs' off, the motor STOP,
+                the LED board, the motor board, the camera), chained from the first
                 part's error. Nothing is logged or shown here; the caller
                 reports it where it stops.
         """
@@ -1820,8 +1820,8 @@ class Lumascope:
 
         # Stop watching the stream first: the teardown below stops it on
         # purpose, and a stall check still running would report that as a
-        # camera fault. Best-effort, like the LED shutoff below: a failure is
-        # logged and the teardown carries on.
+        # camera fault. Best-effort: a failure is logged and the teardown
+        # carries on.
         try:
             self.imaging.stop_stream_check()
         except Exception as ex:
@@ -1851,12 +1851,14 @@ class Lumascope:
         # Bounded acquire (the emergency variant) because an in-flight LED
         # write holding the lock must not be able to wedge teardown; it runs
         # first so the ordering the atexit hook relies on is unchanged.
-        # Best-effort like every other step here: a failure is logged and
-        # the port teardown still proceeds.
+        # A failure is recorded as the motor stop's is, since the sample may
+        # be left lit, and the port teardown still proceeds.
+        failures: dict[DisconnectPart, BaseException] = {}
         try:
             self.illumination._leds_off_emergency()
         except Exception as ex:
             logger.exception(f'[SCOPE API ] LED shutoff during disconnect failed: {ex}')
+            failures[DisconnectPart.LEDS_OFF] = ex
 
         # LVP-A-1: stop motors before tearing down the serial port so we
         # don't leave a stage/turret moving against an end-stop after
@@ -1867,7 +1869,6 @@ class Lumascope:
         # Asked first, as the scope's own write: with no motor controller
         # connected -- a manual scope, a pulled cable, a second disconnect --
         # there is nothing to stop.
-        failures: dict[DisconnectPart, BaseException] = {}
         if self.motor_connected:
             try:
                 self.motion._stop()

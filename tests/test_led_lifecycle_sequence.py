@@ -913,7 +913,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
 
 
 def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_path, monkeypatch):
-    """An exception from the grab mid-scan propagates to the run loop, which
+    """A refusal from the grab mid-scan propagates to the run loop, which
     classifies it transient and retries a full period later; the failed scan
     died between the step's illuminate and its boundary decision, so only the
     SCAN_IDLE epilogue on the transient branch darkens the sample for that
@@ -930,7 +930,11 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
     def _raise_once_then_real(*args, **kwargs):
         if not raised.is_set():
             raised.set()
-            raise RuntimeError('injected transient grab failure')
+            # a stand-in by design: a camera not streaming yet, a refusal
+            # that leaves the step and that the run loop retries; an
+            # exception that is not the API's own ends the run at once as
+            # LumaViewPro's defect
+            raise HardwareCommandRefusedError('camera_not_streaming', 'capture_still')
         return real_capture_and_wait(*args, **kwargs)
 
     monkeypatch.setattr(scope.imaging, '_capture_still_impl', _raise_once_then_real)

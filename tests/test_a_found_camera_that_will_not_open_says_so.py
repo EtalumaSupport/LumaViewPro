@@ -133,3 +133,14 @@ def test_the_bring_up_tells_an_open_failure_as_could_not_connect():
     assert 'Could not connect to the camera' in str(
         CameraNotAvailableError('camera_not_initialized')
     )
+
+
+def test_the_bring_up_tells_its_own_failure_as_lumaviewpros_not_the_cables():
+    """A camera bring-up that raised outside the hardware's family is our own
+    defect: its cause and words name LumaViewPro, never the USB cable."""
+    fault = TypeError('scripted defect')
+
+    assert _camera_failure_cause(fault) == 'camera_bring_up_failed'
+    words = str(CameraNotAvailableError('camera_bring_up_failed'))
+    assert 'LumaViewPro failed' in words
+    assert 'USB' not in words

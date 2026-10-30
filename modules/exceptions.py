@@ -939,8 +939,10 @@ class CameraNotAvailableError(Fault, BringUpError):
             ``'camera_driver_unusable'`` -- Windows has a Classic on no
             driver, or on one LumaViewPro cannot use.
             ``'camera_not_initialized'`` -- the camera did not come up for any
-            other cause, among them a camera that was found and could not be
-            opened, one another application holds included.
+            other hardware cause, among them a camera that was found and could
+            not be opened, one another application holds included.
+            ``'camera_bring_up_failed'`` -- LumaViewPro's own code failed while
+            bringing the camera up; nothing says the camera is at fault.
     """
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
@@ -970,6 +972,11 @@ class CameraNotAvailableError(Fault, BringUpError):
             'Camera not initialized',
             'Could not connect to the camera. Check USB cable, power, and close other '
             'programs that may hold the camera.',
+        ),
+        'camera_bring_up_failed': (
+            'Camera not brought up',
+            'LumaViewPro failed while bringing the camera up. The log has the details; '
+            'restart LumaViewPro, and send a support report if it happens again.',
         ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
@@ -4700,6 +4707,7 @@ class MotorStopFailedError(Fault, Exception):
 class DisconnectPart(StrEnum):
     """A part of the microscope ``Lumascope.disconnect`` shuts down, in teardown order."""
 
+    LEDS_OFF = 'LEDs off'
     MOTOR_STOP = 'motor stop'
     LED_BOARD = 'LED board'
     MOTOR_BOARD = 'motor board'
@@ -4731,6 +4739,10 @@ class ScopeDisconnectError(Fault, Exception):
     causes: ClassVar[dict[str, RefusalCause | None]] = {'disconnect_failed': None}
 
     _PART_WORDS: ClassVar[dict[DisconnectPart, str]] = {
+        DisconnectPart.LEDS_OFF: (
+            'The LEDs were not confirmed off, so the sample may still be lit; '
+            'power-cycle the microscope to turn them off.'
+        ),
         DisconnectPart.MOTOR_STOP: (
             'The motor STOP command failed; if the stage is still moving, '
             'power-cycle the microscope.'

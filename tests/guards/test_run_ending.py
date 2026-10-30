@@ -467,9 +467,11 @@ class TestTheLatchOutranksTheWordTheLoopStated:
 
 
 class TestTheRunLoopsOwnEndings:
-    def test_a_crashed_run_loop_records_the_exception_as_the_cause(self):
-        """The safety net used to hand cleanup the bare word 'failed'. The
-        exception it caught is the only thing that knows why."""
+    def test_a_crashed_run_loop_is_told_as_lumaviewpros_failure(self):
+        """The safety net used to hand cleanup the bare word 'failed', then
+        the exception's own text, a programmer's. The ending names the crash
+        and the person reads that LumaViewPro failed; the text stays in the
+        log."""
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
@@ -484,7 +486,8 @@ class TestTheRunLoopsOwnEndings:
             c.args for c in runner._image_writer._abort_run_fatal.call_args_list
         ]
         assert (reason, domain) == ('run_loop_crashed', 'Protocol')
-        assert 'the loop died here' in message
+        assert 'LumaViewPro failed' in message
+        assert 'the loop died here' not in message
         ending = runner._cleanup.call_args.args[0]
         assert (ending.reason, ending.message) == (reason, message), (
             'cleanup was handed a different ending than the one the funnel recorded'

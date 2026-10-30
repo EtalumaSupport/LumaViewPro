@@ -33,6 +33,7 @@ fires the regression.
 
 from __future__ import annotations
 
+from drivers.exceptions import BoardPortFailedError
 from modules.lumascope_api.bring_up import Part
 
 
@@ -57,7 +58,7 @@ class TestRunLoopInnerClassifiesByConnection:
         # itself at error. Capturing one channel would let a second popup on
         # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
-        runner._protocol.step_row.side_effect = RuntimeError('serial dropped mid-step')
+        runner._protocol.step_row.side_effect = BoardPortFailedError('serial dropped mid-step')
         runner._scope.unconnected_parts = MagicMock(
             return_value=() if connected else (Part.CAMERA,)
         )
@@ -121,6 +122,56 @@ class TestRunLoopInnerClassifiesByConnection:
             'the strike ceiling stops a run the instrument could not complete; '
             'it must not force-darken the sample the way a fault does'
         )
+
+
+class TestOurOwnDefectEndsTheRunAtOnce:
+    """An exception that is not a ``LumascopeError`` is LumaViewPro's own
+    defect: no retry cures it, so the run ends at once as ``run_loop_crashed``,
+    asked before the lost-part and lost-position checks, which would read
+    what the defect left behind (a motion door sets the axis UNKNOWN on its
+    way out). Every outcome the API reports keeps the classification."""
+
+    @staticmethod
+    def _run(raised, *, lost_axes=None):
+        from unittest.mock import MagicMock
+
+        from tests.protocol_drives import protocol_step, run_loop_ready_runner
+
+        runner = run_loop_ready_runner(protocol_step())
+        runner._protocol.step_row.side_effect = raised
+        runner._scope.unconnected_parts = MagicMock(return_value=())
+        runner._scope.motion.axes_without_position = MagicMock(return_value=lost_axes or {})
+        runner._run_loop_executor.run_loop(runner._last_run())
+        return runner
+
+    def test_a_defect_that_left_an_axis_unknown_ends_as_a_crash_not_a_lost_position(self):
+        from modules.lumascope_api import AxisState
+
+        # a stand-in by design: the defect's own trace, an axis a motion
+        # door set UNKNOWN on its way out, which this mock scope cannot leave
+        runner = self._run(TypeError('scripted defect'), lost_axes={'Z': AxisState.UNKNOWN})
+
+        ((reason, _domain, message),) = [
+            c.args for c in runner._image_writer._abort_run_fatal.call_args_list
+        ]
+        assert reason == 'run_loop_crashed'
+        assert 'LumaViewPro failed' in message
+        assert runner._protocol.step_row.call_count == 1, 'a defect is not retried'
+
+    def test_the_apis_routine_failures_are_still_retried(self):
+        from modules.exceptions import HardwareCommandRefusedError, MoveWaitExpiredError
+
+        for raised in (
+            HardwareCommandRefusedError('position_unread', 'move_z'),
+            MoveWaitExpiredError('Z', 'still_moving'),
+        ):
+            runner = self._run(raised)
+
+            assert runner._protocol.step_row.call_count == 3, raised
+            ((reason, _domain, _message),) = [
+                c.args for c in runner._image_writer._end_run_failed.call_args_list
+            ]
+            assert reason == 'consecutive_scan_failures', raised
 
 
 class TestScanLoopBehaviorPreserved:

@@ -12,6 +12,7 @@ import datetime
 import time
 from typing import TYPE_CHECKING
 
+from lib.lumascope_error import LumascopeError
 from lvp_logger import logger
 
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
@@ -72,7 +73,13 @@ class ProtocolRunLoop:
                 f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
                 exc_info=True,
             )
-            ending = RunEnding(RunStatus.FAILED, 'run_loop_crashed', str(ex))
+            # The exception's own text is a programmer's, kept in the log.
+            ending = RunEnding(
+                RunStatus.FAILED,
+                'run_loop_crashed',
+                'The protocol stopped: LumaViewPro failed while running it. '
+                'The log has the details.',
+            )
             # Through the funnel, as every run-killing fault: a crashed run
             # is shown, and a fault already shown stays the one shown.
             self._p.abort_run_fatal(ending.reason, ending.message)
@@ -335,6 +342,14 @@ class ProtocolRunLoop:
                 self._return_to_first_step_between_scans()
 
             except Exception as ex:
+                # Our own defect first: no retry cures it, and asked after the
+                # checks below it would read as the lost part or lost position
+                # its own failure left behind (a motion door sets the axis
+                # UNKNOWN on its way out). It ends the run at once, as a crash.
+                # Every outcome the API reports is a LumascopeError, and keeps
+                # the classification below.
+                if not isinstance(ex, LumascopeError):
+                    raise
                 # Classify: hardware disconnected = fatal (abort +
                 # notify); everything else = transient (silent log,
                 # retry on next period). Only loss of one of the

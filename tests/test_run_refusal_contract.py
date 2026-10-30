@@ -56,6 +56,7 @@ from modules.caller import Caller, calling
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import (
     ControlSessionRefusedError,
+    ProtocolNotSavedError,
     ProtocolRunRefusedError,
     RunCheckFailedError,
 )
@@ -478,15 +479,47 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
         )
 
-        def _refused(**kwargs):
-            raise OSError('No space left on device')
+        def _refused(file_path):
+            # As Protocol.to_file answers a write the file system refused.
+            raise ProtocolNotSavedError(file_path, OSError(28, 'No space left on device'))
 
         monkeypatch.setattr(plan.protocol, 'to_file', _refused)
         outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
 
         assert (outcome.status, outcome.reason) == ('failed_at_start', 'run_dir_init_failed')
+        assert 'The protocol was not saved' in outcome.message
+        assert 'No space left on device' in outcome.message
         assert [c.status for c in completions] == ['failed_at_start']
         assert len(captured) == 1, f'a failed-at-start run must notify exactly once; got {captured}'
+        assert _wait_for_executors_out_of_protocol_mode(executor)
+
+    def test_a_defect_in_the_run_folders_setup_is_not_named_a_folder_failure(
+        self, executor, tmp_path, monkeypatch
+    ):
+        plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
+
+        def _defect(file_path):
+            # a stand-in by design: our own defect in the protocol's copy,
+            # which no file system answer produces
+            raise TypeError('scripted defect')
+
+        monkeypatch.setattr(plan.protocol, 'to_file', _defect)
+        outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
+
+        assert (outcome.status, outcome.reason) == ('failed_at_start', 'start_failed')
+        assert _wait_for_executors_out_of_protocol_mode(executor)
+
+    def test_a_capture_location_it_may_not_write_fails_at_start_naming_it(self, executor, tmp_path):
+        locked = tmp_path / 'locked'
+        locked.mkdir()
+        plan = _prepare(executor, _make_single_step_protocol(), locked)
+        locked.chmod(0o500)
+        try:
+            outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
+        finally:
+            locked.chmod(0o700)
+
+        assert (outcome.status, outcome.reason) == ('failed_at_start', 'capture_location_failed')
         assert _wait_for_executors_out_of_protocol_mode(executor)
 
     def test_refused_prepare_preserves_previous_run_state(self, executor, tmp_path, monkeypatch):
@@ -515,6 +548,10 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         # The crash is chained for the log, never quoted to the person.
         assert 'OSError' not in str(excinfo.value)
         assert 'labware config unreadable' not in str(excinfo.value)
+        # Its words say whose failure it is: the check's, inside LumaViewPro,
+        # never the person's labware or objectives configuration.
+        assert 'inside LumaViewPro' in str(excinfo.value)
+        assert 'configuration' not in str(excinfo.value)
 
         # Observationally a no-op: the record getters still answer for
         # the FIRST run, nothing holds the scope, and the disk is

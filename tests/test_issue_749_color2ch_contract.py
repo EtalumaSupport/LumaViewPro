@@ -64,6 +64,10 @@ class _FourColourRecordingBoard:
         self.commands.append(('off', channel))
         return True
 
+    def leds_off(self):
+        # The disconnect's off: a board that cannot take it is reported.
+        self.commands.append(('off', 'all'))
+
 
 @pytest.fixture
 def sim_scope():

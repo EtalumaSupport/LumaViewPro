@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import DisconnectPart, MotorStopFailedError, ScopeDisconnectError
 from modules.lumascope_api import Lumascope
 from modules.notification_center import _UNTYPED_FAULT_BODY, outcome_of
@@ -57,6 +58,21 @@ def test_two_parts_failing_are_one_fault_naming_both_in_teardown_order(sim_scope
 
     assert excinfo.value.parts == ('LED board', 'camera')
     assert excinfo.value.__cause__ is led_error
+
+
+def test_an_led_off_that_failed_is_a_failed_part_ahead_of_the_rest(sim_scope):
+    """The sample may be left lit, so it is reported as the motor stop is."""
+    board_error = BoardNoReplyError('no response from LED board')
+    sim_scope._led_driver.leds_off = MagicMock(side_effect=board_error)
+
+    with pytest.raises(ScopeDisconnectError) as excinfo:
+        sim_scope.disconnect()
+
+    fault = excinfo.value
+    assert fault.parts[0] == DisconnectPart.LEDS_OFF
+    assert fault.part_reasons[DisconnectPart.LEDS_OFF] == 'board_no_reply'
+    assert fault.__cause__ is board_error
+    assert 'may still be lit' in str(fault)
 
 
 def test_a_camera_that_answers_false_is_not_a_failed_part(sim_scope):

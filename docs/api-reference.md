@@ -12944,6 +12944,7 @@ Held in: [`ScopeDisconnectError.part_reasons`](#ScopeDisconnectError.part_reason
 
 A part of the microscope `Lumascope.disconnect` shuts down, in teardown order.
 
+- `LEDs off` (`LEDS_OFF`)
 - `motor stop` (`MOTOR_STOP`)
 - `LED board` (`LED_BOARD`)
 - `motor board` (`MOTOR_BOARD`)
@@ -14090,10 +14091,11 @@ The camera did not come up; the heading and the advice follow the cause.
 
 **Attributes**
 
-- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on one LumaViewPro cannot use. `'camera_not_initialized'` -- the camera did not come up for any other cause, among them a camera that was found and could not be opened, one another application holds included.
+- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on one LumaViewPro cannot use. `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
 
 | Reason | Cause | REST status |
 |---|---|---|
+| `camera_bring_up_failed` | -- | 500 |
 | `camera_driver_unavailable` | -- | 500 |
 | `camera_driver_unusable` | -- | 500 |
 | `camera_firmware_missing` | -- | 500 |

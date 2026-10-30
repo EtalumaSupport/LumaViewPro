@@ -237,9 +237,17 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
 
     A mock scope's protocols API cannot convert a plate position (its plate
     catalogue is a mock); this answers every step's X/Y with
-    *plate_to_stage* and its Z from the step, with no turret slot.
+    *plate_to_stage* and its Z from the step, with no turret slot, and the
+    plate-position conversion the between-scan return to the first step
+    asks (``stage_targets``) the same way.
     """
     from modules.lumascope_api.protocols import StepTargets
+
+    scope.protocols.stage_targets.side_effect = lambda protocol, px, py, z, stage_offset=None: (
+        plate_to_stage[0],
+        plate_to_stage[1],
+        z,
+    )
 
     scope.protocols.step_targets.side_effect = lambda protocol, step_index, stage_offset=None: (
         StepTargets(
