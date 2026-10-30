@@ -32,9 +32,9 @@ from modules.lumascope_api.imaging import HANDLER_BUDGET_MS, HANDLER_DROP_K, _Bu
 from modules.notification_center import OutcomeKind, Severity
 from modules.run_events import RunEvents
 from tests.test_manual_recording_controller import make_controller
-from tests.test_video_camera_lost_outcome import _make_recorder
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.protocol_drives import run_identity
+from tests.video_step_drives import video_step_on
 
 
 def _refuse(*_a, **_kw):
@@ -121,13 +121,10 @@ class TestTheRegistrantHearsTheRefusal:
         assert leftovers == [], f'a start that never happened left {leftovers}'
 
     def test_a_video_step_whose_listener_is_refused_ends_with_no_frames(
-        self, tmp_path, monkeypatch
+        self, sim_scope, tmp_path, monkeypatch
     ):
-        clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, active=True)
-        recorder._scope.imaging.add_frame_listener.side_effect = FrameListenerNotRegisteredError(
-            'protocol_video:clip'
-        )
+        recorder = video_step_on(sim_scope, tmp_path, video_as_frames=False)
+        monkeypatch.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)
         reported = []
         monkeypatch.setattr(
             protocol_recording.notifications,
@@ -352,16 +349,17 @@ class TestTheUnwindAndRemovalEdges:
         kept = list((tmp_path / 'Manual').glob('Video_*/frame_0001.tiff'))
         assert len(kept) == 1, 'a folder holding anything is kept'
 
-    def test_a_refused_video_step_sends_no_progress(self, tmp_path, monkeypatch):
+    def test_a_refused_video_step_sends_no_progress(self, sim_scope, tmp_path, monkeypatch):
         # Refused before it records, the step sent no phase, so it owes no
         # 'ended': 'ended' follows a recording or writing phase only.
-        clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, active=True)
-        recorder._scope.imaging.add_frame_listener.side_effect = FrameListenerNotRegisteredError(
-            'protocol_video:clip'
-        )
         progress = MagicMock()
-        recorder._events = RunEvents(video_progress=progress)
+        recorder = video_step_on(
+            sim_scope,
+            tmp_path,
+            video_as_frames=False,
+            events=RunEvents(video_progress=progress),
+        )
+        monkeypatch.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)
         monkeypatch.setattr(
             protocol_recording.notifications, 'report_outcome', lambda *a, **k: None
         )

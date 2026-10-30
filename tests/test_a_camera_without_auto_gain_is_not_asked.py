@@ -23,7 +23,6 @@ import drivers.camera_profiles as camera_profiles
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingUnsupportedError
 from modules.lumascope_api.camera import CameraAutoMode
-from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -230,17 +229,15 @@ def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_camera
     assert 'capped(stored auto_gain=True: no hardware auto-gain)' in line, line
 
 
-def test_a_video_step_marked_auto_gain_records_manual_on_such_a_camera(tmp_path):
-    from tests.test_video_camera_lost_outcome import _make_recorder
+def test_a_video_step_marked_auto_gain_records_manual_on_such_a_camera(
+    ag_less_camera, asked, sim_scope, tmp_path
+):
+    from tests.video_step_drives import video_step_on
 
-    recorder = _make_recorder(tmp_path, {'t': 1000.0})
-    recorder._autogain_settings = dict(AG_SETTINGS)
-    answer_auto_gain_like_the_api(recorder._scope.camera, has_auto_gain=False)
+    recorder = video_step_on(sim_scope, tmp_path, autogain_settings=dict(AG_SETTINGS))
 
-    recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True})
-
-    recorder._scope.camera.set_auto_gain.assert_not_called()
-    recorder._scope.camera.auto_gain_once.assert_not_called()
+    assert recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True}) is None
+    assert asked == []
 
 
 @pytest.mark.parametrize(
