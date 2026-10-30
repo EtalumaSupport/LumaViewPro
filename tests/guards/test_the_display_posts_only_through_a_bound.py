@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import parse_module
+from tests.ast_seams import MemberNames, Words, parse_module
 
 _MODULE = 'ui/scope_display.py'
-_ROOTS = ('_render_one_frame', 'hold_protocol_saved_image')
+_ROOTS = MemberNames((_MODULE,), {'_render_one_frame', 'hold_protocol_saved_image'})
 # The two bounded ways to post; the walk does not enter them.
-_BOUNDED = {'schedule_ui_latest', '_schedule_blit'}
-_RAW_POSTS = {'schedule_once', 'schedule_interval', 'create_trigger', 'schedule_ui'}
+_BOUNDED = MemberNames(('modules/kivy_utils.py', _MODULE), {'schedule_ui_latest', '_schedule_blit'})
+# Kivy's Clock posts, and kivy_utils' unbounded one.
+_RAW_POSTS = Words({'schedule_once', 'schedule_interval', 'create_trigger', 'schedule_ui'})
 
 
 def _methods() -> dict[str, ast.FunctionDef]:
