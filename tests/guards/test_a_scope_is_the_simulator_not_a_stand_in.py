@@ -186,7 +186,6 @@ ALLOWED = frozenset(
         'tests/test_a_camera_states_its_analog_gain_maximum.py::_capabilities',
         'tests/test_a_camera_states_its_analog_gain_maximum.py::test_no_camera_states_none',
         'tests/test_a_failed_save_is_reported_once.py::test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing',
-        'tests/test_a_gesture_is_one_lane_task.py::env',
         'tests/test_a_recorded_frame_says_where_it_was_taken.py::_fake_scope',
         'tests/test_a_refusal_names_the_run_holding_the_scope.py::TestWhoStartedTheRunNeverReachesTheSentence.test_a_diagnostic_refused_by_a_run_names_the_run',
         'tests/test_a_refused_frame_listener_is_raised.py::TestAFailingHandlerIsBounded.test_a_handler_raising_k_frames_running_is_removed_with_one_traceback',
