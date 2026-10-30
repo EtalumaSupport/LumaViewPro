@@ -37,11 +37,33 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.ast_seams import find_def, parse_module
-from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401
-    GREEN_LAYER_SETTINGS,
+from modules.scope_session import ScopeSession
+from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
+    _run_manual_nav,
     stepnav_env,
 )
 from tests.stock_channels import LED1
+
+
+GREEN_LAYER_SETTINGS = {
+    'autofocus': False,
+    'false_color': True,
+    'illumination_ma': 0.0,
+    'gain_db': 0.0,
+    'auto_gain': False,
+    'exposure_ms': 10.0,
+    'sum': 1,
+    'acquire': True,
+    'focus': 0.0,
+    'video_config': {'duration': 5},
+    'stim_config': {
+        'enabled': False,
+        'illumination_ma': 50,
+        'frequency': 1,
+        'pulse_width': 10,
+        'pulse_count': 1,
+    },
+}
 
 
 # A step whose every field differs from GREEN_LAYER_SETTINGS, so a write of
@@ -109,23 +131,31 @@ class TestRunNavigationLeavesLayerSettingsAlone:
 
 
 class TestManualNavigationWritesNothingInTheGui:
-    def test_the_write_and_the_apply_are_the_sessions_alone(self, stepnav_env):
+    def test_the_write_and_the_apply_are_the_sessions_alone(self, stepnav_env, monkeypatch):
         """A person's navigation writes the step into its layer and puts the
         layer on the camera inside ``ScopeSession.start_go_to_step`` (every
         key, the config dicts as copies:
         tests/test_going_to_a_step_is_the_sessions_move.py); the GUI writes
-        no setting and makes no second call to apply the layer."""
+        no setting after it and makes no second call to apply the layer."""
         env = stepnav_env
-        before = copy.deepcopy(env.ctx.settings[LED1])
         order = []
-        env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_index: order.append(
-            'session'
-        )
+        after_session = {}
+        real_go = ScopeSession.start_go_to_step
+
+        def _start_go_to_step(self, protocol, step_index):
+            op = real_go(self, protocol, step_index)
+            order.append('session')
+            after_session.update(self.get_settings_snapshot())
+            return op
+
+        monkeypatch.setattr(ScopeSession, 'start_go_to_step', _start_go_to_step)
         env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')
 
-        _go_to_step(_make_step())
+        _run_manual_nav(env)
 
-        assert env.ctx.settings[LED1] == before, 'the GUI wrote a setting itself'
+        assert env.session.get_settings_snapshot() == after_session, (
+            'the GUI wrote a setting itself'
+        )
         assert order == ['session']
 
 

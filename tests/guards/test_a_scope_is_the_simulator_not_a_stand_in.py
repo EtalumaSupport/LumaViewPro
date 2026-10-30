@@ -247,7 +247,6 @@ ALLOWED = frozenset(
         'tests/test_issue_653_skip_guard.py::handler_and_log',
         'tests/test_issue_655_ag_ae_exposure_cap.py::_video_session_autogain_call',
         'tests/test_issue_690_jpg_orientation.py::test_tiff_and_jpg_save_identical_orientation',
-        'tests/test_issue_733_step_nav_preview_led_button.py::stepnav_env',
         'tests/test_jpg_export.py::_scope_with_depth',
         'tests/test_layer_control_ag_exposure_floor.py::_leave',
         'tests/test_leaving_auto_gain_is_a_session_member.py::_session',

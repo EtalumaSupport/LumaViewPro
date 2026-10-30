@@ -15,19 +15,19 @@ the layer through show_channel, and no LED command of its own. The drawer
 reconcile that killed the preview is gone: a drawer draws the shown channel,
 and only a person's open asks the Session for another.
 
-The navigation tests drive the real go_to_step over the #733 stand.
+The navigation test drives the real go_to_step over the #733 fixture's
+simulated session.
 """
 
 import ast
 import pathlib
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
-
+from modules.lumascope_api.illumination import LedState
+from tests.scope_fakes import channel_reading
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
-    _make_step,
+    _run_manual_nav,
     stepnav_env,
 )
 
@@ -38,22 +38,6 @@ _IMG_SRC = (_UI_DIR / 'image_settings.py').read_text()
 _IMG_TREE = ast.parse(_IMG_SRC)
 
 
-# The lanes each submitted LED command was queued on, in order.
-_submitted_lanes = []
-
-
-@pytest.fixture(autouse=True)
-def _submits_run_at_once(monkeypatch):
-    """The bodies submit their LED commands to the IO lane; run each at once."""
-
-    def _submit_reported(call, redraw, label, *, lane=None):
-        _submitted_lanes.append(lane)
-        call()
-
-    _submitted_lanes.clear()
-    monkeypatch.setattr('ui.ui_helpers.submit_reported', _submit_reported)
-
-
 def _find_function(tree, name):
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == name:
@@ -62,45 +46,30 @@ def _find_function(tree, name):
 
 
 # ---------------------------------------------------------------------------
-# Nav path: one authority transition + one direct apply, both preview states
+# Nav path: the Session's preview stands, both preview states
 # ---------------------------------------------------------------------------
-
-
-def _run_nav(env, preview_on):
-    """The real go_to_step for a person's click on step 0 of a one-step protocol."""
-    import ui.step_navigation as step_navigation
-
-    env.ctx.settings['protocol_led_on'] = preview_on
-    env.ctx.motion_settings.ids['protocol_settings_id'].curr_step = 5
-    step = {**_make_step(), 'Illumination': 250.0}
-    protocol = SimpleNamespace(
-        num_steps=MagicMock(return_value=1),
-        step_row=MagicMock(return_value=step),
-        step_list_revision=0,
-    )
-    # The panel shows this protocol: a completed move lands only on the
-    # protocol and step list it was sent for.
-    import modules.app_context as _app_ctx
-
-    _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
-    env.ctx.scope.illumination.led_off = MagicMock()
-    step_navigation.go_to_step(protocol, step_index=0, include_move=True)
-    return env.ctx.scope.illumination, env.layer_obj
 
 
 @pytest.mark.parametrize('preview_on', [True, False])
 def test_nav_drives_no_camera_and_no_led_itself(stepnav_env, preview_on):
-    """Whatever the preview state, the GUI's part is the one Session call,
-    with no LED intent read from the button, no LED command and no settings
-    apply of its own: the preview and the step's layer on the camera are the
-    Session's, inside its go_to_step
-    (tests/test_going_to_a_step_is_the_sessions_move.py)."""
-    ill, layer_obj = _run_nav(stepnav_env, preview_on=preview_on)
-    assert ill.apply_transition.call_count == 0
-    assert ill.led_off.call_count == 0, 'nav must not queue its own led_off'
-    assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
-    layer_obj.apply_settings.assert_not_called()
-    assert layer_obj.ids['enable_led_btn'].state == 'normal'
+    """Whatever the preview state, the preview is the Session's, inside its
+    go_to_step (tests/test_going_to_a_step_is_the_sessions_move.py): the
+    step's channel is lit when the preview is on and every channel dark when
+    it is off, as the click leaves it. The GUI reads no LED intent from the
+    button, sends no LED command of its own (a led_off of its own killed the
+    preview) and makes no settings apply of its own."""
+    session = stepnav_env.session
+    session.update_settings('protocol_led_on', preview_on)
+
+    _run_manual_nav(stepnav_env)
+
+    lit = [r.name for r in session.scope.illumination.get_led_states() if r.state is LedState.LIT]
+    assert lit == (['BF'] if preview_on else [])
+    if preview_on:
+        bf = channel_reading(session.scope.illumination, 'BF')
+        assert bf.illumination_ma == session.get_setting('BF.illumination_ma')
+    stepnav_env.layer_obj.apply_settings.assert_not_called()
+    assert stepnav_env.layer_obj.ids['enable_led_btn'].state == 'normal'
 
 
 # ---------------------------------------------------------------------------

@@ -12,146 +12,93 @@ leaving a stale 'down' for any later ``apply_settings(update_led=True)`` to
 re-read.
 
 Contract under test: outside a protocol run, the listener bridge is the SOLE
-writer of ``enable_led_btn``; the manual-nav preview lights the channel only
-through the illumination authority's MANUAL_STEP transition; ``apply_settings``
-is called with ``update_led=False`` so it cannot re-derive LED intent from
-the widget.
+writer of ``enable_led_btn``, and the step's LED preview is the Session's
+alone (``ScopeSession.start_go_to_step``): the GUI lights nothing itself.
 """
 
-import threading
+import logging
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.protocols import ProtocolsAPI
-
-from tests.gesture_fakes import inline_submit_move
-from tests.stock_channels import LED1
-
-
-GREEN_LAYER_SETTINGS = {
-    'autofocus': False,
-    'false_color': True,
-    'illumination_ma': 0.0,
-    'gain_db': 0.0,
-    'auto_gain': False,
-    'exposure_ms': 10.0,
-    'sum': 1,
-    'acquire': True,
-    'focus': 0.0,
-    'video_config': {'duration': 5},
-    'stim_config': {
-        'enabled': False,
-        'illumination_ma': 50,
-        'frequency': 1,
-        'pulse_width': 10,
-        'pulse_count': 1,
-    },
-}
-
-
-def _make_step():
-    return {
-        'X': 10.0,
-        'Y': 20.0,
-        'Z': 3.0,
-        'Color': LED1,
-        'Auto_Focus': False,
-        'False_Color': True,
-        'Illumination': 350.0,
-        'Gain': 0.0,
-        'Auto_Gain': False,
-        'Exposure': 10.0,
-        'Sum': 1,
-        'Acquire': True,
-        'Objective': 'obj1',
-    }
+import ui.step_navigation as step_navigation
+import ui.ui_helpers as ui_helpers
+from modules.acquire_mode import AcquireMode
+from modules.lumascope_api.illumination import LedState
+from modules.sequential_io_executor import ENQUEUED
+from tests.pool_fakes import run_task_now
+from tests.scope_fakes import home_sim_scope
 
 
 @pytest.fixture
-def stepnav_env(monkeypatch):
-    """Fake AppContext driving the REAL go_to_step, mocked at the ctx boundary."""
+def stepnav_env(gui_ctx, monkeypatch):
+    """The real go_to_step over the GUI's context on a simulated session.
+
+    Homed when the scope has a motor board: a step click asks every axis
+    whether it knows its position. The panel and the layer widgets are the
+    test's own (the Kivy tree never runs here), the layer's LED button
+    starting 'normal'. The click's task runs on the worker pool at once.
+    """
+    session = gui_ctx.session
+    if session.scope.motor_connected:
+        home_sim_scope(session.scope)
+    pool = MagicMock()
+
+    def _put(task):
+        run_task_now(task)
+        return ENQUEUED
+
+    pool.put.side_effect = _put
+    gui_ctx.worker_pool = pool
     layer_obj = SimpleNamespace(
         ids={'enable_led_btn': SimpleNamespace(state='normal')},
-        apply_settings=MagicMock(),
         set_step_state=MagicMock(),
+        apply_settings=MagicMock(),
     )
-    protocol_settings = MagicMock()
-    # A real ProtocolsAPI, because go_to_step asks it whether this scope can
-    # put the step's glass in the light path before it moves anything. A
-    # stand-in here would answer for production's rule without being it.
-    scope = SimpleNamespace(
-        motion=SimpleNamespace(),
-        capabilities=SimpleNamespace(has_turret=False, axes=('X', 'Y', 'Z')),
-        # With no turret the rule admits only the selected objective, so the
-        # stand has the step's glass selected.
-        runtime_state=SimpleNamespace(get_current_objective_id=lambda: 'obj1'),
-        motor_connected=False,
-        imaging=SimpleNamespace(active=False),
-        illumination=SimpleNamespace(
-            color2ch=MagicMock(return_value=3),
-            apply_transition=MagicMock(),
-        ),
+    gui_ctx.motion_settings = SimpleNamespace(
+        ids={'protocol_settings_id': MagicMock(), 'verticalcontrol_id': MagicMock()},
+        update_xy_stage_control_gui=MagicMock(),
     )
-    scope.protocols = ProtocolsAPI(scope)
-    ctx = SimpleNamespace(
-        settings={
-            'protocol_led_on': True,
-            'stage_offset': {'x': 0, 'y': 0},
-            LED1: dict(GREEN_LAYER_SETTINGS),
-        },
-        settings_lock=threading.Lock(),
-        motion_settings=SimpleNamespace(
-            ids={'protocol_settings_id': protocol_settings},
-            update_xy_stage_control_gui=MagicMock(),
-        ),
-        image_settings=SimpleNamespace(
-            layer_lookup=MagicMock(return_value=layer_obj),
-            ids={'toggle_imagesettings': SimpleNamespace(state='down')},
-            set_expanded_layer=MagicMock(),
-            toggle_settings=MagicMock(),
-        ),
-        scope=scope,
-        protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
-        session=SimpleNamespace(
-            is_protocol_running=False,
-            run_lockout=False,
-            run_in_progress=False,
-            # The Session's member: the moves, the layer write and the LED
-            # preview are its (tests/test_going_to_a_step_is_the_sessions_move.py).
-            start_go_to_step=MagicMock(),
-        ),
-        stage=SimpleNamespace(draw_labware=MagicMock()),
-        io_executor=object(),
+    gui_ctx.image_settings = SimpleNamespace(
+        layer_lookup=MagicMock(return_value=layer_obj),
+        ids={'toggle_imagesettings': SimpleNamespace(state='down')},
+        place_settings=MagicMock(),
     )
-    monkeypatch.setattr('modules.app_context.ctx', ctx)
-    # The move runs at once, so what follows it is seen.
-    submit_move = MagicMock(side_effect=inline_submit_move)
-    monkeypatch.setattr('ui.ui_helpers.submit_move', submit_move)
-    # Run scheduled UI callbacks inline so the closures under test execute.
-    monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
-    return SimpleNamespace(ctx=ctx, layer_obj=layer_obj, submit_move=submit_move)
+    # No Kivy app runs, so no lock record locks the controls.
+    monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(step_navigation, '_schedule_ui', lambda fn, t: fn(0))
+    return SimpleNamespace(session=session, ctx=gui_ctx, layer_obj=layer_obj)
 
 
 def _run_manual_nav(env):
-    import ui.step_navigation as step_navigation
-
-    protocol = SimpleNamespace(
-        num_steps=MagicMock(return_value=1),
-        step_row=MagicMock(return_value=_make_step()),
-        step_list_revision=0,
+    """Click the one step of a protocol the Session built where the scope stands, in BF; return it."""
+    session = env.session
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    protocol = session.scope.protocols.create_protocol(
+        empty_config=session.get_sequenced_capture_config()
     )
+    session.add_step(protocol, before_step_index=0)
     # The panel shows this protocol: a completed move lands only on the
     # protocol and step list it was sent for.
-    import modules.app_context as _app_ctx
+    env.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
+    step_navigation.go_to_step(protocol, step_index=0, include_move=True)
+    return protocol
 
-    _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
-    step_navigation.go_to_step(
-        protocol,
-        step_index=0,
-        include_move=True,
-    )
+
+def _shown(env) -> str:
+    """The layer whose step state the click showed first: the step's own.
+
+    One layer widget stands for every layer, so the step's stimulation
+    settings for the other layers land on it too.
+    """
+    return env.layer_obj.set_step_state.call_args_list[0].args[0]['Color']
+
+
+def _lit(env) -> list:
+    return [r for r in env.session.scope.illumination.get_led_states() if r.state is LedState.LIT]
 
 
 class TestStepNavPreviewRespectsLedEnable:
@@ -160,27 +107,37 @@ class TestStepNavPreviewRespectsLedEnable:
         sole writer. Locks BOTH forced writers (the preview closure and
         go_to_step_update_ui) because _schedule_ui runs both inline."""
         _run_manual_nav(stepnav_env)
+
+        assert _shown(stepnav_env) == 'BF'
         assert stepnav_env.layer_obj.ids['enable_led_btn'].state == 'normal'
 
-    def test_the_gui_issues_no_led_command_of_its_own(self, stepnav_env):
-        """The preview is the Session's one LED command, inside its go_to_step;
-        the GUI asks the Session once and lights nothing itself."""
+    def test_with_led_on_when_stepping_off_the_gui_lights_nothing(self, stepnav_env):
+        """The preview is the Session's one LED command, inside its go-to:
+        with 'LED On When Stepping' off it puts every channel dark, and the
+        GUI lights nothing after it."""
+        stepnav_env.session.update_settings('protocol_led_on', False)
+
         _run_manual_nav(stepnav_env)
-        assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 0
-        assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
-        # The move rides the IO lane, and every axis the scope has is redrawn.
-        move = stepnav_env.submit_move
-        assert move.call_count == 1
-        assert move.call_args.kwargs['axes'] == stepnav_env.ctx.scope.capabilities.axes
+
+        assert _shown(stepnav_env) == 'BF'
+        assert _lit(stepnav_env) == []
+
+    def test_every_axis_the_scope_has_is_redrawn(self, stepnav_env):
+        _run_manual_nav(stepnav_env)
+
+        stepnav_env.ctx.motion_settings.update_xy_stage_control_gui.assert_called_once()
+        vertical = stepnav_env.ctx.motion_settings.ids['verticalcontrol_id']
+        vertical.update_gui.assert_called_once()
 
 
+@pytest.mark.parametrize('sim_session', [{'microscope': 'LS560'}], indirect=True)
 def test_a_step_click_on_a_scope_with_no_motor_board_warns_nothing(stepnav_env, caplog):
     """A manual scope (no motor board) is a shipped model, not a fault: its
     step click goes to the step without moving, and logs no warning."""
-    import logging
+    assert not stepnav_env.session.scope.motor_connected
 
     with caplog.at_level(logging.WARNING, logger='LVP.ui.step_navigation'):
         _run_manual_nav(stepnav_env)
 
-    assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
+    assert _shown(stepnav_env) == 'BF'
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
