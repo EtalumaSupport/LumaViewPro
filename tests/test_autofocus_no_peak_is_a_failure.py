@@ -53,7 +53,7 @@ def _an_empty_field(scope, monkeypatch):
     """Score every frame as the LS720's empty field scored: within about 1%
     of each other, in no order the fit can trust, whatever Z it was made at."""
     monkeypatch.setattr(
-        'modules.autofocus_functions.focus_function',
+        'modules.autofocus_functions.autofocus_score',
         lambda image: 1.75e7 + 2e5 * ((scope.motion.get_current_position('Z') * 7.31) % 1.0),
     )
 

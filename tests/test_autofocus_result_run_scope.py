@@ -160,13 +160,13 @@ class TestClearResultIsUnconditional:
         from tests.af_drives import FOCAL_Z_UM
 
         af_runner = af_runner_on(sim_scope)
-        score = autofocus_functions.focus_function
+        score = autofocus_functions.autofocus_score
 
         def clear_mid_sweep(image):
             af_runner.clear_result()
             return score(image)
 
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', clear_mid_sweep)
+        monkeypatch.setattr('modules.autofocus_functions.autofocus_score', clear_mid_sweep)
 
         assert sweep(af_runner, sim_scope) == pytest.approx(FOCAL_Z_UM, abs=10.0), (
             'clear_result() must touch only the result; wiping the scan '

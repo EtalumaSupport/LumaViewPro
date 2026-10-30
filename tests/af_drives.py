@@ -4,7 +4,7 @@
 ``af_runner_on`` and ``sweep`` run it on a simulated scope, a real sweep
 over the simulated camera's focus target. A test chooses the curve's
 shape by the field it shows (``'white'`` scores zero everywhere) or by
-patching modules.autofocus_functions.focus_function, a score of the frame
+patching modules.autofocus_functions.autofocus_score, a score of the frame
 or of the Z it was made at.
 """
 

@@ -584,7 +584,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
 
         # Every frame scores zero: the flat-curve branch, where the sweep
         # chooses no focus and returns the stage to where it started.
-        monkeypatch.setattr(autofocus_functions, 'focus_function', lambda **kwargs: 0.0)
+        monkeypatch.setattr(autofocus_functions, 'autofocus_score', lambda **kwargs: 0.0)
         rig = _AfRig()
         try:
             with _reported(monkeypatch) as reported:
@@ -643,7 +643,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
             lost['Z'] = 'UNKNOWN'
             return 0.0
 
-        monkeypatch.setattr(autofocus_functions, 'focus_function', flat_and_losing_z)
+        monkeypatch.setattr(autofocus_functions, 'autofocus_score', flat_and_losing_z)
         monkeypatch.setattr(rig.scope.motion, 'axes_without_position', lambda: dict(lost) or real())
         try:
             outcome = rig.run_autofocus(tmp_path, save_data=False)

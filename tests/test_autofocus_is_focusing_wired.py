@@ -36,14 +36,14 @@ def _lit(scope):
 def test_is_focusing_true_while_af_runs(sim_scope, monkeypatch):
     """During the scan loop, the public flag reads True."""
     seen = []
-    score = autofocus_functions.focus_function
+    score = autofocus_functions.autofocus_score
 
     def scoring(image):
         seen.append(sim_scope.imaging.is_focusing)
         return score(image)
 
     runner = af_runner_on(sim_scope)
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', scoring)
+    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', scoring)
     sweep(runner, sim_scope)
     assert seen and all(value is True for value in seen), (
         'scope.imaging.is_focusing must read True while the AF loop is '

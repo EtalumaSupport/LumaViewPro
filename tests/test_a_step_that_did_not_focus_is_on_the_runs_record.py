@@ -29,7 +29,7 @@ FLAT = str(AutofocusFailedError('flat_focus_curve'))
 @pytest.fixture
 def every_score_zero(monkeypatch):
     """Every frame scores zero: every autofocus sweep's curve is flat."""
-    monkeypatch.setattr(autofocus_functions, 'focus_function', lambda **kwargs: 0.0)
+    monkeypatch.setattr(autofocus_functions, 'autofocus_score', lambda **kwargs: 0.0)
 
 
 def test_an_autofocus_scan_names_the_step_whose_focus_was_not_updated(tmp_path, every_score_zero):

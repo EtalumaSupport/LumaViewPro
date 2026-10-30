@@ -774,8 +774,6 @@ class AutofocusRunner:
                     raise
                 _af_log.warning(f'  NO FRAME ({failed.reason}), try {attempt}/{num_retries}')
 
-        height, width = image.shape
-
         if self._abort_event is not None and self._abort_event.is_set():
             self._is_focusing_event.clear()
             return
@@ -793,11 +791,7 @@ class AutofocusRunner:
             except CaptureFailedError as failed:
                 _af_log.warning(f'  DARK FRAME kept: its retry failed ({failed.reason})')
 
-        # Use center quarter of image for focusing
-        height, width = image.shape
-        image = image[int(height / 4) : int(3 * height / 4), int(width / 4) : int(3 * width / 4)]
-
-        focus_score = autofocus_functions.focus_function(image=image)
+        focus_score = autofocus_functions.autofocus_score(image=image)
         current_pos = round(
             self._scope.motion.get_current_position('Z'), common_utils.max_decimal_precision('z')
         )

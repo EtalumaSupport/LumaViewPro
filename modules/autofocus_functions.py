@@ -53,10 +53,34 @@ def _mask_saturated(image: np.ndarray, margin: int = 1) -> np.ndarray:
     return image
 
 
+def autofocus_score(
+    image: np.ndarray,
+    skip_score_logging: bool = False,
+) -> float:
+    """The score autofocus judges a frame by: its centre quarter's focus score.
+
+    Every tool that measures what autofocus sees scores through here, so its
+    numbers are autofocus's own. Raises ``ValueError`` for a frame that is not
+    8-bit, as ``focus_function`` does.
+    """
+    height, width = image.shape
+    centre = image[height // 4 : 3 * height // 4, width // 4 : 3 * width // 4]
+    return focus_function(image=centre, skip_score_logging=skip_score_logging)
+
+
 def focus_function(
     image: np.ndarray,
     skip_score_logging: bool = False,
 ) -> float:
+    """The focus score of an 8-bit frame, its saturated pixels masked.
+
+    Raises:
+        ValueError: the frame is not 8-bit. ``_mask_saturated`` takes 255 as
+            saturation, so a native-depth frame's clipped pixels would be
+            scored as signal.
+    """
+    if image.dtype != np.uint8:
+        raise ValueError(f'focus_function scores 8-bit frames, got {image.dtype}')
     image = _mask_saturated(image)
     score = _focus_function(image=image)
 

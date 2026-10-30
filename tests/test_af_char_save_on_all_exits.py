@@ -55,7 +55,7 @@ def _saved_rows(runner, write_batch) -> int | None:
 
 def _scored_then(monkeypatch, then):
     """Score the first frame for real, then do ``then`` at the second."""
-    score = autofocus_functions.focus_function
+    score = autofocus_functions.autofocus_score
     scored = []
 
     def scoring(image):
@@ -64,7 +64,7 @@ def _scored_then(monkeypatch, then):
             then()
         return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', scoring)
+    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', scoring)
 
 
 class TestSaveLandsOnEveryExitPath:
@@ -111,13 +111,13 @@ class TestSaveLandsOnEveryExitPath:
         data and save it, so partial scans land on disk."""
         runner = af_runner_on(sim_scope)
         abort_event = threading.Event()
-        score = autofocus_functions.focus_function
+        score = autofocus_functions.autofocus_score
 
         def score_then_abort(image):
             abort_event.set()
             return score(image)
 
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', score_then_abort)
+        monkeypatch.setattr('modules.autofocus_functions.autofocus_score', score_then_abort)
         with pytest.raises(AutofocusAborted):
             sweep(
                 runner,

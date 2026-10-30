@@ -300,13 +300,13 @@ def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypa
 
     monkeypatch.setattr(sim_scope.imaging, 'capture_and_wait', first_grab_dark)
     scored = []
-    score = autofocus_functions.focus_function
+    score = autofocus_functions.autofocus_score
 
     def _score(image):
         scored.append((len(grabs), float(np.mean(image))))
         return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', _score)
+    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', _score)
 
     sweep(runner, sim_scope)
 

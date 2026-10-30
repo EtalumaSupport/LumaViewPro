@@ -134,7 +134,7 @@ def _while_sweeping(scope, monkeypatch, then):
     """Run ``then`` once, at the sweep's first scored frame: after the setup's writes."""
     import modules.autofocus_functions as autofocus_functions
 
-    score = autofocus_functions.focus_function
+    score = autofocus_functions.autofocus_score
     done = []
 
     def scoring(image):
@@ -143,7 +143,7 @@ def _while_sweeping(scope, monkeypatch, then):
             then()
         return score(image)
 
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', scoring)
+    monkeypatch.setattr('modules.autofocus_functions.autofocus_score', scoring)
 
 
 def _camera_restores(scope, monkeypatch) -> list:
