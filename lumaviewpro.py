@@ -87,6 +87,34 @@ if __name__ == '__main__':
                 raise ValueError(f'{_spread!r} is not a distance above 0')
     except ValueError as _spread_error:
         sys.exit(f'--sim-focal-spread=UM: {_spread_error}')
+    # --sim-refused-camera-write=NODE,ANSWER[,COUNT] has the simulated camera
+    # refuse its next COUNT writes of NODE (1 when not given) from bring-up
+    # on, so a camera that does not take a setting at bring-up is shown
+    # without hardware. The simulated camera's alone: an FX2 refuses it.
+    sim_refused_camera_writes = ()
+    try:
+        _refused = take_sim_launch_value(
+            sys.argv, 'sim-refused-camera-write', simulate=simulate_mode
+        )
+        if _refused is not None:
+            from modules.lumascope_api.simulation import (
+                CameraWriteAnswer,
+                CameraWriteNode,
+                SimulatedCameraWriteRefusal,
+            )
+
+            _node, _answer, *_count = _refused.split(',')
+            if len(_count) > 1:
+                raise ValueError(f'{_refused!r} is not NODE,ANSWER[,COUNT]')
+            sim_refused_camera_writes = (
+                SimulatedCameraWriteRefusal(
+                    CameraWriteNode(_node),
+                    CameraWriteAnswer(_answer),
+                    int(_count[0]) if _count else 1,
+                ),
+            )
+    except ValueError as _refused_error:
+        sys.exit(f'--sim-refused-camera-write=NODE,ANSWER[,COUNT]: {_refused_error}')
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
     # below). Simulator only: a walk on hardware would move a real stage.
@@ -1028,6 +1056,7 @@ class LumaViewProApp(TooltipMixin, App):
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
                 sim_focal_spread_um=sim_focal_spread_um,
+                sim_refused_camera_writes=sim_refused_camera_writes,
                 outcome_listener=notification_popup_bridge,
                 settings_file=ScopeSession.user_settings_file(source_path),
             )
