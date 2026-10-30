@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 import tifffile as tf
 
-from modules.api_surface import api_fields
+from modules.api_surface import api_fields, fields_of
 from modules.exceptions import FrameDepthError, InputFramesUnusableError
 from modules.layer_record import GREY, Color, stored_key
 import modules.common_utils as common_utils
@@ -504,13 +504,19 @@ class FileFact:
     ``plane`` is its key in the file's Plane block, None for a fact that
     lives elsewhere in the file; ``unit`` is written beside it as
     ``<plane>Unit``. ``dropped_by_a_sum``: a derivation that adds frames
-    no longer states it.
+    no longer states it. A structured fact names ``fields``, each its own
+    pair in a file's view (``plate.well_label``), for the published facts
+    table; ``keyed_by`` is what a fact holding one entry per something is
+    keyed by (``frame_validity.0.source``). Declared for the table only:
+    the producer and the readers name the fields themselves.
     """
 
     kind: FactKind
     plane: str | None = None
     unit: str | None = None
     dropped_by_a_sum: bool = False
+    fields: tuple[str, ...] = ()
+    keyed_by: str | None = None
 
 
 # Every fact a saved file's record can state, by its key in the record: the
@@ -518,15 +524,20 @@ class FileFact:
 # added here is written, read back and carried, and a fact with no row is
 # none of them. Plane facts in the order the writer writes them.
 FILE_FACTS: dict[str, FileFact] = {
-    'objective': FileFact(FactKind.SHARED, 'Objective'),
+    # The objective as the catalogue publishes it.
+    'objective': FileFact(
+        FactKind.SHARED, 'Objective', fields=fields_of(objectives_loader.Objective)
+    ),
     # PositionX and PositionY, in mm: a pair, because half a plate coordinate
     # is not one.
-    'plate_pos_mm': FileFact(FactKind.SHARED),
+    'plate_pos_mm': FileFact(FactKind.SHARED, fields=('x', 'y')),
     'z_pos_um': FileFact(FactKind.SHARED, 'PositionZ', 'um'),
     'illumination_ma': FileFact(FactKind.CHANNEL, 'Illumination', 'mA'),
     # Every LED lit for the grab, by layer; Illumination is the named
     # channel's alone, and the one older files carry.
-    'illumination_by_channel_ma': FileFact(FactKind.CHANNEL, 'IlluminationByChannel', 'mA'),
+    'illumination_by_channel_ma': FileFact(
+        FactKind.CHANNEL, 'IlluminationByChannel', 'mA', keyed_by='layer name'
+    ),
     # When those currents were read (frame_record.LightTiming).
     'illumination_timing': FileFact(FactKind.CHANNEL, 'IlluminationTiming'),
     'exposure_time_ms': FileFact(FactKind.CHANNEL, 'ExposureTime', 'ms'),
@@ -555,8 +566,25 @@ FILE_FACTS: dict[str, FileFact] = {
     'frame_id': FileFact(FactKind.CAPTURE, 'FrameID'),
     # Each change the frame was judged against: whether it counts, how many
     # frames and milliseconds after the change it came, and who counted the
-    # frames that met the change's count.
-    'frame_validity': FileFact(FactKind.CAPTURE, 'FrameValidity'),
+    # frames that met the change's count: one judgment per change, its fields
+    # as Judgment.fields() states them, the last three only where it has them.
+    'frame_validity': FileFact(
+        FactKind.CAPTURE,
+        'FrameValidity',
+        keyed_by='judgment index',
+        fields=(
+            'source',
+            'rule',
+            'counts',
+            'frames_after',
+            'after_write_ms',
+            'skip',
+            'counted_by',
+            'after_in_force_ms',
+            'frame_start_ticks',
+            'qualifies_after_ticks',
+        ),
+    ),
     # What the capture found the frame to be: the fraction of its pixels at
     # full scale, and whether it was kept dark under a lit LED.
     'saturated_fraction': FileFact(FactKind.CAPTURE, 'SaturatedFraction'),
@@ -578,10 +606,14 @@ FILE_FACTS: dict[str, FileFact] = {
     'excitation_nm': FileFact(FactKind.CHANNEL),
     'filterset': FileFact(FactKind.SHARED),
     'pixel_size_um': FileFact(FactKind.SHARED),
-    'instrument': FileFact(FactKind.SHARED),
+    'instrument': FileFact(
+        FactKind.SHARED, fields=('manufacturer', 'model', 'serial_number', 'camera_model')
+    ),
     # The plate, and the well on it when the frame was taken over one: a
     # well is a place on a plate, so a record cannot name one without it.
-    'plate': FileFact(FactKind.SHARED),
+    'plate': FileFact(
+        FactKind.SHARED, fields=('name', 'rows', 'columns', 'standard', 'well_label')
+    ),
     'datetime': FileFact(FactKind.FILE),
     'significant_bits': FileFact(FactKind.FILE),
     'algorithm': FileFact(FactKind.FILE),

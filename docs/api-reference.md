@@ -17264,41 +17264,41 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 
 ## Saved-file facts
 
-Every fact a saved file's record can state, by its key (`modules/image_utils.FILE_FACTS`), in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, and whether a sum of frames drops it.
+Every fact a saved file's record can state, by its key (`modules/image_utils.FILE_FACTS`), in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).
 
-| Key | Kind | Plane key | Unit | Dropped by a sum |
-|---|---|---|---|---|
-| `objective` | shared | `Objective` | -- | no |
-| `plate_pos_mm` | shared | -- | -- | no |
-| `z_pos_um` | shared | `PositionZ` | um | no |
-| `illumination_ma` | channel | `Illumination` | mA | no |
-| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no |
-| `illumination_timing` | channel | `IlluminationTiming` | -- | no |
-| `exposure_time_ms` | channel | `ExposureTime` | ms | no |
-| `gain_db` | channel | `Gain` | dB | no |
-| `black_level` | channel | `BlackLevel` | -- | no |
-| `frames_summed` | channel | `FramesSummed` | -- | yes |
-| `binning_size` | shared | `Binning` | -- | no |
-| `timestamp_iso` | capture | `Timestamp` | -- | no |
-| `timestamp_source` | capture | `TimestampSource` | -- | no |
-| `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no |
-| `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no |
-| `frame_id` | capture | `FrameID` | -- | no |
-| `frame_validity` | capture | `FrameValidity` | -- | no |
-| `saturated_fraction` | capture | `SaturatedFraction` | -- | no |
-| `dark` | capture | `Dark` | -- | no |
-| `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no |
-| `camera_held_channel` | capture | `CameraHeldChannel` | -- | no |
-| `fallback_focus` | capture | `FallbackFocus` | -- | no |
-| `recording_frame` | capture | `RecordingFrame` | -- | no |
-| `stage_moving` | capture | `StageMoving` | -- | no |
-| `channel` | file | -- | -- | no |
-| `channel_display` | channel | -- | -- | no |
-| `excitation_nm` | channel | -- | -- | no |
-| `filterset` | shared | -- | -- | no |
-| `pixel_size_um` | shared | -- | -- | no |
-| `instrument` | shared | -- | -- | no |
-| `plate` | shared | -- | -- | no |
-| `datetime` | file | -- | -- | no |
-| `significant_bits` | file | -- | -- | no |
-| `algorithm` | file | -- | -- | no |
+| Key | Kind | Plane key | Unit | Dropped by a sum | Fields |
+|---|---|---|---|---|---|
+| `objective` | shared | `Objective` | -- | no | `id`, `description`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `z_settle_tolerance_um`, `z_settle_timeout_ms`, `focus_peak_fwhm_dense_um` |
+| `plate_pos_mm` | shared | -- | -- | no | `x`, `y` |
+| `z_pos_um` | shared | `PositionZ` | um | no | -- |
+| `illumination_ma` | channel | `Illumination` | mA | no | -- |
+| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by layer name |
+| `illumination_timing` | channel | `IlluminationTiming` | -- | no | -- |
+| `exposure_time_ms` | channel | `ExposureTime` | ms | no | -- |
+| `gain_db` | channel | `Gain` | dB | no | -- |
+| `black_level` | channel | `BlackLevel` | -- | no | -- |
+| `frames_summed` | channel | `FramesSummed` | -- | yes | -- |
+| `binning_size` | shared | `Binning` | -- | no | -- |
+| `timestamp_iso` | capture | `Timestamp` | -- | no | -- |
+| `timestamp_source` | capture | `TimestampSource` | -- | no | -- |
+| `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no | -- |
+| `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- |
+| `frame_id` | capture | `FrameID` | -- | no | -- |
+| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `rule`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms`, `frame_start_ticks`, `qualifies_after_ticks` |
+| `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- |
+| `dark` | capture | `Dark` | -- | no | -- |
+| `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- |
+| `camera_held_channel` | capture | `CameraHeldChannel` | -- | no | -- |
+| `fallback_focus` | capture | `FallbackFocus` | -- | no | -- |
+| `recording_frame` | capture | `RecordingFrame` | -- | no | -- |
+| `stage_moving` | capture | `StageMoving` | -- | no | -- |
+| `channel` | file | -- | -- | no | -- |
+| `channel_display` | channel | -- | -- | no | -- |
+| `excitation_nm` | channel | -- | -- | no | -- |
+| `filterset` | shared | -- | -- | no | -- |
+| `pixel_size_um` | shared | -- | -- | no | -- |
+| `instrument` | shared | -- | -- | no | `manufacturer`, `model`, `serial_number`, `camera_model` |
+| `plate` | shared | -- | -- | no | `name`, `rows`, `columns`, `standard`, `well_label` |
+| `datetime` | file | -- | -- | no | -- |
+| `significant_bits` | file | -- | -- | no | -- |
+| `algorithm` | file | -- | -- | no | -- |

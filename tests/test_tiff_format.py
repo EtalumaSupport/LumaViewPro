@@ -1374,10 +1374,11 @@ def _a_full_still(
     output_format,
     labware='96 well microplate',
     well_label='A1',
+    judgments=(),
 ):
     """A BF still with every field of its record set, lit by BF's LED, on
-    ``labware`` in ``well_label``: the record the save built, and the file it
-    wrote."""
+    ``labware`` in ``well_label``, judged as ``judgments`` say: the record the
+    save built, and the file it wrote."""
     from modules import image_save
     from modules.layer_record import release_colors
     from tests.frame_records import frame_record, plate
@@ -1399,6 +1400,7 @@ def _a_full_still(
         saturated_fraction=0.25,
         dark=False,
         held_channel='BF',
+        judgments=judgments,
     )
     where = {'plate_x_mm': 10.0, 'plate_y_mm': 20.0, 'stage_z_um': 5000.0}
     common = {
@@ -2011,3 +2013,60 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
         ('datetime', '2026-10-30T09:15:02.250000'),
         ('significant_bits', '12'),
     ]
+
+
+def _a_judgment_by_each_rule():
+    """A gain change judged by the credit rule, and a settled Z move by the
+    clock rule: between them every field a judgment can state."""
+    from modules.frame_validity import FrameValidity
+    from tests.test_a_capture_records_whether_its_frame_counts import (
+        _clocked,
+        _frame,
+        _mapping_at,
+    )
+
+    credit = FrameValidity(lambda: 0)
+    gain = credit.invalidate('gain', began_ns=None)
+    clock = _clocked('z_move', delay_us=0.0, settle_check=lambda source: True)
+    move = clock.invalidate('z_move', began_ns=None)
+    clock.motion_settled('z_move', at_ns=move.written_ns + 1_000_000, moving_seen_ns=None)
+    move = clock.changes()['z_move']
+    return (
+        credit.judge(_frame(3), gain, None),
+        clock.judge(
+            _frame(2, arrived_ns=move.in_force_ns + 4_000_000, started_ticks=10**12),
+            move,
+            _mapping_at(move.written_ns),
+        ),
+    )
+
+
+def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
+    """The published facts table listed a structured fact as one row, so a
+    caller could not learn that the well is ``plate.well_label``. Each
+    structured fact declares its fields and the table lists them, and a
+    record the save builds states exactly those: a field the save adds and
+    the table lacks, or one the table names and no save states, fails here.
+    The objective's focus-peak width is stated once it is measured."""
+    from tests.api_reference import _file_facts_table
+
+    recorded, _ = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='8bit',
+        significant_bits=8,
+        dtype=np.uint8,
+        output_format='TIFF',
+        judgments=_a_judgment_by_each_rule(),
+    )
+
+    unmeasured = {'objective': {'focus_peak_fwhm_dense_um'}}
+    structured = {key: fact for key, fact in image_utils.FILE_FACTS.items() if fact.fields}
+    assert set(structured) == {'objective', 'plate_pos_mm', 'frame_validity', 'instrument', 'plate'}
+    for key, fact in structured.items():
+        entries = recorded[key] if isinstance(recorded[key], list) else [recorded[key]]
+        stated = set().union(*entries)
+        assert stated == set(fact.fields) - unmeasured.get(key, set()), key
+    rows = {line.split(' | ')[0]: line for line in _file_facts_table().splitlines()}
+    assert '`well_label`' in rows['| `plate`']
+    assert 'keyed by layer name' in rows['| `illumination_by_channel_ma`']

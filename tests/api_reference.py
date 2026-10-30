@@ -561,20 +561,30 @@ def _events_table(index: _Index) -> str:
     )
 
 
+def _fact_fields(fact) -> str:
+    """A structured fact's fields, and what an entry is keyed by, for its row."""
+    fields = ', '.join(f'`{field}`' for field in fact.fields)
+    if fact.keyed_by is None:
+        return fields or '--'
+    return f'keyed by {fact.keyed_by}' + (f': {fields}' if fields else '')
+
+
 def _file_facts_table() -> str:
     lines = [
         f'| `{key}` | {fact.kind.value} | {f"`{fact.plane}`" if fact.plane else "--"} | '
-        f'{fact.unit or "--"} | {"yes" if fact.dropped_by_a_sum else "no"} |'
+        f'{fact.unit or "--"} | {"yes" if fact.dropped_by_a_sum else "no"} | {_fact_fields(fact)} |'
         for key, fact in FILE_FACTS.items()
     ]
     return (
         "Every fact a saved file's record can state, by its key (`modules/image_utils.FILE_FACTS`), "
         'in the order the writer writes them: what it describes (a derived file states a `capture` '
         "fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs "
-        "state it), its key in the file's Plane block, the unit written beside it, and whether a "
-        'sum of frames drops it.\n\n'
-        '| Key | Kind | Plane key | Unit | Dropped by a sum |\n|---|---|---|---|---|\n'
-        + '\n'.join(lines)
+        "state it), its key in the file's Plane block, the unit written beside it, whether a "
+        'sum of frames drops it, and the fields of a structured fact. A file states a field only '
+        'when it has a value, and shows a person each field as its own `key.field` pair '
+        '(`plate.well_label`; an entry of a keyed fact `key.<key>.field`).\n\n'
+        '| Key | Kind | Plane key | Unit | Dropped by a sum | Fields |\n'
+        '|---|---|---|---|---|---|\n' + '\n'.join(lines)
     )
 
 
