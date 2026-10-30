@@ -16,7 +16,6 @@ implementation.
 """
 
 import ast
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -46,7 +45,7 @@ def identity_scope(sim_scope):
 
 def _read_channel_name(path) -> str:
     with tf.TiffFile(str(path)) as handle:
-        description = json.loads(handle.pages[0].description)
+        description = handle.shaped_metadata[0]
         return description['Channel']['Name'][0]
 
 

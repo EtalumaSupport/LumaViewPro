@@ -7,8 +7,10 @@ word. An OME-TIFF of a 4-frame sum then stated its per-frame exposure and no
 count, so it read as a quarter of its integration; a dark frame, a frame
 taken inside a change's settle and one after a raw camera write read as good
 ones. The facts the schema has no attribute for ride in the image's
-``etaluma.com/lvp`` MapAnnotation, OME's own key/value slot, which
-Bio-Formats shows; an ImageJ file of the same frame keeps them in its Plane.
+``etaluma.com/lvp`` MapAnnotation, OME's own key/value slot, typed for
+LVP's reader; an ImageJ file of the same frame keeps them in its Plane. Fiji's
+Display metadata lists neither: a person reads the file's view, which no LVP
+reader reads and which is not one of these homes.
 
 Every case writes through the real writer and reads the file back from disk.
 """
@@ -120,7 +122,7 @@ def test_the_ome_file_keeps_the_plane_an_imagej_file_keeps(tmp_path):
     ome_plane = {key: float(schema[key]) for key in _SCHEMA_NUMBERS if key in schema}
     ome_plane |= {key: schema[key] for key in _UNITS if key in schema}
     assert set(ome_plane) | set(annotated) == set(imagej_plane)
-    assert not set(ome_plane) & set(annotated), 'a fact has two homes in one file'
+    assert not set(ome_plane) & set(annotated), 'a fact has two homes LVP reads in one file'
     for key, value in annotated.items():
         assert value == imagej_plane[key], key
     for key in _SCHEMA_NUMBERS:

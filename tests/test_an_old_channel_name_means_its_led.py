@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import datetime
 import ast
-import json
 import pathlib
 import shutil
 
@@ -212,7 +211,7 @@ def test_an_old_run_folder_builds_in_its_old_names(old_session, run_folder):
     assert len(made[PostProcessingOperation.COMPOSITE]) == 1
     blue = next(pathlib.Path(p) for p in made[PostProcessingOperation.STITCH] if '_Blue_' in str(p))
     with tifffile.TiffFile(blue) as tif:
-        described = json.loads(tif.pages[0].description)
+        described = tif.shaped_metadata[0]
     assert described['Channel']['Name'] == ['Blue']
     assert 'ExcitationWavelength' not in described['Channel']
     assert _texts(run_folder) == before

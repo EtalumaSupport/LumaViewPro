@@ -17,6 +17,7 @@ import datetime
 import errno
 import itertools
 import re
+import xml.etree.ElementTree as ET
 from unittest import mock
 
 import numpy as np
@@ -1731,7 +1732,7 @@ def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_s
         hyperstack,
         shape=(1, 1, 1, 8, 8),
         dtype=np.uint8,
-        hyperstack_metadata={'axes': 'TZCYX'},
+        hyperstack_metadata={'axes': 'TZCYX', 'record': {}},
         hyperstack_options={'photometric': 'minisblack'},
     )
 
@@ -1787,3 +1788,226 @@ def test_a_whole_write_leaves_only_the_file(img_16bit, metadata, tmp_tiff):
 
     assert list(path.parent.iterdir()) == [path]
     assert _read_tiff(path)['shape'] == img_16bit.shape
+
+
+def _the_view(path) -> list[tuple[str, str]]:
+    """The pairs a person is shown of the file at ``path``, read where Fiji
+    reads them for its container: an OME file's OriginalMetadata
+    annotations, an ImageJ file's Info, a plain file's first description."""
+    with tf.TiffFile(str(path)) as tif:
+        if tif.is_ome:
+            root = ET.fromstring(tif.ome_metadata)
+            pairs = []
+            for annotation in root.iter(q('XMLAnnotation')):
+                if annotation.get('Namespace') != 'openmicroscopy.org/OriginalMetadata':
+                    continue
+                pair = annotation.find(f'{q("Value")}/{q("OriginalMetadata")}')
+                pairs.append((pair.find(q('Key')).text, pair.find(q('Value')).text or ''))
+            return pairs
+        text = tif.imagej_metadata['Info'] if tif.is_imagej else tif.pages[0].description
+    return [tuple(line.split(' = ', 1)) for line in text.splitlines()]
+
+
+def _flat(key, value) -> list[tuple[str, str]]:
+    """The test's own flattening of one fact, as the plan states it: fields
+    joined by ``.``, items by index, flags ``true``/``false``, a time ISO
+    8601, a None no pair."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [pair for field, item in value.items() for pair in _flat(f'{key}.{field}', item)]
+    if isinstance(value, list):
+        return [pair for index, item in enumerate(value) for pair in _flat(f'{key}.{index}', item)]
+    if isinstance(value, bool):
+        return [(key, str(value).lower())]
+    if isinstance(value, datetime.datetime):
+        return [(key, value.isoformat())]
+    return [(key, str(value))]
+
+
+def _flattened_record(record: dict) -> list[tuple[str, str]]:
+    return [
+        pair for key in image_utils.FILE_FACTS if key in record for pair in _flat(key, record[key])
+    ]
+
+
+@pytest.mark.parametrize(
+    ('save_encoding', 'significant_bits', 'dtype', 'output_format'),
+    # parametrize-justified: the shaped-JSON, ImageJ and OME containers are
+    # three writers, each with its own place Fiji reads.
+    [
+        ('8bit', 8, np.uint8, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'TIFF'),
+        ('right_aligned', 12, np.uint16, 'OME-TIFF'),
+    ],
+)
+def test_a_still_shows_its_whole_record_where_fiji_reads_its_container(
+    sim_scope, tmp_path, save_encoding, significant_bits, dtype, output_format
+):
+    """Fiji showed a person none of a saved file's record: an OME file's
+    rides in a JSON MapAnnotation its Display metadata does not list, a
+    default 8-bit file's in one line of JSON, a 16-bit file's as Python dict
+    text. Every container now carries the whole record as plain pairs under
+    the record's own names, where Fiji reads that container: every fact the
+    save stated, the depth its writer stamped among them, and nothing the
+    writer was handed that is no fact (the save path). An OME file stays
+    valid against the schema."""
+    recorded, path = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding=save_encoding,
+        significant_bits=significant_bits,
+        dtype=dtype,
+        output_format=output_format,
+    )
+    if output_format == 'OME-TIFF':
+        valid_description(path)
+
+    view = _the_view(path)
+
+    # The save stamps its own time as it writes; the file's is the one shown.
+    written = {**recorded, 'significant_bits': significant_bits}
+    written['datetime'] = dict(view)['datetime']
+    assert [pair for pair in view if pair[0] != 'datetime'] == [
+        pair for pair in _flattened_record(written) if pair[0] != 'datetime'
+    ]
+    assert ('plate.well_label', 'A1') in view
+    assert (
+        datetime.datetime.fromisoformat(dict(view)['datetime']).replace(microsecond=0)
+        == image_utils.read_file_record(path)['datetime']
+    )
+
+
+def test_a_hyperstack_shows_its_record_and_its_build_time(sim_scope, tmp_path):
+    """A hyperstack's record is built from its frames' and its time is its
+    build's: Display metadata lists both, the one channel it is of among
+    them, at the second its DateTime tag states."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='OME-TIFF',
+    )
+    metadata = image_utils.build_hyperstack_output_metadata(
+        [image_utils.read_file_record(still)],
+        channel_names=['BF'],
+        channel_colors=[GREY],
+        plane_positions={
+            'PositionX': [10.0],
+            'PositionY': [20.0],
+            'PositionZ': [5000.0],
+            'DeltaT': None,
+        },
+        significant_bits=12,
+        pixel_size_um=0.65,
+    )
+    hyperstack = tmp_path / 'stack.ome.tiff'
+    image_utils.write_hyperstack_tiff(
+        iter([np.zeros((8, 8), dtype=np.uint16)]),
+        hyperstack,
+        (1, 1, 1, 8, 8),
+        np.uint16,
+        metadata,
+        {'photometric': 'minisblack'},
+    )
+    valid_description(hyperstack)
+    with tf.TiffFile(str(hyperstack)) as tif:
+        stamped = tif.pages[0].tags['DateTime'].value
+
+    view = _the_view(hyperstack)
+
+    built_at = datetime.datetime.strptime(stamped, '%Y:%m:%d %H:%M:%S')
+    assert view == _flattened_record({**metadata['record'], 'datetime': built_at})
+    assert ('channel', 'BF') in view
+    assert ('plate.well_label', 'A1') in view
+
+
+def test_a_derived_file_shows_the_record_it_states(sim_scope, tmp_path):
+    """A projection, a stitch and a composite write through the one writer,
+    so a derived OME file shows the record it states: what its inputs agree
+    on, and its own channel, time and depth."""
+    _, still = _a_full_still(
+        sim_scope,
+        tmp_path,
+        save_encoding='right_aligned',
+        significant_bits=12,
+        dtype=np.uint16,
+        output_format='OME-TIFF',
+    )
+    metadata = image_utils.build_postproc_output_metadata(
+        [image_utils.read_file_record(still)], 'BF', significant_bits=12, adds_frames=False
+    )
+    derived = tmp_path / 'derived.ome.tiff'
+    image_utils.write_tiff(
+        data=np.zeros((8, 8), dtype=np.uint16),
+        file_loc=derived,
+        metadata=metadata,
+        ome=True,
+        color=GREY,
+        significant_bits=12,
+        save_encoding='right_aligned',
+        white_bits=None,
+    )
+
+    assert _the_view(derived) == _flattened_record(metadata)
+    assert ('plate.well_label', 'A1') in _the_view(derived)
+
+
+def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
+    """No quotes, braces or Python reprs: a string is its text, a number its
+    digits, a flag ``true``/``false``, a time ISO 8601, a structured fact's
+    fields and a list's items each their own pair, and a None no pair. A
+    plain TIFF's description is ASCII, so a character outside it is written
+    as its escape there, and an OME file, which is UTF-8, keeps it."""
+    record = {
+        'objective': {'id': '20x Oly', 'magnification': 20},
+        'pixel_size_um': None,
+        'channel': 'BF',
+        'exposure_time_ms': 50.0,
+        'frame_validity': [{'source': 'led', 'counts': True}, {'source': 'gain', 'counts': False}],
+        'plate': {'name': '96 well \u00b5plate', 'well_label': 'D6'},
+        'datetime': datetime.datetime(2026, 10, 30, 9, 15, 2, 250000),
+    }
+    shown = {}
+    for name, ome, dtype, bits, encoding in (
+        ('plain.tiff', False, np.uint8, 8, '8bit'),
+        ('frame.ome.tiff', True, np.uint16, 12, 'right_aligned'),
+    ):
+        image_utils.write_tiff(
+            data=np.zeros((8, 8), dtype=dtype),
+            file_loc=tmp_path / name,
+            metadata=record,
+            ome=ome,
+            color=GREY,
+            significant_bits=bits,
+            save_encoding=encoding,
+            white_bits=None,
+        )
+        shown[name] = _the_view(tmp_path / name)
+
+    plain = [
+        ('objective.id', '20x Oly'),
+        ('objective.magnification', '20'),
+        ('exposure_time_ms', '50.0'),
+        ('frame_validity.0.source', 'led'),
+        ('frame_validity.0.counts', 'true'),
+        ('frame_validity.1.source', 'gain'),
+        ('frame_validity.1.counts', 'false'),
+        ('channel', 'BF'),
+    ]
+    assert shown['plain.tiff'] == [
+        *plain,
+        ('plate.name', '96 well \\u00b5plate'),
+        ('plate.well_label', 'D6'),
+        ('datetime', '2026-10-30T09:15:02.250000'),
+        ('significant_bits', '8'),
+    ]
+    assert shown['frame.ome.tiff'] == [
+        *plain,
+        ('plate.name', '96 well \u00b5plate'),
+        ('plate.well_label', 'D6'),
+        ('datetime', '2026-10-30T09:15:02.250000'),
+        ('significant_bits', '12'),
+    ]

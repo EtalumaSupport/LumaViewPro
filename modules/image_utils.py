@@ -456,12 +456,16 @@ _TIFF_TAG_WHITE_BITS = 65124
 # The values the OME schema's Plane has attributes for, each with its unit.
 # tifffile's OME writer keeps these and drops every other Plane key without a
 # word, so write_tiff carries the rest in the image's MapAnnotation in LVP's
-# namespace: OME's own key/value slot, which Bio-Formats shows.
+# namespace: OME's own key/value slot, typed for LVP's reader. Fiji's Display
+# metadata lists none of it; a person reads the file's view (_readable_view).
 _OME_PLANE_VALUES = ('DeltaT', 'ExposureTime', 'PositionX', 'PositionY', 'PositionZ')
 _OME_PLANE_ATTRIBUTES = frozenset(
     _OME_PLANE_VALUES + tuple(f'{value}Unit' for value in _OME_PLANE_VALUES)
 )
 _LVP_OME_ANNOTATION_NAMESPACE = 'etaluma.com/lvp'
+# Bio-Formats builds a file's original metadata, the table Fiji's Display
+# metadata shows, from the XMLAnnotations in this namespace, one per key.
+_ORIGINAL_METADATA_NAMESPACE = 'openmicroscopy.org/OriginalMetadata'
 
 # tifffile's OME writer serializes only Image, Pixels, Channel, Plane and the
 # MapAnnotation, and drops every other element without a word, so the
@@ -1602,7 +1606,8 @@ def build_hyperstack_output_metadata(
     OME-XML ``<Plane>`` elements via tifffile's per-axis list convention.
     Every stated fact no schema attribute holds rides in the LVP
     MapAnnotation, and the ``Instrument`` block is spliced into the
-    description by ``write_hyperstack_tiff``, since tifffile drops it.
+    description by ``write_hyperstack_tiff``, since tifffile drops it, with
+    the readable view of ``record``, the file's record.
 
     Pixel size is supplied by the caller, which sources it from the input
     frames' own PhysicalSizeX. Passing None omits the PhysicalSize keys
@@ -1707,6 +1712,11 @@ def build_hyperstack_output_metadata(
     instrument = _instrument_and_plate_blocks(facts).get('Instrument')
     if instrument:
         metadata['Instrument'] = instrument
+    # The file's record, for its readable view: the writer adds its time.
+    record = facts | {'pixel_size_um': pixel_size_um, 'significant_bits': significant_bits}
+    if len(channel_names) == 1:
+        record['channel'] = channel_names[0]
+    metadata['record'] = record
     return metadata
 
 
@@ -2205,7 +2215,8 @@ def write_hyperstack_tiff(
 
     tifffile's OME serializer drops the dict's ``Instrument``, so it is
     spliced into the description once the file is written and before it
-    takes its name (``_splice_ome_instrument``).
+    takes its name, with the view of the dict's ``record`` and the time
+    this writer stamps (``_splice_ome_additions``).
     """
     total_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
     use_bigtiff = total_bytes > 3.8 * 1024 * 1024 * 1024
@@ -2214,8 +2225,14 @@ def write_hyperstack_tiff(
             'write_hyperstack_tiff requires photometric in hyperstack_options; '
             'without it a <=4-wide trailing dimension can be misread as samples'
         )
+    # The hyperstack's time is its build's, to the second the tag states, so
+    # the tag and the view state one time.
+    written_at = datetime.datetime.now().replace(microsecond=0)
+    record = {**hyperstack_metadata['record'], 'datetime': written_at}
     tiff_metadata = {
-        key: value for key, value in hyperstack_metadata.items() if key != 'Instrument'
+        key: value
+        for key, value in hyperstack_metadata.items()
+        if key not in ('Instrument', 'record')
     }
     # The planes stream from the caller, which can refuse one mid-write.
     with _written_whole(file_loc) as tmp_loc:
@@ -2227,11 +2244,12 @@ def write_hyperstack_tiff(
                 resolution=hyperstack_resolution,
                 metadata=tiff_metadata,
                 software=f'LumaViewPro {version}',
-                # The hyperstack's time is its build's.
-                datetime=datetime.datetime.now().strftime(_TIFF_DATETIME),
+                datetime=written_at.strftime(_TIFF_DATETIME),
                 **hyperstack_options,
             )
-        _splice_ome_instrument(tmp_loc, hyperstack_metadata.get('Instrument'))
+        _splice_ome_additions(
+            tmp_loc, hyperstack_metadata.get('Instrument'), _readable_view(record)
+        )
 
 
 def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np.ndarray, int]:
@@ -2431,7 +2449,7 @@ def write_tiff(
                     **support_data['options'],
                 )
         if image_type == 'ome':
-            _splice_ome_instrument(tmp_loc, support_data['instrument'])
+            _splice_ome_additions(tmp_loc, support_data['instrument'], _readable_view(metadata))
 
 
 def generate_tiff_data(
@@ -2574,6 +2592,10 @@ def generate_tiff_data(
         tiff_metadata['LUTs'] = [get_imagej_lut(color)]
         if color != GREY:
             tiff_metadata['mode'] = 'color'
+        # The record as a person reads it: ImageJ's Info, which Show Info and
+        # Bio-Formats list line by line. ImageJ consumes its own description,
+        # so the record there is shown to no one.
+        tiff_metadata['Info'] = _view_lines(_readable_view(metadata), ascii_only=False)
         # imagej path mirrors the default/ome maxworkers=0 below for the
         # same Windows kernel-handle-leak reason; this path triggers on
         # 16-bit fluorescence + non-color + image_layer, which the
@@ -2610,6 +2632,12 @@ def generate_tiff_data(
             'maxworkers': 0,
         }
         resolution = resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
+        if image_type is None:
+            # The record as a person reads it: the first ImageDescription,
+            # which Show Info and Bio-Formats show; tifffile moves the shaped
+            # JSON LVP reads to the second. An OME file's is spliced once
+            # it is written.
+            options['description'] = _view_lines(_readable_view(metadata), ascii_only=True)
 
     # Carry the payload depth in a durable private TIFF tag so plain / ImageJ
     # outputs (which have no OME-XML) recover it on read-back; OME files get it
@@ -2693,28 +2721,121 @@ def _ome_annotation(
     }
 
 
+def _readable_view(record: dict) -> list[tuple[str, str]]:
+    """The record as a person reads it: ``(key, text)`` pairs, in ``FILE_FACTS`` order.
+
+    The view Fiji shows of a saved file, beside the typed record LVP reads
+    back; no LVP code reads it. Every fact of the record, the ones a schema
+    attribute or a tag also states among them, so the view is the record,
+    not a remainder; only ``FILE_FACTS`` keys, since the dict a writer is
+    handed also holds the save path. A structured fact's fields are joined
+    to its key with ``.`` (``plate.well_label``), a list's items by index
+    (``frame_validity.0.source``); a flag is ``true``/``false``, a time ISO
+    8601, and a None states nothing (``pixel_size_um`` None is no scale).
+    """
+    return [pair for key in FILE_FACTS if key in record for pair in _flattened(key, record[key])]
+
+
+def _flattened(key: str, value) -> list[tuple[str, str]]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [
+            pair for field, item in value.items() for pair in _flattened(f'{key}.{field}', item)
+        ]
+    if isinstance(value, (list, tuple)):
+        return [
+            pair for index, item in enumerate(value) for pair in _flattened(f'{key}.{index}', item)
+        ]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, bool):
+        return [(key, 'true' if value else 'false')]
+    if isinstance(value, datetime.datetime):
+        return [(key, value.isoformat())]
+    if isinstance(value, (str, int, float)):
+        return [(key, str(value))]
+    # The annotation's own refusal (_numpy_scalar_value): a text made of an
+    # unknown type's repr would read as a fact.
+    raise TypeError(f'a saved file cannot state a {type(value).__name__}')
+
+
+def _view_lines(view: list[tuple[str, str]], *, ascii_only: bool) -> str:
+    """The view as ``key = value`` lines, the form ImageJ's Info and Bio-Formats read.
+
+    ``ascii_only`` for a TIFF ImageDescription, which tifffile writes as 7-bit
+    ASCII and refuses other text: a character outside it is written as its
+    ``\\uXXXX`` escape.
+    """
+    text = '\n'.join(f'{key} = {value}' for key, value in view)
+    if not ascii_only:
+        return text
+    return ''.join(
+        char
+        if char.isascii()
+        else f'\\u{ord(char):04x}'
+        if ord(char) <= 0xFFFF
+        else f'\\U{ord(char):08x}'
+        for char in text
+    )
+
+
 def _ome_qualified(tag: str) -> str:
     return f'{{{_OME_NAMESPACE}}}{tag}'
 
 
-def _splice_ome_instrument(path: pathlib.Path, instrument: dict | None) -> None:
-    """Splice a written OME file's ``Instrument`` into its description.
+def _splice_ome_additions(
+    path: pathlib.Path, instrument: dict | None, view: list[tuple[str, str]]
+) -> None:
+    """Splice what tifffile's OME writer cannot write into a written OME file's description.
 
-    tifffile's OME writer drops the element, so it is inserted into the
-    description tifffile wrote, which is written last in the file and
-    extends in place: the Instrument before the first Image, as the schema
-    orders them, and each Image's InstrumentRef, then its ObjectiveSettings
-    when the Instrument holds an Objective, immediately before its Pixels. A
+    The ``Instrument``, which tifffile drops, and the file's readable view.
+    Both are inserted into the description tifffile wrote, which is written
+    last in the file and extends in place.
+
+    The Instrument goes before the first Image, as the schema orders them,
+    and each Image's InstrumentRef, then its ObjectiveSettings when the
+    Instrument holds an Objective, immediately before its Pixels. A
     reference to an absent part breaks the schema's keyref, so the
     Instrument is written only when one of its parts states something, and
     each reference only with what it names. ``instrument`` is the renderer's
     block (``_instrument_and_plate_blocks``), keyed by the schema's names.
+
+    The view (``_readable_view``) is one ``XMLAnnotation`` per pair in the
+    OriginalMetadata namespace, in the form Bio-Formats itself writes,
+    referenced by no Image; ``Annotation:0`` is tifffile's MapAnnotation.
+
     The description goes back as UTF-8 bytes: it holds the micro sign, and
     tiffcomment refuses a non-ASCII str.
     """
-    if not instrument:
-        return
     root = ET.fromstring(tf.tiffcomment(path))
+    images = root.findall(_ome_qualified('Image'))
+    if instrument:
+        _insert_instrument(root, images, instrument)
+    annotations = root.find(_ome_qualified('StructuredAnnotations'))
+    if annotations is None:
+        # tifffile writes none for a file with no MapAnnotation; the schema
+        # orders it after the last Image.
+        annotations = ET.Element(_ome_qualified('StructuredAnnotations'))
+        root.insert(list(root).index(images[-1]) + 1, annotations)
+    for index, (key, text) in enumerate(view):
+        annotation = ET.SubElement(
+            annotations,
+            _ome_qualified('XMLAnnotation'),
+            ID=f'Annotation:view:{index}',
+            Namespace=_ORIGINAL_METADATA_NAMESPACE,
+        )
+        pair = ET.SubElement(
+            ET.SubElement(annotation, _ome_qualified('Value')), _ome_qualified('OriginalMetadata')
+        )
+        ET.SubElement(pair, _ome_qualified('Key')).text = key
+        ET.SubElement(pair, _ome_qualified('Value')).text = text
+    description = io.BytesIO()
+    ET.ElementTree(root).write(description, encoding='utf-8', xml_declaration=True)
+    tf.tiffcomment(path, comment=description.getvalue())
+
+
+def _insert_instrument(root: ET.Element, images: list[ET.Element], instrument: dict) -> None:
     element = ET.Element(_ome_qualified('Instrument'), ID='Instrument:0')
     # The schema's order within an Instrument.
     for part, part_id in (
@@ -2727,7 +2848,6 @@ def _splice_ome_instrument(path: pathlib.Path, instrument: dict | None) -> None:
             if part_id is not None:
                 attributes = {'ID': part_id} | attributes
             ET.SubElement(element, _ome_qualified(part), attributes)
-    images = root.findall(_ome_qualified('Image'))
     root.insert(list(root).index(images[0]), element)
     for image in images:
         at = list(image).index(image.find(_ome_qualified('Pixels')))
@@ -2736,9 +2856,6 @@ def _splice_ome_instrument(path: pathlib.Path, instrument: dict | None) -> None:
             references.append(ET.Element(_ome_qualified('ObjectiveSettings'), ID='Objective:0:0'))
         for offset, reference in enumerate(references):
             image.insert(at + offset, reference)
-    description = io.BytesIO()
-    ET.ElementTree(root).write(description, encoding='utf-8', xml_declaration=True)
-    tf.tiffcomment(path, comment=description.getvalue())
 
 
 def _numpy_scalar_value(value):

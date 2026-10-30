@@ -793,11 +793,15 @@ frame was taken: the objective, the position, each lit channel's current and
 when it was read, the exposure, gain, black level and binning, the timestamps
 and where they came from, whether the camera held the channel's settings, and
 the frame-validity judgments. An OME-TIFF keeps the exposure and position in
-its OME `Plane` and the rest in a `MapAnnotation` (namespace `etaluma.com/lvp`),
-which Bio-Formats -- Fiji, QuPath, OMERO -- shows; a plain TIFF carries the same
-keys in its `Plane` block. Every key, its unit and what a sum does to it is the
-reference's [saved-file facts](api-reference.md#saved-file-facts). A fact the
-frame did not know is absent, never a stand-in.
+its OME `Plane` and the rest in a `MapAnnotation` (namespace `etaluma.com/lvp`);
+a plain TIFF carries the same keys in its `Plane` block. Those are the typed
+record LVP reads back. Every file also carries the record as a person reads it,
+plain `key = value` pairs under the record's own names (`plate.well_label = D6`,
+`exposure_time_ms = 50.0`): Fiji lists them in the Bio-Formats importer's
+*Display metadata* for every file, and in *Image > Show Info* for a plain TIFF.
+Every key, its unit and what a sum does to it is the reference's [saved-file
+facts](api-reference.md#saved-file-facts). A fact the frame did not know is
+absent, never a stand-in.
 
 **Derived files.** A z-projection, a stitch, a composite or a video states a
 fact only when every input states the same: a composite of several channels

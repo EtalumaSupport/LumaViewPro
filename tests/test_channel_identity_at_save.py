@@ -23,7 +23,6 @@ independent of rendering, at every seam and in every identity field.
 
 import ast
 import inspect
-import json
 
 import numpy as np
 import pytest
@@ -77,7 +76,7 @@ def _read_identity(path) -> dict:
                 'mode': imagej.get('mode'),
                 'photometric': photometric,
             }
-        description = json.loads(handle.pages[0].description)
+        description = handle.shaped_metadata[0]
         return {
             'Name': description['Channel']['Name'][0],
             'Modality': None,
