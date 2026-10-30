@@ -1007,13 +1007,18 @@ def pytest_testnodedown(node, error):
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Announce every ratchet count a test observed, beside its pin.
+    """Name the interpreter the run used, and announce every ratchet count a
+    test observed, beside its pin.
 
+    A test can pass on one supported Python and fail on the other, and
+    `-q` drops pytest's own platform header, so the log states it here.
     The ratchet tests fail on a wrong count; this prints the numbers
     whether or not they failed, so every pytest log carries the progress
     of each migration. Observations: tests/ratchets.py.
     """
     from tests import ratchets
+
+    terminalreporter.line(f'interpreter: Python {platform.python_version()} at {sys.executable}')
 
     # A worker the cap killed is reported by xdist as a crash; this names the
     # cap and the test so the log cannot read as an ordinary failure.
