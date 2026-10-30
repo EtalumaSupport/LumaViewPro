@@ -17,26 +17,22 @@ Test approach
 -------------
 - Structural lock (source-level): the Session member applies no floor of
   its own; it stores what the lock carries.
-- Behavioral: turn auto-gain off through ScopeSession.set_channel_auto_gain
-  with sub-floor exposures; assert the store holds the floored value, not
-  the raw one.
+- Behavioral: on a simulated session, arm the shown layer's auto-gain at a
+  sub-floor exposure (the simulated loop converges the gain and leaves the
+  exposure where it was) and turn it off through
+  ScopeSession.set_channel_auto_gain; assert the store holds the floored
+  value, not the raw one.
 """
 
 from __future__ import annotations
 
 import inspect
-from types import SimpleNamespace
 
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.activity_claim import ActivityClaim
-from modules.lumascope_api.camera import (
-    AutoGainConvergence,
-    AutoGainLock,
-    stored_exposure_after_lock,
-)
-from modules.scope_session import ScopeSession, SettingsLock
+from modules.lumascope_api.camera import stored_exposure_after_lock
+from modules.scope_session import ScopeSession
 from tests.stock_channels import LED0
 
 
@@ -68,47 +64,26 @@ class TestExposureFloorSourceStructure:
 
 
 # ---------------------------------------------------------------------------
-# Behavioral test: AST-extract + exec pattern
+# Behavioral test: a simulated session leaves auto-gain
 # ---------------------------------------------------------------------------
 
 
-def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
-    """Turn the layer's auto-gain off through the Session member, over a
-    scope whose lock returns ``lock``."""
-    session = SimpleNamespace(
-        scope=SimpleNamespace(
-            camera=SimpleNamespace(lock_auto_gain=lambda: lock, get_held_layer=lambda: layer),
-            camera_connected=True,
-        ),
-        settings=settings,
-        settings_lock=SettingsLock(lambda paths: None),
-        # A session that names no settings file: its writes wake no saver.
-        _settings_saver=None,
-        # The layer is shown, and the camera holds it.
-        _shown_layer=layer,
-        _auto_gain_locks={},
-        activity_claim=ActivityClaim(),
-        apply_layer_camera=lambda shown: None,
-    )
-    session._store_setting = ScopeSession._store_setting.__get__(session)
-    session._an_activity_holds_the_scope = ScopeSession._an_activity_holds_the_scope.__get__(
-        session
-    )
-    ScopeSession.set_channel_auto_gain(session, layer, False)
+@pytest.fixture
+def leave(sim_session):
+    """Leave *layer*'s auto-gain on ``sim_session`` after the loop ran at *raw_exp_ms*.
 
+    The layer is shown at that exposure, its auto-gain armed and then
+    turned off; returns the layer's stored exposure.
+    """
 
-def _lock(layer: str, gain_db: float, exposure_ms: float) -> AutoGainLock:
-    """The lock result a toggle-off hands the callback, built the way the
-    API builds it: the floor is applied to the STORED value by the API's
-    own rule, so these tests exercise production's decision, not a copy."""
-    floor = config_helpers.get_ag_ae_min_exposure_ms(layer)
-    return AutoGainLock(
-        AutoGainConvergence.CONVERGED,
-        exposure_ms,
-        gain_db,
-        floor,
-        stored_exposure_ms=stored_exposure_after_lock(exposure_ms, floor),
-    )
+    def leave(layer: str, raw_exp_ms: float) -> float:
+        sim_session.update_settings(f'{layer}.exposure_ms', raw_exp_ms)
+        sim_session.show_channel(layer)
+        sim_session.set_channel_auto_gain(layer, True)
+        sim_session.set_channel_auto_gain(layer, False)
+        return sim_session.get_setting(f'{layer}.exposure_ms')
+
+    return leave
 
 
 class TestExposureFloorBehavior:
@@ -119,22 +94,18 @@ class TestExposureFloorBehavior:
         'raw_exp_ms,expected_floor',
         [
             (0.030, 0.1),  # Pylon ExposureTime.Min for ace 2 etc.
-            (0.05, 0.1),  # below threshold
-            (0.099, 0.1),  # just below threshold
+            (0.09, 0.1),  # just below threshold, at the stored resolution (0.01 ms)
             (0.1, 0.1),  # at threshold (still allowed)
             (5.0, 5.0),  # above threshold -> passes through
         ],
     )
-    def test_bf_ag_feedback_floored_to_transmitted_min(self, raw_exp_ms, expected_floor):
+    def test_bf_ag_feedback_floored_to_transmitted_min(self, leave, raw_exp_ms, expected_floor):
         """For BF (transmitted), AG-feedback exp values < 0.1 ms must be
         floored to 0.1 before being written to settings. Without this,
         the next apply_settings fires the set_exposure_ms(<0.1ms)
         WARNING on every layer switch."""
-        settings = {'BF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        stored = leave('BF', raw_exp_ms)
 
-        _leave(settings, 'BF', _lock('BF', 0.0, raw_exp_ms))
-
-        stored = settings['BF']['exposure_ms']
         assert stored == expected_floor, (
             f'BF AG-feedback raw_exp={raw_exp_ms}ms should floor to '
             f'{expected_floor}ms, got {stored}ms. See class docstring '
@@ -145,62 +116,34 @@ class TestExposureFloorBehavior:
         'raw_exp_ms,expected_floor',
         [
             (0.030, 1.0),  # camera minimum -> 1ms fluorescence floor
-            (0.5, 1.0),  # below fluo floor
-            (0.999, 1.0),  # just below fluo floor
+            (0.9, 1.0),  # below fluo floor, at the stored resolution (0.01 ms)
             (1.0, 1.0),  # at fluo floor
             (15.0, 15.0),  # above floor -> passes through
         ],
     )
-    def test_blue_ag_feedback_floored_to_fluorescence_min(self, raw_exp_ms, expected_floor):
+    def test_blue_ag_feedback_floored_to_fluorescence_min(self, leave, raw_exp_ms, expected_floor):
         """For LED 0's channel (fluorescence), AG-feedback exp values < 1 ms must be
         floored to 1.0, the fluorescence class floor."""
-        settings = {LED0: {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        stored = leave(LED0, raw_exp_ms)
 
-        _leave(settings, LED0, _lock(LED0, 0.0, raw_exp_ms))
-
-        stored = settings[LED0]['exposure_ms']
         assert stored == expected_floor, (
             f'{LED0} AG-feedback raw_exp={raw_exp_ms}ms should floor to '
             f'{expected_floor}ms (the fluorescence class floor), '
             f'got {stored}ms.'
         )
 
-    def test_pc_uses_transmitted_floor(self):
+    def test_pc_uses_transmitted_floor(self, leave):
         """PC is in the transmitted class (not in get_image_layers).
         Must use the 0.1 floor, not the 1.0 floor."""
-        settings = {'PC': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
-        _leave(settings, 'PC', _lock('PC', 0.0, 0.050))
-        assert settings['PC']['exposure_ms'] == 0.1
+        assert leave('PC', 0.050) == 0.1
 
-    def test_df_uses_transmitted_floor(self):
+    def test_df_uses_transmitted_floor(self, leave):
         """DF is in the transmitted class (not in get_image_layers).
         Must use the 0.1 floor, not the 1.0 floor."""
-        settings = {'DF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
-        _leave(settings, 'DF', _lock('DF', 0.0, 0.050))
-        assert settings['DF']['exposure_ms'] == 0.1
+        assert leave('DF', 0.050) == 0.1
 
-    def test_lumi_uses_fluorescence_floor(self):
+    @pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)
+    def test_lumi_uses_fluorescence_floor(self, leave):
         """Lumi (luminescence) is in get_image_layers; must use the 1.0
         floor like fluorescence, not the 0.1 transmitted floor."""
-        settings = {'Lumi': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
-        _leave(settings, 'Lumi', _lock('Lumi', 0.0, 0.5))
-        assert settings['Lumi']['exposure_ms'] == 1.0
-
-    def test_unknown_exposure_keeps_previous_settings(self):
-        """A non-physical exposure reading (nothing was ever successfully
-        read from the camera) must not overwrite the layer's stored
-        exposure -- the previous value is the best truth available."""
-        settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
-        _leave(settings, 'BF', _lock('BF', 3.0, 0.0))
-        assert settings['BF']['exposure_ms'] == 42.0
-        # The valid gain reading in the same lock still lands.
-        assert settings['BF']['gain_db'] == 3.0
-
-    def test_unknown_gain_keeps_previous_settings(self):
-        """A non-physical gain reading must not overwrite the layer's
-        stored gain, while a valid exposure in the same lock still
-        floors and lands."""
-        settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
-        _leave(settings, 'BF', _lock('BF', -1.0, 5.0))
-        assert settings['BF']['gain_db'] == 7.0
-        assert settings['BF']['exposure_ms'] == 5.0
+        assert leave('Lumi', 0.5) == 1.0

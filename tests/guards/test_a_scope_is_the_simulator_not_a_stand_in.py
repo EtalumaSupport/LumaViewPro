@@ -246,7 +246,6 @@ ALLOWED = frozenset(
         'tests/test_issue_655_ag_ae_exposure_cap.py::_video_session_autogain_call',
         'tests/test_issue_690_jpg_orientation.py::test_tiff_and_jpg_save_identical_orientation',
         'tests/test_jpg_export.py::_scope_with_depth',
-        'tests/test_layer_control_ag_exposure_floor.py::_leave',
         'tests/test_leaving_auto_gain_is_a_session_member.py::_session',
         'tests/test_leaving_auto_gain_is_a_session_member.py::test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws',
         'tests/test_led_ack_and_tsr_filename.py::TestLedDriverRejectsNonAckResponses._make_led',
