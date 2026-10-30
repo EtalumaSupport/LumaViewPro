@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 98
+ALLOWED_ENTRIES = 92
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -180,9 +180,6 @@ ALLOWED = frozenset(
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_direct_construction_is_not_owned',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_session_needs_a_bundle',
         'tests/plugin_test_harness.py::_make_ctx',
-        'tests/test_a_basler_camera_publishes_the_formats_it_offers.py::_capabilities',
-        'tests/test_a_camera_states_its_analog_gain_maximum.py::_capabilities',
-        'tests/test_a_camera_states_its_analog_gain_maximum.py::test_no_camera_states_none',
         'tests/test_a_failed_save_is_reported_once.py::test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing',
         'tests/test_a_recorded_frame_says_where_it_was_taken.py::_fake_scope',
         'tests/test_a_refusal_names_the_run_holding_the_scope.py::TestWhoStartedTheRunNeverReachesTheSentence.test_a_diagnostic_refused_by_a_run_names_the_run',
@@ -216,8 +213,6 @@ ALLOWED = frozenset(
         'tests/test_audit_fixes.py::_sim_backed_imaging',
         'tests/test_auto_gain_lock.py::_build',
         'tests/test_auto_gain_lock.py::_build_inert',
-        'tests/test_autogain_support_capability_gate.py::TestCapabilityMapping._caps_for',
-        'tests/test_camera_capabilities.py::TestScopeCapabilitiesIntegration._stub_motion',
         'tests/test_camera_getter_sentinel_containment.py::_build_camera',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
         'tests/test_composite_run_outcome.py::_runner',
@@ -238,7 +233,6 @@ ALLOWED = frozenset(
         'tests/test_led_ack_and_tsr_filename.py::TestTsrLedEngineeringRoutesThroughDriver.test_enter_engineering_answers_the_refusals_words_when_led_absent',
         'tests/test_led_ack_and_tsr_filename.py::TestTsrLedEngineeringRoutesThroughDriver.test_enter_engineering_calls_sub_api',
         'tests/test_led_ack_and_tsr_filename.py::TestTsrLedEngineeringRoutesThroughDriver.test_exit_engineering_calls_sub_api',
-        'tests/test_led_cap_published_by_driver.py::_caps_with',
         'tests/test_led_supports_firmware_stim.py::TestSupportsFirmwareStimProbe._make_led',
         'tests/test_manual_capture_overlay_save.py::capture_ctx',
         'tests/test_motorboard_fullinfo_legacy_firmware.py::_make_board',

@@ -11,12 +11,10 @@ figure to the SDK). A camera with neither states none.
 import copy
 from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 from drivers.camera_profiles import GainInfo, lookup_profile
 from drivers.camera import Camera
-from modules.layer_record import UNRESOLVED
-from modules.scope_capabilities import ScopeCapabilities
+from tests.scope_fakes import capabilities_of
 
 
 def _capabilities(profile):
@@ -35,14 +33,7 @@ def _capabilities(profile):
         # The base driver's SDK label (none), which a real driver inherits.
         get_sdk_info=lambda: Camera.get_sdk_info(None),
     )
-    return ScopeCapabilities.from_drivers(
-        motion=MagicMock(motorconfig=None),
-        led=MagicMock(),
-        camera=camera,
-        channel_identity=UNRESOLVED,
-        scope_models={},
-        timing_record=None,
-    )
+    return capabilities_of(camera)
 
 
 def test_the_simulated_camera_states_the_profiles_analog_maximum(sim_scope):
@@ -72,12 +63,4 @@ def test_a_camera_whose_maximum_was_not_read_states_none():
 
 
 def test_no_camera_states_none():
-    caps = ScopeCapabilities.from_drivers(
-        motion=MagicMock(motorconfig=None),
-        led=MagicMock(),
-        camera=None,
-        channel_identity=UNRESOLVED,
-        scope_models={},
-        timing_record=None,
-    )
-    assert caps.camera_limits is None
+    assert capabilities_of(None).camera_limits is None

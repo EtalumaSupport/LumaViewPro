@@ -25,6 +25,7 @@ import pytest
 
 from drivers.ledboard import LEDBoard
 from drivers.sim_wire.backend import SimWireBackend
+from tests.scope_fakes import capabilities_of
 from tests.wire_boards import led_on_the_wire
 
 
@@ -193,39 +194,24 @@ class TestScopeCapabilitiesPlumbing:
     """ScopeCapabilities.from_drivers probes led.supports_firmware_stim
     and exposes the result via .has_firmware_stim."""
 
-    def _build_caps(self, led_stub):
-        """Build a ScopeCapabilities snapshot with a stub LED driver."""
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
-
-        return ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(),
-            led=led_stub,
-            camera=None,
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
-
     def test_has_firmware_stim_true_when_driver_reports_true(self):
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
-        caps = self._build_caps(SimulatedLEDBoard(supports_firmware_stim=True))
+        caps = capabilities_of(led=SimulatedLEDBoard(supports_firmware_stim=True))
         assert caps.has_firmware_stim is True
         assert caps.has_firmware_stim is True
 
     def test_has_firmware_stim_false_when_driver_reports_false(self):
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
-        caps = self._build_caps(SimulatedLEDBoard(supports_firmware_stim=False))
+        caps = capabilities_of(led=SimulatedLEDBoard(supports_firmware_stim=False))
         assert caps.has_firmware_stim is False
         assert caps.has_firmware_stim is False
 
     def test_has_firmware_stim_false_for_null_led_board(self):
         from drivers.null_ledboard import NullLEDBoard
 
-        caps = self._build_caps(NullLEDBoard())
+        caps = capabilities_of(led=NullLEDBoard())
         assert caps.has_firmware_stim is False
         assert caps.has_firmware_stim is False
 
@@ -233,20 +219,9 @@ class TestScopeCapabilitiesPlumbing:
         """Driver without supports_firmware_stim() -- the realistic
         AttributeError pre-rollout scenario -- gets False via _probe's
         AttributeError fallback (per the Rule 8 capability-probe corollary)."""
-        from drivers.null_motorboard import NullMotionBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
-
         old_led = MagicMock(spec=['available_channels'])
         # spec= restricts attrs: supports_firmware_stim raises AttributeError
         old_led.available_channels = MagicMock(return_value=())
 
-        caps = ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(),
-            led=old_led,
-            camera=None,
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
+        caps = capabilities_of(led=old_led)
         assert caps.has_firmware_stim is False

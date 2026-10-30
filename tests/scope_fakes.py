@@ -224,6 +224,28 @@ def give_stub_lanes(scope):
     return scope
 
 
+_NO_LED_BOARD = object()
+
+
+def capabilities_of(camera=None, led=_NO_LED_BOARD):
+    """The capabilities the production constructor builds for a scope with
+    no motor board and no model: ``camera``'s facts, and ``led``'s when an
+    LED driver is given (no LED board otherwise)."""
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+    from modules.layer_record import UNRESOLVED
+    from modules.scope_capabilities import ScopeCapabilities
+
+    return ScopeCapabilities.from_drivers(
+        motion=NullMotionBoard(),
+        led=NullLEDBoard() if led is _NO_LED_BOARD else led,
+        camera=camera,
+        channel_identity=UNRESOLVED,
+        scope_models={},
+        timing_record=None,
+    )
+
+
 def give_camera_capabilities(scope, camera):
     """Give a `Lumascope.__new__` stub the capabilities a built scope reads off `camera`.
 
@@ -231,19 +253,7 @@ def give_camera_capabilities(scope, camera):
     stub's static camera facts are the ones its camera reports. Returns the
     scope.
     """
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
-    from modules.layer_record import UNRESOLVED
-    from modules.scope_capabilities import ScopeCapabilities
-
-    scope.capabilities = ScopeCapabilities.from_drivers(
-        motion=NullMotionBoard(),
-        led=NullLEDBoard(),
-        camera=camera,
-        channel_identity=UNRESOLVED,
-        scope_models={},
-        timing_record=None,
-    )
+    scope.capabilities = capabilities_of(camera)
     return scope
 
 

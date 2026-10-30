@@ -15,7 +15,6 @@ import ast
 import inspect
 from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,12 +25,12 @@ from drivers.registry import led_registry
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from modules import config_helpers
 from modules.exceptions import ArgumentRefusedError
-from modules.layer_record import UNRESOLVED
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 from tests.case_walk import failing_cases
+from tests.scope_fakes import capabilities_of
 from tests.stock_channels import LED0, LED2
 
 # ---------------------------------------------------------------------------
@@ -64,17 +63,7 @@ def test_the_four_drivers_publish_their_own_boards_ceiling():
 
 
 def _caps_with(led) -> ScopeCapabilities:
-    motion = MagicMock()
-    motion.detect_present_axes.return_value = ()
-    motion.get_microscope_model.return_value = ''
-    return ScopeCapabilities.from_drivers(
-        motion=motion,
-        led=led,
-        camera=None,
-        channel_identity=UNRESOLVED,
-        scope_models={},
-        timing_record=None,
-    )
+    return capabilities_of(led=led)
 
 
 def test_capabilities_reports_the_connected_drivers_cap():

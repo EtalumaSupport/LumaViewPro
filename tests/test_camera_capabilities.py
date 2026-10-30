@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import re
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,9 +23,7 @@ from drivers.fx2driver import FX2Camera
 from drivers.idscamera import IDSCamera
 from drivers.pyloncamera import PylonCamera
 from drivers.simulated_camera import SimulatedCamera
-from modules.layer_record import UNRESOLVED
-from modules.scope_capabilities import ScopeCapabilities
-from tests.stock_channels import LED0, LED1, LED2
+from tests.scope_fakes import capabilities_of
 
 
 class TestBaseCameraDefaults:
@@ -96,22 +93,8 @@ class TestSimulatedDefaults:
 
 class TestScopeCapabilitiesIntegration:
     """``ScopeCapabilities.from_drivers`` reads the two flags off the
-    camera instance and surfaces them on the immutable capability snapshot.
-    Built without driver instantiation so unit tests don't need hardware."""
-
-    def _stub_motion(self):
-        motion = MagicMock()
-        motion.detect_present_axes.return_value = ('X', 'Y', 'Z')
-        motion.get_microscope_model.return_value = 'TEST-MODEL'
-        motion.motorconfig = None
-        return motion
-
-    def _stub_led(self):
-        led = MagicMock()
-        led.available_channels.return_value = (LED0, LED1, LED2)
-        led.available_colors.return_value = (LED0, LED1, LED2)
-        led.supports_firmware_stim.return_value = False
-        return led
+    camera instance and surfaces them on the immutable capability snapshot,
+    on a scope with no boards and no model."""
 
     def _stub_camera(self, is_color_native=False, native_bit_depth=16):
         cam = SimpleNamespace(
@@ -143,55 +126,27 @@ class TestScopeCapabilitiesIntegration:
         return cam
 
     def test_mono_camera_surfaces_defaults(self):
-        caps = ScopeCapabilities.from_drivers(
-            motion=self._stub_motion(),
-            led=self._stub_led(),
-            camera=self._stub_camera(),
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
+        caps = capabilities_of(self._stub_camera())
         assert caps.is_color_native is False
         assert caps.buffer_bit_depth == 16
         assert caps.camera_max_significant_bits == 8
 
     def test_an_8bit_buffer_camera_surfaces_8(self):
-        caps = ScopeCapabilities.from_drivers(
-            motion=self._stub_motion(),
-            led=self._stub_led(),
-            camera=self._stub_camera(native_bit_depth=8),
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
+        caps = capabilities_of(self._stub_camera(native_bit_depth=8))
         assert caps.buffer_bit_depth == 8
 
     def test_color_camera_surfaces_true(self):
         """Phase 2 activation path: a hypothetical color-native camera
         reports is_color_native=True. Phase 1 ships the flag plumbing
         so Phase 2 can flip the flag without touching capabilities."""
-        caps = ScopeCapabilities.from_drivers(
-            motion=self._stub_motion(),
-            led=self._stub_led(),
-            camera=self._stub_camera(is_color_native=True),
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
+        caps = capabilities_of(self._stub_camera(is_color_native=True))
         assert caps.is_color_native is True
 
     def test_no_camera_safe_defaults(self):
         """``camera=None`` (headless / disconnected) yields mono / 16-bit
         defaults rather than raising. Matches the empty-default
         contract on the rest of ScopeCapabilities."""
-        caps = ScopeCapabilities.from_drivers(
-            motion=self._stub_motion(),
-            led=self._stub_led(),
-            camera=None,
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
+        caps = capabilities_of(None)
         assert caps.is_color_native is False
         assert caps.buffer_bit_depth == 16
         assert caps.camera_max_significant_bits is None

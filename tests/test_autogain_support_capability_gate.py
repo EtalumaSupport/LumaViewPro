@@ -23,18 +23,13 @@ import ast
 import pathlib
 from types import SimpleNamespace
 
-from unittest.mock import MagicMock
-
 import pytest
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from drivers.camera import Camera
 from drivers.camera_profiles import lookup_profile
-from modules.layer_record import UNRESOLVED
-from modules.scope_capabilities import ScopeCapabilities
-from tests.scope_fakes import build_scope
-from tests.stock_channels import LED0, LED1, LED2
+from tests.scope_fakes import build_scope, capabilities_of
 from ui.image_settings import ImageSettings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -93,14 +88,6 @@ class TestCapabilityMapping:
     def _caps_for(self, model_name):
         from types import SimpleNamespace
 
-        motion = MagicMock()
-        motion.detect_present_axes.return_value = ('X', 'Y', 'Z')
-        motion.get_microscope_model.return_value = 'TEST-MODEL'
-        motion.motorconfig = None
-        led = MagicMock()
-        led.available_channels.return_value = (LED0, LED1, LED2)
-        led.available_colors.return_value = (LED0, LED1, LED2)
-        led.supports_firmware_stim.return_value = False
         camera = SimpleNamespace(
             model_name=model_name,
             device_serial=None,
@@ -115,14 +102,7 @@ class TestCapabilityMapping:
             # The base driver's SDK label (none), which a real driver inherits.
             get_sdk_info=lambda: Camera.get_sdk_info(None),
         )
-        return ScopeCapabilities.from_drivers(
-            motion=motion,
-            led=led,
-            camera=camera,
-            channel_identity=UNRESOLVED,
-            scope_models={},
-            timing_record=None,
-        )
+        return capabilities_of(camera)
 
     def test_ids_reports_no_hardware_autogain(self):
         caps = self._caps_for('U3-34LxXCP-M')
