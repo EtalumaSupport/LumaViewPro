@@ -192,7 +192,6 @@ ALLOWED = frozenset(
         'tests/test_a_refused_frame_listener_is_raised.py::TestAFailingHandlerIsBounded.test_a_handler_raising_k_frames_running_is_removed_with_one_traceback',
         'tests/test_a_refused_frame_listener_is_raised.py::TestAFailingHandlerIsBounded.test_a_handler_that_recovers_before_k_is_kept',
         'tests/test_a_refused_frame_listener_is_raised.py::TestARemovalIsReportedAndStopsCalls.test_an_over_budget_removal_is_one_warning_and_no_traceback',
-        'tests/test_a_refused_step_navigation_changes_nothing.py::nav_env',
         'tests/test_a_run_reads_its_settings_once.py::_runner_over_a_store_edited_after_the_first_read',
         'tests/test_a_runs_writes_run_on_its_lanes.py::test_a_step_darken_the_lane_refuses_falls_to_the_safety_off',
         'tests/test_a_stalled_writer_is_reported_by_the_api.py::session',
