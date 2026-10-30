@@ -5,9 +5,15 @@
 #
 # Reports, does not block. Branch protection is a separate decision.
 #
-# Targets 4.0.0-beta only, on purpose. `tools/check_rules.py` does not exist
-# on `main` yet, so a `main` job today would fail for the wrong reason and
-# teach everyone to ignore it. Add `main` when 4.0.0 promotes.
+# Targets 4.0.0-beta and the dev/4.0.0 trunk. `tools/check_rules.py` does not
+# exist on `main` yet, so a `main` job today would fail for the wrong reason
+# and teach everyone to ignore it. Add `main` when 4.0.0 promotes.
+#
+# The trunk is here because this is the one run on both supported Pythons: the
+# local push suite runs on one (its summary names which), and with 4.0.0-beta
+# alone a 3.12-only failure on the trunk went unseen until the next shipping
+# merge. A failed run emails the pusher. Only the newest push's run is wanted,
+# so a newer push on the same branch cancels the run in progress.
 #
 # FIRST-RUN RISK, named in advance so a red first run is diagnosed rather than
 # guessed at. It cannot be settled without executing this on a real runner,
@@ -31,9 +37,13 @@ name: tests
 
 on:
   push:
-    branches: [4.0.0-beta]
+    branches: [4.0.0-beta, dev/4.0.0]
   pull_request:
     branches: [4.0.0-beta]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
