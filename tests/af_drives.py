@@ -2,15 +2,10 @@
 """Builders that drive a real AutofocusRunner.run() headlessly.
 
 ``af_runner_on`` and ``sweep`` run it on a simulated scope, a real sweep
-over the simulated camera's focus target. ``af_runner_and_scope`` is the
-stand-in its callers are leaving: a MagicMock scope tuned so the AF loop
-actually executes:
-motion reports idle with numeric Z reads, the camera snapshot is a
-real dict, the default frame is a mid-gray ndarray, and
-get_target_positions()['Z'] sits past z_max so every coarse pass completes
-after a single sample. Tests patch
-modules.autofocus_functions.focus_function to control the curve shape
-(flat -> degenerate abort; positive -> two-pass success).
+over the simulated camera's focus target. A test chooses the curve's
+shape by the field it shows (``'white'`` scores zero everywhere) or by
+patching modules.autofocus_functions.focus_function, a score of the frame
+or of the Z it was made at.
 """
 
 from __future__ import annotations
@@ -18,14 +13,6 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from unittest.mock import MagicMock
-
-import numpy as np
-
-from modules.coord_transformations import AxisLimits
-from tests.objective_records import objective
-
-AF_CENTER_Z = 500.0
 
 
 def park_z(scope, z: float) -> None:
@@ -138,57 +125,3 @@ def settled_z(scope) -> float:
     while scope.motion.is_any_axis_moving():
         time.sleep(0.01)
     return scope.motion.get_current_position('Z')
-
-
-def af_runner_and_scope():
-    """Real AutofocusRunner wired to a MagicMock scope that run() can
-    drive headlessly. The scope's objective catalogue is a stub, so no
-    objective config file is read."""
-    from modules.autofocus_runner import AutofocusRunner, FocusPick
-
-    scope = MagicMock()
-    scope.led_connected = False
-    scope.motion.is_any_axis_moving.return_value = False
-    scope.motion.get_current_position.return_value = AF_CENTER_Z
-    scope.motion.get_target_positions.return_value = {'Z': 600.0}
-    scope.motion.get_axis_limits.return_value = AxisLimits(min_um=0.0, max_um=14000.0)
-    scope.camera.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
-    # AF grabs through the public capture_and_wait, under the run's taking.
-    scope.imaging.capture_and_wait.return_value = np.full((40, 40), 50, dtype=np.uint8)
-    runner = AutofocusRunner(
-        scope=scope,
-    )
-    scope.objective_helper.get_objective_info.return_value = objective(
-        autofocus_half_range_um=10.0, autofocus_step_max_um=30.0, autofocus_step_min_um=10.0
-    )
-    # The Gaussian fit needs a dense real curve; these drives feed 1-2
-    # samples per pass, so pin the fit result to the scan center.
-    runner._find_best = lambda df: FocusPick(AF_CENTER_Z, None)
-    return runner, scope
-
-
-def af_lease(scope):
-    """The child lease AF takes under the run's lease (scope.protocol_lease).
-
-    The run's lease hangs off the scope mock so its acquire_child call lands
-    in scope.mock_calls, in order with the AF-lease writes it spawns.
-    """
-    return scope.protocol_lease.acquire_child.return_value
-
-
-def drive_af(runner, **overrides):
-    """Call runner.run() with minimal interactive-trigger kwargs.
-
-    AF always runs inside a run, so it is handed the run's lease
-    (scope.protocol_lease); af_lease() is the child it takes under it.
-    """
-    kwargs = {
-        'objective_id': 'objective-under-test',
-        'abort_event': threading.Event(),
-        # No channel unless a test names one; run() requires both.
-        'led_color': None,
-        'led_illumination': 0.0,
-        'led_lease': runner._scope.protocol_lease,
-    }
-    kwargs.update(overrides)
-    return runner.run(**kwargs)
