@@ -19,8 +19,6 @@ import psutil
 import pytest
 import serial
 
-import drivers.motorboard as motorboard_mod
-import drivers.serialboard as serialboard_mod
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.port import EmulatedPort
@@ -124,20 +122,21 @@ class TestTheLinkAtThePort:
         finally:
             port.close()
 
-    def test_a_reboot_racing_a_reconnect_leaves_one_firmware_process(self, backend):
-        # A driver reconnects the moment a reboot drops its port; the reboot
-        # must not start a second firmware beside the one the reconnect found.
+    def test_a_reboot_racing_an_open_leaves_one_firmware_process(self, backend):
+        # A port opened the moment a reboot drops the last one, as a firmware
+        # update's new board opens it; the reboot must not start a second
+        # firmware beside the one the open found.
         _open(backend).close()
         stop = threading.Event()
 
-        def reconnect_forever():
+        def open_forever():
             while not stop.is_set():
                 try:
                     backend.open(port=MOTOR_DEVICE, timeout=0.1).close()
                 except serial.SerialException:
                     pass
 
-        racer = threading.Thread(target=reconnect_forever)
+        racer = threading.Thread(target=open_forever)
         racer.start()
         try:
             for _ in range(20):
@@ -181,17 +180,17 @@ class TestTheLinkAtThePort:
 
 
 class TestTheLinkThroughTheDriver:
-    def test_the_driver_reconnects_after_a_cable_pull_to_the_same_homed_firmware(self, backend):
+    def test_the_driver_does_not_reopen_its_port_after_a_cable_pull(self, backend):
+        """Nothing reconnects a board in a session: once the driver closes a
+        pulled port, a replugged board is not reopened by the next command."""
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
-            assert board.home() is None
             backend.motor_board.unplug()
             # The driver meets the pulled cable on its next exchange and closes.
             assert not board.exchange_command('INFO')
             backend.motor_board.replug()
-            # The next exchange reconnects: the same firmware, still homed.
-            fullinfo = board.exchange_command('FULLINFO')
-            assert re.search(r'Z homed: True', fullinfo)
+            assert board.exchange_command('FULLINFO') is None
+            assert not board.is_connected()
         finally:
             board.disconnect()
 
@@ -205,32 +204,9 @@ class TestTheLinkThroughTheDriver:
             board.disconnect()
 
 
-class _RecordingLogger:
-    def __init__(self):
-        self.records = []
-
-    def __getattr__(self, level):
-        def _log(msg, *args, **kwargs):
-            self.records.append((level.upper(), str(msg)))
-
-        return _log
-
-    def count(self, level, substring=''):
-        return sum(1 for lvl, msg in self.records if lvl == level and substring in msg)
-
-
 class TestABoardOffTheBus:
-    """A motor board whose cable is out: the driver never connects, answers
-    no model, and logs a connect failure per outage only until it says it
-    is suppressing them."""
-
-    @pytest.fixture
-    def recorder(self, monkeypatch):
-        recorder = _RecordingLogger()
-        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
-        # The connect failure is logged by the base class's one failure path.
-        monkeypatch.setattr(serialboard_mod, 'logger', recorder)
-        return recorder
+    """A motor board whose cable is out: the driver never connects and
+    answers no model."""
 
     def test_a_board_that_never_connected_has_no_model(self, backend):
         """The caller reads None as "use saved settings"; a raise here once
@@ -252,51 +228,3 @@ class TestABoardOffTheBus:
             assert board.get_microscope_model() == 'LS850'
         finally:
             board.disconnect()
-
-    def test_connect_errors_are_suppressed_after_ten_failures(self, backend, recorder):
-        """Failures 1-9 log errors; the 10th replaces its error with ONE
-        critical announcing suppression; failures 11+ stay silent, so a
-        board that stays pulled cannot flood the error log."""
-        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
-        try:
-            backend.motor_board.unplug()
-            # The driver meets the pulled cable on its next exchange and closes.
-            assert not board.exchange_command('INFO')
-            while board._connect_fails < 12:
-                board.connect()
-        finally:
-            board.disconnect()
-        assert recorder.count('ERROR', 'connect() failed') == 9, recorder.records
-        assert recorder.count('CRITICAL', 'suppressing') == 1, recorder.records
-
-    def test_connect_errors_log_again_after_a_connect_succeeds(self, backend, recorder):
-        """Suppression is per outage, not forever: after a successful
-        connect, a fresh failure logs again."""
-        # A port another program holds fails each connect while the board
-        # stays listed, so the driver keeps its port through the failures
-        # (a pulled cable would lose it: tests/capability/serial_p01_cable_pull.py).
-        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
-        sim = backend.motor_board
-
-        def hold_the_port():
-            sim.unplug()
-            # The driver meets the pulled cable on its next exchange and closes.
-            assert not board.exchange_command('INFO')
-            sim.replug()
-            return backend.open(port=MOTOR_DEVICE, timeout=0.5)
-
-        try:
-            held = hold_the_port()
-            for _ in range(11):
-                board.connect()
-            assert recorder.count('ERROR', 'connect() failed') == 9, recorder.records
-            held.close()
-            board.connect()
-            assert board.is_connected()
-
-            held = hold_the_port()
-            board.connect()
-            held.close()
-        finally:
-            board.disconnect()
-        assert recorder.count('ERROR', 'connect() failed') == 10, recorder.records

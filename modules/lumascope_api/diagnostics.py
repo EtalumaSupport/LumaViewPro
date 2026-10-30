@@ -1516,9 +1516,8 @@ class DiagnosticsAPI:
         """Whether a diagnostic may reach ``board``: found at bring-up, and not lost since.
 
         A board lost mid-session stays lost until LumaViewPro restarts, as
-        every other command treats it; an exchange sent to it would reach
-        the serial layer's reopen and bring it back under the API, its axes
-        answering positions held from before the loss.
+        every other command treats it, so a diagnostic is answered with the
+        loss rather than sent to a port that is closed.
         """
         return board is not None and getattr(board, 'found', False) and board.is_connected()
 

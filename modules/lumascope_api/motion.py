@@ -720,8 +720,7 @@ class MotionAPI:
         one exchange serialized with any in flight, so the answer never
         waits for a move or a home to finish, as the motion monitor's own
         reads do not. It does wait for what holds that lock now: one
-        exchange or one poll of a home, and at most a Stop's settle (2 s)
-        or a reopen of the port.
+        exchange or one poll of a home, and at most a Stop's settle (2 s).
 
         Returns:
             frozenset[Interlock]: The open interlocks.
@@ -1076,10 +1075,9 @@ class MotionAPI:
             HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver: without it, a home with no controller
-        # dispatches into the driver where exchange_command tries to
-        # auto-reconnect and burns its full timeout (~10 s), and the
-        # person sees a hang, then a "Homing Failed" that implies a
-        # homing-mechanics problem instead of the cable.
+        # dispatches into the driver and fails there, and the person sees
+        # a "Homing Failed" that implies a homing-mechanics problem
+        # instead of the cable.
         self.refuse_absent('home')
         present_axes = self._scope.capabilities.axes
         _api_log.info('home START')
@@ -1241,8 +1239,8 @@ class MotionAPI:
         """
         # Asked before the Z park: a scope with no turret would otherwise
         # park and restore Z and record slot 1 for a turret it does not
-        # have, and one with no controller burn the driver's auto-reconnect
-        # timeout first.
+        # have, and one with no controller fail in the driver as a home
+        # would.
         self.refuse_absent('home', 'T')
 
         # T goes HOMING once Z is parked, not before: until then nothing
@@ -1932,8 +1930,8 @@ class MotionAPI:
             HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver, as the full home does: its
-        # exchange_command would burn its auto-reconnect timeout and the
-        # user see a hang instead of the actual cause.
+        # exchange_command would fail there and the user see a homing
+        # fault instead of the actual cause.
         self.refuse_absent('home', 'Z')
         _api_log.info('Z home START')
         # What a home the interlock refuses before anything moves gives back.

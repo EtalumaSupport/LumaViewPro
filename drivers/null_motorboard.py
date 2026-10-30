@@ -47,7 +47,6 @@ class NullMotionBoard:
         self.initial_homing_complete = True  # trivially "homed" (no motors to home)
         self.initial_t_homing_complete = True
         self._has_turret = False
-        self._connect_fails = 0
         self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False

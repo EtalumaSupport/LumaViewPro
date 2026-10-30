@@ -189,11 +189,6 @@ class SimulatedLEDBoard:
         with self._lock:
             t_start = time.monotonic()
             if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return None
-            if self.driver is None:
                 return None
 
             # Failure injection: fail on specific commands, matched by first
@@ -240,11 +235,6 @@ class SimulatedLEDBoard:
     def _write_command_fast(self, command: str):
         with self._lock:
             t_start = time.monotonic()
-            if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return
             if self.driver is None:
                 return
 

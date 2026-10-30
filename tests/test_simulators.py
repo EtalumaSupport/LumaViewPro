@@ -53,14 +53,11 @@ class TestSimulatedLEDBoard:
         assert resp is not None
         assert 'STATUS' in resp
 
-    def test_disconnect_reconnect(self):
+    def test_a_disconnected_board_is_not_reopened_by_its_next_command(self):
         board = SimulatedLEDBoard()
         board.disconnect()
+        assert board.exchange_command('STATUS') is None
         assert not board.is_connected()
-        # exchange_command should auto-reconnect
-        resp = board.exchange_command('STATUS')
-        assert resp is not None
-        assert board.is_connected()
 
     def test_thread_safety(self):
         """Concurrent LED on/off should not corrupt state."""
@@ -192,13 +189,11 @@ class TestSimulatedMotorBoard:
         resp = board.exchange_command('INFO')
         assert 'SIMULATED' in resp
 
-    def test_disconnect_reconnect(self):
+    def test_a_disconnected_board_is_not_reopened_by_its_next_command(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.disconnect()
+        assert board.exchange_command('INFO') is None
         assert not board.is_connected()
-        resp = board.exchange_command('INFO')
-        assert resp is not None
-        assert board.is_connected()
 
     def test_acceleration_stubs(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
@@ -1710,8 +1705,8 @@ class TestFailureInjection:
         m.connect()
         assert not m.is_connected(), 'no port opens while the cable is out'
         m.replug()
-        assert m.exchange_command('INFO') is not None
-        assert m.is_connected()
+        assert m.exchange_command('INFO') is None, 'a replug is not reopened by a command'
+        assert not m.is_connected()
 
     def test_a_counted_drop_takes_that_many_of_its_command(self):
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)

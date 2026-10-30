@@ -321,7 +321,6 @@ class MotorBoard(SerialBoard):
                 info = self.fullinfo()
                 with self._state_lock:
                     self._fullinfo = info
-                self._connect_succeeded()
 
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:

@@ -7365,8 +7365,7 @@ queued on the IO lane: the driver reads it under its own lock,
 one exchange serialized with any in flight, so the answer never
 waits for a move or a home to finish, as the motion monitor's own
 reads do not. It does wait for what holds that lock now: one
-exchange or one poll of a home, and at most a Stop's settle (2 s)
-or a reopen of the port.
+exchange or one poll of a home, and at most a Stop's settle (2 s).
 
 **Returns**
 

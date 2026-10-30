@@ -138,14 +138,6 @@ class TestTheLedExchange:
             t.join(10)
         assert answers == {ch: f'LED {ch} set to 100 mA.' for ch in range(5)}
 
-    def test_after_a_pulled_cable_the_next_command_reconnects_and_is_answered(self):
-        board, sim = led_on_the_wire()
-        sim.unplug()
-        board.exchange_command('LEDS_OFF')
-        assert board.driver is None, 'the failed exchange left the port open'
-        sim.replug()
-        assert board.exchange_command('LED2_OFF') == 'LED 2 has been turned off'
-
 
 @pytest.mark.firmware_tier
 class TestTheMotorExchange:
@@ -561,7 +553,6 @@ class TestMotorBoardSafety:
         board.write_timeout = 5
         board.driver = _make_mock_serial()
         board._fullinfo = None
-        board._connect_fails = 0
         board.axes_config = {}
         board.firmware_version = None
         return board

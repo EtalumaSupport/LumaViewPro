@@ -637,13 +637,17 @@ def test_a_port_that_raises_on_its_flush_is_dropped_whatever_the_error():
     assert not board.is_connected()
 
 
-def test_an_unplugged_board_is_disconnected(board, sim):
+def test_an_unplugged_board_stays_disconnected_through_a_replug(board, sim):
+    """Nothing reopens a board during a session: a replugged board's next
+    command is refused, as the EL-0940's is."""
     sim.plugged = False
     with pytest.raises(HardwareError, match='port failed'):
         board.target_status('X')
     assert not board.is_connected()
+    sim.plugged = True
     with pytest.raises(HardwareError, match='not connected'):
         board.target_status('X')
+    assert not board.is_connected()
 
 
 # --- The simulated board itself -------------------------------------------

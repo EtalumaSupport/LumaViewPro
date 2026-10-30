@@ -1,16 +1,15 @@
-"""Serial P01: after a cable pull and a replug, do both boards answer again?
+"""Serial P01: after a cable pull and a replug, does each board stay lost?
 
-The firmware simulator says no (K68): a command while the cable is out
-makes `SerialBoard._open_serial` rescan, find nothing and set the port to
-None, and from then on `connect()` raises "No port found" without scanning,
-so a replugged board is lost until LumaViewPro restarts. This probe asks the
-same question of the connected scope, where the operator pulls and replugs
-the cable.
+Nothing reconnects a board in 4.0: a board whose port has closed is not
+reopened, and a replugged board waits for LumaViewPro's restart. This probe
+asks it of the connected scope, where the operator pulls and replugs the
+cable, and of the firmware simulator.
 
 Each stage reads both boards two ways: through the API (`motor_connected`,
 `led_connected`, `get_actual_position('Z')`) and with one INFO exchange
-through the production driver, the command the reconnect rides on. The
-driver's port and open state are reported beside them.
+through the production driver. With the cable out, the exchange raises,
+and the raise is the observation. The driver's port and open state are
+reported beside them.
 
     python tests/capability/serial_p01_cable_pull.py             # a simulated LS850T
     python tests/capability/serial_p01_cable_pull.py --hardware  # the connected scope
@@ -24,7 +23,8 @@ import sys
 import time
 import traceback
 
-from harness import HARDWARE, banner, check, figure, hardware_session, make_session, report, void
+from harness import HARDWARE, banner, check, figure, hardware_session, make_session, report
+from drivers.exceptions import HardwareError
 
 # Gap between the two commands at each stage, as K68's simulator run had it.
 _COMMAND_GAP_S = 2.0
@@ -49,7 +49,11 @@ def _listed(board):
 def _read(scope, stage):
     out = {}
     for name, board in _boards(scope).items():
-        answer = board.exchange_command('INFO')
+        try:
+            answer = board.exchange_command('INFO')
+        except HardwareError as e:
+            answer = None
+            figure(f'{stage}: {name} INFO raised', f'{type(e).__name__}: {e}')
         out[name] = answer
         figure(f'{stage}: {name} INFO', answer)
         figure(f'{stage}: {name} port, open', (board.port, board.driver is not None))
@@ -119,10 +123,9 @@ def _probe(session):
     after = [_read(scope, f'back {n}') for n in (1, 2)]
     time.sleep(_COMMAND_GAP_S)
     for name in ('motor', 'led'):
-        void(
-            f'the {name} board answers INFO after the replug',
-            any(a[name] for a in after),
-            'K68: a command while the cable was out left the port None; connect() never rescans',
+        check(
+            f'the {name} board stays lost after the replug: nothing reopens its port',
+            not any(a[name] for a in after),
         )
 
 

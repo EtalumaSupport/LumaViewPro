@@ -359,9 +359,9 @@ class Tmcm6110Board:
     def _exchange(self, command: int, type_: int, motor: int, value: int = 0) -> int:
         """Send one command and return its reply's value.
 
-        A port that is gone is looked for again first, as a replugged
-        board would be. A command that starts X or Y moving reads the lid
-        first, under the same lock. Whatever is waiting on the port is
+        A port that is gone stays gone: nothing reopens a board during a
+        session. A command that starts X or Y moving reads the lid first,
+        under the same lock. Whatever is waiting on the port is
         discarded before the write, so a reply that came late is never
         read as the next command's. One reply that does not come, does not
         check, or answers another command is one failed command: the port
@@ -379,9 +379,7 @@ class Tmcm6110Board:
         what = f'{COMMAND_NAMES.get(command, command)} {type_}, motor {motor}, value {value}'
         with self._lock:
             if self._serial is None:
-                self._serial = self._open_identified()
-                if self._serial is None:
-                    raise BoardPortFailedError(f'{what}: the TMCM-6110 is not connected')
+                raise BoardPortFailedError(f'{what}: the TMCM-6110 is not connected')
             if starts_lid_gated_motion(command, type_, motor) and self._lid_open():
                 self._refuse_for_lid(moved=False)
             try:

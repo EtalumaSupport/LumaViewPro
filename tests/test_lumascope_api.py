@@ -111,7 +111,7 @@ class TestLumascopeHome:
     @pytest.mark.parametrize('axis', ['ALL', 'T', 'Z'])
     def test_home_short_circuits_on_disconnected_motor(self, axis):
         """home() must return immediately when motor is not connected --
-        no 30-second exchange_command timeout, no auto-reconnect retry
+        no 30-second exchange_command timeout
         burning the IO_WORKER (the 'spinning beachball': the user had to
         force-quit the app while home() was blocked). Every selector: the
         Z body historically lacked this short-circuit."""

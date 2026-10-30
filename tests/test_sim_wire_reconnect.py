@@ -7,16 +7,14 @@ would wedge autofocus and a protocol run with no word to the user. The API
 faults it to UNKNOWN after its disconnect deadline and says so once. A board
 lost while every axis is idle reads as lost from the exchange that finds it.
 
-When a command fails on the wire the driver closes its port, and its next
-command reconnects without the disconnect path. After a cable pull that is
-right: the board stayed powered, its firmware is still homed, and the API
-still knows every position. After a reboot it is not: the firmware has lost
-its reference, and the API must stop answering that it knows where the
-stage is, or a run is admitted at positions that are not true.
+After a reboot the firmware has lost its reference, and the API must stop
+answering that it knows where the stage is, or a run is admitted at
+positions that are not true.
 
-The reboot case fails today: the reconnect keeps the API's axis states and
-the driver's homing latch (the triage track holds the fix). ``strict=True``
-turns it red once the fix lands, so the marker is removed with it.
+The reboot case is marked failing: it was written when the driver's next
+command reopened the port, and that reopen kept the API's axis states and
+the driver's homing latch. ``strict=True`` turns it red once it passes, so
+the marker is removed then.
 """
 
 import functools
@@ -59,14 +57,6 @@ def _silent_reconnect(scope) -> dict[str, bool]:
     assert driver.exchange_command('INFO') is None
     fullinfo = driver.exchange_command('FULLINFO')
     return {axis: value == 'True' for axis, value in re.findall(r'(\w) homed: (\w+)', fullinfo)}
-
-
-def test_after_a_cable_pull_the_firmware_and_the_api_both_still_know_the_stage(scope):
-    scope.simulation.unplug('motor')
-    scope.simulation.replug('motor')
-    assert _silent_reconnect(scope) == {'X': True, 'Y': True, 'Z': True, 'T': True}
-    assert scope.motion.axes_without_position() == {}
-    assert not (scope.motion.axes_without_position().keys() - {'T'})
 
 
 @pytest.mark.xfail(

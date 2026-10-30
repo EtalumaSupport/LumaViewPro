@@ -4,7 +4,7 @@ SerialBoard -- base class for RP2040-based serial controllers.
 
 Shared infrastructure for LEDBoard and MotorBoard: port discovery,
 connect/disconnect, firmware version detection, serial exchange with
-auto-reconnect and echo handling, and raw REPL file operations
+echo handling, and raw REPL file operations
 (config backup, firmware flash, INI updates).
 """
 
@@ -88,16 +88,6 @@ class SerialBoard:
         self.driver = None
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
-        # monotonic() of the last failed connect(). Gates the immediate
-        # auto-reconnect so a command fired right after a failed connect
-        # does not re-run the full open+reset+detect sequence and re-log
-        # the same failure.
-        self._last_connect_fail_time = 0.0
-        # Consecutive failed connects. After ten the failure stops logging
-        # at ERROR, so a board that stays unreachable cannot flood the
-        # error log; a successful connect resets it (per outage).
-        self._connect_fails = 0
-        self._connect_log_suppressed = False
         self._min_command_interval = 0.0  # seconds; 0 = no rate limit (subclass can override)
         self._last_command_time = 0.0
         self.baudrate = 115200
@@ -525,7 +515,6 @@ class SerialBoard:
             try:
                 self._open_serial()
                 self._reset_firmware()
-                self._connect_succeeded()
                 if self.firmware_version is not None:
                     logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
                 elif self.firmware_date is not None:
@@ -547,26 +536,10 @@ class SerialBoard:
             except Exception as e:
                 self._connect_failed(e)
 
-    def _connect_succeeded(self) -> None:
-        """Clear the reconnect-backoff window and the failure count."""
-        self._last_connect_fail_time = 0.0
-        self._connect_fails = 0
-        self._connect_log_suppressed = False
-
     def _connect_failed(self, exc: Exception) -> None:
-        """The one failure path of every board's connect: close, arm the
-        reconnect backoff, and log, until ten failures in a row."""
+        """The one failure path of every board's connect: close and log."""
         self._close_driver()
-        self._last_connect_fail_time = time.monotonic()
-        self._connect_fails += 1
-        if self._connect_fails >= 10 and not self._connect_log_suppressed:
-            logger.critical(
-                f'{self._label} connect() failed 10 times -- suppressing further connect '
-                'errors (other logging continues)'
-            )
-            self._connect_log_suppressed = True
-        if not self._connect_log_suppressed:
-            logger.error(f'{self._label} connect() failed: {exc}')
+        logger.error(f'{self._label} connect() failed: {exc}')
 
     def disconnect(self):
         """Close serial connection and clear cached state."""
@@ -812,40 +785,6 @@ class SerialBoard:
             expect_unsupported,
         )
 
-    def _log_reconnect_failure(self, command, exc):
-        """Log an auto-reconnect failure, deduped to one full error per
-        error class per error-log-interval window. A mid-operation USB yank
-        otherwise fires a fresh full-stack error for every queued command
-        (~73/sec measured on a mid-autofocus yank), flooding the error log.
-        The first failure keeps the full message; same-class repeats inside
-        the window drop to debug. Shared by every reconnect site so a flood
-        that bounces between command paths still dedupes against one window.
-        """
-        err_class = type(exc).__name__
-        now = time.monotonic()
-        last_class = getattr(self, '_last_reconnect_err_class', None)
-        last_time = getattr(self, '_last_reconnect_err_time', 0.0)
-        if last_class == err_class and (now - last_time) < self._error_log_interval:
-            _serial_log.debug(f'{self._label} {command} -> RECONNECT FAILED: same {err_class}')
-        else:
-            _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {exc}')
-            self._last_reconnect_err_class = err_class
-            self._last_reconnect_err_time = now
-
-    def _reconnect_backoff_active(self) -> bool:
-        """True when a connect() failed within the backoff window, so the
-        immediate auto-reconnect should be skipped.
-
-        A board that just failed to open won't appear within a couple
-        seconds; retrying re-runs the full open+reset+detect sequence and
-        re-logs the identical failure -- the duplicate startup error when a
-        command (LEDS_OFF / CONFIG) fires right after a failed construction
-        connect. Genuine recovery of a re-plugged board happens on a
-        seconds+ timescale, past this window, so it is unaffected.
-        """
-        last_fail = getattr(self, '_last_connect_fail_time', 0.0)
-        return bool(last_fail) and (time.monotonic() - last_fail) < self._error_log_interval
-
     def _exchange_command_impl(
         self,
         command,
@@ -856,7 +795,7 @@ class SerialBoard:
     ):
         """Send command and read response(s).
 
-        Handles auto-reconnect, LED echo detection (RE: prefix),
+        Handles LED echo detection (RE: prefix),
         multi-line responses, and firmware error logging.
 
         Args:
@@ -904,16 +843,6 @@ class SerialBoard:
                     f'{self._label} {command} -> REJECTED (board silent, power cycle required)'
                 )
                 return None
-
-            if self.driver is None:
-                if self._reconnect_backoff_active():
-                    return None
-                try:
-                    logger.info(f'{self._label} Auto-reconnect triggered by {command}')
-                    self.connect()
-                except Exception as e:
-                    self._log_reconnect_failure(command, e)
-                    return None
 
             if self.driver is None:
                 return None
@@ -1074,15 +1003,6 @@ class SerialBoard:
 
         with self._lock:
             if self.driver is None:
-                if self._reconnect_backoff_active():
-                    return None
-                try:
-                    logger.info(f'{self._label} Auto-reconnect triggered by {command}')
-                    self.connect()
-                except Exception as e:
-                    self._log_reconnect_failure(command, e)
-                    return None
-            if self.driver is None:
                 return None
 
             saved_timeout = self.driver.timeout
@@ -1174,12 +1094,6 @@ class SerialBoard:
         t_enter = time.monotonic()
         with self._lock:
             t_lock = time.monotonic()
-            if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return
-
             if self.driver is None:
                 return
 

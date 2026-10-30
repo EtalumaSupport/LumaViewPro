@@ -161,7 +161,6 @@ class SimulatedMotorBoard:
         self.thread_lock = threading.RLock()
         self.driver = True  # truthy sentinel
         self._fullinfo = {'model': model, 'serial_number': serial_number}
-        self._connect_fails = 0
         self._simulate_move_duration = False
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         # The date INFO carries; None as the original firmware's version is.
@@ -338,7 +337,6 @@ class SimulatedMotorBoard:
             if not self._plugged:
                 return
             self.driver = True
-            self._connect_fails = 0
             logger.info('[XYZ Sim   ] SimulatedMotorBoard.connect()')
 
     def disconnect(self) -> None:
@@ -502,11 +500,6 @@ class SimulatedMotorBoard:
                 self.driver = None
                 self.found = False
                 return None
-            if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return None
             if self.driver is None:
                 return None
 
