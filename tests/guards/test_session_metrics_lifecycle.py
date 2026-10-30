@@ -23,6 +23,7 @@ while the only realistic creep-back site is exactly lumaviewpro.py.
 """
 
 import ast
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -136,19 +137,18 @@ class TestCtxMirrorStaysRetired:
         )
 
 
-def test_a_host_that_starts_metrics_logs_its_environment_first():
+def test_a_host_that_starts_metrics_logs_its_environment_first(caplog):
     """Every host that starts metrics -- the GUI and the REST server alike --
     gets the environment fingerprint once, ahead of any metric line, because
     the session's start logs it rather than one host's launch."""
-    from modules import config_helpers
     from tests.settings_fixtures import complete_settings
 
+    caplog.set_level(logging.INFO, logger='LVP.metrics')
     session = ScopeSession.create(complete_settings(), simulate=True)
     try:
-        logged = config_helpers.metrics_logger.info.call_args_list
-        before = len(logged)
+        caplog.clear()
         session.enable_metrics()
-        lines = [str(call.args[0]) for call in logged[before:]]
+        lines = [r.getMessage() for r in caplog.records if r.name == 'LVP.metrics']
     finally:
         session.shutdown()
 

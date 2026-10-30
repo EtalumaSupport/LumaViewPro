@@ -20,6 +20,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 import faulthandler
 import functools
 import json
+import logging
 import os
 import platform
 import sys
@@ -123,9 +124,19 @@ def install_mock_deps():
     Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
     flag is set, so the real SDK can load.
     """
-    mock_logger = MagicMock()
     mock_lvp_logger = MagicMock()
-    mock_lvp_logger.logger = mock_logger
+    # The module stays a stand-in, since importing it opens a rotating file
+    # in the source tree's log folder; its loggers are the real ones under
+    # their production names, so what production writes reaches the test's
+    # captured log and a red says why. Unlike production, the camera,
+    # protocol and metrics loggers propagate, or the run's strike line
+    # would not reach caplog; a line production writes to both the main
+    # and the camera log is therefore captured twice, and a test counting
+    # lines filters by record.name.
+    mock_lvp_logger.logger = logging.getLogger('lvp_logger')
+    mock_lvp_logger.camera_logger = logging.getLogger('LVP.camera')
+    mock_lvp_logger.protocol_logger = logging.getLogger('LVP.protocol')
+    mock_lvp_logger.metrics_logger = logging.getLogger('LVP.metrics')
     mock_lvp_logger.version = 'test'
     # The build identity as the real module answers it for a source tree with
     # no commit to name: a record that writes it into JSON gets a string or
@@ -522,6 +533,27 @@ def _no_settings_replacement_outlives_its_test():
 
 
 @pytest.fixture(autouse=True)
+def _no_log_setting_outlives_its_test():
+    """Each test ends with the log levels and the autofocus score log as it found them.
+
+    A session puts its settings' level on the 'LVP' and 'lvp_logger'
+    loggers and turns the score log on or off, process-wide; left in place,
+    what a red's captured log holds would depend on what ran before it on
+    the worker.
+    """
+    loggers = [logging.getLogger(name) for name in ('LVP', 'lvp_logger')]
+    levels = [lg.level for lg in loggers]
+    autofocus = sys.modules.get('modules.autofocus_functions')
+    score_log = autofocus._enable_af_score_logging if autofocus is not None else False
+    yield
+    for lg, level in zip(loggers, levels, strict=True):
+        lg.setLevel(level)
+    autofocus = sys.modules.get('modules.autofocus_functions')
+    if autofocus is not None:
+        autofocus.enable_af_score_logging(enable=score_log)
+
+
+@pytest.fixture(autouse=True)
 def _disconnect_the_scopes_a_test_built():
     """Each scope a test built through `build_scope` is disconnected when the test ends.
 
@@ -897,17 +929,16 @@ def pytest_configure(config):
 
 
 def _enable_driver_logging(config):
-    """Point the mocked lvp_logger's `logger`/`camera_logger` at a REAL DEBUG
+    """Point the stand-in lvp_logger's `logger`/`camera_logger` at one DEBUG
     logger writing to a timestamped file + stdout.
 
-    The suite mocks lvp_logger, so every driver `logger.*` / `_cam_log.*` call is
-    normally swallowed by the MagicMock -- worthless when a --run-ids-hardware
-    bench test fails and the driver's internal narrative is exactly what's
-    needed. Runs in pytest_configure, before collection imports the drivers, so
-    their module-level `from lvp_logger import logger` binds to the real logger.
-    Off by default (flag-gated), so the normal mocked suite is unchanged.
+    The suite's loggers go to each test's captured log, at the level the
+    test's session set; a --run-ids-hardware bench test needs the driver's
+    whole narrative at DEBUG, in a file kept with the run. Runs in
+    pytest_configure, before collection imports the drivers, so their
+    module-level `from lvp_logger import logger` binds to this logger.
+    Off by default (flag-gated).
     """
-    import logging
     import time
 
     real = logging.getLogger('lvp_driver_test')
@@ -929,9 +960,8 @@ def _enable_driver_logging(config):
     if lvp is not None:
         lvp.logger = real
         lvp.camera_logger = real
-        # Without this, modules bound to the protocol lane
-        # (protocol_image_writer) log into the swallowing MagicMock and
-        # their narrative vanishes from --driver-log bench captures.
+        # And the protocol lane's (protocol_image_writer), or its
+        # narrative is missing from --driver-log bench captures.
         lvp.protocol_logger = real
 
     config._driver_log_path = log_path

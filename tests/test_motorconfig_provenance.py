@@ -13,6 +13,7 @@ field-merge into hardware that does not exist.
 """
 
 import json
+import logging
 import pathlib
 
 import pytest
@@ -20,7 +21,6 @@ import pytest
 from drivers.exceptions import ConfigReadError
 from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
-from lvp_logger import logger as _mock_logger
 from modules.path_utils import read_installation_file
 from tests.stock_channels import LED2
 from tests.wire_boards import motor_on_the_wire
@@ -101,12 +101,13 @@ class TestLoaderRecordsProvenance:
         monkeypatch.setattr(board, '_rebuild_cached_values', lambda: None, raising=False)
         return board
 
-    def test_failed_read_sets_the_flag_and_survives(self, tmp_path, monkeypatch):
+    def test_failed_read_sets_the_flag_and_survives(self, tmp_path, monkeypatch, caplog):
         board = self._board_with_config(tmp_path, monkeypatch, 'garbage %%')
-        _mock_logger.reset_mock()
         board._load_board_config()
         assert board.motorconfig.board_config_read_ok is False
-        assert any('unreadable' in str(c) for c in _mock_logger.warning.call_args_list)
+        assert any(
+            'unreadable' in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        )
 
     def test_clean_read_leaves_the_flag_true(self, tmp_path, monkeypatch):
         board = self._board_with_config(tmp_path, monkeypatch, '{"Serial Number": "SN1"}')

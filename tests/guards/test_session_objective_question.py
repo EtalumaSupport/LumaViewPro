@@ -24,7 +24,6 @@ from modules import settings_init
 from modules.exceptions import CatalogueNameRefusedError, ConfigError, PositionOutOfRangeError
 from modules.lumascope_api.motion import AxisState
 from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
-import modules.scope_session as scope_session_module
 from modules.scope_session import ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
@@ -89,14 +88,6 @@ def _turret_settings(**overrides):
     return base
 
 
-@pytest.fixture(autouse=True)
-def fresh_log():
-    """The suite installs a MagicMock as ``lvp_logger``, so the Session's
-    lines never reach pytest's log capture; they are read off the mock,
-    reset per case because the mock is process-wide."""
-    scope_session_module.logger.reset_mock()
-
-
 def _at_slot(session, slot):
     """Put the turret in a known slot. On a turreted scope the active
     objective is the slot's assignment, and a slot is known only after a
@@ -106,14 +97,10 @@ def _at_slot(session, slot):
     return session
 
 
-def _clear_log():
-    """Drop the bring-up's own lines so a case measures only the act."""
-    scope_session_module.logger.reset_mock()
-
-
-def _lines():
-    """Every message the Session and its helpers put on the log, any level."""
-    return [str(call.args[0]) for call in scope_session_module.logger.method_calls if call.args]
+def _lines(caplog):
+    """Every message the Session and its helpers put on the main log, at the
+    level the session's settings set from its bring-up on (INFO here)."""
+    return [r.getMessage() for r in caplog.records if r.name == 'lvp_logger']
 
 
 # ---------------------------------------------------------------------------
@@ -240,27 +227,29 @@ class TestT8ObjectiveQuestion:
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         assert session.objective_question() is None
 
-    def test_no_hardware_withholds_the_owed_question_and_says_so(self, sessions):
+    def test_no_hardware_withholds_the_owed_question_and_says_so(self, caplog, sessions):
         session = sessions(**_turret_settings())
         session.scope._no_hardware = True
         assert session.scope.no_hardware is True  # the lever works
         assert session.objective_question() is None
-        assert any('no hardware' in line for line in _lines()), _lines()
+        assert any('no hardware' in line for line in _lines(caplog)), _lines(caplog)
 
-    def test_no_hardware_with_nothing_owed_says_nothing(self, sessions):
+    def test_no_hardware_with_nothing_owed_says_nothing(self, caplog, sessions):
         session = _at_slot(sessions(**_turret_settings(objective_confirmed=True)), 1)
         session.scope._no_hardware = True
         assert session.scope.no_hardware is True  # the lever works
         assert session.objective_question() is None
-        assert not any('no hardware' in line for line in _lines()), _lines()
+        assert not any('no hardware' in line for line in _lines(caplog)), _lines(caplog)
 
-    def test_provisional_settings_defer_the_question_and_say_so(self, sessions, monkeypatch):
+    def test_provisional_settings_defer_the_question_and_say_so(
+        self, caplog, sessions, monkeypatch
+    ):
         session = sessions(**_turret_settings())
         monkeypatch.setattr(
             settings_init, 'rejected_current_json', ('/data/current.json', 'invalid JSON')
         )
         assert session.objective_question() is None
-        assert any('provisional' in line for line in _lines()), _lines()
+        assert any('provisional' in line for line in _lines(caplog)), _lines(caplog)
 
     def test_a_proposal_outside_the_catalogue_falls_back_to_the_default(self, sessions):
         # Slot values are stored as written, so a slot can name something
@@ -331,12 +320,12 @@ class TestT8ObjectiveQuestion:
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
         assert question.proposed != '20x Oly'
 
-    def test_a_returned_question_logs_nothing(self, sessions):
+    def test_a_returned_question_logs_nothing(self, caplog, sessions):
         # The renderer logs its own show; a polled read must not log per poll.
         session = _at_slot(sessions(**_turret_settings()), 1)
-        _clear_log()
+        caplog.clear()
         assert session.objective_question() is not None
-        assert not any('objective question' in line for line in _lines()), _lines()
+        assert not any('objective question' in line for line in _lines(caplog)), _lines(caplog)
 
 
 # ---------------------------------------------------------------------------
@@ -405,15 +394,15 @@ class TestT9ConfirmObjective:
 
 
 class TestT10SelectObjective:
-    def test_selecting_the_held_id_is_a_no_op(self, sessions):
+    def test_selecting_the_held_id_is_a_no_op(self, caplog, sessions):
         session = _at_slot(sessions(**_turret_settings()), 1)
         held = session.scope.runtime_state.get_current_objective_id()
         assert held == '4x Oly'  # slot 1's assignment, derived
-        _clear_log()
+        caplog.clear()
         assert session.select_objective(held) is False
-        assert not any('[Optics' in line for line in _lines()), _lines()
+        assert not any('[Optics' in line for line in _lines(caplog)), _lines(caplog)
 
-    def test_a_new_id_turns_to_its_slot_and_records_the_optics(self, sessions):
+    def test_a_new_id_turns_to_its_slot_and_records_the_optics(self, caplog, sessions):
         session = _at_slot(
             sessions(
                 **_turret_settings(
@@ -424,13 +413,13 @@ class TestT10SelectObjective:
         )
         # Slot 1's objective read (and so recorded) before the act.
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
-        _clear_log()
+        caplog.clear()
         assert session.select_objective('10x Oly') is True
         assert session.scope.motion.turret_status().slot == 2
         assert session.settings['turret_objectives'][1] == '4x Oly'
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
-        optics = [line for line in _lines() if line.startswith('[Optics')]
-        assert len(optics) == 1, _lines()
+        optics = [line for line in _lines(caplog) if line.startswith('[Optics')]
+        assert len(optics) == 1, _lines(caplog)
         assert 'objective=10x Oly' in optics[0]
         assert 'um/px' in optics[0] and 'no image scale' not in optics[0], optics[0]
 
@@ -542,19 +531,19 @@ class TestT10TurretPosition:
 
 
 class TestT14OpticsRecord:
-    def test_the_bring_up_record_carries_a_real_scale(self):
+    def test_the_bring_up_record_carries_a_real_scale(self, caplog):
         session = ScopeSession.create(
             complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
         )
         try:
-            optics = [line for line in _lines() if line.startswith('[Optics')]
-            assert len(optics) == 1, _lines()
+            optics = [line for line in _lines(caplog) if line.startswith('[Optics')]
+            assert len(optics) == 1, _lines(caplog)
             assert 'um/px' in optics[0] and 'no image scale' not in optics[0], optics[0]
             assert f'binning={session.scope.camera.read_binning()}' in optics[0]
         finally:
             session.shutdown()
 
-    def test_an_objective_change_records_the_optics_without_asking_the_camera(self):
+    def test_an_objective_change_records_the_optics_without_asking_the_camera(self, caplog):
         # The record made a fresh camera read inside a swallow on each
         # objective change; it reads the binning the camera last reported.
         from drivers.exceptions import CameraReadFailedError
@@ -569,8 +558,10 @@ class TestT14OpticsRecord:
             session.select_objective('10x Oly')
             assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
 
-            optics = [line for line in _lines() if line.startswith('[Optics') and '10x' in line]
-            assert len(optics) == 1, _lines()
+            optics = [
+                line for line in _lines(caplog) if line.startswith('[Optics') and '10x' in line
+            ]
+            assert len(optics) == 1, _lines(caplog)
             assert f'binning={held}' in optics[0], optics[0]
             with pytest.raises(CameraReadFailedError):
                 session.scope.camera.read_binning()  # the fault is still the camera's next read

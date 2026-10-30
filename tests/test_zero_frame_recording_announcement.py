@@ -11,15 +11,12 @@ returned 19 where the true answer was 2, and log-based triage is where
 every bench diagnosis on this project starts.
 
 These drive the real controller through the existing recording harness
-and assert on the calls the code actually made. ``caplog`` cannot see
-them: production modules do ``from lvp_logger import logger`` and
-conftest replaces that module with a MagicMock, so the records never
-reach the logging framework. Reading the mock's call list is what makes
-these assertions real rather than vacuous -- a first draft used caplog
-and passed nothing but empty lists.
+and read what it logged at INFO and WARNING.
 """
 
 from __future__ import annotations
+
+import logging
 
 import pytest
 
@@ -44,28 +41,23 @@ def _healthy_disk(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _fresh_log_calls():
-    """The mocked logger is module-level and accumulates across tests."""
-    manual_recording_module.logger.reset_mock()
-    video_writer_module.logger.reset_mock()
-    yield
+def _info_captured(caplog):
+    caplog.set_level(logging.INFO, logger='lvp_logger')
 
 
-def _logged(module, *needles):
-    """Messages the module passed to logger.info / logger.warning."""
-    calls = list(module.logger.info.call_args_list) + list(module.logger.warning.call_args_list)
-    out = []
-    for call in calls:
-        if not call.args:
-            continue
-        message = str(call.args[0])
-        if any(n in message for n in needles):
-            out.append(message)
-    return out
+def _logged(caplog, *needles):
+    """Messages logged on the main log at INFO or WARNING that carry a needle."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == 'lvp_logger'
+        and r.levelno in (logging.INFO, logging.WARNING)
+        and any(n in r.getMessage() for n in needles)
+    ]
 
 
-def _announcements():
-    return _logged(manual_recording_module, 'Video written to', 'No video written')
+def _announcements(caplog):
+    return _logged(caplog, 'Video written to', 'No video written')
 
 
 class TestEmptyRecordingAnnouncesNoFile:
@@ -85,7 +77,7 @@ class TestEmptyRecordingAnnouncesNoFile:
 
         assert list((tmp_path / 'Manual').glob('Video_*.mp4')) == []
 
-    def test_zero_frames_does_not_announce_a_path(self, tmp_path, post_processing):
+    def test_zero_frames_does_not_announce_a_path(self, caplog, tmp_path, post_processing):
         """The defect: no line may name a file that was never created."""
         controller, _scope, _clock = make_controller(
             tmp_path, video_as_frames=False, post_processing=post_processing
@@ -94,7 +86,7 @@ class TestEmptyRecordingAnnouncesNoFile:
         controller.stop()
         finish(controller)
 
-        said = _announcements()
+        said = _announcements(caplog)
         assert said, 'the controller logged no outcome at all; assertions below would be vacuous'
         assert not any('Video written to' in m for m in said), (
             f'an empty recording announced an output path: {said!r} -- that path '
@@ -105,7 +97,7 @@ class TestEmptyRecordingAnnouncesNoFile:
             f'an empty recording never said it produced no file: {said!r}'
         )
 
-    def test_frames_still_announce_their_path(self, tmp_path, post_processing):
+    def test_frames_still_announce_their_path(self, caplog, tmp_path, post_processing):
         """Behaviour preservation: a real recording still names its file."""
         controller, scope, clock = make_controller(
             tmp_path, video_as_frames=False, post_processing=post_processing
@@ -118,16 +110,18 @@ class TestEmptyRecordingAnnouncesNoFile:
         mp4s = list((tmp_path / 'Manual').glob('Video_*.mp4'))
         assert len(mp4s) == 1
 
-        announced = [m for m in _announcements() if 'Video written to' in m]
-        assert len(announced) == 1, f'expected one announcement, got {_announcements()!r}'
+        announced = [m for m in _announcements(caplog) if 'Video written to' in m]
+        assert len(announced) == 1, f'expected one announcement, got {_announcements(caplog)!r}'
         assert mp4s[0].name in announced[0], (
             f'the announcement names a different file than the one written: '
             f'{announced[0]!r} vs {mp4s[0].name}'
         )
-        assert not any('No video written' in m for m in _announcements())
+        assert not any('No video written' in m for m in _announcements(caplog))
 
     @pytest.mark.parametrize('n_frames', [0, 3])
-    def test_announcement_count_matches_files_on_disk(self, tmp_path, n_frames, post_processing):
+    def test_announcement_count_matches_files_on_disk(
+        self, caplog, tmp_path, n_frames, post_processing
+    ):
         """The invariant, across both outcomes.
 
         Parameterised so a future change cannot satisfy one direction by
@@ -143,7 +137,7 @@ class TestEmptyRecordingAnnouncesNoFile:
         finish(controller)
 
         on_disk = list((tmp_path / 'Manual').glob('Video_*.mp4'))
-        announced = [m for m in _announcements() if 'Video written to' in m]
+        announced = [m for m in _announcements(caplog) if 'Video written to' in m]
         assert len(announced) == len(on_disk), (
             f'{len(announced)} announcement(s) for {len(on_disk)} file(s) on disk'
         )
@@ -152,7 +146,7 @@ class TestEmptyRecordingAnnouncesNoFile:
 class TestWriterCloseMessageNamesItsRealCondition:
     """close() before the encoder opened is not the same as 'no frames'."""
 
-    def test_unopened_encoder_message_does_not_claim_a_frame_count(self):
+    def test_unopened_encoder_message_does_not_claim_a_frame_count(self, caplog):
         """_init_pyav opens eagerly, so this branch means never-opened.
 
         A recording that ran and captured nothing takes the other branch
@@ -168,7 +162,7 @@ class TestWriterCloseMessageNamesItsRealCondition:
 
         writer.close()
 
-        said = _logged(video_writer_module, 'close()', 'frames')
+        said = _logged(caplog, 'close()', 'frames')
         assert said, 'close() on an unopened writer logged nothing'
         assert any('encoder was opened' in m for m in said), (
             f'the unopened-encoder branch does not name its real condition: {said!r}'

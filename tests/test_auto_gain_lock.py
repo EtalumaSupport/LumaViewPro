@@ -25,7 +25,6 @@ import logging
 import threading
 from unittest.mock import patch
 
-import lvp_logger
 import pytest
 import modules.config_helpers as config_helpers
 from drivers.exceptions import CameraReadFailedError
@@ -154,14 +153,14 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, CameraAPI, _ChunkAeSim]:
     return imaging, camera, cam
 
 
-def _logged(level: str) -> list[str]:
-    """Messages the production code sent to lvp_logger.logger.<level>.
+@pytest.fixture(autouse=True)
+def _info_captured(caplog):
+    caplog.set_level(logging.INFO, logger='lvp_logger')
 
-    The test conftest installs a MagicMock in place of lvp_logger, so the
-    module-level ``logger`` every production module imports is that mock
-    and its calls are the record.
-    """
-    return [str(call.args[0]) for call in getattr(lvp_logger.logger, level).call_args_list]
+
+def _logged(caplog, level: int) -> list[str]:
+    """Messages the production code put on the main log at ``level``."""
+    return [r.getMessage() for r in caplog.records if r.name == 'lvp_logger' and r.levelno == level]
 
 
 def _arm(camera, settings, *, resume_after_capture):
@@ -189,16 +188,18 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
 
 
 @pytest.mark.slow
-def test_auto_gain_capture_reports_maxed_and_saves():
+def test_auto_gain_capture_reports_maxed_and_saves(caplog):
     """Auto-exposure pegged at the 200 ms class ceiling is MAXED: the frame
     is still returned and the lock line is logged at INFO."""
     imaging, camera, _cam = _build(ae_lands_on_ms=500.0)
-    lvp_logger.logger.reset_mock()
+    caplog.clear()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
     assert record.auto_gain is AutoGainConvergence.MAXED
     assert record.exposure_ms == 200.0
-    lock_lines = [m for m in _logged('info') if '[AG CONVERGE] locked: state=MAXED' in m]
+    lock_lines = [
+        m for m in _logged(caplog, logging.INFO) if '[AG CONVERGE] locked: state=MAXED' in m
+    ]
     assert len(lock_lines) == 1
 
 
@@ -231,12 +232,12 @@ def test_lock_result_carries_the_value_to_store():
     assert camera._lock_auto_gain_impl().stored_exposure_ms == 62.003
 
 
-def test_auto_gain_capture_failed_readback_fails_the_capture():
+def test_auto_gain_capture_failed_readback_fails_the_capture(caplog):
     """No chunks and a failed hardware readback leave nothing to lock: the
     state is FAILED, no exposure/gain target is recorded, the lock line is
     logged, and the capture fails, since its frame's exposure cannot be read."""
     imaging, camera, cam = _build(ae_lands_on_ms=62.0)
-    lvp_logger.logger.reset_mock()
+    caplog.clear()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     cam.chunks_absent = True
     cam.fail_readback = True
@@ -246,7 +247,7 @@ def test_auto_gain_capture_failed_readback_fails_the_capture():
     assert 'exposure' in str(failed.value.__cause__)
     assert imaging.frame_validity.target('exposure') is None
     assert imaging.frame_validity.target('gain') is None
-    assert any('[AG CONVERGE] locked: state=FAILED' in m for m in _logged('warning'))
+    assert any('[AG CONVERGE] locked: state=FAILED' in m for m in _logged(caplog, logging.WARNING))
 
 
 def test_live_view_arm_resumes_after_capture():
@@ -343,16 +344,18 @@ def test_class_floor_lives_in_config_helpers():
     assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in names
 
 
-def test_converged_lock_leaves_an_info_line():
+def test_converged_lock_leaves_an_info_line(caplog):
     """Every lock state leaves one line in a customer bundle, the normal
     one included: a converged lock logged only at debug left no trace of
     what the camera settled at when debug was off."""
     imaging, camera, _cam = _build(ae_lands_on_ms=62.003)
-    lvp_logger.logger.reset_mock()
+    caplog.clear()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
-    lock_lines = [m for m in _logged('info') if '[AG CONVERGE] locked: state=CONVERGED' in m]
-    assert len(lock_lines) == 1, _logged('info')
+    lock_lines = [
+        m for m in _logged(caplog, logging.INFO) if '[AG CONVERGE] locked: state=CONVERGED' in m
+    ]
+    assert len(lock_lines) == 1, _logged(caplog, logging.INFO)
 
 
 class _InertAeSim(_ChunkAeSim):
@@ -393,7 +396,7 @@ def _build_inert() -> tuple[ImagingAPI, CameraAPI, _InertAeSim]:
     return imaging, camera, cam
 
 
-def test_arm_clamps_exposure_above_the_class_cap():
+def test_arm_clamps_exposure_above_the_class_cap(caplog):
     """Arming with the exposure already above the class cap leaves the
     camera's loop outside its own range: the loop cannot bring the exposure
     down, the lock then reads the pinned value, and the write-back clips it
@@ -401,7 +404,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
     the gate to it, and says so once; an exposure inside the cap is left
     alone."""
     imaging, camera, cam = _build_inert()
-    lvp_logger.logger.reset_mock()
+    caplog.clear()
     camera._apply_settings_impl(
         layer='BF',
         gain_db=1.0,
@@ -413,8 +416,8 @@ def test_arm_clamps_exposure_above_the_class_cap():
     assert cam._exposure_us == 50000.0
     assert camera.exposure_ms == 50.0
     assert imaging.frame_validity.target('exposure') == 50000.0
-    clamp_lines = [m for m in _logged('info') if '[AG ARM]' in m]
-    assert len(clamp_lines) == 1, _logged('info')
+    clamp_lines = [m for m in _logged(caplog, logging.INFO) if '[AG ARM]' in m]
+    assert len(clamp_lines) == 1, _logged(caplog, logging.INFO)
     assert '100' in clamp_lines[0] and '50' in clamp_lines[0]
     grab_a_frame_made_after_now(cam)  # the lock reads the newest frame's chunks
     lock = camera._lock_auto_gain_impl()
@@ -422,7 +425,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
     assert lock.state.value == 'MAXED'
 
     imaging, camera, cam = _build_inert()
-    lvp_logger.logger.reset_mock()
+    caplog.clear()
     camera._apply_settings_impl(
         layer='BF',
         gain_db=1.0,
@@ -432,7 +435,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
         resume_after_capture=True,
     )
     assert cam._exposure_us == 20000.0
-    assert not [m for m in _logged('info') if '[AG ARM]' in m]
+    assert not [m for m in _logged(caplog, logging.INFO) if '[AG ARM]' in m]
 
 
 def test_run_restore_re_arms_the_live_view_arm():

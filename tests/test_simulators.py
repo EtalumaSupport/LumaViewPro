@@ -10,6 +10,7 @@ Verifies that simulators are drop-in replacements for real hardware:
 """
 
 import itertools
+import logging
 import pytest
 import threading
 import time
@@ -953,22 +954,18 @@ class TestNoPatternRequestedRendersTheSpecimen:
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(diffs) > 0, 'the constructor default is a static image'
 
-    def test_an_unknown_pattern_name_warns_and_still_renders(self):
-        # The suite mocks lvp_logger, so the driver's `logger` is a MagicMock
-        # and no handler or caplog capture can see the call -- assert on the
-        # mock, which is how the rest of the suite checks driver logging.
-        import drivers.simulated_camera as sim_cam
-
+    def test_an_unknown_pattern_name_warns_and_still_renders(self, caplog):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='NotAPattern')
-        sim_cam.logger.warning.reset_mock()
+        caplog.clear()
         img = np.asarray(cam._generate_image(cam._start_exposure()), dtype=float)
 
         assert img.std() > 0, 'a bad name must still produce a usable frame'
-        sim_cam.logger.warning.assert_called()
         # set_test_pattern lowercases the name, so the message carries it lowercased
-        emitted = ' '.join(str(c) for c in sim_cam.logger.warning.call_args_list).lower()
+        emitted = ' '.join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        ).lower()
         assert 'notapattern' in emitted, (
             'an unrecognized pattern name must say so, not fall back silently'
         )

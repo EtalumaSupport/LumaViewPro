@@ -19,6 +19,7 @@ task (no sleeps for synchronization; bounded waits only where the assertion
 IS "it blocks").
 """
 
+import logging
 import pathlib
 import threading
 
@@ -440,12 +441,10 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     assert excinfo.value.reason == 'files_writing'
 
 
-def test_replacing_a_stuck_worker_is_a_warning_not_a_failure():
+def test_replacing_a_stuck_worker_is_a_warning_not_a_failure(caplog):
     """Replacing a stuck worker is the recovery a person chose, after the
     stall was already reported as a fault; logging it at ERROR counted one
     failure twice. It is a WARNING: a thread is abandoned and its write lost."""
-    from lvp_logger import logger as executor_logger
-
     ex = SequentialIOExecutor(name='TEST_BP_REPLACE_LEVEL')
     ex.start()
     started = threading.Event()
@@ -458,19 +457,14 @@ def test_replacing_a_stuck_worker_is_a_warning_not_a_failure():
 
         assert ex.put(IOTask(action=_wedge)) is ENQUEUED
         assert started.wait(2), 'worker never picked up the wedge task'
-        executor_logger.reset_mock()
+        caplog.clear()
 
         ex.replace_stuck_worker()
 
-        def _said(method):
-            return [str(c.args[0]) for c in method.call_args_list if c.args]
-
-        assert any('Replacing a worker stuck' in m for m in _said(executor_logger.warning)), _said(
-            executor_logger.warning
-        )
-        assert not any('Replacing a worker stuck' in m for m in _said(executor_logger.error)), (
-            _said(executor_logger.error)
-        )
+        replaced = [
+            r.levelno for r in caplog.records if 'Replacing a worker stuck' in r.getMessage()
+        ]
+        assert replaced == [logging.WARNING], caplog.text
     finally:
         release.set()
         ex.shutdown(wait=True)

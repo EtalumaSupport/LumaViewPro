@@ -11,10 +11,9 @@ make degraded states visible instead of silent.
 """
 
 import json
+import logging
 
 import pytest
-
-from lvp_logger import logger as _mock_logger
 
 import modules.common_utils as common_utils
 from modules.layer_record import (
@@ -96,12 +95,18 @@ LS560_ROWS = [
 ]
 
 
-def errors_logged():
-    return ' | '.join(str(c) for c in _mock_logger.error.call_args_list)
+def _logged(caplog, level):
+    return ' | '.join(
+        r.getMessage() for r in caplog.records if r.name == 'lvp_logger' and r.levelno == level
+    )
 
 
-def warnings_logged():
-    return ' | '.join(str(c) for c in _mock_logger.warning.call_args_list)
+def errors_logged(caplog):
+    return _logged(caplog, logging.ERROR)
+
+
+def warnings_logged(caplog):
+    return _logged(caplog, logging.WARNING)
 
 
 REPORTED = []
@@ -109,7 +114,6 @@ REPORTED = []
 
 def resolve(data_file, **kwargs):
     """The identity resolved from ``data_file``; what it reported is in ``REPORTED``."""
-    _mock_logger.reset_mock()
     REPORTED.clear()
     defaults = {
         'board_block': None,
@@ -298,13 +302,13 @@ class TestPrecedence:
         assert identity.source == 'scopes'
         assert [r.key_name for r in identity.channels] == ['BF', LED1]
 
-    def test_motor_model_without_entry_goes_unresolved_not_configured(self, tmp_path):
+    def test_motor_model_without_entry_goes_unresolved_not_configured(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, motor_model='LS9999', configured_model='LS560')
         assert identity.source == 'unresolved'
         assert identity.channels == ()
         assert identity.model == 'LS9999'
-        assert 'LS9999' in errors_logged()
+        assert 'LS9999' in errors_logged(caplog)
 
     def test_nothing_resolvable_is_the_unresolved_snapshot(self, tmp_path):
         path = write_scopes(tmp_path, {})
@@ -313,21 +317,21 @@ class TestPrecedence:
         assert identity.channels == ()
         assert identity.source == 'unresolved'
 
-    def test_failed_board_read_is_loud_then_resolves_the_model(self, tmp_path):
+    def test_failed_board_read_is_loud_then_resolves_the_model(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, board_config_read_ok=False, motor_model='LS850T')
         assert identity.source == 'scopes'
         assert len(identity.channels) == 7
-        assert 'could not be read' in errors_logged()
+        assert 'could not be read' in errors_logged(caplog)
 
-    def test_absent_block_with_clean_read_is_quiet(self, tmp_path):
+    def test_absent_block_with_clean_read_is_quiet(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         resolve(path, motor_model='LS850T')
-        assert 'could not be read' not in errors_logged()
+        assert 'could not be read' not in errors_logged(caplog)
 
 
 class TestOverride:
-    def test_override_beats_block_and_motor_model(self, tmp_path):
+    def test_override_beats_block_and_motor_model(self, caplog, tmp_path):
         path = write_scopes(
             tmp_path,
             {'LS850T': {'Layers': LS850T_ROWS}, 'LS560': {'Layers': LS560_ROWS}},
@@ -335,15 +339,15 @@ class TestOverride:
         block = {'Channels': channels(LS850T_ROWS), 'Filterset': 'Stock'}
         identity = resolve(path, board_block=block, motor_model='LS850T', override_model='LS560')
         assert [r.key_name for r in identity.channels] == ['BF', LED1]
-        assert 'override' in warnings_logged()
+        assert 'override' in warnings_logged(caplog)
 
-    def test_override_of_unknown_model_is_loud_and_unresolved(self, tmp_path):
+    def test_override_of_unknown_model_is_loud_and_unresolved(self, caplog, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, motor_model='LS850T', override_model='LS9999')
         assert identity.source == 'unresolved'
         assert identity.channels == ()
         assert identity.model == 'LS9999'
-        assert 'LS9999' in errors_logged()
+        assert 'LS9999' in errors_logged(caplog)
 
 
 def _without(key):

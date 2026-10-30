@@ -5,9 +5,8 @@ Two separate facts get logged when a background task raises: the RAISE record
 (written where the exception is caught, carrying the traceback) and the
 NOTIFICATION record (written by the notification center, recording what the
 user was shown). Both land at ERROR, and they reach the log by different
-routes -- the executor writes through lvp_logger, which the suite replaces
-with one shared MagicMock, while the notification center holds a real
-stdlib logger. Reading only one of the two sees half the picture.
+routes -- the executor writes through lvp_logger's logger, the notification
+center through its own. Reading only one of the two sees half the picture.
 
 Three defects these lock out:
 
@@ -27,7 +26,6 @@ Three defects these lock out:
 import logging
 from concurrent.futures import CancelledError
 
-from lvp_logger import logger
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 ESCAPE_WORDING = ('uncaught', 'unhandled exception', 'escaped')
@@ -41,7 +39,6 @@ def _run_failing_task(action, caplog) -> list[str]:
     Mirrors the worker's own sequence (dequeue, run, epilogue) without
     starting the worker thread, so the assertions cannot race a live lane.
     """
-    logger.reset_mock()
     caplog.clear()
     executor = SequentialIOExecutor(name='TEST')
     task = IOTask(action)
@@ -56,9 +53,7 @@ def _run_failing_task(action, caplog) -> list[str]:
         result, exception = task.run()
         executor._on_task_done(task, result, exception)
 
-    records = [str(call.args[0]) for call in logger.error.call_args_list if call.args]
-    records += [rec.getMessage() for rec in caplog.records if rec.levelno >= logging.ERROR]
-    return records
+    return [rec.getMessage() for rec in caplog.records if rec.levelno >= logging.ERROR]
 
 
 def test_raise_record_does_not_claim_the_exception_escaped(caplog):

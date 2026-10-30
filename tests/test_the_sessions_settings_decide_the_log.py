@@ -22,13 +22,9 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
-@pytest.fixture
-def restored_logging():
-    lvp = logging.getLogger('LVP')
-    before = (lvp.level, autofocus_functions._enable_af_score_logging)
-    yield lvp
-    lvp.setLevel(before[0])
-    autofocus_functions.enable_af_score_logging(enable=before[1])
+# The conftest's _no_log_setting_outlives_its_test puts both settings back
+# after each test.
+_MAIN_LOG = logging.getLogger('LVP')
 
 
 def _session(level='INFO', autofocus=False, debug_mode=False):
@@ -50,37 +46,37 @@ def _logs_a_focus_score(monkeypatch):
 @pytest.mark.parametrize(
     ('stored', 'applied'), [('debug', logging.DEBUG), ('Error', logging.ERROR)]
 )
-def test_the_stored_level_is_the_main_logs_whatever_its_case(restored_logging, stored, applied):
+def test_the_stored_level_is_the_main_logs_whatever_its_case(stored, applied):
     session = _session(level=stored)
     try:
-        assert restored_logging.level == applied
+        assert _MAIN_LOG.level == applied
         assert logging.getLogger('LVP.modules.scope_session').getEffectiveLevel() == applied
     finally:
         session.shutdown()
 
 
-def test_a_written_level_takes_effect_as_it_is_written(restored_logging):
+def test_a_written_level_takes_effect_as_it_is_written():
     session = _session(level='INFO')
     try:
         session.update_settings('logging.default.level', 'DEBUG')
-        assert restored_logging.level == logging.DEBUG
+        assert _MAIN_LOG.level == logging.DEBUG
     finally:
         session.shutdown()
 
 
-def test_debug_mode_puts_the_main_log_at_debug_whatever_the_level_says(restored_logging):
+def test_debug_mode_puts_the_main_log_at_debug_whatever_the_level_says():
     # The installation's one switch for a detailed log: on, a written level
     # does not take it below DEBUG.
     session = _session(level='INFO', debug_mode=True)
     try:
-        assert restored_logging.level == logging.DEBUG
+        assert _MAIN_LOG.level == logging.DEBUG
         session.update_settings('logging.default.level', 'WARNING')
-        assert restored_logging.level == logging.DEBUG
+        assert _MAIN_LOG.level == logging.DEBUG
     finally:
         session.shutdown()
 
 
-def test_the_autofocus_score_log_follows_its_setting(restored_logging, monkeypatch):
+def test_the_autofocus_score_log_follows_its_setting(monkeypatch):
     session = _session(autofocus=True)
     try:
         assert _logs_a_focus_score(monkeypatch)

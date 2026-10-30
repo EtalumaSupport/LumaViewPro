@@ -12,6 +12,7 @@ template runs it, and the firmware tier the tests run stays instant.
 """
 
 import pathlib
+import logging
 import sys
 import time
 
@@ -167,15 +168,13 @@ class TestTheSessionReadsTheTier:
             session.shutdown()
 
     @pytest.mark.parametrize('asked', ['firmware', 'realistic'])
-    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(self, monkeypatch, asked):
-        import modules.scope_session as scope_session_module
-
-        # The suite's lvp_logger is a mock; its calls are the record.
-        scope_session_module.logger.warning.reset_mock()
+    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(
+        self, monkeypatch, caplog, asked
+    ):
         monkeypatch.setattr(sys, 'platform', 'win32')
         tier = ScopeSession._simulator_tier(complete_settings(simulator_tier=asked))
         assert tier == 'fast'
-        said = [str(c.args[0]) for c in scope_session_module.logger.warning.call_args_list]
+        said = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any('no MicroPython runtime' in s for s in said), said
 
     def test_a_linux_machine_that_has_not_built_the_runtime_runs_the_fast_tier(self, monkeypatch):
