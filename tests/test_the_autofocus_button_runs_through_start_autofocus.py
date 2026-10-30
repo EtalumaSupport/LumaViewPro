@@ -71,7 +71,7 @@ def pressed(gui_ctx, monkeypatch, held, centre_posts):
     gui_ctx.worker_pool = pool
     gui_ctx.image_settings = MagicMock()
     gui_ctx.session.engineering_mode = True
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     asked = []
     started = []

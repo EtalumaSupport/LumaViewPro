@@ -57,7 +57,6 @@ from modules.sequenced_capture_runner import (
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from modules.kivy_utils import schedule_ui
-import modules.kivy_utils as _kivy_utils
 from modules.scope_session import ScopeSession
 
 # The purge above poisons the rest of the session: conftest installed the
@@ -144,28 +143,6 @@ class TestHeadlessImports:
 
         schedule_ui(my_func)
         assert called == [0], 'schedule_ui should have invoked func directly with dt=0'
-
-    def test_schedule_ui_with_dispatcher(self):
-        """When dispatcher is set, schedule_ui goes through it."""
-        calls = []
-
-        def fake_dispatcher(func, timeout):
-            calls.append((func, timeout))
-
-        ScopeSession.set_ui_dispatcher(
-            _kivy_utils.UiDispatcher(schedule=fake_dispatcher, thread=None)
-        )
-        try:
-
-            def my_func(dt):
-                pass
-
-            schedule_ui(my_func, timeout=0.5)
-            assert len(calls) == 1
-            assert calls[0][0] is my_func
-            assert calls[0][1] == 0.5
-        finally:
-            ScopeSession.set_ui_dispatcher(None)
 
 
 class TestHeadlessProtocolExecution:

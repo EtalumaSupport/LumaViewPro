@@ -212,13 +212,6 @@ class TestScheduleUI:
         schedule_ui(lambda dt: called_with.append(dt))
         assert called_with == [0]
 
-    def test_schedule_ui_with_timeout(self):
-        from modules.kivy_utils import schedule_ui
-
-        called = []
-        schedule_ui(lambda dt: called.append(dt), timeout=0.5)
-        assert len(called) == 1
-
     def test_schedule_ui_passes_dt_zero(self):
         """schedule_ui passes dt=0 to the function (matching Clock convention)."""
         from modules.kivy_utils import schedule_ui

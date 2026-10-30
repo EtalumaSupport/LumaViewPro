@@ -136,7 +136,7 @@ def test_scan_pacing_waits_on_monotonic_period():
 
     deferred = []
     with (
-        mock.patch('modules.run_events.schedule_ui', lambda cb, *a, **k: deferred.append(cb)),
+        mock.patch('modules.run_events.schedule_ui', lambda cb: deferred.append(cb)),
         # The loop's own name for time, not the time module, which every
         # thread in the process shares.
         mock.patch(

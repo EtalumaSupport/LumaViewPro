@@ -43,7 +43,7 @@ def pool(monkeypatch):
     ex.start()
     monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(worker_pool=ex))
     # Headless: a scheduled redraw runs as soon as it is scheduled.
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     yield ex
     ex.shutdown(wait=False)
 
@@ -187,7 +187,7 @@ class TestTheLaneForm:
 
     @pytest.fixture
     def headless(self, monkeypatch):
-        monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+        monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
 
     @pytest.fixture
     def claim(self, lane):

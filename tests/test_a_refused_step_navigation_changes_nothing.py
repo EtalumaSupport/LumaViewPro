@@ -133,8 +133,8 @@ def nav_env(gui_ctx, monkeypatch):
     )
     # No Kivy app runs, so no lock record locks the controls.
     monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    monkeypatch.setattr(step_navigation, '_schedule_ui', lambda fn, t: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
+    monkeypatch.setattr(step_navigation, '_schedule_ui', lambda fn: fn(0))
     went = []
     real_go = ScopeSession.start_go_to_step
 

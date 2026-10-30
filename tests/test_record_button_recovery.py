@@ -107,7 +107,7 @@ def _make_display(monkeypatch, controller):
 
     monkeypatch.setattr(main_display, 'Clock', _ImmediateClock)
     monkeypatch.setattr(main_display.gui_logger, 'button', lambda *a, **kw: None)
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     ctx = MagicMock()
     ctx.session.manual_recording = controller
 

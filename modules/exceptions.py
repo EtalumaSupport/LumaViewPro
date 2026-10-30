@@ -5221,7 +5221,9 @@ class BlockingCallRefusedError(Refusal, RuntimeError):
             would hold the window until the operation ends; a done-callback
             is the UI thread's form. ``'blocking_inline'`` -- made inside
             the GUI's inline boundary, whose thread draws the window;
-            ``submit_reported`` is that call's form.
+            ``submit_reported`` is that call's form. ``'swap_in_delivery'`` --
+            a UI dispatcher swap from a callback that dispatcher is
+            delivering, which the swap would wait on.
         member: The member that was called.
     """
 
@@ -5230,6 +5232,7 @@ class BlockingCallRefusedError(Refusal, RuntimeError):
         'blocking_on_worker': RefusalCause.REQUEST,
         'wait_on_ui_thread': RefusalCause.REQUEST,
         'blocking_inline': RefusalCause.REQUEST,
+        'swap_in_delivery': RefusalCause.REQUEST,
     }
 
     def __init__(self, reason: str, member: str, *, worker: str | None = None):
@@ -5243,6 +5246,11 @@ class BlockingCallRefusedError(Refusal, RuntimeError):
             words = (
                 'a wait on the UI thread for an operation that has not ended, which would '
                 'hold the window until it does; add a done-callback instead'
+            )
+        elif reason == 'swap_in_delivery':
+            words = (
+                'a UI dispatcher swap from a callback it is delivering, which would wait '
+                'on that delivery; swap it from outside its deliveries'
             )
         else:
             words = 'a blocking dispatch from the inline run_reported; use submit_reported'

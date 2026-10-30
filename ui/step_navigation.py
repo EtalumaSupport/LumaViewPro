@@ -46,13 +46,13 @@ def go_to_step(
         # No step to show: a Delete emptied the list, or a file loaded none.
         # Any other index, a typed 0 included, is the Session's to refuse.
         protocol_settings.curr_step = -1
-        _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
+        _schedule_ui(lambda dt: protocol_settings.update_step_ui())
         return
 
     if not include_move:
         protocol_settings.curr_step = step_index
-        _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
-        _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
+        _schedule_ui(lambda dt: protocol_settings.generate_step_name_input())
+        _schedule_ui(lambda dt: protocol_settings.update_step_ui())
         return
 
     step_list_revision = protocol.step_list_revision

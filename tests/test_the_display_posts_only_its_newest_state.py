@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from modules.kivy_utils import UiDispatcher
+from modules.kivy_utils import UiDispatcher, ui_backlog
 from modules.lumascope_api._lumascope import Lumascope
 from modules.scope_session import ScopeSession
 import ui.scope_display as scope_display_module
@@ -121,14 +121,15 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
     gui_ctx, display, held, display_log
 ):
     _shown_frames(gui_ctx, display, _FRAMES)
-    # The frame, the live view's indicator, the validity dot and the
-    # engineering stats: one each, however many frames were rendered.
-    assert len(held.queue) == 4, f'{len(held.queue)} posts pending after {_FRAMES} frames'
+    # The live view's indicator, the validity dot and the engineering stats
+    # wait in the dispatcher's queue, one entry each, however many frames
+    # were rendered; Kivy's holds the queue's one drain and the frame's blit.
+    assert (ui_backlog(), len(held.queue)) == (3, 2), f'after {_FRAMES} frames'
 
     gui_ctx.scope.simulation.remove_camera()
     for _ in range(100):
         display._render_one_frame(active_layer='BF', open_layer='BF')
-    assert len(held.queue) == 4, f'{len(held.queue)} posts pending after the camera left'
+    assert (ui_backlog(), len(held.queue)) == (3, 2), 'after the camera left'
 
     held.run()
     assert display.source == './data/icons/camera_to_USB.png'
@@ -183,7 +184,7 @@ def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(gui_ctx, 
     display._PROTOCOL_HOLD_MS = 60_000
     for value in range(50):
         display.hold_protocol_saved_image(_frame(value), 8)
-    assert len(held.queue) == 1, f'{len(held.queue)} saved frames pending'
+    assert ui_backlog() == 1, f'{ui_backlog()} saved frames pending'
 
     # A live frame already rendering when the hold began is posted after
     # the saved one and runs after it.

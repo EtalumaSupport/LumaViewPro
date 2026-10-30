@@ -3159,7 +3159,9 @@ not for a session: every lane's completion callback, every run
 delivery and every listener the GUI marshals reads it at the moment
 it dispatches, whichever session or scope it belongs to. A GUI host
 sets it once, before it builds a session; a host with no UI thread
-(a script, a REST server) never sets it.
+(a script, a REST server) never sets it. Callbacks still waiting for
+the UI thread go to the new dispatcher in their order, or with None
+run here, each raise reported.
 
 **Args**
 
@@ -3167,7 +3169,11 @@ sets it once, before it builds a session; a host with no UI thread
 
 **Raises**
 
-Nothing.
+- `BlockingCallRefusedError`: `'swap_in_delivery'`, called from a callback the dispatcher is delivering, since the swap waits for that delivery to finish.
+
+**Refusals**
+
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `swap_in_delivery`
 
 <a id="ScopeSession.settings_are_provisional"></a>
 ### `ScopeSession.settings_are_provisional`
@@ -13876,13 +13882,14 @@ as it was documented.
 
 **Attributes**
 
-- `reason`: `'blocking_on_worker'` -- made on an executor's worker, whose own work it may queue behind. `'wait_on_ui_thread'` -- a wait on the UI thread for an operation not yet done, which would hold the window until the operation ends; a done-callback is the UI thread's form. `'blocking_inline'` -- made inside the GUI's inline boundary, whose thread draws the window; `submit_reported` is that call's form.
+- `reason`: `'blocking_on_worker'` -- made on an executor's worker, whose own work it may queue behind. `'wait_on_ui_thread'` -- a wait on the UI thread for an operation not yet done, which would hold the window until the operation ends; a done-callback is the UI thread's form. `'blocking_inline'` -- made inside the GUI's inline boundary, whose thread draws the window; `submit_reported` is that call's form. `'swap_in_delivery'` -- a UI dispatcher swap from a callback that dispatcher is delivering, which the swap would wait on.
 - `member`: The member that was called.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `blocking_inline` | request | 422 |
 | `blocking_on_worker` | request | 422 |
+| `swap_in_delivery` | request | 422 |
 | `wait_on_ui_thread` | request | 422 |
 
 <a id="BoardNoReplyError"></a>

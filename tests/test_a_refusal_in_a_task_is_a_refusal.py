@@ -175,7 +175,7 @@ def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(
     homed reaches them as the same refusal every gesture gives."""
     from ui import ui_helpers
 
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
 
     ui_helpers.submit_reported(
         lambda: scope.motion.move_xy(y_um=1000.0),

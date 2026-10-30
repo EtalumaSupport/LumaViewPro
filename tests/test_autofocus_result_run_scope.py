@@ -287,7 +287,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
         from modules.notification_center import notifications
 
         # A Z past the travel: the session refuses to save it.
-        monkeypatch.setattr(run_events, 'schedule_ui', lambda fn, *a: fn(0))
+        monkeypatch.setattr(run_events, 'schedule_ui', lambda fn: fn(0))
         reported = []
         monkeypatch.setattr(
             notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))

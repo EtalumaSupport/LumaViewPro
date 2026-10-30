@@ -1443,7 +1443,9 @@ class ScopeSession:
         delivery and every listener the GUI marshals reads it at the moment
         it dispatches, whichever session or scope it belongs to. A GUI host
         sets it once, before it builds a session; a host with no UI thread
-        (a script, a REST server) never sets it.
+        (a script, a REST server) never sets it. Callbacks still waiting for
+        the UI thread go to the new dispatcher in their order, or with None
+        run here, each raise reported.
 
         Args:
             dispatcher: What hands each callback to the UI thread:
@@ -1454,7 +1456,9 @@ class ScopeSession:
                 a callback's raise is reported rather than raised.
 
         Raises:
-            Nothing.
+            BlockingCallRefusedError: ``'swap_in_delivery'``, called from a
+                callback the dispatcher is delivering, since the swap waits
+                for that delivery to finish.
         """
         kivy_utils._set_ui_dispatcher(dispatcher)
 

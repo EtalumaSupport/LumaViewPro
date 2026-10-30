@@ -242,14 +242,14 @@ class UIListenerBridge:
         """
         ctx = self._ctx
         if axis in ('X', 'Y'):
-            schedule_ui(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
-            schedule_ui(lambda dt: self._stage.draw_labware(), 0)
+            schedule_ui(lambda dt: ctx.motion_settings.update_xy_stage_control_gui())
+            schedule_ui(lambda dt: self._stage.draw_labware())
             return
         z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
         if not z_ctrl:
             return
         if axis == 'Z':
-            schedule_ui(lambda dt: z_ctrl.show_z(at.position_um), 0)
+            schedule_ui(lambda dt: z_ctrl.show_z(at.position_um))
 
     def _on_turret_change(self, at):
         """Turret listener -- the turret buttons follow every turret change, whoever made it.
@@ -263,7 +263,7 @@ class UIListenerBridge:
             return
         # Display only: a person's own turret press asks the objective
         # question where it ends, never on each event of the move.
-        schedule_ui(lambda dt: z_ctrl.show_turret_state(prompt=False), 0)
+        schedule_ui(lambda dt: z_ctrl.show_turret_state(prompt=False))
 
     def _on_led_state_changed(self, address, name, state, illumination_ma):
         """LED listener -- coalesces rapid stim pulses to one UI update per address per Kivy frame.
@@ -286,7 +286,7 @@ class UIListenerBridge:
             if reading is not None and reading.name is not None:
                 self._write_led_button(reading.name, lit=reading.state == LedState.LIT)
 
-        schedule_ui(_update_led_ui, 0)
+        schedule_ui(_update_led_ui)
 
     def _on_shown_channel_changed(self, layer, lit):
         """Shown-channel listener -- the drawers draw the Session's shown channel.
@@ -305,7 +305,7 @@ class UIListenerBridge:
                 return
             self._ctx.image_settings.draw_shown_channel()
 
-        schedule_ui(_draw, 0)
+        schedule_ui(_draw)
 
     def _on_settings_changed(self, paths):
         """Settings listener -- every panel showing a changed setting redraws it from the store.
@@ -332,7 +332,7 @@ class UIListenerBridge:
                         drawn.add(key)
                         redraw(self._ctx, path)
 
-        schedule_ui(_draw, 0)
+        schedule_ui(_draw)
 
     def _write_led_button(self, color: str, *, lit: bool) -> None:
         """Write one layer's enable toggle as the API reads its LED.
@@ -371,7 +371,7 @@ class UIListenerBridge:
             for color in common_utils.get_layers_with_led():
                 self._write_led_button(color, lit=color in lit)
 
-        schedule_ui(_reconcile, 0)
+        schedule_ui(_reconcile)
 
     # ------------------ Lifecycle ------------------
 

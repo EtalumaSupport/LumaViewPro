@@ -40,7 +40,7 @@ def unhomed(gui_ctx, monkeypatch, centre_posts):
     API is recorded, with the reason it refused, then made; the redraws
     are the test's own widgets, recorded.
     """
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     monkeypatch.setattr(ui_helpers, '_user_motion_locked', lambda label: False)
 
     record: list = []

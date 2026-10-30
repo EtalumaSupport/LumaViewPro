@@ -504,7 +504,7 @@ class IOTask:
             cb_kwargs = self.cb_kwargs
 
         cb_args = self.cb_args
-        schedule_ui(_safe_callback, 0)
+        schedule_ui(_safe_callback)
 
     def set_name(self, name):
         self.name = name

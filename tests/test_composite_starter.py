@@ -72,7 +72,7 @@ def app_ctx(gui_ctx, held, monkeypatch):
     pool.put.side_effect = _put
     gui_ctx.worker_pool = pool
     gui_ctx.ui_listener_bridge = MagicMock()
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     for channel in ('BF', LED1):
         gui_ctx.session.set_channel_acquire(channel, AcquireMode.IMAGE)
     asked = []

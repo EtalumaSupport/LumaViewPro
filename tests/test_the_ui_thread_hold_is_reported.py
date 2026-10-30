@@ -16,7 +16,7 @@ import threading
 import pytest
 
 import modules.metrics_logger as metrics_logger_module
-from modules.kivy_utils import UiDispatcher
+from modules.kivy_utils import UiDispatcher, ui_backlog
 from modules.scope_session import ScopeSession
 
 
@@ -85,7 +85,7 @@ def test_a_held_ui_thread_is_reported_once_with_its_stack_then_its_return(
 
     watch.tick_ui_watch()
     assert len(log.at(logging.WARNING)) == 1
-    assert len(held_ui_thread) == 1, 'a second probe was posted while one was outstanding'
+    assert ui_backlog() == 1, 'a second probe was posted while one was outstanding'
 
     _run(held_ui_thread)
     ran_again = log.at(logging.INFO)

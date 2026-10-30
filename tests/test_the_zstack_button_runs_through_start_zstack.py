@@ -81,7 +81,7 @@ def clicked(gui_ctx, monkeypatch, held, centre_posts):
     gui_ctx.image_settings = MagicMock()
     gui_ctx.scope_display = SimpleNamespace(start=lambda: None, stop=lambda: None)
     gui_ctx.motion_settings = SimpleNamespace(ids={'protocol_settings_id': switch})
-    monkeypatch.setattr('ui.ui_helpers._schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr('ui.ui_helpers._schedule_ui', lambda fn: fn(0))
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
     linked = []
     monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))

@@ -153,7 +153,7 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
         return ENQUEUED
 
     pool.put.side_effect = _put
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     _app_ctx.ctx = SimpleNamespace(
         session=session,
         settings={'live_folder': str(tmp_path)},

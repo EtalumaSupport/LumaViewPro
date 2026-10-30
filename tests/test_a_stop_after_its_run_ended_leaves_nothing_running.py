@@ -32,7 +32,7 @@ def stop(monkeypatch, centre_posts):
         return ENQUEUED
 
     pool.put.side_effect = _run_now
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(worker_pool=pool))
 
     def _stop(run):

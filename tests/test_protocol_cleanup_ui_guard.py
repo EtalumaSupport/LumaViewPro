@@ -162,4 +162,4 @@ def test_the_unguarded_scheduler_still_propagates(immediate_gui_dispatcher):
     app-wide policy and the delivery deliberately does not touch it.
     """
     with pytest.raises(RuntimeError):
-        kivy_utils.schedule_ui(_raise(RuntimeError('boom')), 0)
+        kivy_utils.schedule_ui(_raise(RuntimeError('boom')))

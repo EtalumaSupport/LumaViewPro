@@ -236,7 +236,7 @@ def deliver(
         _deliver(0)
         return
     try:
-        schedule_ui(_deliver, 0)
+        schedule_ui(_deliver)
     except BaseException:
         with delivery:
             pass

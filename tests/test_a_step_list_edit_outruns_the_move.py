@@ -166,7 +166,7 @@ def env(gui_ctx, monkeypatch):
 
     monkeypatch.setattr(ScopeSession, 'start_go_to_step', _start_go_to_step)
     monkeypatch.setattr(ui_helpers, 'submit_move', submit_move)
-    monkeypatch.setattr(nav, '_schedule_ui', lambda fn, timeout: None)
+    monkeypatch.setattr(nav, '_schedule_ui', lambda fn: None)
     monkeypatch.setattr(nav, 'go_to_step_update_ui', lambda step: None)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
