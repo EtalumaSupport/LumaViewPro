@@ -196,7 +196,6 @@ ALLOWED = frozenset(
         'tests/test_a_runs_writes_run_on_its_lanes.py::test_a_step_darken_the_lane_refuses_falls_to_the_safety_off',
         'tests/test_a_stalled_writer_is_reported_by_the_api.py::session',
         'tests/test_a_stalled_writer_refusal_names_its_remedy.py::session',
-        'tests/test_a_step_list_edit_outruns_the_move.py::env',
         'tests/test_a_video_step_announces_its_finish.py::_scope',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter._make_scope_with_fake_camera',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter.test_no_camera_returns_false',

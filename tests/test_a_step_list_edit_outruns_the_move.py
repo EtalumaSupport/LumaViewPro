@@ -16,11 +16,10 @@ pointer on a step the panel is not showing, so the next Delete removes a
 step the user did not pick.
 
 These tests drive the real panel handlers, the real go_to_step and a real
-Protocol, with the lane held so each move's completion lands when the
-test says.
+Protocol over a simulated session's own step edits and go-to, with the
+lane held so each move's completion lands when the test says.
 """
 
-import pathlib
 import sys
 import types
 from types import SimpleNamespace
@@ -58,21 +57,26 @@ for _name, _attr in (
         setattr(_mod, _attr, _StubWidget)
         sys.modules[_name] = _mod
 
-import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
-from modules.objectives_loader import ObjectiveLoader
-from modules.scope_session import ShownChannel
-from tests.settings_fixtures import protocol_filepath_writer, settings_writer
+from modules.acquire_mode import AcquireMode
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
 from modules.coord_transformations import PlateLocation
+from modules.scope_session import ScopeSession
+from tests.scope_fakes import home_sim_scope
 from tests.stock_channels import LED0, LED2
 from tests.installation_fixtures import shipped_grids
 
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
+PLATE = '96 well microplate'
+# Step i stands at plate X = BASE_X_MM + i, inside this stage's travel, and
+# the stage stands at BASE_X_MM + ADD_X_MM for an Add: every step is known by
+# its X past the base, a built one by its index and an added one by 99.
+BASE_X_MM = 20.0
+ADD_X_MM = 99.0
+_MOVE_WAIT_S = 30.0
 
 LAYER_CONFIG = {
     'autofocus': False,
@@ -88,30 +92,27 @@ LAYER_CONFIG = {
 }
 
 
-def _insert(protocol, *, x, before_step_index=None, after_step_index=None):
+def _insert(
+    protocol,
+    *,
+    x,
+    objective,
+    layer_config=LAYER_CONFIG,
+    before_step_index=None,
+    after_step_index=None,
+):
     return protocol.insert_step(
         channel_group_id=protocol.new_channel_group_id(),
         turret_slot=-1,
         step_name=None,
         layer='BF',
-        layer_config=LAYER_CONFIG,
-        plate_position=PlateLocation(x_mm=x, y_mm=0.0, z_um=0.0),
-        objective_id='10x Oly',
+        layer_config=layer_config,
+        plate_position=PlateLocation(x_mm=x, y_mm=10.0, z_um=0.0),
+        objective_id=objective,
         stim_configs={},
         before_step_index=before_step_index,
         after_step_index=after_step_index,
     )
-
-
-def _protocol(num_steps):
-    """A real protocol whose step i stands at X = i, so a step is known by its X."""
-    protocol = Protocol(
-        tiling_grids=shipped_grids(),
-        config={'steps': pd.DataFrame(), 'custom_step_count': 0, 'period': None, 'duration': None},
-    )
-    for i in range(num_steps):
-        _insert(protocol, x=float(i), after_step_index=protocol.num_steps() - 1)
-    return protocol
 
 
 class _Panel(ps.ProtocolSettings):
@@ -135,101 +136,100 @@ class _Panel(ps.ProtocolSettings):
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(gui_ctx, monkeypatch):
+    """The real panel and go_to_step over a homed simulated session, BF acquiring.
+
+    Each move a click, Delete or Add sends is held until the test lands it:
+    the Session goes to the step, then the panel's completion runs, then the
+    stage arrives. The stage stands where a step the Session adds is known
+    by its X.
+    """
+    session = gui_ctx.session
+    home_sim_scope(session.scope)
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    session.update_settings('protocol_led_on', False)
+    objective = session.scope.runtime_state.get_current_objective_id()
     held = []
 
     def submit_move(label, *, axes, call, lane=None, on_moved=None):
         held.append((call, on_moved))
 
-    # The X of each step the Session was asked to go to, in the order the
-    # lane ran them: a superseded click never reaches it.
+    # The X of each step the Session went to, in the order the lane ran
+    # them: a superseded click never reaches it.
     loaded = []
+    real_go = ScopeSession.start_go_to_step
+
+    def _start_go_to_step(self, protocol, step_index):
+        op = real_go(self, protocol, step_index)
+        loaded.append(protocol.step_row(step_index=step_index)['X'] - BASE_X_MM)
+        return op
+
+    monkeypatch.setattr(ScopeSession, 'start_go_to_step', _start_go_to_step)
     monkeypatch.setattr(ui_helpers, 'submit_move', submit_move)
     monkeypatch.setattr(nav, '_schedule_ui', lambda fn, timeout: None)
     monkeypatch.setattr(nav, 'go_to_step_update_ui', lambda step: None)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
+    gui_ctx.motion_settings = SimpleNamespace(ids={})
+    gui_ctx.stage = MagicMock()
 
-    def add_step(protocol, *, before_step_index=None, after_step_index=None, use_zstacking=False):
-        return [
-            _insert(
-                protocol,
-                x=99.0,
-                before_step_index=before_step_index,
-                after_step_index=after_step_index,
-            )
-        ]
-
-    def update_step(protocol, step_index, *, channel, label=None):
-        protocol.modify_step(
-            turret_slot=-1,
-            step_index=step_index,
-            layer=channel,
-            layer_config=LAYER_CONFIG,
-            plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
-            objective_id='10x Oly',
-            stim_configs={},
-            label=label,
+    def protocol(num_steps):
+        """A real protocol whose step i stands at X = i past the base."""
+        built = Protocol(
+            tiling_grids=shipped_grids(),
+            config={
+                'steps': pd.DataFrame(),
+                'custom_step_count': 0,
+                'period': None,
+                'duration': None,
+                'labware_id': PLATE,
+            },
         )
-        return protocol.step_row(step_index=step_index)['Name']
+        for i in range(num_steps):
+            _insert(
+                built,
+                x=BASE_X_MM + i,
+                objective=objective,
+                after_step_index=built.num_steps() - 1,
+            )
+        return built
 
-    settings = {'protocol_led_on': False, 'protocol': {'filepath': 'plate.tsv'}}
-    ctx = SimpleNamespace(
-        settings=settings,
-        update_settings=settings_writer(settings),
-        set_protocol_filepath=protocol_filepath_writer(settings),
-        motion_settings=SimpleNamespace(ids={}),
-        scope=SimpleNamespace(
-            protocols=SimpleNamespace(refuse_unaddressable_objectives=lambda objectives: None),
-            capabilities=SimpleNamespace(has_turret=False, axes=('X', 'Y', 'Z')),
-            imaging=SimpleNamespace(active=False),
-            motor_connected=True,
-            motion=MagicMock(),
-            illumination=MagicMock(),
-            objective_helper=ObjectiveLoader(),
-        ),
-        image_settings=SimpleNamespace(
-            layer_lookup=lambda layer: MagicMock(),
-        ),
-        session=SimpleNamespace(
-            shown_channel=ShownChannel('BF', lit=False),
-            is_protocol_running=False,
-            run_lockout=False,
-            start_go_to_step=lambda protocol, step_index: loaded.append(
-                protocol.step_row(step_index=step_index)['X']
-            ),
-            add_step=add_step,
-            delete_step=lambda protocol, step_index: protocol.delete_step(step_index=step_index),
-            rename_step=lambda protocol, step_index, name: protocol.modify_name(
-                step_index=step_index, step_name=name
-            ),
-            update_step=update_step,
-        ),
-        stage=MagicMock(),
-    )
-    # The GUI reads the scope through the main widget as well as directly.
-    ctx.lumaview = SimpleNamespace(scope=ctx.scope)
-    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
+    def stand_at_add_x():
+        stage = session.scope.runtime_state.plate_to_stage(
+            BASE_X_MM + ADD_X_MM, 10.0, labware_id=PLATE
+        )
+        session.scope.motion.move_xy(stage.x_um, stage.y_um)
+        session.scope.motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
 
     def panel(num_steps, curr_step):
-        p = _Panel(_protocol(num_steps), curr_step)
-        ctx.motion_settings.ids['protocol_settings_id'] = p
+        p = _Panel(protocol(num_steps), curr_step)
+        gui_ctx.motion_settings.ids['protocol_settings_id'] = p
         return p
 
     def land(count=None):
-        """Let the held moves run and complete, oldest first."""
+        """Let the held moves run and complete, oldest first, the stage arriving after each."""
         while held and (count is None or count > 0):
             call, on_moved = held.pop(0)
             call()
             on_moved()
+            session.scope.motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
             if count is not None:
                 count -= 1
 
-    return SimpleNamespace(panel=panel, land=land, loaded=loaded, ctx=ctx)
+    stand_at_add_x()
+    return SimpleNamespace(
+        panel=panel,
+        protocol=protocol,
+        land=land,
+        stand_at_add_x=stand_at_add_x,
+        loaded=loaded,
+        session=session,
+        objective=objective,
+    )
 
 
 def _xs(protocol):
-    return list(protocol.steps()['X'])
+    return [round(x - BASE_X_MM, 3) for x in protocol.steps()['X']]
 
 
 def test_deleting_every_step_then_adding_one_points_at_the_new_step(env):
@@ -243,6 +243,7 @@ def test_deleting_every_step_then_adding_one_points_at_the_new_step(env):
     assert panel._protocol.num_steps() == 0
     assert panel.curr_step == -1, 'a move that landed after the list emptied moved the pointer'
 
+    env.stand_at_add_x()
     panel.insert_step_ex(after_current_step=True)
     env.land()
     panel.update_step_ui_immediate()
@@ -367,17 +368,28 @@ def test_update_with_a_blank_name_field_keeps_the_label(env):
     assert panel._protocol.step_row(1)['Label'] == 'mine'
 
 
-def test_an_edit_that_leaves_a_step_invalid_gets_no_popup_from_the_panel(env, monkeypatch):
+def test_an_edit_that_leaves_a_step_invalid_gets_no_popup_from_the_panel(
+    env, monkeypatch, centre_posts
+):
     """The API notices an invalid step; the panel composes nothing of its own."""
     import ui.notification_popup as popup
 
     composed = []
     monkeypatch.setattr(popup, 'show_notification_popup', lambda **kw: composed.append(kw))
-    panel = env.panel(num_steps=2, curr_step=0)
-    panel._protocol.steps().at[0, 'Exposure'] = 0.0
+    panel = env.panel(num_steps=0, curr_step=-1)
+    # A step a run refuses: an exposure of none, as a hand-edited file can carry.
+    _insert(
+        panel._protocol,
+        x=BASE_X_MM,
+        objective=env.objective,
+        layer_config={**LAYER_CONFIG, 'exposure_ms': 0.0},
+        after_step_index=-1,
+    )
+    panel.curr_step = 0
 
     panel.insert_step_ex(after_current_step=True)
 
+    assert [n.category for n in centre_posts] == ['Protocol'], 'the API noticed no invalid step'
     assert composed == []
 
 
@@ -419,7 +431,7 @@ def test_a_move_for_a_replaced_protocol_does_not_land_on_the_new_one(env):
     panel = env.panel(num_steps=3, curr_step=0)
     # Built the same way, so its step list is at the same revision: only
     # being a different protocol tells the two apart.
-    replacement = _protocol(3)
+    replacement = env.protocol(3)
     assert replacement.step_list_revision == panel._protocol.step_list_revision
 
     panel.go_to_step(step_index=2)  # a click on the old protocol's X=2, held
@@ -441,30 +453,6 @@ def test_a_move_the_list_did_not_change_under_still_lands(env):
     assert env.loaded == [2.0]
 
 
-def _add_bf_and_blue(
-    protocol, *, before_step_index=None, after_step_index=None, use_zstacking=False
-):
-    names = []
-    for layer in ('BF', LED0):
-        names.append(
-            protocol.insert_step(
-                channel_group_id=protocol.new_channel_group_id(),
-                turret_slot=-1,
-                step_name=None,
-                layer=layer,
-                layer_config=LAYER_CONFIG,
-                plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
-                objective_id='10x Oly',
-                stim_configs={},
-                before_step_index=before_step_index,
-                after_step_index=after_step_index,
-            )
-        )
-        inserted_at = before_step_index if before_step_index is not None else after_step_index + 1
-        before_step_index, after_step_index = None, inserted_at
-    return names
-
-
 @pytest.mark.parametrize(
     ('shown', 'selected_color'),
     [('BF', 'BF'), (LED0, LED0), (LED2, 'BF')],
@@ -476,8 +464,8 @@ def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, select
     bench (LS850T, 2026-10-02). A viewed channel that acquires nothing gets
     the first step added.
     """
-    env.ctx.session.add_step = _add_bf_and_blue
-    env.ctx.session.shown_channel = ShownChannel(shown, lit=False)
+    env.session.set_channel_acquire(LED0, AcquireMode.IMAGE)
+    env.session.show_channel(shown)
     panel = env.panel(num_steps=2, curr_step=0)
 
     panel.insert_step_ex(after_current_step=True)
