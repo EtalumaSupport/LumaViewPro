@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 129
+ALLOWED_ENTRIES = 113
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -222,19 +222,11 @@ ALLOWED = frozenset(
         'tests/test_camera_getter_sentinel_containment.py::_build_camera',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
         'tests/test_composite_run_outcome.py::_runner',
-        'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe._make_board',
-        'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe.test_diagnostic_query_returns_response_when_supported',
-        'tests/test_exchange_multiline_logs_content.py::_make_board',
-        'tests/test_exchange_multiline_logs_content.py::test_the_port_timeout_is_not_changed_while_the_reply_arrives',
         'tests/test_fatal_abort_led_safety.py::_run_cleanup_capture_led_ctx',
         'tests/test_firmware_updater.py::TestBackupConfigs._make_board',
         'tests/test_firmware_updater.py::TestRestoreConfigs._make_board',
-        'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_disconnects_on_success',
-        'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_fallback_to_raw_repl_on_not_found',
         'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_led_sends_fwupdate',
-        'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_motor_sends_fwupdate',
         'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_raises_on_exchange_exception',
-        'tests/test_firmware_updater.py::TestUpdateFirmwareSameVersion.test_same_version_returns_success',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',
         'tests/test_issue_239_first_interval_anchor.py::_make_parent',
         'tests/test_issue_653_skip_guard.py::handler_and_log',
@@ -249,12 +241,7 @@ ALLOWED = frozenset(
         'tests/test_led_ack_and_tsr_filename.py::TestTsrLedEngineeringRoutesThroughDriver.test_exit_engineering_calls_sub_api',
         'tests/test_led_cap_published_by_driver.py::_caps_with',
         'tests/test_led_supports_firmware_stim.py::TestSupportsFirmwareStimProbe._make_led',
-        'tests/test_led_supports_firmware_stim.py::TestSupportsFirmwareStimProbe.test_driver_none_returns_false_without_probing',
-        'tests/test_lumascope_api.py::TestLEDChannelDiscovery.test_ledboard_available_channels_are_its_eight_addresses',
-        'tests/test_lumascope_api.py::TestProtocolConformance.test_ledboard_satisfies_protocol',
-        'tests/test_lumascope_api.py::TestProtocolConformance.test_motorboard_satisfies_protocol',
         'tests/test_manual_capture_overlay_save.py::capture_ctx',
-        'tests/test_motor_capability_probes.py::_make_board',
         'tests/test_motorboard_fullinfo_legacy_firmware.py::_make_board',
         'tests/test_motorconfig_provenance.py::TestLoaderRecordsProvenance._board_with_config',
         'tests/test_motorconfig_provenance.py::bare_board',
@@ -273,7 +260,6 @@ ALLOWED = frozenset(
         'tests/test_start_zstack_entry_point.py::_runner',
         'tests/test_scope_api.py::TestGetCurrentPlatePosition.test_an_expected_motor_board_that_is_absent_is_refused',
         'tests/test_scope_bringup.py::_make_spec_session',
-        'tests/test_serial_logging_coverage.py::test_stim_probe_logs_to_serial_log',
         'tests/test_serial_safety.py::TestExchangeCommandStopOnEmpty._make_led_board',
         'tests/test_serial_safety.py::TestLEDBoardCommands._make_board',
         'tests/test_serial_safety.py::TestLEDBoardConcurrency._make_board',
@@ -289,8 +275,6 @@ ALLOWED = frozenset(
         'tests/test_serial_safety.py::TestSerialDesyncRecovery._make_board',
         'tests/test_serial_safety.py::TestSilentBoardHandling._make_silent_board',
         'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone.test_a_directly_constructed_session_is_the_same_row',
-        'tests/test_sim_wire_link.py::TestABoardOffTheBus.test_connect_errors_log_again_after_a_connect_succeeds',
-        'tests/test_sim_wire_link.py::TestABoardOffTheBus.test_connect_errors_log_again_after_a_connect_succeeds.ok_open',
         'tests/test_still_pending_writes.py::_writer',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_whose_layers_are_unresolved_still_comes_up',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_with_no_camera_is_not_applied_and_says_so',
