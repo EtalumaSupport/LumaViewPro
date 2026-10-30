@@ -1734,7 +1734,19 @@ def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_s
         hyperstack,
         shape=(1, 1, 1, 8, 8),
         dtype=np.uint8,
-        hyperstack_metadata={'axes': 'TZCYX', 'record': {}},
+        hyperstack_metadata=image_utils.build_hyperstack_output_metadata(
+            [image_utils.read_file_record(still)],
+            channel_names=['BF'],
+            channel_colors=[GREY],
+            plane_positions={
+                'PositionX': [None],
+                'PositionY': [None],
+                'PositionZ': [None],
+                'DeltaT': None,
+            },
+            significant_bits=8,
+            pixel_size_um=None,
+        ),
         hyperstack_options={'photometric': 'minisblack'},
     )
 

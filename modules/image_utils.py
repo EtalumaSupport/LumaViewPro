@@ -2844,12 +2844,8 @@ def _splice_ome_additions(
     images = root.findall(_ome_qualified('Image'))
     if instrument:
         _insert_instrument(root, images, instrument)
+    # Both writers hand tifffile the LVP MapAnnotation, so it is there.
     annotations = root.find(_ome_qualified('StructuredAnnotations'))
-    if annotations is None:
-        # tifffile writes none for a file with no MapAnnotation; the schema
-        # orders it after the last Image.
-        annotations = ET.Element(_ome_qualified('StructuredAnnotations'))
-        root.insert(list(root).index(images[-1]) + 1, annotations)
     for index, (key, text) in enumerate(view):
         annotation = ET.SubElement(
             annotations,
