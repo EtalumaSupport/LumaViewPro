@@ -682,6 +682,7 @@ class LumaViewProApp(TooltipMixin, App):
                 source=str(_walk_path),
                 bring_up_owes=self._bring_up_owes,
                 in_flight=ctx.session.in_flight_named,
+                simulation=ctx.scope.simulation,
                 shot_dir=_walk_path.parent,
             )
             self._sim_walk.start()

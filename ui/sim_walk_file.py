@@ -10,8 +10,11 @@ let the app answer before the next step, default 0.3) and ``note`` (free text
 carried into the record).
 """
 
+import inspect
 import json
 import pathlib
+
+from modules.finite_number import is_finite_number
 
 DEFAULT_SETTLE_S = 0.3
 
@@ -25,6 +28,8 @@ _ACTIONS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     'read': (frozenset({'path', 'props'}), frozenset()),
     'shot': (frozenset({'name'}), frozenset()),
     'wait': (frozenset(), frozenset({'timeout_s'})),
+    'hold': (frozenset({'seconds'}), frozenset()),
+    'inject': (frozenset({'fault'}), frozenset({'args'})),
     'close': (frozenset(), frozenset()),
     'quit': (frozenset(), frozenset()),
 }
@@ -124,9 +129,54 @@ def _check_step(step: dict, where: str) -> None:
         and all(isinstance(p, str) for p in step['props'])
     ):
         raise WalkFileError(f"{where}: 'read' props is a non-empty list of property names")
-    for key in ('path', 'text', 'value', 'button', 'file', 'name'):
+    for key in ('path', 'text', 'value', 'button', 'file', 'name', 'fault'):
         if key in step and not isinstance(step[key], str):
             raise WalkFileError(f'{where}: {key} is text')
-    for key in ('settle_s', 'timeout_s'):
-        if key in step and not (isinstance(step[key], (int, float)) and step[key] >= 0):
-            raise WalkFileError(f'{where}: {key} is a number of seconds, not negative')
+    # JSON reads Infinity, and a bool is an int to Python: neither is a wait.
+    for key in ('settle_s', 'timeout_s', 'seconds'):
+        if key in step and not (is_finite_number(step[key]) and step[key] >= 0):
+            raise WalkFileError(f'{where}: {key} is a finite number of seconds, not negative')
+    if action == 'inject':
+        _check_fault(step, where)
+
+
+def injectable_faults() -> dict:
+    """The simulator faults a walk may inject, by name: the writes REST serves.
+
+    ``SimulationAPI``'s members marked for the wire, not in-process, and not
+    reads, as their own marks say; the walk adds no rule of its own. Imported
+    here rather than at the top: the scope's modules load the project's
+    logger, which a walk that injects nothing need not load before the app
+    sets up.
+    """
+    from modules import api_surface
+    from modules.lumascope_api.simulation import SimulationAPI
+
+    return {
+        name: member
+        for name, member in vars(SimulationAPI).items()
+        if api_surface.mark_of(member) == api_surface.API and not api_surface.reads_of(member)
+    }
+
+
+def _check_fault(step: dict, where: str) -> None:
+    # Checked here, so a misspelt fault or argument stops the launch, not the
+    # walk at its step after whatever ran before it. The values are the
+    # member's door's to judge when the step calls it.
+    args = step.get('args', {})
+    if not isinstance(args, dict):
+        raise WalkFileError(f"{where}: 'inject' args is an object of the fault's arguments")
+    faults = injectable_faults()
+    fault = step['fault']
+    if fault not in faults:
+        raise WalkFileError(
+            f'{where}: unknown fault {fault!r} (one of {", ".join(sorted(faults))})'
+        )
+    # The fault's parameters after self; none takes *args or **kwargs.
+    parameters = list(inspect.signature(faults[fault]).parameters.values())[1:]
+    missing = [p.name for p in parameters if p.default is p.empty and p.name not in args]
+    if missing:
+        raise WalkFileError(f'{where}: {fault!r} needs {", ".join(missing)}')
+    unknown = sorted(args.keys() - {p.name for p in parameters})
+    if unknown:
+        raise WalkFileError(f'{where}: unknown argument {unknown[0]!r} for {fault!r}')

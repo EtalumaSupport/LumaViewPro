@@ -38,6 +38,12 @@ does; a touch that closes a popup waits until it is gone, so the next step
 never meets one the walk has answered. A turret pick, a jog, a go-to, a build: the step after the
 ``wait`` reads the state after the work, however long it took.
 
+Two steps do what the world does rather than a person. ``hold`` sleeps the
+UI thread for its ``seconds`` in one call, so the app meets a held thread
+exactly as a stall makes one. ``inject`` calls one of the simulator's faults
+(``scope.simulation``) by name with its ``args``, as a cable pulled at the
+bench; a refusal from the fault stops the walk at that step.
+
 Walk files are read and checked by ``ui.sim_walk_file``.
 """
 
@@ -58,6 +64,7 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
 from modules import gui_logger
+from modules.exceptions import Refusal
 from ui import file_dialogs
 from ui.progress_popup import CustomPopup
 from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
@@ -88,7 +95,8 @@ class SimWalk:
     before step 1, saying what was still owed, when it never does.
     ``in_flight`` names what a gesture started that is still running (the
     app passes the session's ``in_flight_named``): a ``wait`` ends once it names nothing and
-    no popup is open. ``shot_dir`` receives the window pictures. ``finished``,
+    no popup is open. ``simulation`` is the scope's ``SimulationAPI``, which
+    ``inject`` calls. ``shot_dir`` receives the window pictures. ``finished``,
     ``outcome`` (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and
     ``shots`` are the result.
     """
@@ -100,12 +108,14 @@ class SimWalk:
         source: str,
         bring_up_owes,
         in_flight,
+        simulation,
         shot_dir: pathlib.Path,
     ):
         self._steps = steps
         self._source = source
         self._bring_up_owes = bring_up_owes
         self._in_flight = in_flight
+        self._simulation = simulation
         self._bring_up_deadline = 0.0
         self._shot_dir = shot_dir
         self._number = 0
@@ -152,7 +162,9 @@ class SimWalk:
         step = self._steps[self._number - 1]
         try:
             delay = next(self._action, _STEP_DONE)
-        except WalkStepError as e:
+        # A step it cannot perform, or a refusal from what the step called
+        # (an injected fault): the walk stops there, with its line.
+        except (WalkStepError, Refusal) as e:
             self._finish(f'stopped at step {self._number} ({_describe(step)}): {e}')
             return
         if delay is _STEP_DONE:
@@ -318,6 +330,18 @@ class SimWalk:
                 raise WalkStepError(f'still in flight after {timeout:g} s: {"; ".join(still)}')
             yield _POLL_S
 
+    def _hold(self, step):
+        started = time.monotonic()
+        time.sleep(step['seconds'])
+        self._step_outcome = f'held the UI thread {time.monotonic() - started:.1f} s'
+        yield from ()
+
+    def _inject(self, step):
+        # The walk file has checked the fault and its arguments' names; a
+        # refusal stops the walk in _resume.
+        getattr(self._simulation, step['fault'])(**step.get('args', {}))
+        yield from ()
+
     def _close(self, step):
         # The window's X, as a person presses it: the app's close gate logs
         # the request and asks or closes, and later steps answer it.
@@ -421,7 +445,7 @@ def _stop_the_app() -> None:
 
 
 def _describe(step: dict) -> str:
-    target = step.get('path') or step.get('button') or step.get('name') or ''
+    target = step.get('path') or step.get('button') or step.get('name') or step.get('fault') or ''
     return f'{step["do"]} {target}'.strip()
 
 

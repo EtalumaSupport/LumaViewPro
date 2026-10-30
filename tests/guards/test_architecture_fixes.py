@@ -532,9 +532,10 @@ _UI_EXCEPT_PIN = {
     ('ui/shader.py', 'Exception'): 0,
     ('ui/stage.py', 'Exception'): 0,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 0,
-    # The sim walk driver's own stop (a step it cannot perform), not an API
-    # outcome; one catch where the driver runs a step (Eric, 2026-10-04).
-    ('ui/sim_walk.py', 'WalkStepError'): 1,
+    # The sim walk driver's own stop (a step it cannot perform, or a fault it
+    # injected refused), not an API outcome; one catch where the driver runs
+    # a step (Eric, 2026-10-04; the refusal folded in, 2026-10-30).
+    ('ui/sim_walk.py', 'Refusal, WalkStepError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 1,
     ('ui/ui_helpers.py', 'ValueError'): 1,
     ('ui/vertical_control.py', 'Exception'): 0,

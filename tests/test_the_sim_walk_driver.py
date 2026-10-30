@@ -295,8 +295,25 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
     b, native, lambda path: hits.append('file ' + path),
     on_cancel=lambda: hits.append('file cancelled')))
 
+# The scope's simulator, standing in. A stand-in by design: the subject is
+# the driver's call of a fault and its stop at a refusal; the faults
+# themselves are tests/test_scope_simulation.py's, on the simulated scope.
+from modules.exceptions import ArgumentRefusedError
+class _Simulation:
+    def unplug(self, board):
+        if board == 'camera':
+            raise ArgumentRefusedError(
+                'fault_unknown', argument='board', value=board, offered=('motor', 'led')
+            )
+        hits.append('unplug ' + board)
+
+# The clock's own ticks, in wall time: the longest gap between two is how
+# long the UI thread ran nothing.
+ticks = []
+Clock.schedule_interval(lambda dt: ticks.append(time.time()), 0)
+
 def run(steps, shot_dir, bring_up):
-    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); walk_times.clear(); closes.clear(); stops.clear()
+    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); walk_times.clear(); closes.clear(); stops.clear(); ticks.clear()
     # The app's bring-up, standing in: owes the named facts for the first
     # ``clears_after`` polls, then nothing. None is a bring-up already done.
     polls = []
@@ -313,7 +330,8 @@ def run(steps, shot_dir, bring_up):
         # in the frame the walk starts, its expand animation still to run.
         drawers.ids[bring_up['opens_drawer']].collapse = False
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
-                   bring_up_owes=bring_up_owes, in_flight=in_flight, shot_dir=pathlib.Path(shot_dir))
+                   bring_up_owes=bring_up_owes, in_flight=in_flight, simulation=_Simulation(),
+                   shot_dir=pathlib.Path(shot_dir))
     walk.start()
     for _ in range(4000):
         EventLoop.idle()
@@ -332,7 +350,8 @@ def run(steps, shot_dir, bring_up):
             'records': list(records), 'walk_lines': list(walk_lines), 'walk_times': dict(walk_times),
             'reads': walk.reads, 'shots': walk.shots,
             'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'stops': len(stops),
-            'polls': len(polls)}
+            'polls': len(polls),
+            'longest_tick_gap': max((b - a for a, b in zip(ticks, ticks[1:])), default=0.0)}
 
 steps = json.loads(sys.argv[2])
 bring_up = json.loads(sys.argv[4]) if len(sys.argv) > 4 else None
@@ -545,11 +564,61 @@ def test_the_walk_file_parser_names_each_defect():
         ('[{"do": "choose", "path": "a"}]', "step 1: 'choose' needs file or cancel"),
         ('[{"do": "read", "path": "a", "props": "text"}]', 'props'),
         ('[{"do": "quit"}, {"do": "wait"}]', 'step 1: quit ends a walk'),
+        ('[{"do": "hold"}]', "step 1: 'hold' needs seconds"),
+        ('[{"do": "hold", "seconds": -1}]', 'seconds is a finite number of seconds'),
+        ('[{"do": "hold", "seconds": Infinity}]', 'seconds is a finite number of seconds'),
+        ('[{"do": "hold", "seconds": true}]', 'seconds is a finite number of seconds'),
+        ('[{"do": "wait", "timeout_s": Infinity}]', 'timeout_s is a finite number of seconds'),
+        ('[{"do": "press", "path": "a", "settle_s": true}]', 'settle_s is a finite number'),
+        ('[{"do": "inject"}]', "step 1: 'inject' needs fault"),
+        ('[{"do": "inject", "fault": "nosuch"}]', "unknown fault 'nosuch' (one of answer_model, "),
+        # A read, and a member kept off the wire, are not faults a walk injects.
+        ('[{"do": "inject", "fault": "injected"}]', "unknown fault 'injected'"),
+        (
+            '[{"do": "inject", "fault": "hold_axis", "args": {"axis": "X"}}]',
+            "unknown fault 'hold_axis'",
+        ),
+        ('[{"do": "inject", "fault": "unplug", "args": ["led"]}]', 'args is an object'),
+        (
+            '[{"do": "inject", "fault": "remove_camera", "args": {"extra": 1}}]',
+            "unknown argument 'extra' for 'remove_camera'",
+        ),
+        ('[{"do": "inject", "fault": "unplug"}]', "'unplug' needs board"),
     ]:
         with pytest.raises(WalkFileError, match=__import__('re').escape(says)):
             parse_walk(text, source='w.json')
     with pytest.raises(json.JSONDecodeError):
         parse_walk('not json', source='w.json')
+    parse_walk(
+        '[{"do": "hold", "seconds": 0.5}, {"do": "inject", "fault": "remove_camera"},'
+        ' {"do": "inject", "fault": "unplug", "args": {"board": "led"}}]',
+        source='w.json',
+    )
+
+
+def test_a_hold_runs_nothing_on_the_ui_thread_for_its_seconds(tmp_path):
+    # A held thread as a stall makes one: the clock's own ticks stop for the
+    # whole hold, not just the walk's next step.
+    result = _run(tmp_path, [{'do': 'hold', 'seconds': 0.5}])
+    assert result['outcome'] == 'done', result
+    assert result['longest_tick_gap'] >= 0.5, result
+    assert any(line.endswith('hold: held the UI thread 0.5 s') for line in result['walk_lines']), (
+        result['walk_lines']
+    )
+
+
+def test_an_inject_calls_its_fault_and_a_refused_one_stops_the_walk(tmp_path):
+    result = _run(tmp_path, [{'do': 'inject', 'fault': 'unplug', 'args': {'board': 'led'}}])
+    assert (result['outcome'], result['hits']) == ('done', ['unplug led']), result
+    stopped = _run(
+        tmp_path,
+        [
+            {'do': 'inject', 'fault': 'unplug', 'args': {'board': 'camera'}},
+            {'do': 'press', 'path': 'Panel/a'},
+        ],
+    )
+    assert stopped['outcome'].startswith('stopped at step 1 (inject unplug): board '), stopped
+    assert stopped['hits'] == [], stopped
 
 
 def test_a_walk_ending_in_quit_stops_the_app_when_it_stops_early(tmp_path):
