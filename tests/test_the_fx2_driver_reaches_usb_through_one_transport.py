@@ -152,6 +152,10 @@ class _Context:
         pass
 
 
+class _Usb1Error(Exception):
+    """python-libusb1's ``USBError``, which is not an ``OSError``."""
+
+
 def _connection_on_libusb(monkeypatch, events):
     """A real _FX2Connection on a real _LibusbTransport, over stand-in libraries.
 
@@ -179,6 +183,7 @@ def _connection_on_libusb(monkeypatch, events):
             USBContext=lambda: _Context(handle),
             TRANSFER_COMPLETED=object(),
             TRANSFER_CANCELLED=object(),
+            USBError=_Usb1Error,
             USBErrorTimeout=TimeoutError,
         ),
     )
@@ -250,7 +255,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     class Device:
         def control_transfer(self, request_type, request, value, index, data=b''):
             if request == fx2driver.VR_START_STREAMING:
-                raise RuntimeError('ControlTransfer OUT failed: 31')
+                raise OSError('ControlTransfer OUT failed: 31')
             return len(data)
 
     readers = []
@@ -280,7 +285,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     transport = fx2driver._WinUsbTransport()
     try:
         transport.start_stream(fx2_stream(), on_gone=lambda: None)
-    except RuntimeError:
+    except OSError:
         pass
     transport.stop_stream()
     assert len(readers) == 1
@@ -305,7 +310,7 @@ def test_a_windows_start_that_fails_leaves_no_reader_and_the_next_runs_one(monke
 
         def control_transfer(self, request_type, request, value, index, data=b''):
             if request == fx2driver.VR_START_STREAMING and self._refuses_start:
-                raise RuntimeError('ControlTransfer OUT failed: 31')
+                raise OSError('ControlTransfer OUT failed: 31')
             return len(data)
 
     class Reader:
@@ -402,10 +407,10 @@ def test_a_libusb_start_whose_claim_fails_closes_the_handle_and_context_it_opene
     closed = []
 
     def refuse_claim(interface):
-        raise OSError('LIBUSB_ERROR_BUSY')
+        raise _Usb1Error('LIBUSB_ERROR_BUSY')
 
     def refuse_release(interface):
-        raise OSError('LIBUSB_ERROR_NOT_FOUND')
+        raise _Usb1Error('LIBUSB_ERROR_NOT_FOUND')
 
     handle.claimInterface = refuse_claim
     handle.releaseInterface = refuse_release
@@ -430,12 +435,74 @@ def test_a_libusb_start_whose_context_does_not_open_raises_its_own_failure(monke
     conn = _connection_on_libusb(monkeypatch, [])
 
     def no_context():
-        raise OSError('LIBUSB_ERROR_NO_MEM')
+        raise _Usb1Error('LIBUSB_ERROR_NO_MEM')
 
     monkeypatch.setattr(fx2driver.usb1, 'USBContext', no_context)
 
     with pytest.raises(CameraStreamStartFailedError, match='NO_MEM'):
         conn.start_stream(ImageHandlerBase().hand_over)
+
+
+def test_a_defect_in_a_libusb_start_leaves_as_itself_and_the_start_is_undone(monkeypatch):
+    """Only the USB library's failure is a stream that did not start; the
+    driver's own defect leaves as itself, and the start is undone either way."""
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _IsoHandle(events)
+    closed = []
+
+    def defect(interface):
+        raise TypeError('a defect in the stream set-up')
+
+    handle.claimInterface = defect
+    handle.close = lambda: closed.append('handle')
+
+    class Context(_Context):
+        def close(self):
+            closed.append('context')
+
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: Context(handle))
+
+    with pytest.raises(TypeError, match='a defect in the stream set-up'):
+        conn.start_stream(ImageHandlerBase().hand_over)
+
+    assert sorted(closed) == ['context', 'handle']
+
+
+def _pump(monkeypatch, failure):
+    """A libusb transport streaming on a context whose first event call raises ``failure``.
+
+    The second call ends the stream, so a pump that rides the failure out returns.
+    """
+    _connection_on_libusb(monkeypatch, [])
+    transport = fx2driver._LibusbTransport()
+    calls = []
+
+    def handle_events(tv):
+        calls.append(tv)
+        if len(calls) == 1:
+            raise failure
+        transport._streaming = False
+
+    transport._ctx = SimpleNamespace(handleEventsTimeout=handle_events)
+    transport._streaming = True
+    return transport, calls
+
+
+def test_the_event_pump_rides_out_a_libusb_failure(monkeypatch):
+    transport, calls = _pump(monkeypatch, _Usb1Error('LIBUSB_ERROR_IO'))
+
+    transport._usb_event_loop()
+
+    assert len(calls) == 2
+
+
+def test_a_defect_in_the_event_pump_ends_it_as_itself(monkeypatch):
+    transport, calls = _pump(monkeypatch, TypeError('a defect in the event pump'))
+
+    with pytest.raises(TypeError, match='a defect in the event pump'):
+        transport._usb_event_loop()
+    assert len(calls) == 1
 
 
 _USB_NAMES = {'usb', 'usb1', 'WinUsbIsoReader', 'winusb_iso'}

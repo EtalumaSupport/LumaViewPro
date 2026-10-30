@@ -73,6 +73,7 @@ References
 from __future__ import annotations
 
 import atexit
+import contextlib
 import ctypes
 import logging
 import math
@@ -83,7 +84,7 @@ import time
 import weakref
 from typing import Any, ClassVar, NamedTuple, NoReturn
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 
 import numpy as np
@@ -115,7 +116,9 @@ from drivers.exceptions import (
     CameraReadFailedError,
     CameraStreamStartFailedError,
     CameraUsbNotFoundError,
+    CameraUsbOpenFailedError,
     CameraWriteFailedError,
+    HardwareError,
 )
 from drivers.usb_driver_binding import (
     DEVICE_NAMES,
@@ -1136,6 +1139,21 @@ def _is_usb_timeout(error: BaseException) -> bool:
     return isinstance(error, tuple(timeouts))
 
 
+def _usb_errors() -> tuple[type[BaseException], ...]:
+    """What the USB libraries raise for a call the device or the host did not complete.
+
+    pyusb's ``USBError`` is an ``OSError``, as is what ``drivers/winusb_iso.py``
+    raises for a failed WinUSB call, its timeout included; python-libusb1's
+    ``USBError`` is its own. Anything else a call raises is the driver's own
+    defect, and a handler around a USB call catches only these. Read at the
+    failure, as ``_is_usb_timeout`` reads its classes.
+    """
+    errors: list[type[BaseException]] = [OSError]
+    if _HAS_USB1:
+        errors.append(usb1.USBError)
+    return tuple(errors)
+
+
 def _camera_write_failed(request: int, error: BaseException) -> Exception:
     """The fault for a camera vendor write ``request`` the transport raised ``error`` on.
 
@@ -1176,6 +1194,23 @@ def _raise_if_no_answer(setting: str, error: BaseException) -> None:
         raise CameraNoAnswerError(
             f'The camera did not answer the {setting} write: {error}'
         ) from error
+
+
+@contextlib.contextmanager
+def _usb_call_failed(what: str) -> Iterator[None]:
+    """Raise a USB library failure inside the block as the camera's open failure, ``what`` naming the step.
+
+    For the connect's calls: the device was looked for, found or written
+    to, and the library did not complete the call. Anything else leaves as
+    itself.
+
+    Raises:
+        CameraUsbOpenFailedError: A USB call in the block failed.
+    """
+    try:
+        yield
+    except _usb_errors() as e:
+        raise CameraUsbOpenFailedError(f'The FX2 failed {what}: {type(e).__name__}: {e}') from e
 
 
 class _PyusbTransport:
@@ -1250,7 +1285,7 @@ class _PyusbTransport:
             dev = self.find(PID_APP)
             if dev is not None:
                 self.open(dev)
-        except Exception as e:
+        except _usb_errors() as e:
             logger.warning('[FX2 Conn  ] pyusb handle reopen failed: %s', e)
 
     def link_speed_mbps(self) -> float | None:
@@ -1460,14 +1495,26 @@ class _LibusbTransport(_PyusbTransport):
 
         handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
         when the device dies and every call raises, this loop degrades to
-        a ~10 Hz idle poll -- it does not hot-spin.
+        a ~10 Hz idle poll -- it does not hot-spin. The first failure of each
+        run of them is logged, so a stream that stalls has its cause beside
+        the stall.
         """
+        failing = False
         while self._streaming:
             try:
                 self._ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
+                failing = False
+            except usb1.USBError as e:
                 if not self._streaming:
                     break
+                if not failing:
+                    failing = True
+                    logger.error(
+                        '[FX2 Conn  ] libusb event handling failed; the stream gets '
+                        'no transfers while it does: %s: %s',
+                        type(e).__name__,
+                        e,
+                    )
 
 
 class _WinUsbTransport(_PyusbTransport):
@@ -1652,8 +1699,15 @@ class _FX2Connection:
         Raises:
             ImportError: pyusb (or libusb1 on macOS/Linux) is not installed.
             _FX2AbsentError: No Lumascope FX2 device is on the bus.
-            RuntimeError: Firmware upload did not re-enumerate within the
-                timeout window.
+            CameraUsbNotFoundError: The firmware was uploaded and the device
+                did not re-enumerate within the timeout window.
+            CameraUsbOpenFailedError: A USB call finding, opening or
+                uploading to the device failed.
+            CameraUsbDriverUnusableError: A device is bound to a driver that
+                cannot serve it.
+            CameraUsbLookupFailedError: The bindings could not be read.
+            CameraFirmwareMissingError: The firmware file is not in the
+                installation.
         """
         if cls._instance is not None:
             return cls._instance
@@ -1720,18 +1774,20 @@ class _FX2Connection:
         """
         transport = self._transport
         self._check_bindings(FX2_FIRMWARE)
-        dev = transport.find(PID_APP)
-        if dev is not None:
-            logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
-            transport.open(dev)
-            logger.info(
-                '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
-                PID_APP,
-            )
-            return
+        with _usb_call_failed('opening the running firmware'):
+            dev = transport.find(PID_APP)
+            if dev is not None:
+                logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+                transport.open(dev)
+                logger.info(
+                    '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
+                    PID_APP,
+                )
+                return
 
         self._check_bindings(FX2_BOOTLOADER)
-        dev = transport.find(PID_BOOT)
+        with _usb_call_failed('finding the bootloader'):
+            dev = transport.find(PID_BOOT)
         if dev is None:
             raise _FX2AbsentError(
                 f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
@@ -1741,27 +1797,34 @@ class _FX2Connection:
             '[FX2 Conn  ] bootloader found (PID 0x%04X), uploading firmware...',
             PID_BOOT,
         )
-        self._upload_firmware(dev, _FX2Connection.find_firmware_path())
+        # The file is read outside the USB calls: a file that cannot be read
+        # is the installation's, not the device's.
+        hex_path = _FX2Connection.find_firmware_path()
+        data, end_addr = parse_intel_hex(hex_path)
+        with _usb_call_failed('uploading the firmware'):
+            self._upload_firmware(dev, hex_path, data, end_addr)
 
         # Wait for re-enumeration under the new application PID.
         deadline = time.monotonic() + self.FIRMWARE_RE_ENUM_TIMEOUT
         while time.monotonic() < deadline:
             time.sleep(0.5)
-            dev = transport.find(PID_APP)
+            with _usb_call_failed('finding the uploaded firmware'):
+                dev = transport.find(PID_APP)
             if dev is not None:
                 logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
                 # The running firmware is a new device, bound on its own.
                 self._check_bindings(FX2_FIRMWARE)
-                transport.open(dev)
+                with _usb_call_failed('opening the uploaded firmware'):
+                    transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',
                     PID_APP,
                 )
                 return
 
-        raise RuntimeError(
-            f'FX2 did not re-enumerate after firmware upload '
-            f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
+        raise CameraUsbNotFoundError(
+            f'The FX2 did not re-enumerate as PID 0x{PID_APP:04X} after its firmware '
+            f'upload (waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
 
     def _check_bindings(self, identity: str) -> None:
@@ -1834,9 +1897,8 @@ class _FX2Connection:
 
         raise CameraFirmwareMissingError(candidates)
 
-    def _upload_firmware(self, dev, hex_path: str):
-        """Upload Intel HEX firmware to FX2 via vendor request 0xA0."""
-        data, end_addr = parse_intel_hex(hex_path)
+    def _upload_firmware(self, dev, hex_path: str, data: bytes, end_addr: int):
+        """Upload the firmware image read from ``hex_path`` to the FX2 via vendor request 0xA0."""
         logger.info('[FX2 Conn  ] firmware: %s (%d bytes)', hex_path, end_addr)
 
         write_to = self._transport.write_to
@@ -1890,12 +1952,17 @@ class _FX2Connection:
 
         Returns:
             int: Bytes written, as reported by the underlying USB layer.
+
+        Raises:
+            Exception: What ``fault_for`` gives for a write the USB library
+                did not complete (``_usb_errors``); anything else the
+                transport raises is the driver's own and leaves as itself.
         """
         t_start = time.monotonic()
         try:
             with self._lock:
                 result = self._transport.control_out(request, value, index, data, timeout)
-        except Exception as e:
+        except _usb_errors() as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             if request not in _I2C_VR_REQUESTS:
                 _serial_log.error(
@@ -2001,7 +2068,9 @@ class _FX2Connection:
                 # so a reader left running would be reached by no stop, and
                 # the next start would open a second beside it.
                 self._transport.stop_stream()
-                if not isinstance(error, Exception) or isinstance(error, Fault):
+                # A transport's own typed fault, and anything that is not
+                # the USB library's, leaves as itself.
+                if not isinstance(error, _usb_errors()):
                     raise
                 words = f'{type(error).__name__}: {error}'
                 if _is_usb_timeout(error):
@@ -2393,33 +2462,30 @@ class FX2Camera(Camera):
         ``camera.profile.gain.total_max_db`` and get real numbers
         instead of the ``None`` defaults.
         """
-        try:
-            self.profile.gain.total_min_db = GAIN_MIN_DB
-            self.profile.gain.total_max_db = GAIN_MAX_DB
-            # One shutter row at the full window: the shortest exposure
-            # every window the driver allows can give (a narrower window's
-            # row is shorter, so it reaches this to within its own row).
-            self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
-            # One second, deliberately: as long as these units need, and no
-            # longer. The stream stays clean far past it (an LS620 ran to the
-            # register's 65535 rows), but the API's fixed 5 s wait for a new
-            # capture and the stream check's bound after a long-to-short
-            # exposure change both misfire above a few seconds, and 65535
-            # rows is only 2.8 s at the narrowest window. Past the readout
-            # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
-            # sensor adds blanking rows and the frame stretches to the
-            # exposure (frame_time_s), which the stream handles.
-            SAFE_EXPOSURE_MAX_MS = 1000
-            self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
-            logger.debug(
-                '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
-                self.profile.gain.total_min_db,
-                self.profile.gain.total_max_db,
-                self.profile.exposure_min_us / 1000,
-                self.profile.exposure_max_us / 1000,
-            )
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] _query_dynamic_capabilities failed: %s', e)
+        self.profile.gain.total_min_db = GAIN_MIN_DB
+        self.profile.gain.total_max_db = GAIN_MAX_DB
+        # One shutter row at the full window: the shortest exposure
+        # every window the driver allows can give (a narrower window's
+        # row is shorter, so it reaches this to within its own row).
+        self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
+        # One second, deliberately: as long as these units need, and no
+        # longer. The stream stays clean far past it (an LS620 ran to the
+        # register's 65535 rows), but the API's fixed 5 s wait for a new
+        # capture and the stream check's bound after a long-to-short
+        # exposure change both misfire above a few seconds, and 65535
+        # rows is only 2.8 s at the narrowest window. Past the readout
+        # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
+        # sensor adds blanking rows and the frame stretches to the
+        # exposure (frame_time_s), which the stream handles.
+        SAFE_EXPOSURE_MAX_MS = 1000
+        self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
+        logger.debug(
+            '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
+            self.profile.gain.total_min_db,
+            self.profile.gain.total_max_db,
+            self.profile.exposure_min_us / 1000,
+            self.profile.exposure_max_us / 1000,
+        )
 
     # -- Sensor init -------------------------------------------------------
 
@@ -2476,7 +2542,9 @@ class FX2Camera(Camera):
             # here, connect() would report success with the sensor still at
             # its power-on window and the ISO frame parser desynced on the
             # mismatched byte count -- garbage live view with no error.
-            raise RuntimeError('MT9P031 initial window apply failed during sensor init')
+            raise CameraWriteFailedError(
+                'The camera did not take its initial window during sensor init'
+            )
 
         logger.info('[FX2 Cam   ] MT9P031 sensor initialized (reset, PLL, window)')
 
@@ -2788,7 +2856,7 @@ class FX2Camera(Camera):
             self._fx2.sensor_reg_write(
                 REG_EXPOSURE, shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
             )
-        except Exception as e:
+        except HardwareError as e:
             # Translate a USB write failure into the base contract's explicit
             # False -- the rejection signal the pylon and IDS set_frame_size
             # already return, which the camera-write authority upstream turns
@@ -2986,7 +3054,7 @@ class FX2Camera(Camera):
             return None
         try:
             speed = self._fx2.link_speed_mbps()
-        except Exception as e:
+        except _usb_errors() as e:
             raise CameraReadFailedError(f'Link speed read failed: {type(e).__name__}: {e}') from e
         # libusb answers no speed while it does not know one.
         return link_info(transport='USB2', link_speed=None if speed is None else (speed, 'Mbps'))

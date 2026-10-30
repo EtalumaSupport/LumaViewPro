@@ -63,7 +63,7 @@ def test_a_failed_out_transfer_raises_and_names_the_error_code():
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
         patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 31),
-        pytest.raises(RuntimeError, match='31'),
+        pytest.raises(OSError, match='31'),
     ):
         _device().control_transfer(0x40, 0xB3, 0, 0x42, data=b'\x01')
 
@@ -76,7 +76,7 @@ def test_a_failed_in_transfer_raises_instead_of_returning_empty_bytes():
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
         patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 31),
-        pytest.raises(RuntimeError, match='31'),
+        pytest.raises(OSError, match='31'),
     ):
         _device().control_transfer(0xC0, 0xB2, 0, 0x42, length=2)
 

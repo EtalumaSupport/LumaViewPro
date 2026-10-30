@@ -439,12 +439,13 @@ def _transfer_failed(transfer: str) -> Exception:
 
     A timeout is a ``TimeoutError``, the type the FX2 driver reads as a
     device that did not answer, as it reads pyusb's and python-libusb1's
-    timeouts; any other failure is a ``RuntimeError``. Both name the code.
+    timeouts; any other failure is an ``OSError``, a system call that
+    failed, as pyusb's own ``USBError`` is. Both name the code.
     """
     code = ctypes.get_last_error()
     if code == ERROR_SEM_TIMEOUT:
         return TimeoutError(f'{transfer} timed out: {code}')
-    return RuntimeError(f'{transfer} failed: {code}')
+    return OSError(f'{transfer} failed: {code}')
 
 
 # ---------------------------------------------------------------------------

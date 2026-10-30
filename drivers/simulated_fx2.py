@@ -12,7 +12,9 @@ The device answers only what the driver sends on the wire: the firmware
 upload on the bootloader, then ``VR_I2C_WRITE`` to the sensor or the LED
 peripheral and the stream's start and stop on the running firmware. Any
 other request, or an I2C address it does not model, raises, so a new driver
-request cannot pass unmodelled.
+request cannot pass unmodelled. A fault of the device's own (off the bus, a
+stalled pipe) raises ``OSError``, as the USB libraries do; a request the
+driver should not have sent raises as the driver's own defect.
 
 It imports no USB library: the transport below stands where the platform
 transports stand, behind the same connection.
@@ -283,7 +285,7 @@ class SimulatedFX2Device:
             self._load(value, bytes(data))
             return len(data)
         if self.pid != PID_APP:
-            raise RuntimeError('the simulated FX2 is not on the bus')
+            raise OSError('the simulated FX2 is not on the bus')
         if request == VR_I2C_WRITE:
             written = bytes(data[:_I2C_MAX_BYTES])
             if index == I2C_SENSOR:
@@ -291,7 +293,7 @@ class SimulatedFX2Device:
             elif index == I2C_LED:
                 if self.refused_led_writes:
                     self.refused_led_writes -= 1
-                    raise RuntimeError('VR_I2C_WRITE refused: the control pipe stalled')
+                    raise OSError('VR_I2C_WRITE refused: the control pipe stalled')
                 for byte in written:
                     self.leds.receive(byte)
             else:
@@ -300,7 +302,7 @@ class SimulatedFX2Device:
         if request == VR_START_STREAMING:
             if self.refused_starts:
                 self.refused_starts -= 1
-                raise RuntimeError('VR_START_STREAMING refused: the control pipe stalled')
+                raise OSError('VR_START_STREAMING refused: the control pipe stalled')
             self._start()
             return 0
         if request == VR_STOP_STREAMING:
@@ -557,7 +559,7 @@ class SimulatedFX2Transport:
         # cannot take it, and the stop still releases the host's side.
         try:
             self.device.vendor_out(VR_STOP_STREAMING, 0, 0, b'')
-        except RuntimeError:
+        except OSError:
             self.device.stop()
         self.device.detach()
         self._stream = None

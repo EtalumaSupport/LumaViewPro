@@ -62,6 +62,21 @@ def test_an_fx2_whose_speed_libusb_does_not_know_reports_no_speed_and_no_unit(
     assert (info.link_speed, info.link_speed_unit) == (None, None)
 
 
+def test_a_defect_in_the_fx2_link_read_is_lumaviewpros_not_the_cameras(fx2_session, monkeypatch):
+    # A stand-in by design: the simulated FX2's speed read cannot fail, so
+    # the driver's own defect is put where the USB library's read stands.
+    # Only the library's failure is the camera's read fault.
+    fx2 = fx2_session.scope._camera_driver._fx2
+
+    def defect():
+        raise TypeError('a defect in the speed read')
+
+    monkeypatch.setattr(fx2, 'link_speed_mbps', defect)
+
+    with pytest.raises(TypeError, match='a defect in the speed read'):
+        fx2_session.scope.diagnostics.get_camera_link_info()
+
+
 @pytest.mark.parametrize('libusb_speed, mbps', [(0, None), (2, 12.0), (3, 480.0), (4, 5000.0)])
 def test_the_fx2_transport_reads_libusbs_speed(libusb_speed, mbps):
     transport = fx2driver._PyusbTransport()

@@ -38,6 +38,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from drivers import fx2driver
+from drivers.exceptions import CameraWriteFailedError
 from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
 from drivers.protocols import LEDBoardProtocol
 from drivers.camera_profiles import lookup_profile
@@ -525,15 +526,41 @@ class TestFX2CameraProfile:
     def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         cam.set_frame_size(1000, 996)
-        fake_fx2_conn.sensor_reg_write.side_effect = OSError('usb gone')
+        fake_fx2_conn.sensor_reg_write.side_effect = CameraWriteFailedError('usb gone')
         try:
             result = cam.set_frame_size(500, 500)
         finally:
             fake_fx2_conn.sensor_reg_write.side_effect = None
-        # A failed apply reports the base contract's False and leaves
-        # get_frame_size() at the geometry the sensor is still running with.
+        # A window write the camera did not take reports the base contract's
+        # False and leaves get_frame_size() at the geometry the sensor is
+        # still running with.
         assert result is False
         assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+
+    def test_a_defect_in_the_window_write_leaves_as_itself(self, fake_fx2_conn):
+        # Only the camera's write fault is a window the camera did not take;
+        # anything else raised under the writes is the driver's own.
+        cam = fx2driver.FX2Camera()
+        fake_fx2_conn.sensor_reg_write.side_effect = TypeError('a defect in the window write')
+        try:
+            with pytest.raises(TypeError, match='a defect in the window write'):
+                cam.set_frame_size(500, 500)
+        finally:
+            fake_fx2_conn.sensor_reg_write.side_effect = None
+
+    def test_a_first_window_the_camera_does_not_take_fails_its_bring_up_as_a_write_fault(
+        self, fake_fx2_conn
+    ):
+        def refuse_the_window(reg, value):
+            if reg == fx2driver.REG_ROW_START:
+                raise CameraWriteFailedError('the window write was not taken')
+
+        fake_fx2_conn.sensor_reg_write.side_effect = refuse_the_window
+
+        with pytest.raises(CameraWriteFailedError, match='initial window') as raised:
+            fx2driver.FX2Camera()
+
+        assert raised.value.reason == 'camera_write_failed'
 
     def test_max_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
@@ -753,16 +780,27 @@ def test_a_failed_winusb_out_transfer_reaches_the_caller_as_a_write_fault():
     """The contract every consumer in this chain is written against: a
     refused vendor write reaches the caller, typed, naming the request and
     carrying the transport's own words."""
-    from drivers.exceptions import CameraWriteFailedError
 
     def refuse(*a, **kw):
-        raise RuntimeError('ControlTransfer OUT ... failed: 31')
+        raise OSError('ControlTransfer OUT ... failed: 31')
 
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
     with pytest.raises(CameraWriteFailedError, match=r'VR_I2C_WRITE.*failed: 31') as raised:
         conn.sensor_reg_write(0x42, 1)
 
     assert raised.value.reason == 'camera_write_failed'
+
+
+def test_a_defect_under_a_vendor_write_leaves_as_itself():
+    """Only what the USB library raises is a write the camera did not take;
+    the driver's own defect under the write is not the camera's."""
+
+    def defect(*a, **kw):
+        raise TypeError('a defect in the transport')
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=defect))
+    with pytest.raises(TypeError, match='a defect in the transport'):
+        conn.sensor_reg_write(0x42, 1)
 
 
 @pytest.mark.parametrize('library', ['pyusb', 'libusb1', 'WinUSB'])
