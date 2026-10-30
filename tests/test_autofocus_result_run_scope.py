@@ -41,19 +41,18 @@ import pytest
 
 
 from modules.run_events import RunEvents
-from tests.af_drives import af_runner_and_scope, drive_af
+from tests.af_drives import af_runner_on, sweep
 from tests.ast_seams import parse_module
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.stock_channels import LED1
 
-STALE_Z = 4321.0  # a prior run's result; no drive ever produces this value
 
-
-def _runner_holding_a_stale_result():
-    """A sequenced-capture runner whose autofocus already carries a
-    result from an earlier run, as the real object would."""
-    af_runner, _scope = af_runner_and_scope()
-    af_runner._best_focus_position = STALE_Z
+@pytest.fixture
+def runner_holding_a_stale_result(sim_scope):
+    """A sequenced-capture runner whose autofocus carries the result of an
+    earlier sweep, as the real object would after run N."""
+    af_runner = af_runner_on(sim_scope)
+    sweep(af_runner, sim_scope)
     return bare_capture_runner(autofocus_runner=af_runner), af_runner
 
 
@@ -63,11 +62,11 @@ def _runner_holding_a_stale_result():
 
 
 class TestRunStartScopesTheResultToTheRun:
-    def test_start_clears_a_prior_runs_result(self):
+    def test_start_clears_a_prior_runs_result(self, runner_holding_a_stale_result):
         """with a value left from run N, best_focus_position() is
         None at the start of run N+1."""
-        runner, af_runner = _runner_holding_a_stale_result()
-        assert af_runner.best_focus_position() == STALE_Z, 'precondition: the stale value is there'
+        runner, af_runner = runner_holding_a_stale_result
+        assert af_runner.best_focus_position() is not None, 'precondition: the stale value is there'
 
         runner.start(runner.prepare(**scr_run_kwargs()))
 
@@ -76,7 +75,9 @@ class TestRunStartScopesTheResultToTheRun:
             f'will produce one; got {af_runner.best_focus_position()}'
         )
 
-    def test_a_run_that_fails_at_start_reports_with_no_result(self, monkeypatch):
+    def test_a_run_that_fails_at_start_reports_with_no_result(
+        self, runner_holding_a_stale_result, monkeypatch
+    ):
         """the clear sits BEFORE the failure window, so a run that
         fails at start sends its run_ended with the result already None.
 
@@ -84,7 +85,7 @@ class TestRunStartScopesTheResultToTheRun:
         window would leave the stale value in place on exactly the path
         where no autofocus ever runs to overwrite it.
         """
-        runner, af_runner = _runner_holding_a_stale_result()
+        runner, af_runner = runner_holding_a_stale_result
 
         def _boom():
             raise OSError('run dir init failed')
@@ -114,7 +115,9 @@ class TestRunStartScopesTheResultToTheRun:
 
 
 class TestClearResultIsUnconditional:
-    def test_clear_result_does_not_skip_while_an_autofocus_is_in_flight(self):
+    def test_clear_result_does_not_skip_while_an_autofocus_is_in_flight(
+        self, sim_scope, monkeypatch
+    ):
         """The clear must NOT carry reset()'s in-flight guard.
 
         A prior autofocus can still be unwinding when the next run starts
@@ -126,30 +129,48 @@ class TestClearResultIsUnconditional:
         never reads it, which is why clearing the result is not the
         _params wipe reset() refuses to do mid-run.
         """
-        af_runner, _scope = af_runner_and_scope()
-        af_runner._best_focus_position = STALE_Z
-        af_runner._af_in_progress.set()
+        af_runner = af_runner_on(sim_scope)
+        seen = []
+        restore = sim_scope.camera.restore_camera_state
 
-        af_runner.clear_result()
+        def clear_while_unwinding(snapshot):
+            # The sweep has its result and is restoring the camera: in flight.
+            found = af_runner.best_focus_position()
+            af_runner.clear_result()
+            seen.append((af_runner.in_progress(), found, af_runner.best_focus_position()))
+            return restore(snapshot)
 
-        assert af_runner.best_focus_position() is None, (
+        monkeypatch.setattr(sim_scope.camera, 'restore_camera_state', clear_while_unwinding)
+
+        sweep(af_runner, sim_scope)
+
+        ((in_flight, found, after_the_clear),) = seen
+        assert in_flight and found is not None, 'precondition: a result, while in flight'
+        assert after_the_clear is None, (
             'clear_result() must be unconditional; an in-flight guard would '
             'skip it on the one path where the stale value gets read'
         )
 
-    def test_clear_result_leaves_the_scan_params_alone(self):
-        """The narrow clear is not AFE.reset(): _params stays, because
-        run() reads it on the AF thread."""
-        af_runner, _scope = af_runner_and_scope()
-        drive_af(af_runner)
-        params_before = dict(af_runner._params)
-        assert params_before, 'precondition: a drive populates _params'
+    def test_clear_result_leaves_the_scan_params_alone(self, sim_scope, monkeypatch):
+        """The narrow clear is not AFE.reset(): the scan parameters stay,
+        because run() reads them on the AF thread -- a sweep cleared
+        mid-flight still finds its focus."""
+        import modules.autofocus_functions as autofocus_functions
 
-        af_runner.clear_result()
+        from tests.af_drives import FOCAL_Z_UM
 
-        assert af_runner._params == params_before, (
-            'clear_result() must touch only the result; wiping _params would '
-            'race AFE.run() on the AF thread'
+        af_runner = af_runner_on(sim_scope)
+        score = autofocus_functions.focus_function
+
+        def clear_mid_sweep(image):
+            af_runner.clear_result()
+            return score(image)
+
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', clear_mid_sweep)
+
+        assert sweep(af_runner, sim_scope) == pytest.approx(FOCAL_Z_UM, abs=10.0), (
+            'clear_result() must touch only the result; wiping the scan '
+            'parameters would race AFE.run() on the AF thread'
         )
 
 

@@ -38,9 +38,14 @@ import threading
 
 import pytest
 
-from modules.lumascope_api.illumination import LedTransition
-from tests.af_drives import af_runner_and_scope, drive_af
-from tests.stock_channels import LED2
+from modules.exceptions import AutofocusFailedError
+from modules.lumascope_api.illumination import LedState
+from tests.af_drives import af_runner_on, sweep, z_asked
+from tests.stock_channels import LED1, LED2
+
+
+def _lit(scope):
+    return [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
 
 
 # ---------------------------------------------------------------------------
@@ -54,35 +59,31 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
     the snapshot on exit -- so the focus metric never sees mixed
     illumination and the user's LED state survives the run."""
 
-    def _af_enter_index(self, scope):
-        """Index in scope.mock_calls of the AF_ENTER illuminate on the AF lease."""
-        return next(
-            i
-            for i, (name, args, kwargs) in enumerate(scope.mock_calls)
-            if name.endswith('.apply') and args and args[0] is LedTransition.AF_ENTER
-        )
-
-    def test_ambient_fallback_clears_leds(self, monkeypatch):
+    def test_ambient_fallback_clears_leds(self, sim_scope, monkeypatch):
         """No AF channel configured: AF_ENTER's target is empty, so the
         authority diff clears every channel and ambient AF is not biased by a
-        stray Live-mode LED."""
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        drive_af(runner)
-        af_lease = scope.protocol_lease.acquire_child.return_value
-        enter = [
-            c
-            for c in af_lease.apply.call_args_list
-            if c.args and c.args[0] is LedTransition.AF_ENTER
-        ]
-        assert enter, 'ambient AF must still drive AF_ENTER (an empty target clears the LEDs)'
-        assert enter[0].args[1].channel is None, (
-            'no AF color -> empty AF_ENTER target -> every channel cleared'
+        stray Live-mode LED; the snapshot taken before the clear puts the
+        stray LED back when the sweep ends."""
+        runner = af_runner_on(sim_scope)
+        sim_scope.illumination.led_on(LED1, 5.0)
+        lit_at_grabs = []
+        grab = sim_scope.imaging.capture_and_wait
+
+        def watched(*args, **kwargs):
+            lit_at_grabs.append(_lit(sim_scope))
+            return grab(*args, **kwargs)
+
+        monkeypatch.setattr(sim_scope.imaging, 'capture_and_wait', watched)
+
+        # Ambient on the simulator is a dark field: the sweep fails flat.
+        with pytest.raises(AutofocusFailedError):
+            sweep(runner, sim_scope, led_color=None, led_illumination=0.0)
+
+        assert lit_at_grabs and all(lit == [] for lit in lit_at_grabs), (
+            f'no AF color -> every channel cleared before the sweep grabs; lit at grabs: {lit_at_grabs}'
         )
-        ordered = [name for name, args, kwargs in scope.mock_calls]
-        save_idx = next(i for i, n in enumerate(ordered) if n.endswith('save_led_state'))
-        assert save_idx < self._af_enter_index(scope), (
-            f'the snapshot must precede the clear; calls: {ordered}'
+        assert _lit(sim_scope) == [LED1], (
+            f'the snapshot must precede the clear, so the stray LED comes back; lit: {_lit(sim_scope)}'
         )
 
 
@@ -95,21 +96,22 @@ class TestAutofocusAcquiresLeaseBeforeIllumination:
     held lease would refuse (AF scanning an unlit field). This pins that the
     AF_ENTER illuminate runs on the child lease AF takes under its run's."""
 
-    def test_autofocus_without_a_run_lease_is_refused_before_it_drives(self):
+    def test_autofocus_without_a_run_lease_is_refused_before_it_drives(
+        self, sim_scope, monkeypatch
+    ):
         """AF always runs inside a run, so a call with no run lease is
         refused at the call: no lease of its own, no LED or Z traffic."""
-        runner, scope = af_runner_and_scope()
-        scope.led_connected = True
+        runner = af_runner_on(sim_scope)
+        sim_scope.illumination.led_on(LED1, 5.0)
+        asked = z_asked(sim_scope, monkeypatch)
         with pytest.raises(TypeError, match='led_lease'):
             runner.run(
-                objective_id='objective-under-test',
+                objective_id='10x Oly',
                 abort_event=threading.Event(),
                 led_color=LED2,
                 led_illumination=42.0,
             )
-        assert scope.illumination.method_calls == [], (
-            f'no illumination call may precede the refusal; got {scope.illumination.method_calls}'
+        assert _lit(sim_scope) == [LED1], (
+            f'no illumination may precede the refusal; lit {_lit(sim_scope)}'
         )
-        assert not scope.motion.method_calls, (
-            f'no motion call may precede the refusal; got {scope.motion.method_calls}'
-        )
+        assert asked == [], f'no motion may precede the refusal; Z asked {asked}'

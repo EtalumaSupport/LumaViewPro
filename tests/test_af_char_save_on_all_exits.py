@@ -24,90 +24,126 @@ from __future__ import annotations
 
 import pathlib
 import threading
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
+import modules.autofocus_functions as autofocus_functions
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import AutofocusAborted
-from tests.af_drives import af_runner_and_scope, drive_af, raises_the_failure_from
+from modules.protocol_image_writer import RunWriteBatch
+from modules.sequential_io_executor import SequentialIOExecutor
+from tests.af_drives import af_runner_on, raises_the_failure_from, sweep
 
 
-class TestSaveQueuedOnEveryExitPath:
-    """The diagnostic-data save must be queued on EVERY run() exit
-    (success, abort, exception), gated on save_results_to_file. A
+@pytest.fixture
+def write_batch():
+    """A run's write batch over a real file lane."""
+    lane = SequentialIOExecutor(name='FILE')
+    lane.start()
+    yield RunWriteBatch(lane)
+    lane.shutdown(wait=True)
+
+
+def _saved_rows(runner, write_batch) -> int | None:
+    """Rows of the characterization CSV once the run's writes have landed; None when none was written."""
+    write_batch.close()
+    assert write_batch.wait_complete(10.0), "the run's writes never landed"
+    path = runner.saved_data_path()
+    return None if path is None else len(pd.read_csv(path))
+
+
+def _scored_then(monkeypatch, then):
+    """Score the first frame for real, then do ``then`` at the second."""
+    score = autofocus_functions.focus_function
+    scored = []
+
+    def scoring(image):
+        scored.append(image)
+        if len(scored) == 2:
+            then()
+        return score(image)
+
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', scoring)
+
+
+class TestSaveLandsOnEveryExitPath:
+    """The diagnostic data must be saved on EVERY run() exit (success,
+    abort, exception), gated on save_results_to_file. A
     success-branch-only save (the original bug) leaves the eager-made
     results dir empty whenever AF does not complete."""
 
-    def _queued_save_tasks(self, runner, write_batch):
-        """The saves run() handed to its run's write batch."""
-        return [
-            call.args[0]
-            for call in write_batch.submit.call_args_list
-            if call.args[0] == runner._save_autofocus_data
-        ]
-
-    def test_success_exit_queues_save(self, tmp_path, monkeypatch):
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, _scope = af_runner_and_scope()
-        write_batch = MagicMock()
-        drive_af(runner, save_results_to_file=True, results_dir=tmp_path, write_batch=write_batch)
-        assert self._queued_save_tasks(runner, write_batch), (
-            'a successful AF run must queue _save_autofocus_data'
+    def test_success_exit_saves(self, sim_scope, tmp_path, write_batch):
+        runner = af_runner_on(sim_scope)
+        sweep(
+            runner,
+            sim_scope,
+            save_results_to_file=True,
+            results_dir=tmp_path,
+            write_batch=write_batch,
         )
+        assert _saved_rows(runner, write_batch), 'a successful AF run must save its data'
 
-    def test_exception_exit_queues_save(self, tmp_path, monkeypatch):
+    def test_exception_exit_saves(self, sim_scope, tmp_path, write_batch, monkeypatch):
         """The save fires from the finally path: an AF loop that raises
-        must still queue the diagnostic save."""
-        runner, scope = af_runner_and_scope()
-        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
-        write_batch = MagicMock()
+        must still save the diagnostic data it collected."""
+        runner = af_runner_on(sim_scope)
+
+        def broken():
+            raise RuntimeError('focus measure broke')
+
+        _scored_then(monkeypatch, broken)
         with raises_the_failure_from(RuntimeError):
-            drive_af(
-                runner, save_results_to_file=True, results_dir=tmp_path, write_batch=write_batch
+            sweep(
+                runner,
+                sim_scope,
+                save_results_to_file=True,
+                results_dir=tmp_path,
+                write_batch=write_batch,
             )
-        assert self._queued_save_tasks(runner, write_batch), (
-            'an AF run that raises must still queue _save_autofocus_data -- '
+        assert _saved_rows(runner, write_batch) == 1, (
+            'an AF run that raises must still save the sample it scored -- '
             'the failure data is the whole point of the diagnostic'
         )
 
-    def test_mid_pass_abort_promotes_and_queues_save(self, tmp_path, monkeypatch):
+    def test_mid_pass_abort_promotes_and_saves(self, sim_scope, tmp_path, write_batch, monkeypatch):
         """An abort after one sample must promote the unpromoted in-pass
-        data and queue the save, so partial scans land on disk."""
+        data and save it, so partial scans land on disk."""
+        runner = af_runner_on(sim_scope)
         abort_event = threading.Event()
+        score = autofocus_functions.focus_function
 
         def score_then_abort(image):
             abort_event.set()
-            return 7.0
+            return score(image)
 
         monkeypatch.setattr('modules.autofocus_functions.focus_function', score_then_abort)
-        runner, _scope = af_runner_and_scope()
-        write_batch = MagicMock()
         with pytest.raises(AutofocusAborted):
-            drive_af(
+            sweep(
                 runner,
+                sim_scope,
                 abort_event=abort_event,
                 save_results_to_file=True,
                 results_dir=tmp_path,
                 write_batch=write_batch,
             )
-        assert self._queued_save_tasks(runner, write_batch), (
-            'an aborted AF run must still queue _save_autofocus_data'
-        )
-        assert len(runner._af_data_full) == 1 and runner._af_data_pass == [], (
-            'the mid-pass sample must be promoted to _af_data_full before '
-            'the save is queued, or the CSV lands empty'
+        assert _saved_rows(runner, write_batch) == 1, (
+            'the mid-pass sample must be promoted before the save, or the CSV lands empty'
         )
 
-    def test_no_save_queued_when_flag_off(self, monkeypatch):
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, _scope = af_runner_and_scope()
-        write_batch = MagicMock()
-        drive_af(runner, save_results_to_file=False, write_batch=write_batch)
-        assert not self._queued_save_tasks(runner, write_batch), (
-            'non-engineering-mode AF runs must not queue the diagnostic save'
+    def test_no_save_when_flag_off(self, sim_scope, tmp_path, write_batch):
+        runner = af_runner_on(sim_scope)
+        sweep(
+            runner,
+            sim_scope,
+            save_results_to_file=False,
+            results_dir=tmp_path,
+            write_batch=write_batch,
         )
+        assert _saved_rows(runner, write_batch) is None, (
+            'non-engineering-mode AF runs must not save the diagnostic data'
+        )
+        assert list(tmp_path.iterdir()) == [], 'nothing may be written where it was not asked for'
 
 
 class TestSaveAutofocusDataBehavior:

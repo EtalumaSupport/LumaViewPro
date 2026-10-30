@@ -25,7 +25,7 @@ import modules.protocol_image_writer as protocol_image_writer
 from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
-from tests.af_drives import af_runner_and_scope, drive_af
+from tests.af_drives import af_runner_on, sweep
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from modules.layer_record import release_colors
@@ -180,18 +180,20 @@ class TestShuttingDownWithImagesStillWriting:
 
 
 class TestALateAutofocusSave:
-    def test_it_is_refused_reported_and_never_blocks_the_restore(self, tmp_path, monkeypatch):
+    def test_it_is_refused_reported_and_never_blocks_the_restore(
+        self, sim_scope, tmp_path, monkeypatch
+    ):
         import modules.autofocus_runner as autofocus_runner
 
         warned = []
         monkeypatch.setattr(
             autofocus_runner.logger, 'warning', lambda msg, *a, **k: warned.append(msg)
         )
-        runner, _scope = af_runner_and_scope()
+        runner = af_runner_on(sim_scope)
         batch = RunWriteBatch(MagicMock())
         batch.close()
 
-        drive_af(runner, save_results_to_file=True, results_dir=tmp_path, write_batch=batch)
+        sweep(runner, sim_scope, save_results_to_file=True, results_dir=tmp_path, write_batch=batch)
 
         assert any(
             'Autofocus data not saved: The autofocus data was not saved' in m for m in warned
@@ -199,11 +201,11 @@ class TestALateAutofocusSave:
         assert runner.saved_data_path() is None
         assert batch.pending == 0
 
-    def test_a_save_without_its_runs_batch_cannot_be_asked_for(self, tmp_path):
-        runner, _scope = af_runner_and_scope()
+    def test_a_save_without_its_runs_batch_cannot_be_asked_for(self, sim_scope, tmp_path):
+        runner = af_runner_on(sim_scope)
 
         with pytest.raises(ValueError, match="run's write batch"):
-            drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
+            sweep(runner, sim_scope, save_results_to_file=True, results_dir=tmp_path)
 
 
 class TestNothingBuildsFromAFolderMissingImages:
