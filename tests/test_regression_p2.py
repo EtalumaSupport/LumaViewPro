@@ -236,6 +236,13 @@ class TestSerialErrorRateLimiting:
 
     Uses patch.object on serialboard.logger to avoid shared mock state
     leaking between test files.
+
+    Scripted, since neither fault is the simulator's: a write that times
+    out (the emulated port's write never does), and a write that fails twice
+    on an open port (the driver closes the port at the first failure, so
+    over a pulled cable the next command's reconnect fails before it
+    writes). That the first failure closes the port is
+    test_serial_safety.py's, on the board firmware.
     """
 
     def test_first_error_is_logged(self):
@@ -362,14 +369,3 @@ class TestSerialErrorRateLimiting:
         board.exchange_command('TEST1')
         mock_driver1.close.assert_not_called()
         assert board.driver is not None
-
-    def test_driver_closed_on_fatal_exception(self):
-        """Fatal exceptions (generic Exception) still close the driver."""
-        board = _make_serial_board()
-        board._error_log_interval = 2.0
-
-        mock_driver1 = board.driver
-        board.driver.write.side_effect = Exception('USB disconnected')
-        board.exchange_command('TEST1')
-        mock_driver1.close.assert_called()
-        assert board.driver is None
