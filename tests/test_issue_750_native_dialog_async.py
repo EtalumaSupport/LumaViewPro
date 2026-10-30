@@ -21,8 +21,9 @@ Folds in the still-valid cases from the retired test_macos_dialog_async.py
 beachball intent is preserved and broadened to all platforms.
 
 file_dialogs.py imports kivy at module top (mocked in the suite), so the
-runner is carved out of source via AST and exec'd with fake threading +
-Clock -- exercising the real function body, not a copy. Seam tests are
+runner is carved out of source via AST and exec'd with fake threading and
+the real UI post, which with no UI dispatcher set runs at once --
+exercising the real function body, not a copy. Seam tests are
 AST-based (a raw text scan for `Tk(` trips on prose comments).
 """
 
@@ -31,6 +32,8 @@ import logging
 import pathlib
 import time
 import typing
+
+from modules.kivy_utils import schedule_ui
 
 _SRC_PATH = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'file_dialogs.py'
 _SRC = _SRC_PATH.read_text()
@@ -200,14 +203,6 @@ class _DeferredThread:
         _DeferredThread.pending.append(self._target)
 
 
-class _SyncClock:
-    """Clock stand-in: schedule_once runs the callback immediately."""
-
-    @staticmethod
-    def schedule_once(cb, _timeout):
-        cb(0)
-
-
 class _Button:
     def __init__(self, context='test_context'):
         self.context = context
@@ -221,7 +216,7 @@ def _load_runner(thread_cls=_SyncThread):
     test_logger = logging.getLogger('test_750_runner')
     namespace = {
         'threading': type('T', (), {'Thread': thread_cls}),
-        'Clock': _SyncClock,
+        'schedule_ui': schedule_ui,
         'time': time,
         'logger': test_logger,
         '_dialog_in_flight': guard,

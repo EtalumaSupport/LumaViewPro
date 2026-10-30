@@ -101,17 +101,16 @@ class QuickEnhanceControls(BoxLayout):
         _run_build(_build, popup, 'ENHANCE', on_done=self._export_done)
 
     def _queue_derived_image(self, image: np.ndarray, significant_bits: int) -> None:
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            return
         display_image = image.copy()
-
-        def _show(_dt):
-            scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
-            if scope_display is not None:
-                run_unasked(
-                    lambda: scope_display.hold_derived_image(display_image, significant_bits),
-                    'ENHANCE_PREVIEW',
-                )
-
-        Clock.schedule_once(_show, 0)
+        scope_display.post_held_frame(
+            lambda: run_unasked(
+                lambda: scope_display.hold_derived_image(display_image, significant_bits),
+                'ENHANCE_PREVIEW',
+            )
+        )
 
     def _export_done(self, result) -> None:
         # Its progress and outcome words are the build popup's, recorded there.

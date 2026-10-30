@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """An Enhance output the display cannot hold is reported, not only logged.
 
-The just-made output is shown from a clock callback nothing waits on. The
+The just-made output is shown from a UI-thread post nothing waits on. The
 display caught its own failure and logged a WARNING, so a frame deeper than
 its declared depth, or a shape the display cannot draw, was never seen. The
 callback now runs the hold through run_unasked: the failure is reported
@@ -27,10 +27,10 @@ def test_a_failed_hold_is_reported_unasked(monkeypatch):
     def _hold(image, bits):
         raise failure
 
-    monkeypatch.setattr(
-        _app_ctx, 'ctx', SimpleNamespace(scope_display=SimpleNamespace(hold_derived_image=_hold))
-    )
-    monkeypatch.setattr(post_processing.Clock, 'schedule_once', lambda cb, _t: cb(0))
+    # a stand-in by design: the display is a Kivy widget, which never runs
+    # here; its post runs the held frame at once, as the UI thread would.
+    display = SimpleNamespace(hold_derived_image=_hold, post_held_frame=lambda show: show())
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display=display))
 
     post_processing.QuickEnhanceControls._queue_derived_image(
         SimpleNamespace(), np.zeros((4, 4), dtype=np.uint8), 8

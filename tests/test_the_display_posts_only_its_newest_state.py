@@ -26,7 +26,6 @@ import pytest
 from modules.kivy_utils import UiDispatcher, ui_backlog
 from modules.lumascope_api._lumascope import Lumascope
 from modules.scope_session import ScopeSession
-import ui.scope_display as scope_display_module
 from ui.scope_display import ScopeDisplay
 
 _FRAMES = 30
@@ -48,11 +47,8 @@ class _Held:
 
 
 @pytest.fixture
-def held(monkeypatch):
-    # On the GUI host the dispatcher is Kivy's Clock.schedule_once, one
-    # queue; the display's own Clock posts (the live blit) join it here.
+def held():
     ui = _Held()
-    monkeypatch.setattr(scope_display_module.Clock, 'schedule_once', ui.schedule)
     ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=ui.schedule, thread=None))
     yield ui
     ScopeSession.set_ui_dispatcher(None)
@@ -121,15 +117,15 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
     gui_ctx, display, held, display_log
 ):
     _shown_frames(gui_ctx, display, _FRAMES)
-    # The live view's indicator, the validity dot and the engineering stats
-    # wait in the dispatcher's queue, one entry each, however many frames
-    # were rendered; Kivy's holds the queue's one drain and the frame's blit.
-    assert (ui_backlog(), len(held.queue)) == (3, 2), f'after {_FRAMES} frames'
+    # The frame, the live view's indicator, the validity dot and the
+    # engineering stats: one entry each in the dispatcher's queue, however
+    # many frames were rendered, and one drain asked of the UI thread.
+    assert (ui_backlog(), len(held.queue)) == (4, 1), f'after {_FRAMES} frames'
 
     gui_ctx.scope.simulation.remove_camera()
     for _ in range(100):
         display._render_one_frame(active_layer='BF', open_layer='BF')
-    assert (ui_backlog(), len(held.queue)) == (3, 2), 'after the camera left'
+    assert (ui_backlog(), len(held.queue)) == (4, 1), 'after the camera left'
 
     held.run()
     assert display.source == './data/icons/camera_to_USB.png'
@@ -203,3 +199,20 @@ def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(gui_ctx, 
     gui_ctx.scope_display_thread.bump_protocol_hold(0)
     display.create_and_set_texture(_frame(201).tobytes(), (4, 4), generation=gen, live=True)
     assert _drawn(display) == _frame(201).tobytes()
+
+
+def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(gui_ctx, display, held):
+    # Post-processing's derived images and a run's saved frames are one state:
+    # each waiting post holds a whole image, so only the newest waits.
+    import ui.post_processing as post_processing
+
+    gui_ctx.scope_display = display
+    shown = []
+    # a stand-in by design: the draw is Kivy's texture upload; the subject is the post.
+    display.hold_derived_image = lambda image, bits: shown.append(int(image[0, 0]))
+    display.hold_protocol_saved_image(_frame(1), 8)
+    for value in range(50):
+        post_processing.QuickEnhanceControls._queue_derived_image(None, _frame(value), 8)
+    assert ui_backlog() == 1, f'{ui_backlog()} held frames pending'
+    held.run()
+    assert shown == [49]

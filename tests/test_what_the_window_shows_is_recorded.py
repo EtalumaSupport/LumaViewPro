@@ -219,20 +219,28 @@ def test_a_builds_outcome_is_recorded_once_whatever_came_before_it(
     assert record() == expected
 
 
-def test_a_background_builds_outcome_lands_behind_its_progress(record, monkeypatch):
+def test_a_background_builds_outcome_lands_behind_its_progress(record):
     """The proxy a build thread writes through puts the outcome up after the progress it follows."""
     import ui.progress_popup as progress_popup
 
-    queued = []
-    monkeypatch.setattr(progress_popup.Clock, 'schedule_once', lambda fn, _dt=0: queued.append(fn))
-    popup = _bound_popup()
-    popup.title = 'Stitch'
-    proxy = progress_popup._PopupProxy(popup)
+    from modules.kivy_utils import UiDispatcher
+    from modules.scope_session import ScopeSession
 
-    proxy.text = 'Stitching tiles...'
-    proxy.show_outcome('Stitched 9 tiles.')
-    for fn in queued:
-        fn(0)
+    queued = []
+    ScopeSession.set_ui_dispatcher(
+        UiDispatcher(schedule=lambda fn, _dt: queued.append(fn), thread=None)
+    )
+    try:
+        popup = _bound_popup()
+        popup.title = 'Stitch'
+        proxy = progress_popup._PopupProxy(popup)
+
+        proxy.text = 'Stitching tiles...'
+        proxy.show_outcome('Stitched 9 tiles.')
+        for fn in queued:
+            fn(0)
+    finally:
+        ScopeSession.set_ui_dispatcher(None)
 
     assert record() == [
         'DISPLAY PROGRESS_POPUP Stitch',

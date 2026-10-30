@@ -420,6 +420,7 @@ else:
 # ============================================================================
 
 from modules import gui_logger, live_work
+from modules.kivy_utils import schedule_ui, schedule_ui_latest
 from modules.app_config import (
     load_mode as _load_mode,
 )
@@ -533,18 +534,21 @@ class LumaViewProApp(TooltipMixin, App):
     _closing_begun = False
 
     def _on_run_state(self) -> None:
-        """The window's one run-state listener: draw the edge on the clock.
+        """The window's one run-state listener: draw the edge on the UI thread.
 
         Session transitions (claim grant/release, file-drain exit, scope
-        rebind) schedule a single main-thread closure that re-reads the
-        Session at fire time and writes the two records. Level-read at
+        rebind), from any thread, post one state that re-reads the Session
+        at fire time and writes the two records, so a held-up UI thread
+        keeps one draw waiting. Level-read at
         fire time means out-of-order delivery degrades to bounded staleness,
         never a permanently wrong publish; registration itself level-syncs
         the records to current truth. The draw is contained: a raise out of a
         clock callback closes the application. A member, not a lambda, so the
         close can remove it.
         """
-        Clock.schedule_once(lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE'), 0)
+        schedule_ui_latest(
+            (self, 'run_state'), lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE')
+        )
 
     def publish_run_state(self, dt: float = 0) -> None:
         """Write the Session's lock record and live work, then draw the edge.
@@ -758,9 +762,7 @@ class LumaViewProApp(TooltipMixin, App):
         started = ctx.session.start_application_session(disable_homing=disable_homing)
         if not started.done():
             set_title_event_text('Homing, please wait...')
-        started.add_done_callback(
-            lambda done: Clock.schedule_once(lambda dt: startup_motion_settled(done), 0)
-        )
+        started.add_done_callback(lambda done: schedule_ui(lambda dt: startup_motion_settled(done)))
 
         if app_runtime().frozen:
             pyi_splash.close()

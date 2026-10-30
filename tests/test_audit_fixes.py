@@ -9620,8 +9620,8 @@ class TestShowPopupHostWidgetProxy_F9:
 
     Aggressive fix: wrap the host in `_HostWidgetProxy` that intercepts
     `__setattr__`, detects Kivy `Property` descriptors at the class
-    level, and marshals Kivy property writes through `Clock.schedule_
-    once`. Non-Kivy attribute writes pass through directly.
+    level, and posts Kivy property writes to the UI thread as states
+    (`schedule_ui_latest`). Non-Kivy attribute writes pass through directly.
 
     This is the cluster-level fix: any future `@show_popup`-decorated
     method can write `self.<KivyProperty> = ...` safely without the
@@ -9645,9 +9645,9 @@ class TestShowPopupHostWidgetProxy_F9:
             'show_popup-decorated daemon-thread bodies.'
         )
 
-    def test_proxy_marshals_property_writes_via_clock(self):
-        """`_HostWidgetProxy.__setattr__` must marshal writes through
-        Clock.schedule_once when the attribute is a Kivy Property.
+    def test_proxy_marshals_property_writes_to_the_ui_thread(self):
+        """`_HostWidgetProxy.__setattr__` must post writes to the UI thread
+        (schedule_ui_latest) when the attribute is a Kivy Property.
         Quote/format-agnostic regex on the body."""
         import re
 
@@ -9666,16 +9666,15 @@ class TestShowPopupHostWidgetProxy_F9:
             'descriptors via isinstance check on the class-level '
             'attribute before deciding to marshal.'
         )
-        # Marshalled write path -- Clock.schedule_once with a setattr
-        # lambda that captures the host + name + value.
+        # Posted write path -- schedule_ui_latest with a setattr lambda
+        # that captures the host + name + value.
         assert re.search(
-            r'Clock\.schedule_once\s*\(\s*lambda.*?setattr\s*\(',
+            r'schedule_ui_latest\s*\(.*?lambda.*?setattr\s*\(',
             body,
             re.DOTALL,
         ), (
-            'F9 regression: _HostWidgetProxy must marshal Kivy '
-            'property writes through Clock.schedule_once with a '
-            'setattr lambda.'
+            'F9 regression: _HostWidgetProxy must post Kivy property '
+            'writes through schedule_ui_latest with a setattr lambda.'
         )
 
     def test_show_popup_wraps_host_in_proxy(self):

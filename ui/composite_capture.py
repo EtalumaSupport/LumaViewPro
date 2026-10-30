@@ -7,12 +7,12 @@ Provides live_capture() and composite_capture() methods inherited by MainDisplay
 
 import logging
 
-from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ class CompositeCapture(FloatLayout):
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
-            ).add_done_callback(lambda done: Clock.schedule_once(lambda _dt: _still_settled(done))),
+            ).add_done_callback(lambda done: schedule_ui(lambda _dt: _still_settled(done))),
             None,
             'LIVE_CAPTURE',
         )

@@ -60,9 +60,9 @@ class VerticalControl(BoxLayout):
 
     def update_gui(self, vertical_control=False):
         if not vertical_control:
-            # The target is a cache read -- no lane, no serial I/O -- shown on
-            # the GUI thread because a move's completion reaches this from
-            # the lane that made the move.
+            # The target is a cache read -- no lane, no serial I/O. Every
+            # caller is on the UI thread; the draw is deferred to its next
+            # frame.
             Clock.schedule_once(lambda dt: run_reported(None, self._show_z_target, 'Z_TARGET'), 0)
         else:
             Clock.schedule_once(lambda dt: self.update_text_only(), 0)

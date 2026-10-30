@@ -22,9 +22,8 @@ from modules.scope_session import ShownChannel
 
 
 @pytest.fixture
-def button_ctx(monkeypatch):
+def button_ctx():
     import modules.app_context as _app_ctx
-    from ui import composite_capture
 
     ctx = MagicMock()
     ctx.scope_display.use_bullseye = True
@@ -35,12 +34,7 @@ def button_ctx(monkeypatch):
     }
     original = _app_ctx.ctx
     _app_ctx.ctx = ctx
-    # Headless: a settled still is read as soon as it is scheduled.
-    monkeypatch.setattr(
-        composite_capture,
-        'Clock',
-        types.SimpleNamespace(schedule_once=lambda fn, timeout=0: fn(0)),
-    )
+    # Headless, no UI dispatcher: a settled still's post runs at once.
     try:
         yield ctx
     finally:

@@ -5,7 +5,6 @@ import os
 import threading
 from typing import TYPE_CHECKING
 
-from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
@@ -19,6 +18,7 @@ from modules.config_helpers import (
     camera_max_gain_for_ui,
 )
 from modules.memory_profiler import MemoryLeakProfiler
+from modules.kivy_utils import schedule_ui_latest
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
 from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
@@ -872,7 +872,7 @@ class MicroscopeSettings(BoxLayout):
                 popup.progress = pct
                 popup.text = msg
 
-            Clock.schedule_once(_show_progress, 0)
+            schedule_ui_latest((popup, 'progress'), _show_progress)
 
         def _make():
             produced['saved'] = make(_progress)

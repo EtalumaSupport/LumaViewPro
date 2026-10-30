@@ -6,7 +6,6 @@ import sys
 import threading
 import time
 
-from kivy.clock import Clock
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
@@ -14,6 +13,7 @@ from ui.hover_behavior import HoverBehavior
 from ui.ui_helpers import run_reported
 import modules.app_context as _app_ctx
 from modules import gui_logger, image_utils
+from modules.kivy_utils import schedule_ui
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
@@ -349,7 +349,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
 
     dialog_fn runs on a daemon worker thread (the tkinter primitives keep
     their Tk root confined to that thread) and the chosen path is marshalled
-    back to the main thread via Clock before on_path runs. on_path is
+    back to the main thread (schedule_ui) before on_path runs. on_path is
     invoked only for a non-empty selection; a cancel calls on_cancel, which
     records it under the button's own record name. The guard clears ONLY in the
     delivery step, so a second dialog can never open before the first
@@ -429,7 +429,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
             else:
                 on_cancel()
 
-        Clock.schedule_once(deliver, 0)
+        schedule_ui(deliver)
 
     threading.Thread(target=worker, daemon=True).start()
 

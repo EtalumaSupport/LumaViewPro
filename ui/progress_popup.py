@@ -3,21 +3,24 @@
 import functools
 import threading
 
-from kivy.clock import Clock
 from kivy.properties import Property
 from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
 from lvp_logger import logger
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui, schedule_ui_latest
 
 
 class _PopupProxy:
     """Thread-safe proxy for CustomPopup.
 
-    All property writes are scheduled on the main thread via Clock.schedule_once.
-    Callers can use ``proxy.text = ...``, ``proxy.progress = ...``, etc. from any
-    thread without violating Kivy's single-thread-UI rule.
+    A property write is a state posted to the UI thread (``schedule_ui_latest``,
+    keyed by popup and attribute), so a held-up UI thread keeps one write per
+    attribute, the newest; ``open``, ``show_outcome`` and ``dismiss`` are events,
+    so a write posted after a ``dismiss`` runs after it. Callers can use
+    ``proxy.text = ...``, ``proxy.progress = ...``, etc. from any thread without
+    violating Kivy's single-thread-UI rule.
     """
 
     _PROXIED_ATTRS = frozenset({'text', 'progress', 'title', 'auto_dismiss'})
@@ -27,7 +30,8 @@ class _PopupProxy:
 
     def __setattr__(self, name, value):
         if name in _PopupProxy._PROXIED_ATTRS:
-            Clock.schedule_once(lambda dt, n=name, v=value: setattr(self._popup, n, v), 0)
+            popup = self._popup
+            schedule_ui_latest((popup, name), lambda dt, n=name, v=value: setattr(popup, n, v))
         else:
             object.__setattr__(self, name, value)
 
@@ -35,13 +39,13 @@ class _PopupProxy:
         return getattr(self._popup, name)
 
     def dismiss(self, *args, **kwargs):
-        Clock.schedule_once(lambda dt: self._popup.dismiss(*args, **kwargs), 0)
+        schedule_ui(lambda dt: self._popup.dismiss(*args, **kwargs))
 
     def show_outcome(self, message):
-        Clock.schedule_once(lambda dt: self._popup.show_outcome(message), 0)
+        schedule_ui(lambda dt: self._popup.show_outcome(message))
 
     def open(self, *args, **kwargs):
-        Clock.schedule_once(lambda dt: self._popup.open(*args, **kwargs), 0)
+        schedule_ui(lambda dt: self._popup.open(*args, **kwargs))
 
 
 class _HostWidgetProxy:
@@ -57,9 +61,9 @@ class _HostWidgetProxy:
     callback can corrupt the Kivy property graph mid-update.
 
     Solution: intercept attribute writes on the host. If the attribute
-    is a Kivy property (class-level Property descriptor), marshal the
-    write through `Clock.schedule_once` so the dispatch happens on the
-    UI thread. Non-property attributes pass through directly --
+    is a Kivy property (class-level Property descriptor), post the
+    write as a state (`schedule_ui_latest`, keyed by host and attribute)
+    so the dispatch happens on the UI thread. Non-property attributes pass through directly --
     callers are responsible for thread-safety on plain Python state.
     """
 
@@ -70,7 +74,7 @@ class _HostWidgetProxy:
         host = self._host
         descriptor = getattr(type(host), name, None)
         if isinstance(descriptor, Property):
-            Clock.schedule_once(lambda dt, h=host, n=name, v=value: setattr(h, n, v), 0)
+            schedule_ui_latest((host, name), lambda dt, n=name, v=value: setattr(host, n, v))
         else:
             setattr(host, name, value)
 

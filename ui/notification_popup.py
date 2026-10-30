@@ -14,6 +14,7 @@ from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.uix.widget import Widget
 
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -279,9 +280,7 @@ def notification_popup_bridge(n) -> None:
     """
     if not n.shown:
         return
-    from kivy.clock import Clock
-
-    Clock.schedule_once(lambda dt: _show_superseding(n), 0)
+    schedule_ui(lambda dt: _show_superseding(n))
 
 
 def show_confirmation_w_ack_popup(

@@ -12,6 +12,7 @@ from kivy.properties import BooleanProperty, NumericProperty
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
+from modules.kivy_utils import schedule_ui
 from ui.ui_helpers import run_reported, set_last_save_folder, submit_reported
 from ui.composite_capture import CompositeCapture
 
@@ -154,7 +155,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
     def _on_recording_complete(self, _recording):
         """The recording's done-callback, on the callback thread; dispatch to GUI."""
-        Clock.schedule_once(lambda dt: self._finish_recording_ui(), 0)
+        schedule_ui(lambda dt: self._finish_recording_ui())
 
     def _finish_recording_ui(self):
         """Main thread: drain + finish done -- clear poll, title, button."""
