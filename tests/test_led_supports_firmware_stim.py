@@ -16,12 +16,29 @@ from LEDBoard.supports_firmware_stim()). Caller gate is
 `scope.capabilities.has_firmware_stim`.
 """
 
+import logging
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
+from drivers.ledboard import LEDBoard
+from drivers.sim_wire.backend import SimWireBackend
+from tests.wire_boards import led_on_the_wire
+
+
+def _stim_probes(caplog):
+    return [
+        r for r in caplog.records if r.name == 'LVP.serial' and 'STIM 0 0 1 2 1' in r.getMessage()
+    ]
+
 
 class TestSupportsFirmwareStimProbe:
-    """Probe-detection logic on LEDBoard."""
+    """Probe-detection logic on LEDBoard.
+
+    The field LED firmware's answers run on the firmware-backed simulator;
+    a v3.0.8+ reply has no emulated firmware yet (an LED image built from the
+    STIM branch is a stage 12 gap), so those cases script the port."""
 
     def _make_led(self, readline_responses):
         """Build a real LEDBoard with the driver attribute mocked.
@@ -50,9 +67,11 @@ class TestSupportsFirmwareStimProbe:
         led = self._make_led([b'STIM: mA must be > 0\r\n'])
         assert led.supports_firmware_stim() is True
 
+    @pytest.mark.firmware_tier
     def test_pre_v308_firmware_returns_false(self):
-        """Legacy firmware reply (`Command not recognized`) -> probe False."""
-        led = self._make_led([b'Command not recognized\r\n'])
+        """Legacy firmware reply (`Command not recognized`) -> probe False:
+        the field LED firmware's own answer."""
+        led, _sim = led_on_the_wire()
         assert led.supports_firmware_stim() is False
 
     def test_stim_diag_response_also_recognized(self):
@@ -71,33 +90,34 @@ class TestSupportsFirmwareStimProbe:
         )
         assert led.supports_firmware_stim() is True
 
-    def test_no_response_returns_false(self):
-        """Disconnected / silent firmware -> probe deadline expires -> False."""
-        led = self._make_led([])  # all readlines return b''
-        # Force the readline mock to always return empty bytes (no responses)
-        led.driver.readline = MagicMock(return_value=b'')
-        assert led.supports_firmware_stim() is False
+    @pytest.mark.firmware_tier
+    def test_no_response_returns_false(self, caplog):
+        """Silent firmware -> probe deadline expires -> False. The reply is
+        held past the probe's 2.5 s deadline (a dropped reply on this board
+        takes the echo line, and the answer behind it still arrives)."""
+        led, sim = led_on_the_wire()
+        sim.delay_next_reply(3.0)
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            assert led.supports_firmware_stim() is False
+        assert "'(no reply)'" in _stim_probes(caplog)[0].getMessage()
 
-    def test_result_is_cached_after_first_call(self):
+    @pytest.mark.firmware_tier
+    def test_result_is_cached_after_first_call(self, caplog):
         """Second call should return cached value without re-probing."""
-        led = self._make_led([b'STIM: mA must be > 0\r\n'])
-        first = led.supports_firmware_stim()
-        write_count_after_first = led.driver.write.call_count
-        second = led.supports_firmware_stim()
-        assert first is True
-        assert second is True
-        # Cached: no new probe-write happened on the second call
-        assert led.driver.write.call_count == write_count_after_first
+        led, _sim = led_on_the_wire()
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            first = led.supports_firmware_stim()
+            second = led.supports_firmware_stim()
+        assert first is second is False
+        assert len(_stim_probes(caplog)) == 1, 'the cached answer went to the wire'
 
-    def test_driver_none_returns_false_without_probing(self):
-        """No serial driver attached -> probe short-circuits to False."""
-        from drivers.ledboard import LEDBoard
-
-        led = LEDBoard.__new__(LEDBoard)
-        led._lock = threading.RLock()
-        led._label = '[LED Class ]'
-        led.driver = None
-        assert led.supports_firmware_stim() is False
+    def test_driver_none_returns_false_without_probing(self, caplog):
+        """No LED board on the bus -> no driver -> probe short-circuits to False."""
+        led = LEDBoard(backend=SimWireBackend(None, None))
+        assert led.driver is None
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            assert led.supports_firmware_stim() is False
+        assert _stim_probes(caplog) == []
 
 
 class TestSimulatedLEDBoardParityStub:

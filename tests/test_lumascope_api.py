@@ -371,10 +371,13 @@ class TestProtocolConformance:
 
     def test_motorboard_satisfies_protocol(self):
         from drivers.motorboard import MotorBoard
+        from drivers.sim_wire.backend import SimWireBackend
 
-        # Use __new__ to skip __init__ -- we only need the class to expose
-        # the Protocol's method set, not to actually open a serial port.
-        instance = MotorBoard.__new__(MotorBoard)
+        # Built by its own constructor on a bus with no board: nothing is
+        # opened, and the instance is the one a scope without one holds.
+        instance = MotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimWireBackend(None)
+        )
         assert isinstance(instance, MotorBoardProtocol)
 
     def test_simulated_motorboard_satisfies_protocol(self):
@@ -387,8 +390,9 @@ class TestProtocolConformance:
 
     def test_ledboard_satisfies_protocol(self):
         from drivers.ledboard import LEDBoard
+        from drivers.sim_wire.backend import SimWireBackend
 
-        instance = LEDBoard.__new__(LEDBoard)
+        instance = LEDBoard(backend=SimWireBackend(None))
         assert isinstance(instance, LEDBoardProtocol)
 
     def test_simulated_ledboard_satisfies_protocol(self):
@@ -425,8 +429,9 @@ class TestLEDChannelDiscovery:
 
     def test_ledboard_available_channels_are_its_eight_addresses(self):
         from drivers.ledboard import LEDBoard
+        from drivers.sim_wire.backend import SimWireBackend
 
-        instance = LEDBoard.__new__(LEDBoard)
+        instance = LEDBoard(backend=SimWireBackend(None))
         assert instance.available_channels() == (0, 1, 2, 3, 4, 5, 6, 7)
 
     def test_simulated_ledboard_available_channels_are_its_eight_addresses(self):

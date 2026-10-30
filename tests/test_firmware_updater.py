@@ -31,6 +31,15 @@ from drivers.firmware_updater import (
     UpdateResult,
     UpdateStage,
 )
+from drivers.serialboard import SerialBoard
+from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+
+
+def _motor_bus(dialect='field'):
+    """A bus with one simulated motor board on *dialect*'s firmware, which the
+    updater's SerialBoard finds by the motor board's VID and PID."""
+    return SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT'), dialect=dialect))
+
 
 # The updater's own name for time, with sleeps that return at once. Patching
 # time.sleep through it would replace the time module's sleep for every
@@ -181,15 +190,27 @@ class TestSendFwupdateCommand:
     def _make_led_config(self):
         return BOARD_CONFIGS[BoardType.LED]
 
+    @pytest.mark.firmware_tier
     def test_motor_sends_fwupdate(self):
-        """Motor board: exchange_command('FWUPDATE') is called."""
+        """Motor board on firmware with FWUPDATE (the 3.0 firmware, which
+        answers 'Entering bootloader mode...'): the board leaves for its
+        bootloader and the updater lets go of its port."""
         cfg = self._make_motor_config()
-        board = MagicMock()
-        board.exchange_command.return_value = None  # Board reboots, no response
+        backend = _motor_bus(dialect='3.0')
+        board = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[FW-Motor]', backend=backend)
+        board.connect()
+        assert board.is_connected()
+
         _send_fwupdate_command(board, cfg)
 
-        board.exchange_command.assert_called_once_with('FWUPDATE', timeout=3.0)
-        board.disconnect.assert_called()
+        assert not board.is_connected()
+        # The board's firmware has stopped: a fresh connect reads no version.
+        after = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[FW-Motor]', backend=backend)
+        after.connect()
+        try:
+            assert after.firmware_version is None
+        finally:
+            after.disconnect()
 
     def test_led_sends_fwupdate(self):
         """LED board: exchange_command('FWUPDATE') is called."""
@@ -211,22 +232,20 @@ class TestSendFwupdateCommand:
         assert exc_info.value.stage == UpdateStage.SENDING_FWUPDATE
         board.disconnect.assert_called()
 
-    def test_disconnects_on_success(self):
-        """Board is disconnected after successful FWUPDATE."""
-        cfg = self._make_motor_config()
-        board = MagicMock()
-        board.exchange_command.return_value = 'Entering bootloader mode...'
-        _send_fwupdate_command(board, cfg)
-        board.disconnect.assert_called()
-
+    @pytest.mark.firmware_tier
     def test_fallback_to_raw_repl_on_not_found(self):
-        """Falls back to raw REPL when firmware doesn't support FWUPDATE."""
+        """Falls back to raw REPL when firmware doesn't support FWUPDATE:
+        the field firmware's own not-found answer. The raw-REPL path is
+        observed, not run: the emulated firmware has no raw REPL."""
         cfg = self._make_motor_config()
-        board = MagicMock()
-        board.exchange_command.return_value = "ERROR: command 'FWUPDATE' not found"
-        with patch('drivers.firmware_updater._bootloader_via_raw_repl') as mock_fallback:
-            _send_fwupdate_command(board, cfg)
-            mock_fallback.assert_called_once_with(board)
+        board = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[FW-Motor]', backend=_motor_bus())
+        board.connect()
+        try:
+            with patch('drivers.firmware_updater._bootloader_via_raw_repl') as mock_fallback:
+                _send_fwupdate_command(board, cfg)
+                mock_fallback.assert_called_once_with(board)
+        finally:
+            board.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -421,17 +440,22 @@ class TestUpdateResult:
 
 
 class TestUpdateFirmwareSameVersion:
+    @pytest.mark.firmware_tier
     @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=None)
-    @patch('drivers.firmware_updater._create_board')
-    @patch('drivers.firmware_updater._parse_uf2_version', return_value='2.0.0')
-    def test_same_version_returns_success(self, mock_parse, mock_create, mock_bootsel, tmp_path):
-        """If board already has the target version, skip update."""
-        board = MagicMock()
-        board.firmware_version = '2.0.0'
-        board.firmware_date = None
-        mock_create.return_value = board
+    @patch('drivers.firmware_updater._parse_uf2_version', return_value='3.0.9')
+    def test_same_version_returns_success(self, mock_parse, mock_bootsel, tmp_path, monkeypatch):
+        """If board already has the target version, skip update: the
+        updater's own board finds the 3.0 firmware (3.0.9) on the bus, and
+        the firmware is left running."""
+        import functools
 
-        uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
+        from drivers import firmware_updater
+
+        backend = _motor_bus(dialect='3.0')
+        monkeypatch.setattr(
+            firmware_updater, 'SerialBoard', functools.partial(SerialBoard, backend=backend)
+        )
+        uf2 = tmp_path / 'motor_firmware_v3.0.9.uf2'
         uf2.write_bytes(b'\x00' * 1024)
 
         result = update_firmware(
@@ -440,9 +464,15 @@ class TestUpdateFirmwareSameVersion:
             backup_dir=tmp_path / 'backup',
         )
         assert result.success is True
-        assert result.old_version == '2.0.0'
-        assert result.new_version == '2.0.0'
-        board.disconnect.assert_called()
+        assert result.old_version == '3.0.9'
+        assert result.new_version == '3.0.9'
+        cfg = BOARD_CONFIGS[BoardType.MOTOR]
+        after = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[FW-Motor]', backend=backend)
+        after.connect()
+        try:
+            assert after.firmware_version == '3.0.9', 'the update was not skipped'
+        finally:
+            after.disconnect()
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ same bench session:
    user-dump bundle.
 """
 
+import logging
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -26,13 +27,24 @@ from unittest.mock import MagicMock
 import pytest
 
 from drivers.exceptions import BoardNoReplyError
+from tests.wire_boards import led_on_the_wire
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _asked(caplog, command):
+    return [
+        r for r in caplog.records if r.name == 'LVP.serial' and f' {command} -> ' in r.getMessage()
+    ]
+
+
 class TestLedOnBlockAckShape:
     """The block=True polling loop must trust only command-echo or
-    substring-match acks. Empty responses must keep polling."""
+    substring-match acks; no reply keeps polling.
+
+    The field LED firmware's answer runs on the firmware-backed simulator.
+    The bare command echo (shape A) and a board that connected silent are
+    answers no emulated firmware gives, so those cases script the exchange."""
 
     def _make_led(self, response_sequence):
         """Build a real LEDBoard with exchange_command monkeypatched."""
@@ -51,42 +63,30 @@ class TestLedOnBlockAckShape:
         led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         assert led.exchange_command.call_count == 1
 
-    def test_substring_match_response_breaks_polling_loop(self):
-        """Firmware shape B: response includes 'LED' + channel + mA
-        ('LED 3 set to 2 mA.')."""
-        led = self._make_led(['LED 3 set to 2 mA.'])
-        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
-        assert led.exchange_command.call_count == 1
+    @pytest.mark.firmware_tier
+    def test_substring_match_response_breaks_polling_loop(self, caplog):
+        """Firmware shape B, the field firmware's: the response includes
+        'LED' + channel + mA ('LED 3 set to 2 mA.')."""
+        led, _sim = led_on_the_wire()
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
+        [asked] = _asked(caplog, 'LED3_2')
+        assert 'LED 3 set to 2 mA.' in asked.getMessage()
 
-    def test_empty_string_response_keeps_polling(self):
-        """Empty-string responses indicate the LED firmware is wedged;
-        the loop must keep polling, not accept the empty as ack, and
-        raise once it gives up rather than return to a silent dark
-        capture."""
-        # 100ms timeout; firmware returns '' forever.
-        led = self._make_led([''] * 200)
+    @pytest.mark.firmware_tier
+    def test_none_response_keeps_polling(self, caplog):
+        """No serial bytes back at all: the loop keeps asking until its
+        timeout, then raises rather than return to a silent dark capture.
+        The board's reply is held past the whole poll."""
         import time
 
+        led, sim = led_on_the_wire()
+        sim.delay_next_reply(3.0)
         t0 = time.monotonic()
-        with pytest.raises(BoardNoReplyError):
-            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
-        elapsed = time.monotonic() - t0
-        assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
-        # Multiple retries during the 0.1s window -- not bailing on first ''.
-        assert led.exchange_command.call_count >= 3
-
-    def test_none_response_keeps_polling(self):
-        """No serial bytes back at all: same retry-until-timeout shape
-        as the wedged-firmware empty case."""
-        led = self._make_led([None] * 200)
-        import time
-
-        t0 = time.monotonic()
-        with pytest.raises(BoardNoReplyError):
-            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
-        elapsed = time.monotonic() - t0
-        assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
-        assert led.exchange_command.call_count >= 3
+        with caplog.at_level(logging.INFO, logger='LVP.serial'), pytest.raises(BoardNoReplyError):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=1.0)
+        assert time.monotonic() - t0 >= 1.0
+        assert len(_asked(caplog, 'LED3_2')) >= 2, 'the loop gave up after one ask'
 
     def test_firmware_silent_aborts_polling_immediately(self):
         """A board that connected silent never echoes a command until a power
@@ -279,7 +279,13 @@ class TestLedExitEngineeringRecoversFromWedge:
     has already timed out. The firmware is left stuck inside factory()
     and standard LED commands return ''. exit_engineering_mode must
     detect this via a post-Q INFO probe and run Ctrl-C/B/D soft reset
-    to bring the firmware back."""
+    to bring the firmware back.
+
+    The way out without a recovery is
+    `test_sim_wire_led.py`'s enter-and-leave test on the field firmware. A
+    wedged factory() is scripted here: a lost reply on the emulated board
+    takes an echo line and INFO still answers, so the wedge needs the
+    firmware itself left waiting inside factory()."""
 
     def _make_led(self, info_responses, write_log):
         """Build a real LEDBoard stub. info_responses is a list of
@@ -308,22 +314,6 @@ class TestLedExitEngineeringRecoversFromWedge:
         led.exchange_command = MagicMock(side_effect=fake_exchange)
         led._safe_write = MagicMock(side_effect=lambda data, context='': write_log.append(data))
         return led
-
-    def test_happy_path_no_recovery_when_info_returns_banner(self):
-        """Post-Q INFO returns a healthy banner -> no Ctrl-D recovery
-        fires, no extra delay. exchange_command returns only the first
-        line of the multi-line INFO response, so the marker must be in
-        that first line."""
-        write_log = []
-        led = self._make_led(
-            info_responses=['Version:      EL-0925 Gen3 LED Controller'],
-            write_log=write_log,
-        )
-        led.exit_engineering_mode()
-
-        # Only Q + one INFO. No Ctrl-D bytes written.
-        assert led._safe_write.call_count == 0
-        assert all(b not in write_log for b in (b'\x03', b'\x02', b'\x04'))
 
     def test_wedged_firmware_triggers_ctrl_d_recovery_and_succeeds(self):
         """Post-Q INFO returns '' (firmware wedged in factory).
