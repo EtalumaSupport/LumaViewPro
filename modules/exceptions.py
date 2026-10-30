@@ -3516,9 +3516,11 @@ class HardwareCommandRefusedError(Refusal, Exception):
 INTERLOCK_REASONS = frozenset(REFUSED_BEFORE_MOTION.values())
 
 # The refusals that describe the hardware's state rather than who holds the
-# scope. A home refused for one of them is reported where it was asked for,
-# as a missing board is; any other refusal of a home is a caller's defect.
-HARDWARE_STATE_REASONS = frozenset({'not_connected'}) | INTERLOCK_REASONS
+# scope: no board, a board that did not report a position (the turret home's
+# Z park), an interlock. A home refused for one of them is reported where it
+# was asked for, as a missing board is; any other refusal of a home is a
+# caller's defect.
+HARDWARE_STATE_REASONS = frozenset({'not_connected', 'position_unread'}) | INTERLOCK_REASONS
 
 
 @dataclass(frozen=True)

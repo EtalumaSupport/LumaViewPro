@@ -66,6 +66,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     SUPPORT_ADDRESS,
     HomingFailedError,
+    MoveNotCompletedError,
     SupportReportNotSavedError,
 )
 from modules.lumascope_api.bring_up import CAUSE_PHRASES
@@ -1560,7 +1561,9 @@ class FirmwareDiagnostics:
         def _home(axis):
             try:
                 motion.home(axis)
-            except HomingFailedError as e:
+            except (HomingFailedError, MoveNotCompletedError) as e:
+                # A move is the turret home's Z park or restore, whose outcome
+                # is the turret's result.
                 return f'Error: {e}'
             except HardwareCommandRefusedError as e:
                 if e.reason not in HARDWARE_STATE_REASONS:

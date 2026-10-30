@@ -7332,6 +7332,8 @@ answering; either ends it in `HomingFaultError`.
 - `HardwareCommandRefusedError`: `'home_in_flight'`, while a home asked earlier, by any caller, has not ended.
 - `HomingFaultError`: the home was driven and did not establish a reference: the driver raised, or a homed axis's position could not be read. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
+- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'position_unread'`, `'monitor_ended'`, or an interlock reason), the turret as it was.
+- `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`.
 
 While it runs, the home holds the session's activity claim as a run
 does: every other request to the scope is refused, naming the home,
@@ -7341,9 +7343,9 @@ as that activity's work and takes no claim of its own.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `lid_open_before_motion`, `home_in_flight`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `lid_open_before_motion`, `home_in_flight`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
-- 500: [`HomingFaultError`](#HomingFaultError): `error`, `unread`, `lid_open`, `stage_unpowered`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
+- 500: [`HomingFaultError`](#HomingFaultError): `error`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `position_unread`, `monitor_ended`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="MotionAPI.interlocks"></a>

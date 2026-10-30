@@ -79,6 +79,26 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
     assert scope.posts == []
 
 
+@pytest.mark.parametrize('route', ROUTES)
+def test_a_defect_in_the_home_leaves_as_itself_with_its_axes_unknown(scope, monkeypatch, route):
+    """Only the board's hardware fault is a homing fault; our own defect is never named one."""
+
+    def defect():
+        # a stand-in by design: our own defect inside the driver's home,
+        # which no simulated board fault produces (a board fault is a
+        # HardwareError)
+        raise TypeError('scripted defect')
+
+    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], defect)
+
+    with pytest.raises(TypeError, match='scripted defect'):
+        scope.motion.home(route)
+
+    for axis in _axes_of(scope, route):
+        assert scope.motion.get_axis_state(axis) == AxisState.UNKNOWN, axis
+    assert scope.posts == []
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):

@@ -24,7 +24,7 @@ import time
 
 import pytest
 
-from drivers.exceptions import MotionInterlockError
+from drivers.exceptions import MotionInterlockError, MotionNotCompletedError
 from lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
@@ -67,10 +67,11 @@ class TestTheRefusalsWords:
         assert (lid.title, str(lid)) == ('Lid Open', LID_WORDS)
         assert (power.title, str(power)) == ('No Stage Power', POWER_WORDS)
 
-    def test_the_hardware_state_reasons_are_no_board_and_the_interlocks(self):
+    def test_the_hardware_state_reasons_are_no_board_an_unread_position_and_the_interlocks(self):
         assert {'lid_open_before_motion', 'stage_unpowered_before_motion'} == INTERLOCK_REASONS
         assert {
             'not_connected',
+            'position_unread',
             'lid_open_before_motion',
             'stage_unpowered_before_motion',
         } == HARDWARE_STATE_REASONS
@@ -195,6 +196,24 @@ class TestAHomeTheInterlockRefuses:
         finally:
             scope.disconnect()
 
+    def test_a_turret_home_whose_z_park_is_refused_keeps_the_turret_as_it_was(self, monkeypatch):
+        scope = home_sim_scope(
+            build_scope(simulate=True, sim_model='LS850T', register_atexit=False)
+        )
+        try:
+            before = scope.motion.turret_status()
+            monkeypatch.setattr(
+                scope._motion_driver, 'move_abs_pos', _refuse('lid_open', stopped=False)
+            )
+
+            with pytest.raises(HardwareCommandRefusedError) as raised:
+                scope.motion.home('T')
+
+            assert raised.value.reason == 'lid_open_before_motion'
+            assert scope.motion.turret_status() == before
+        finally:
+            scope.disconnect()
+
     def test_an_unhomed_axis_refused_stays_unknown_not_homed(self, monkeypatch):
         scope = build_scope(simulate=True, sim_model='LS850', register_atexit=False)
         try:
@@ -229,7 +248,7 @@ class TestAHomeTheInterlockRefuses:
 
         def stopped_mid_home():
             scope.motion.stop_motion()
-            raise RuntimeError('the home was aborted')
+            raise MotionNotCompletedError('the home was aborted')
 
         monkeypatch.setattr(scope._motion_driver, call, stopped_mid_home)
 

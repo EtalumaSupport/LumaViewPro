@@ -1012,13 +1012,14 @@ class MotionAPI:
             # the firmware has it, else axis by axis (field firmware,
             # 2024-09-10 EL-0940-02, has no STOP command).
             self._driver.motor_stop()
-            self._stop_generation += 1
-            logger.info('[SCOPE API ] stop_motion: motors stopped')
-        except Exception as e:
-            # The exchange may have failed after the board took the STOP,
-            # so a move in flight cannot be vouched for as arrived.
-            self._stop_generation += 1
+        except HardwareError as e:
             raise MotorStopFailedError() from e
+        finally:
+            # On every exit: the exchange may have failed after the board
+            # took the STOP, so a move in flight cannot be vouched for as
+            # arrived.
+            self._stop_generation += 1
+        logger.info('[SCOPE API ] stop_motion: motors stopped')
 
     @contextlib.contextmanager
     def _reference_position_logger(self) -> Iterator[None]:
@@ -1069,9 +1070,9 @@ class MotionAPI:
                 ``refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and every axis keeps the state it had.
-            HomingFaultError: the driver raised, or a homed axis's position
-                could not be read; ``'lid_open'``, the lid was opened while
-                the home moved.
+            HomingFaultError: the driver raised a hardware fault, or a homed
+                axis's position could not be read; ``'lid_open'``, the lid
+                was opened while the home moved.
             HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver: without it, a home with no controller
@@ -1136,10 +1137,16 @@ class MotionAPI:
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 raise HomingFaultError('ALL', e.reason, present_axes) from e
-            except Exception as e:
+            except HardwareError as e:
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 raise self._home_ending('ALL', stops_asked, present_axes) from e
+            except Exception:
+                # Our own defect: it leaves as itself, and the axes it may
+                # have moved are unknown all the same.
+                for ax in present_axes:
+                    self._set_axis_state(ax, AxisState.UNKNOWN)
+                raise
             finally:
                 _api_log.info('home DONE')
 
@@ -1219,10 +1226,18 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no turret (see
                 ``refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
-            HomingFaultError: the home or its Z park raised, or the
-                turret's position could not be read.
+            HomingFaultError: the board's home raised a hardware fault, or
+                the turret's position could not be read.
             HomingStoppedError: ``'stopped'``, a Stop landed before the
                 board began the home.
+            HardwareCommandRefusedError: the Z park was refused before Z
+                moved (``'position_unread'``, ``'monitor_ended'``, or an
+                interlock reason); the turret keeps its state and slot.
+            MoveFaultError: the Z park or the Z restore failed. Before the
+                turret was driven, it keeps its state and slot; after, it is
+                UNKNOWN.
+            MoveStoppedError: a Stop ended the Z park or the Z restore,
+                with the turret as for ``MoveFaultError``.
         """
         # Asked before the Z park: a scope with no turret would otherwise
         # park and restore Z and record slot 1 for a turret it does not
@@ -1235,10 +1250,11 @@ class MotionAPI:
         _api_log.info('T home START')
         state_before = self._axis_states(('T',))['T']
         turret_before = self._last_turret_position
-        # A homing turret is in no known slot until the home succeeds.
-        self._record_turret_slot(None)
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
+        # Whether the turret has been driven: until then, a park that fails
+        # leaves it as it was, since nothing turned it.
+        turret_driven = False
         # Outside the park's own command, so the turret's change comes into
         # force once its slot is recorded, not when the park's command closes
         # with the turret in no slot (see home()).
@@ -1251,7 +1267,10 @@ class MotionAPI:
                     self._driving_home('T', stops_asked, {'T': state_before}, turret_before),
                     self._safe_turret_move(),
                 ):
+                    turret_driven = True
                     self._set_axis_state('T', AxisState.HOMING)
+                    # A homing turret is in no known slot until the home succeeds.
+                    self._record_turret_slot(None)
                     self._scope.frame_validity.invalidate(FrameValiditySource.TURRET, began_ns=None)
                     homed = False
                     try:
@@ -1274,9 +1293,15 @@ class MotionAPI:
                     self._record_turret_slot(1)
             except HomingFailedError:
                 raise
-            except Exception as e:
+            except HardwareError as e:
                 self._set_axis_state('T', AxisState.UNKNOWN)
                 raise self._home_ending('T', stops_asked, ('T',)) from e
+            except Exception:
+                # The Z park's or restore's own outcome, or our own defect:
+                # each leaves as itself. A turret driven is unknown.
+                if turret_driven:
+                    self._set_axis_state('T', AxisState.UNKNOWN)
+                raise
             finally:
                 _api_log.info('T home DONE')
 
@@ -1900,8 +1925,8 @@ class MotionAPI:
                 ``refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and Z keeps the state it had.
-            HomingFaultError: the driver raised (e.g. HardwareError on
-                no-response / firmware-error), or Z's position could not be
+            HomingFaultError: the driver raised a hardware fault (no
+                response, a firmware error), or Z's position could not be
                 read; ``'lid_open'``, the lid was opened while the home
                 moved.
             HomingStoppedError: ``'stopped'``, a Stop ended it.
@@ -1937,9 +1962,13 @@ class MotionAPI:
                 raise HardwareCommandRefusedError(REFUSED_BEFORE_MOTION[e.reason], 'home') from e
             self._set_axis_state('Z', AxisState.UNKNOWN)
             raise HomingFaultError('Z', e.reason, ('Z',)) from e
-        except Exception as e:
+        except HardwareError as e:
             self._set_axis_state('Z', AxisState.UNKNOWN)
             raise self._home_ending('Z', stops_asked, ('Z',)) from e
+        except Exception:
+            # Our own defect: it leaves as itself, and Z is unknown all the same.
+            self._set_axis_state('Z', AxisState.UNKNOWN)
+            raise
         finally:
             _api_log.info('Z home DONE')
 
@@ -3245,6 +3274,14 @@ class MotionAPI:
                 driven.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier, by any caller, has not ended.
+            MoveFaultError: for ``'T'``, the Z park before the turret's home
+                or the Z restore after it failed; the turret keeps its state
+                and slot when it was never driven, else it is UNKNOWN. A
+                park refused before Z moved is a ``HardwareCommandRefusedError``
+                (``'position_unread'``, ``'monitor_ended'``, or an interlock
+                reason), the turret as it was.
+            MoveStoppedError: for ``'T'``, a Stop ended the Z park or the Z
+                restore, the turret as for ``MoveFaultError``.
 
         While it runs, the home holds the session's activity claim as a run
         does: every other request to the scope is refused, naming the home,
@@ -3767,7 +3804,9 @@ class MotionAPI:
                 drive before anything moved; see ``_refuse_for_interlock``.
                 ``'monitor_ended'``: the motion monitor has ended, so
                 nothing would judge the move; nothing was sent.
-            MoveFaultError: the drive raised; see ``_fail_drive``.
+            MoveFaultError: the drive raised a hardware fault; see
+                ``_fail_drive``. Our own defect leaves as itself, the axis
+                UNKNOWN all the same.
         """
         if self._monitor_ended:
             raise HardwareCommandRefusedError('monitor_ended', member)
@@ -3780,8 +3819,11 @@ class MotionAPI:
             return move, send()
         except MotionInterlockError as e:
             self._refuse_for_interlock(axis, move, state_before, e, member)
-        except Exception as e:
+        except HardwareError as e:
             self._fail_drive(axis, move, e)
+        except Exception:
+            self._set_axis_state(axis, AxisState.UNKNOWN)
+            raise
 
     def _publish_drive(self, axis: str, written: bool, target_pos: float | None) -> None:
         """Publish a sent drive's target, then arm ``axis``: its verdicts may land.
@@ -3965,7 +4007,7 @@ class MotionAPI:
                             arrived = self._read_target_status(ax)
                             if arrived is False:
                                 self._moving_seen_ns[ax] = read_began_ns
-                        except Exception as e:
+                        except HardwareError as e:
                             if self._status_unread_warned.get(ax) is not noted:
                                 self._status_unread_warned[ax] = noted
                                 _api_log.warning(

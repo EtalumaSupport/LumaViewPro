@@ -22,7 +22,6 @@ import pytest
 from drivers.exceptions import HardwareError
 from modules.exceptions import (
     HardwareCommandRefusedError,
-    HomingFaultError,
     MoveFaultError,
 )
 from modules.lumascope_api import AxisState
@@ -139,18 +138,24 @@ def test_an_axis_unread_from_its_first_poll_is_given_up_unread(session, centre_p
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
 
 
-def test_a_turret_home_whose_z_park_stalls_ends_in_its_fault(session, centre_posts):
-    """The stall's halt is not a person's Stop: the home ends in a homing
-    fault, and the monitor goes on judging moves. Before, a halt sent through
-    ``stop_motion`` would be refused while a home drives, and the refusal
-    would end the monitor's thread."""
+def test_a_turret_home_whose_z_park_stalls_ends_in_the_parks_fault(session, centre_posts):
+    """The park's stall is the park's own outcome, not the turret's home: the
+    home ends in the move's fault, and a turret it never drove keeps its state
+    and slot. The stall's halt is not a person's Stop, and the monitor goes on
+    judging moves. Before, a halt sent through ``stop_motion`` would be
+    refused while a home drives, and the refusal would end the monitor's
+    thread."""
     motion = session.scope.motion
     motion.move_z(3000.0)
+    turret_before = motion.turret_status()
     session.scope.simulation.hold_axis('Z')
 
-    with pytest.raises(HomingFaultError):
+    with pytest.raises(MoveFaultError) as raised:
         motion.start_home('T').result(timeout=_GIVE_UP_WAIT_S + 4.0)
     session.scope.simulation.clear()
+
+    assert (raised.value.axis, raised.value.reason) == ('Z', 'stalled')
+    assert motion.turret_status() == turret_before
 
     assert motion._motion_monitor_thread.is_alive()
     home_sim_scope(session.scope)
@@ -158,12 +163,14 @@ def test_a_turret_home_whose_z_park_stalls_ends_in_its_fault(session, centre_pos
     assert _ended(motion.start_move_xy(x_um=1000.0)) == 'arrived'
 
 
+# Its two reads, the arrival and the position, give one answer to a defect.
+@pytest.mark.parametrize('read', ['target_status', 'current_pos_steps'])
 def test_a_monitor_that_ends_gives_every_moving_axis_up_and_refuses_later_drives(
-    session, centre_posts
+    session, centre_posts, read
 ):
     motion = session.scope.motion
     driver = motion._driver
-    real = driver.current_pos_steps
+    real = getattr(driver, read)
     broke = threading.Event()
 
     def defect(axis):
@@ -174,13 +181,13 @@ def test_a_monitor_that_ends_gives_every_moving_axis_up_and_refuses_later_drives
 
     # a stand-in by design: a defect in the monitor's own read, which no
     # simulated board fault produces (a board fault is a HardwareError).
-    driver.current_pos_steps = defect
+    setattr(driver, read, defect)
     operation = motion.start_move_xy(x_um=60000.0)
 
     assert _ended(operation) == 'monitor_ended_mid_move'
     assert broke.is_set()
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
-    driver.current_pos_steps = real
+    setattr(driver, read, real)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         motion.start_move_xy(y_um=1000.0)
     assert refused.value.reason == 'monitor_ended'

@@ -222,14 +222,19 @@ def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
     assert time.monotonic() - started < 0.5
 
 
-@pytest.mark.xfail(
+_HOMING_FAULT = pytest.mark.xfail(
     strict=True,
     reason='the first home after a pull meets the dead port as a failed command and raises '
-    'HomingFailedError, a homing fault, where its cause is the Z safety move for a turret '
-    'home. Only the next call knows the motor is disconnected',
+    'HomingFailedError, a homing fault. Only the next call knows the motor is disconnected',
 )
-# parametrize-justified: a cable pull is permanent for its scope
-@pytest.mark.parametrize('home', list(_HOMES))
+
+
+# parametrize-justified: a cable pull is permanent for its scope. A turret
+# home meets the dead port in its Z park, whose outcome leaves as itself.
+@pytest.mark.parametrize(
+    'home',
+    [pytest.param('all', marks=_HOMING_FAULT), 'T', pytest.param('Z', marks=_HOMING_FAULT)],
+)
 def test_a_home_after_a_cable_pull_says_the_motor_is_not_connected(scope, home):
     _pulled(scope)
     with pytest.raises(HardwareCommandRefusedError) as raised:

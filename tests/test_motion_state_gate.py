@@ -283,6 +283,25 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
     assert _errors_posted(centre_posts) == []
 
 
+def test_a_defect_in_the_drive_leaves_as_itself_with_the_axis_unknown(
+    scope, monkeypatch, centre_posts
+):
+    scope.motion._home_impl()
+
+    def defect(*_a, **_kw):
+        # a stand-in by design: our own defect inside the driver's move,
+        # which no simulated board fault produces
+        raise TypeError('scripted defect')
+
+    monkeypatch.setattr(scope.motion._driver, 'move_abs_pos', defect)
+
+    with pytest.raises(TypeError, match='scripted defect'):
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
+
+    assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
+    assert _errors_posted(centre_posts) == []
+
+
 def test_a_failed_move_then_refuses_the_next_one(scope):
     """The two halves compose: a dead-board move poisons the axis, and the
     follow-up is refused instead of driving blind again -- first for the
