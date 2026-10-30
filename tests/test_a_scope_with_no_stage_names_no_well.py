@@ -12,8 +12,6 @@ Driven through the Session on the simulator: an LS820 (Z only) against an
 LS850 (X, Y and Z) as the control.
 """
 
-import json
-
 import tifffile
 
 from modules.notification_center import Severity
@@ -37,7 +35,7 @@ def _warnings(centre_posts):
 
 def _description(path):
     with tifffile.TiffFile(str(path)) as tf:
-        return json.loads(tf.pages[0].tags['ImageDescription'].value)
+        return tf.shaped_metadata[0]
 
 
 class TestAZOnlyScope:

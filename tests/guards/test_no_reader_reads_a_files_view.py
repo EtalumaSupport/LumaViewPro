@@ -17,14 +17,23 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module, production_modules, walk_defs
+from tests.ast_seams import (
+    MemberNames,
+    iter_package_modules,
+    parse_module,
+    production_modules,
+    walk_defs,
+)
 
 _WRITER_MODULE = 'modules/image_utils.py'
-_WRITERS = frozenset(
-    {'write_tiff', 'write_hyperstack_tiff', 'generate_tiff_data', '_splice_ome_additions'}
+_WRITERS = MemberNames(
+    (_WRITER_MODULE,),
+    {'write_tiff', 'write_hyperstack_tiff', 'generate_tiff_data', '_splice_ome_additions'},
 )
 # The view's builders, and the namespace constant its annotations carry.
-_VIEW_NAMES = frozenset({'_readable_view', '_view_lines', '_ORIGINAL_METADATA_NAMESPACE'})
+_VIEW_NAMES = MemberNames(
+    (_WRITER_MODULE,), {'_readable_view', '_view_lines', '_ORIGINAL_METADATA_NAMESPACE'}
+)
 _DESCRIPTION_TAG = ('ImageDescription', 270)
 
 

@@ -179,9 +179,7 @@ class TestAFileWithNoPositionIsStillReadable:
 
 def _read_plane(path) -> dict:
     """The Plane block a consumer reads back out of a written TIFF."""
-    import json
-
     import tifffile
 
     with tifffile.TiffFile(str(path)) as tf:
-        return json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
+        return tf.shaped_metadata[0]['Plane']
