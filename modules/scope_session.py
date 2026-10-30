@@ -6151,15 +6151,18 @@ class ScopeSession:
         self._scheduler.shutdown()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
-        if self._owns_scope and self.io_executor.worker_alive:
+        if self._owns_scope and self.io_executor.worker_alive and self.io_executor.accepts_work():
             # Drain the LEDs through the io lane BEFORE the lanes go down,
             # on the same serial-bus lane as every other LED write, so it
             # cannot race an in-flight LED task the way a bare thread did.
             # Only while the lane's worker is alive: a submission to a lane
             # with no worker is never serviced, and the wait would run out
             # its bound for nothing -- disconnect() below turns the LEDs
-            # off inline either way. The scope's own off asks presence
-            # first, so with no LED controller it writes nothing. The 2 s
+            # off inline either way. And only while the lane takes work: a
+            # disconnect before this shut the lane without waiting for its
+            # worker, which can still be alive while the lane refuses. The
+            # scope's own off asks presence first, so with no LED
+            # controller it writes nothing. The 2 s
             # bound keeps the calling thread from blocking on slow serial.
             logger.info('[Session  ] shutdown: leds_off through the io lane')
             try:
