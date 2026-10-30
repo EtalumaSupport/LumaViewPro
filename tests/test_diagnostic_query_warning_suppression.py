@@ -19,88 +19,87 @@ still treats None as "INCONCLUSIVE -- firmware does not support."
 
 Same shape as ``motor_stop`` (commit 3f3553c) and tracked under
 GitHub issue #654.
+
+Driven against the real firmware on the firmware-backed simulator: the
+field firmware (2024-09-10) has none of these commands, and the 3.0
+firmware answers VOLTAGE. The warning is read off the serial log.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import logging
 
 import pytest
 
+from drivers.exceptions import HardwareError
+from tests.wire_boards import motor_on_the_wire
+
+pytestmark = pytest.mark.firmware_tier
+
+
+@pytest.fixture(scope='module')
+def field_board():
+    """One MotorBoard on the field firmware for the module: each test reads it
+    or is refused, and leaves it as it found it."""
+    board, _sim = motor_on_the_wire(dialect='field')
+    yield board
+    board.disconnect()
+
+
+def _firmware_errors(caplog, command):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == 'LVP.serial'
+        and r.levelno == logging.WARNING
+        and f'FIRMWARE ERROR: {command} ->' in r.getMessage()
+    ]
+
+
+def _exchanged(caplog, command):
+    return [
+        r for r in caplog.records if r.name == 'LVP.serial' and f' {command} -> ' in r.getMessage()
+    ]
+
 
 class TestDiagnosticQueryCapabilityProbe:
-    def _make_board(self, response):
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        board.exchange_command = MagicMock(return_value=response)
-        return board
-
-    def test_drvstat_probe_passes_expect_unsupported_flag(self):
-        board = self._make_board(response="ERROR: command 'DRVSTAT_Z' not found:")
-        result = board.read_drv_status('Z')
+    def test_an_unsupported_drvstat_is_no_reading_and_no_warning(self, field_board, caplog):
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            result = field_board.read_drv_status('Z')
         assert result is None, (
             'ERROR response must be swallowed and returned as None '
             '(unsupported-firmware indicator), not propagated.'
         )
-        assert board.exchange_command.call_count == 1
-        args, kwargs = board.exchange_command.call_args
-        assert args[0] == 'DRVSTAT_Z'
-        assert kwargs.get('expect_unsupported') is True
+        assert _exchanged(caplog, 'DRVSTAT_Z'), 'the probe never reached the board'
+        assert _firmware_errors(caplog, 'DRVSTAT_Z') == []
 
-    def test_fanspeed_probe_passes_expect_unsupported_flag(self):
-        board = self._make_board(response="ERROR: command 'FANSPEED' not found:")
-        result = board.read_fanspeed()
+    def test_an_unsupported_fanspeed_is_no_reading_and_no_warning(self, field_board, caplog):
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            result = field_board.read_fanspeed()
         assert result is None
-        assert board.exchange_command.call_count == 1
-        args, kwargs = board.exchange_command.call_args
-        assert args[0] == 'FANSPEED'
-        assert kwargs.get('expect_unsupported') is True
+        assert _exchanged(caplog, 'FANSPEED'), 'the probe never reached the board'
+        assert _firmware_errors(caplog, 'FANSPEED') == []
 
-    def test_set_fan_duty_is_not_quieted(self):
+    def test_a_refused_fan_write_raises_and_keeps_its_warning(self, field_board, caplog):
         # Support is supports_fan's answer, asked first: the write itself is
         # not a probe, so an ERROR to it is a fault and keeps its warning.
-        board = self._make_board(response='OK')
-        assert board.set_fan_duty(0) is None
-        assert board.exchange_command.call_count == 1
-        args, kwargs = board.exchange_command.call_args
-        assert args[0] == 'FAN:0'
-        assert not kwargs.get('expect_unsupported')
-
-    def test_set_fan_duty_error_raises(self):
-        from drivers.exceptions import HardwareError
-
-        board = self._make_board(response="ERROR: command 'FAN:0' not found:")
-        with pytest.raises(HardwareError):
-            board.set_fan_duty(0)
+        with caplog.at_level(logging.INFO, logger='LVP.serial'), pytest.raises(HardwareError):
+            field_board.set_fan_duty(0)
+        assert len(_firmware_errors(caplog, 'FAN:0')) == 1
 
     def test_diagnostic_query_returns_response_when_supported(self):
         """When firmware supports the command, the response passes
-        through unchanged (no None substitution)."""
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        board.exchange_command = MagicMock(return_value='real-response-data')
+        through unchanged (no None substitution): the 3.0 firmware's
+        VOLTAGE line."""
+        board, _sim = motor_on_the_wire(dialect='3.0')
         result = board._diagnostic_query('VOLTAGE')
-        assert result == 'real-response-data'
+        assert result.startswith('24V=')
 
-    @pytest.mark.firmware_tier
-    def test_diagnostic_query_returns_none_on_error_response(self):
+    def test_diagnostic_query_returns_none_on_error_response(self, field_board):
         """When firmware rejects with ERROR prefix, the response is
         swallowed and None is returned (caller treats as inconclusive).
 
         On the field firmware, which has no DRVSTAT. The query itself, not
         read_drv_status: that read's own parse fallback also answers None
         for an ERROR line, so it cannot tell this clause from its own."""
-        from drivers.motorboard import MotorBoard
-        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-        from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
-
-        board = MotorBoard(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
-            backend=SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT'), dialect='field')),
-        )
-        try:
-            assert board._diagnostic_query('DRVSTAT_Z') is None
-        finally:
-            board.disconnect()
+        assert field_board._diagnostic_query('DRVSTAT_Z') is None

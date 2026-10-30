@@ -23,6 +23,7 @@ from drivers.motorconfig import MotorConfig
 from lvp_logger import logger as _mock_logger
 from modules.path_utils import read_installation_file
 from tests.stock_channels import LED2
+from tests.wire_boards import motor_on_the_wire
 
 
 def make_config(tmp_path, defaults=None):
@@ -39,25 +40,43 @@ def bare_board(monkeypatch, response):
 
 
 class TestGetConfig:
-    def test_valid_json_parses(self, monkeypatch):
-        board = bare_board(monkeypatch, '{"Serial Number": "SN1"}')
-        assert board.get_config() == {'Serial Number': 'SN1'}
+    """The firmware's own CONFIG replies, on the firmware-backed simulator: the
+    3.0 firmware answers JSON, the field firmware a Python dict repr, and a
+    lost or garbled reply is the wire's own fault. ``{}`` and a bare number
+    are answers no emulated firmware gives, so those two cases script the
+    exchange."""
 
-    def test_legacy_dict_repr_parses(self, monkeypatch):
-        board = bare_board(monkeypatch, "{'Serial Number': 'SN1'}")
-        assert board.get_config() == {'Serial Number': 'SN1'}
+    @pytest.mark.firmware_tier
+    def test_valid_json_parses(self):
+        board, _sim = motor_on_the_wire(dialect='3.0')
+        assert board.exchange_command('CONFIG').startswith('{"')
+        assert board.get_config()['Serial Number'] == 'SIM-0000'
+
+    @pytest.mark.firmware_tier
+    def test_legacy_dict_repr_parses(self):
+        """The field firmware, the one the shipped scopes run, answers CONFIG
+        with a Python dict repr."""
+        board, _sim = motor_on_the_wire(dialect='field')
+        assert board.exchange_command('CONFIG').startswith("{'")
+        assert board.get_config()['Serial Number'] == 'SIM-0000'
 
     def test_empty_mapping_is_a_valid_answer(self, monkeypatch):
         board = bare_board(monkeypatch, '{}')
         assert board.get_config() == {}
 
-    def test_no_answer_raises(self, monkeypatch):
-        board = bare_board(monkeypatch, None)
+    @pytest.mark.firmware_tier
+    @pytest.mark.slow
+    def test_no_answer_raises(self):
+        """Slow: the lost reply is waited out for the read's own bound."""
+        board, sim = motor_on_the_wire()
+        sim.drop_next_reply()
         with pytest.raises(ConfigReadError):
             board.get_config()
 
-    def test_unparseable_payload_raises(self, monkeypatch):
-        board = bare_board(monkeypatch, 'garbage %% not json')
+    @pytest.mark.firmware_tier
+    def test_unparseable_payload_raises(self):
+        board, sim = motor_on_the_wire()
+        sim.garble_next_reply()
         with pytest.raises(ConfigReadError):
             board.get_config()
 

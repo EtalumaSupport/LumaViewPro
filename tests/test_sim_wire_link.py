@@ -14,7 +14,6 @@ import os
 import re
 import threading
 import time
-from unittest.mock import MagicMock
 
 import psutil
 import pytest
@@ -270,42 +269,34 @@ class TestABoardOffTheBus:
         assert recorder.count('ERROR', 'connect() failed') == 9, recorder.records
         assert recorder.count('CRITICAL', 'suppressing') == 1, recorder.records
 
-    def test_connect_errors_log_again_after_a_connect_succeeds(self, recorder, monkeypatch):
+    def test_connect_errors_log_again_after_a_connect_succeeds(self, backend, recorder):
         """Suppression is per outage, not forever: after a successful
         connect, a fresh failure logs again."""
-        # A hand-built board, not the firmware simulator: a connect made
-        # during an outage rescans, finds no board and forgets the port,
-        # and the driver's later connects raise "No port found" without
-        # rescanning, so on the simulator no connect succeeds after the
-        # failures this needs.
-        board = MotorBoard.__new__(MotorBoard)
-        board._lock = threading.RLock()
-        board._state_lock = threading.Lock()
-        board._label = '[XYZ Class ]'
-        board.port = '/dev/fake'
-        board.driver = None
-        board._connect_fails = 0
-        board._connect_log_suppressed = False
+        # A port another program holds fails each connect while the board
+        # stays listed, so the driver keeps its port through the failures
+        # (a pulled cable would lose it: tests/capability/serial_p01_cable_pull.py).
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
+        sim = backend.motor_board
 
-        def fail_open():
-            raise OSError('port disappeared')
+        def hold_the_port():
+            sim.unplug()
+            # The driver meets the pulled cable on its next exchange and closes.
+            assert not board.exchange_command('INFO')
+            sim.replug()
+            return backend.open(port=MOTOR_DEVICE, timeout=0.5)
 
-        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
-        monkeypatch.setattr(board, '_close_driver', lambda: None, raising=False)
-        for _ in range(11):
+        try:
+            held = hold_the_port()
+            for _ in range(11):
+                board.connect()
+            assert recorder.count('ERROR', 'connect() failed') == 9, recorder.records
+            held.close()
             board.connect()
-        assert recorder.count('ERROR', 'connect() failed') == 9
+            assert board.is_connected()
 
-        def ok_open():
-            board.driver = MagicMock()
-            board.driver.is_open = True
-
-        monkeypatch.setattr(board, '_open_serial', ok_open, raising=False)
-        monkeypatch.setattr(board, '_reset_firmware', lambda: None, raising=False)
-        monkeypatch.setattr(board, 'fullinfo', lambda: {'model': 'LS850'}, raising=False)
-        board.connect()
-
-        board.driver = None
-        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
-        board.connect()
+            held = hold_the_port()
+            board.connect()
+            held.close()
+        finally:
+            board.disconnect()
         assert recorder.count('ERROR', 'connect() failed') == 10, recorder.records

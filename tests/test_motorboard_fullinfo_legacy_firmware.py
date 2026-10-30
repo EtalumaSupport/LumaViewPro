@@ -18,12 +18,22 @@ logs ERROR so real faults stay visible.
 
 motorboard logs through lvp_logger (propagate=False, custom file handlers),
 which pytest's caplog cannot see; spy on the module logger directly instead.
+
+A parsed reply and an unparseable one are the field firmware's, on the
+firmware-backed simulator. The UNKNOWN_CMD envelope is a reply the
+emulation carries no firmware for (the open question K67 in
+SIM_AT_THE_WIRE_KNOWLEDGE), so that one case is still a scripted
+exchange.
 """
 
 from __future__ import annotations
 
 import threading
 from unittest.mock import MagicMock
+
+import pytest
+
+from tests.wire_boards import motor_on_the_wire
 
 _UNKNOWN_CMD = '{"err": "UNKNOWN_CMD", "ok": false, "msg": "unknown command", "cmd": "FULLINFO"}'
 
@@ -53,6 +63,12 @@ class _RecLogger:
         return [m for lvl, m in self.calls if lvl == level]
 
 
+def _recording(monkeypatch):
+    rec = _RecLogger()
+    monkeypatch.setattr('drivers.motorboard.logger', rec)
+    return rec
+
+
 def _make_board(response, monkeypatch):
     """Build a MotorBoard stub with exchange_command + logger patched."""
     from drivers.motorboard import MotorBoard
@@ -80,22 +96,25 @@ def test_unknown_cmd_returns_fallback_without_error(monkeypatch):
     assert any('not supported on this firmware' in m for m in rec.messages('info'))
 
 
+@pytest.mark.firmware_tier
 def test_unparseable_response_still_logs_error(monkeypatch):
     # A non-UNKNOWN_CMD garbage response is a genuine fault: keep the ERROR
     # so real parse failures are not silently swallowed by the legacy path.
-    board, rec = _make_board('garbage nonsense with no fields', monkeypatch)
+    board, sim = motor_on_the_wire()
+    rec = _recording(monkeypatch)
+    sim.garble_next_reply()
     result = board.fullinfo()
     assert (result['model'], result['serial_number']) == (None, None)
     assert any('Failed to parse FULLINFO' in m for m in rec.messages('error'))
 
 
+@pytest.mark.firmware_tier
 def test_valid_response_parses_model_and_serial(monkeypatch):
-    resp = 'Model: LS820T Serial: SN12345 X present: True'
-    board, rec = _make_board(resp, monkeypatch)
+    board, _sim = motor_on_the_wire('LS850T', 'XYZT')
+    rec = _recording(monkeypatch)
     result = board.fullinfo()
-    assert result['model'] == 'LS820T'
-    assert result['serial_number'] == 'SN12345'
-    assert result['_raw'] == resp
+    assert result['model'] == 'LS850T'
+    assert result['serial_number'] == 'SIM-0000'
     # The trailing 'T' marks a turret-equipped scope.
-    assert board._has_turret is True
+    assert board.has_turret() is True
     assert rec.messages('error') == []
