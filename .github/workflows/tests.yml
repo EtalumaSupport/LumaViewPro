@@ -48,6 +48,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A hung run ends here, not at GitHub's six-hour default: on 2026-10-30
+    # both jobs reached 99% in 53 minutes and then sat silent for four hours.
+    timeout-minutes: 90
     # 3.12 is the FLOOR: the oldest interpreter we promise to work on, so it
     # fails first. 3.13 is the newest the installers accept and what
     # development runs.
