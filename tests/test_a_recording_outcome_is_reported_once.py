@@ -23,7 +23,7 @@ from modules.exceptions import (
 )
 from modules.notification_center import outcome_of
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
-import tests.test_video_writer as video_writer_tests
+from tests.video_step_drives import record_first_frame
 from tests.video_engine_harness import NotifyRecorder
 
 
@@ -216,19 +216,17 @@ def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts, po
     assert recorder.calls == []
 
 
-def test_a_video_steps_dropped_frames_are_reported_under_protocol(tmp_path, monkeypatch):
+def test_a_video_steps_dropped_frames_are_reported_under_protocol(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
 
-    video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=True
-    )
+    record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError) and fault.protocol_step is True
     assert kw == {'solicited': False, 'category': 'Protocol'}
 
 
-def test_a_video_steps_failed_finish_is_chained_under_protocol(tmp_path, monkeypatch):
+def test_a_video_steps_failed_finish_is_chained_under_protocol(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
     failure = RuntimeError('scripted result failure')
 
@@ -237,9 +235,7 @@ def test_a_video_steps_failed_finish_is_chained_under_protocol(tmp_path, monkeyp
 
     monkeypatch.setattr(protocol_recording.VideoRecordingEngine, 'result', _result)
 
-    video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=False
-    )
+    record_first_frame(sim_scope, tmp_path, monkeypatch)
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingFinalizeError) and fault.protocol_step is True

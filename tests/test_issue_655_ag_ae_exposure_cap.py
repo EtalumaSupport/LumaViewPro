@@ -38,14 +38,9 @@ import pathlib
 import threading
 from unittest.mock import MagicMock
 
-from tests.frame_records import plate
-from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
-from modules.layer_record import release_colors
-from tests.objective_records import objective
-from modules.scope_capabilities import FrameSize
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -282,83 +277,65 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
     )
 
 
-def _video_session_autogain_call(autogain_settings):
-    """Drive a frame-less protocol video step and return the auto_gain_once
-    kwargs the imaging API received at the first-frame re-arm."""
-    import threading
-
+def _video_step_autogain_call(scope, tmp_path, monkeypatch, autogain_settings):
+    """Drive a protocol video step with auto-gain on and return the
+    auto_gain_once kwargs the camera received at the first-frame re-arm."""
     import modules.protocol_recording as protocol_recording
-    from modules.protocol_recording import ProtocolVideoStep
-    from modules.run_events import RunEvents
+    from tests.video_step_drives import ElapsedClock, video_step_on
 
-    scope = MagicMock()
-    scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active = False  # wait loop exits on its first tick
-    scope.runtime_state.resolve_current_objective.return_value = (
-        '4x Oly',
-        objective(focal_length_mm=45.0),
-    )
-    scope.capabilities.camera_model = 'sim'
-    scope.capabilities.camera_serial_number = '0'
-    scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size = FrameSize(8, 8)
-    step = {
-        'Auto_Gain': True,
-        'Exposure': 10.0,
-        'Video Config': {'fps': 5, 'duration': 1},
-        'Color': 'BF',
-        'False_Color': False,
-    }
-    import tempfile
+    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    # The first frame written ends the 1 s recording.
+    elapsed = ElapsedClock()
+    monkeypatch.setattr(protocol_recording, 'write_frame', elapsed.pass_duration)
 
-    recorder = ProtocolVideoStep(
-        scope=scope,
-        step=step,
-        save_folder=pathlib.Path(tempfile.mkdtemp()),
-        name='clip',
-        video_as_frames=True,
-        capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
-        timestamp_overlay=True,
-        global_max_fps=0,
+    camera = scope._camera_driver
+    rearms = []
+    real_auto_gain_once = camera.auto_gain_once
+
+    # a stand-in by design: the simulated camera takes the AE ceiling for
+    # interface parity and keeps nothing of it (a Goal 5 gap), so the
+    # re-arm is recorded at the driver's door and passed through.
+    def record_auto_gain_once(*args, **kwargs):
+        rearms.append(kwargs)
+        return real_auto_gain_once(*args, **kwargs)
+
+    monkeypatch.setattr(camera, 'auto_gain_once', record_auto_gain_once)
+    recorder = video_step_on(
+        scope,
+        tmp_path,
+        step={'Auto_Gain': True, 'Color': 'BF'},
         autogain_settings=autogain_settings,
-        events=RunEvents(),
-        aborted_event=threading.Event(),
-        is_run_in_progress=lambda: True,
-        abort_run_fatal=MagicMock(),
-        record_step_row=MagicMock(),
-        record_dropped_capture=MagicMock(),
-        run_claim=lent_run_claim(),
-        to_plate=None,
-        labware=plate(),
-        fallback_focus=None,
-        channel_colors=release_colors(),
+        elapsed_clock=elapsed,
     )
-    from unittest.mock import patch
-
-    with patch.object(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)):
-        outcome = recorder.run_blocking()
-    assert outcome == protocol_recording.NO_FRAMES
-    assert scope.camera.auto_gain_once.called, 'the first-frame AG re-arm must fire'
-    return scope.camera.auto_gain_once.call_args.kwargs
+    assert recorder.run_blocking() == protocol_recording.COMPLETED
+    assert recorder.wait_until_finished(timeout=10.0), 'the finish never ended'
+    assert rearms, 'the first-frame AG re-arm must fire'
+    return rearms[0]
 
 
-def test_video_capture_rearm_forwards_cap():
-    kwargs = _video_session_autogain_call(
+def test_video_capture_rearm_forwards_cap(sim_scope, tmp_path, monkeypatch):
+    kwargs = _video_step_autogain_call(
+        sim_scope,
+        tmp_path,
+        monkeypatch,
         {
             'target_brightness': 0.5,
             'min_gain_db': 0.0,
             'max_gain_db': 24.0,
             'max_exposure_ms': 777.0,
-        }
+        },
     )
     assert kwargs.get('ae_max_exposure_ms') == 777.0, (
         f'video first-frame AG re-arm must forward the cap (#655); got {kwargs}'
     )
 
 
-def test_video_capture_rearm_tolerates_missing_cap():
-    kwargs = _video_session_autogain_call(
-        {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0}
+def test_video_capture_rearm_tolerates_missing_cap(sim_scope, tmp_path, monkeypatch):
+    kwargs = _video_step_autogain_call(
+        sim_scope,
+        tmp_path,
+        monkeypatch,
+        {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0},
     )
     assert kwargs.get('ae_max_exposure_ms') is None, (
         'an install without a per-class cap must re-arm uncapped, not raise'

@@ -11,18 +11,12 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from tests.protocol_drives import lent_run_claim
-from modules.run_events import RunEvents
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
-from tests.scope_fakes import answer_auto_gain_like_the_api
-from tests.camera_fakes import delivered_frame
 from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
-from tests.frame_records import plate
-from tests.objective_records import objective
-from modules.scope_capabilities import FrameSize
 from tests.stock_channels import LED0, LED2
+from tests.video_step_drives import record_first_frame
 
 
 class _FakeStream:
@@ -305,91 +299,10 @@ class TestProtocolVideoDropNotification:
             for level in ('warning', 'error', 'critical')
         }
 
-    def _run_one_frame_step(self, tmp_path, monkeypatch, *, write_fails):
-        import threading
-        import time as _time
-        from unittest.mock import MagicMock
-
-        import modules.protocol_recording as protocol_recording
-        from modules.protocol_recording import ProtocolVideoStep
-
-        monkeypatch.setattr(
-            protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)
-        )
-
-        written = []
-        self.written = written
-
-        def _write_frame(scope, image, file_loc, arrived, **kwargs):
-            written.append(arrived)
-            if write_fails:
-                raise OSError('disk said no')
-
-        monkeypatch.setattr(protocol_recording, 'write_frame', _write_frame)
-
-        listeners = {}
-        scope = MagicMock()
-        answer_auto_gain_like_the_api(scope.camera)
-        scope.runtime_state.resolve_current_objective.return_value = (
-            '4x Oly',
-            objective(focal_length_mm=45.0),
-        )
-        # The frames leg reads the scope's tracked state per frame; a
-        # MagicMock answers a MagicMock, which is not a position.
-        scope.motion.axis_positions = lambda: {}
-        scope.runtime_state.plate_transform = lambda: None
-        scope.illumination.get_led_states = lambda: {}
-        scope.imaging.frames_until_valid.return_value = 0
-        scope.camera.active = True
-        scope.capabilities.camera_model = 'sim'
-        scope.capabilities.camera_serial_number = '0'
-        scope.capabilities.camera_timestamp_tick_hz = None
-        scope.camera.frame_size = FrameSize(8, 8)
-        scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
-
-        clock = {'t': 1000.0}
-        recorder = ProtocolVideoStep(
-            scope=scope,
-            step={
-                'Video Config': {'fps': 5, 'duration': 1},
-                'Color': LED0,
-                'False_Color': False,
-                'Auto_Gain': False,
-                'Exposure': 10.0,
-            },
-            save_folder=tmp_path,
-            name='clip',
-            video_as_frames=True,
-            capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
-            timestamp_overlay=True,
-            global_max_fps=0,
-            autogain_settings={},
-            events=RunEvents(),
-            aborted_event=threading.Event(),
-            is_run_in_progress=lambda: True,
-            abort_run_fatal=MagicMock(),
-            record_step_row=MagicMock(),
-            record_dropped_capture=MagicMock(),
-            clock=lambda: clock['t'],
-            run_claim=lent_run_claim(),
-            to_plate=None,
-            labware=plate(),
-            fallback_focus=None,
-            channel_colors=release_colors(),
-        )
-        worker = threading.Thread(target=recorder.run_blocking)
-        worker.start()
-        deadline = _time.monotonic() + 5.0
-        while 'cb' not in listeners and _time.monotonic() < deadline:
-            _time.sleep(0.01)
-        listeners['cb'](delivered_frame(np.zeros((8, 8), dtype=np.uint8), 1000.3))
-        clock['t'] = 1002.0
-        worker.join(timeout=10.0)
-        assert recorder.wait_until_finished(timeout=10.0)
-        return recorder
-
-    def test_write_failure_posts_one_nonfatal_error(self, tmp_path, monkeypatch, centre_posts):
-        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=True)
+    def test_write_failure_posts_one_nonfatal_error(
+        self, tmp_path, monkeypatch, centre_posts, sim_scope
+    ):
+        record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
         fired = self._posted(centre_posts)
         assert len(fired['error']) == 1 and fired['warning'] == [], (
             'a step that lost frames must post exactly one error through the '
@@ -397,25 +310,29 @@ class TestProtocolVideoDropNotification:
         )
         assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'
 
-    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts):
-        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts, sim_scope):
+        record_first_frame(sim_scope, tmp_path, monkeypatch)
         fired = self._posted(centre_posts)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
 
-    def test_each_frame_carries_its_own_fact_and_channel(self, tmp_path, monkeypatch):
+    def test_each_frame_carries_its_own_fact_and_channel(self, tmp_path, monkeypatch, sim_scope):
         # The protocol leg reads the scope's tracked state when the frame
-        # arrives, like the manual leg: with no LED reported lit the channel
-        # is the step's, the stage is not moving, and with no plate transform
-        # the frame states no plate position rather than a number. The write
-        # names and renders the frame by that one channel.
-        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
-        (arrived,) = self.written
+        # arrives, like the manual leg: with no LED lit the channel is the
+        # step's, the stage stands where it was parked, and with no plate
+        # transform the frame states no plate position rather than a number.
+        # The write names and renders the frame by that one channel.
+        from tests.af_drives import park_z
+        from tests.scope_fakes import home_sim_scope
+
+        park_z(home_sim_scope(sim_scope), 3000.0)
+        _step, written = record_first_frame(sim_scope, tmp_path, monkeypatch)
+        arrived = written[0]
         assert arrived.light.channel == LED0
         assert arrived.fact.moving is False
         assert (arrived.fact.plate_x_mm, arrived.fact.plate_y_mm, arrived.fact.z_um) == (
             None,
             None,
-            None,
+            3000.0,
         )
 
 

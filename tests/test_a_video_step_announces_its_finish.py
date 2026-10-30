@@ -14,50 +14,20 @@ still alive while it tells the listener, and must not read busy to it.
 """
 
 import threading
-import time
-from unittest.mock import MagicMock
 
-import numpy as np
-
-from modules.run_events import RunEvents
 import modules.protocol_recording as protocol_recording
 from modules.activity_claim import ActivityClaim
-from modules.protocol_recording import ProtocolVideoStep
-from tests.frame_records import plate
-from tests.scope_fakes import answer_auto_gain_like_the_api, spec_scope
 from tests.protocol_drives import run_identity
-from tests.camera_fakes import delivered_frame
-from modules.layer_record import release_colors
-from tests.objective_records import objective
-from modules.scope_capabilities import FrameSize
-from tests.stock_channels import LED0
+from tests.video_step_drives import ElapsedClock, video_step_on
 
 WAIT_S = 10.0
 
 
-def _scope(listeners):
-    scope = spec_scope()
-    answer_auto_gain_like_the_api(scope.camera)
-    scope.runtime_state.resolve_current_objective.return_value = (
-        '4x Oly',
-        objective(focal_length_mm=45.0),
-    )
-    scope.motion.axis_positions = lambda: {}
-    scope.runtime_state.plate_transform = lambda: None
-    scope.illumination.get_led_states = lambda: {}
-    scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active = True
-    scope.capabilities.camera_model = 'sim'
-    scope.capabilities.camera_serial_number = '0'
-    scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size = FrameSize(8, 8)
-    scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
-    return scope
-
-
-def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
+def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch, sim_scope):
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
-    monkeypatch.setattr(protocol_recording, 'write_frame', lambda *a, **kw: None)
+    # The first frame written ends the 1 s recording, so no wall time is waited.
+    elapsed = ElapsedClock()
+    monkeypatch.setattr(protocol_recording, 'write_frame', elapsed.pass_duration)
 
     heard = []
     step_box = {}
@@ -74,47 +44,17 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
             heard.append(step.is_busy)
 
     run = ActivityClaim(on_transition=_on_transition).try_claim('protocol', run=run_identity())
-    listeners = {}
-    clock = {'t': 1000.0}
-    step = ProtocolVideoStep(
-        scope=_scope(listeners),
-        step={
-            'Video Config': {'fps': 5, 'duration': 1},
-            'Color': LED0,
-            'False_Color': False,
-            'Auto_Gain': False,
-            'Exposure': 10.0,
-        },
-        save_folder=tmp_path,
-        name='clip',
-        video_as_frames=True,
-        capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
+    step = video_step_on(
+        sim_scope,
+        tmp_path,
         timestamp_overlay=False,
-        global_max_fps=0,
-        autogain_settings={},
-        events=RunEvents(),
-        aborted_event=threading.Event(),
-        is_run_in_progress=lambda: True,
-        abort_run_fatal=MagicMock(),
         record_step_row=_record_step_row,
-        record_dropped_capture=MagicMock(),
-        clock=lambda: clock['t'],
+        elapsed_clock=elapsed,
         run_claim=run.lend(),
-        to_plate=None,
-        labware=plate(),
-        fallback_focus=None,
-        channel_colors=release_colors(),
     )
     step_box['step'] = step
 
-    worker = threading.Thread(target=step.run_blocking)
-    worker.start()
-    deadline = time.monotonic() + WAIT_S
-    while 'cb' not in listeners and time.monotonic() < deadline:
-        time.sleep(0.01)
-    listeners['cb'](delivered_frame(np.zeros((8, 8), dtype=np.uint8), 1000.3))
-    clock['t'] = 1002.0
-    worker.join(timeout=WAIT_S)
+    assert step.run_blocking() == protocol_recording.COMPLETED
 
     assert in_finish.wait(WAIT_S), 'the finish never reached its row'
     assert step.is_busy, 'the step read not busy while its finish was still running'

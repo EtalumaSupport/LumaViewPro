@@ -31,11 +31,8 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from tests.frame_records import plate
-from tests.protocol_drives import lent_run_claim
 from modules import post_derivation
 from modules.common_utils import PostFunction
-from modules.run_events import RunEvents
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -44,16 +41,12 @@ from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
-from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
 from modules.layer_record import release_colors
-from tests.camera_fakes import delivered_frame
-from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
-from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
@@ -450,98 +443,45 @@ def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
     assert not any('collision' in msg for _, msg in captured)
 
 
-def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
+def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_scope):
     # The protocol video leg must record the file the writer landed on --
     # its collision-suffixed path -- in the execution row, not the
     # requested name.
-    import threading
-    import time as _time
-
-    import numpy as np
-
     import modules.protocol_recording as protocol_recording
-    from modules.protocol_recording import ProtocolVideoStep
+    from tests.video_step_drives import ElapsedClock, video_step_on
 
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
 
-    class _RelocatingWriter:
-        """Stands in for VideoWriter's collision suffixing: the landed
-        path differs from the request."""
+    # The first frame the writer takes ends the 1 s recording.
+    elapsed = ElapsedClock()
+    added = []
 
+    class _RelocatingWriter:
         dropped_frames = 0
 
         def __init__(self, **kwargs):
             self.output_path = kwargs['output_path'].with_name('clip_000001.mp4')
 
         def add_frame(self, **kwargs):
-            pass
+            added.append(kwargs)
+            elapsed.pass_duration()
 
         def close(self):
             pass
 
     monkeypatch.setattr(protocol_recording, 'VideoWriter', _RelocatingWriter)
 
-    listeners = {}
-    scope = MagicMock()
-    answer_auto_gain_like_the_api(scope.camera)
-    scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active = True
-    scope.runtime_state.resolve_current_objective.return_value = (
-        '4x Oly',
-        objective(focal_length_mm=45.0),
-    )
-    scope.capabilities.camera_model = 'sim'
-    scope.capabilities.camera_serial_number = '0'
-    scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size = FrameSize(8, 8)
-    scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
-
-    clock = {'t': 1000.0}
     rows = []
-    recorder = ProtocolVideoStep(
-        scope=scope,
-        step={
-            'Video Config': {'fps': 5, 'duration': 1},
-            'Color': 'BF',
-            'False_Color': False,
-            'Auto_Gain': False,
-            'Exposure': 10.0,
-        },
-        save_folder=tmp_path,
-        name='clip',
+    recorder = video_step_on(
+        sim_scope,
+        tmp_path,
+        step={'Color': 'BF'},
         video_as_frames=False,
-        capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
-        timestamp_overlay=True,
-        global_max_fps=0,
-        autogain_settings={},
-        events=RunEvents(),
-        aborted_event=threading.Event(),
-        is_run_in_progress=lambda: True,
-        abort_run_fatal=MagicMock(),
         record_step_row=lambda **kw: rows.append(kw),
-        record_dropped_capture=MagicMock(),
-        clock=lambda: clock['t'],
-        run_claim=lent_run_claim(),
-        to_plate=None,
-        labware=plate(),
-        fallback_focus=None,
-        channel_colors=release_colors(),
+        elapsed_clock=elapsed,
     )
 
-    outcomes = []
-    worker = threading.Thread(target=lambda: outcomes.append(recorder.run_blocking()))
-    worker.start()
-    deadline = _time.monotonic() + 5.0
-    while 'cb' not in listeners and _time.monotonic() < deadline:
-        _time.sleep(0.01)
-    assert 'cb' in listeners, 'the step must register a frame listener'
-    # One frame past the first cadence slot (start 1000.0, 5 fps -> 1000.2),
-    # then advance the clock past the duration so the wait loop closes.
-    listeners['cb'](delivered_frame(np.zeros((8, 8), dtype=np.uint8), 1000.3))
-    clock['t'] = 1002.0
-    worker.join(timeout=10.0)
-    assert not worker.is_alive(), 'run_blocking must return after the duration'
-    assert outcomes == [protocol_recording.COMPLETED]
+    assert recorder.run_blocking() == protocol_recording.COMPLETED
     assert recorder.wait_until_finished(timeout=10.0), 'the finish thread must complete'
 
     assert rows, 'a completed video step must leave an execution row'
@@ -549,7 +489,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         'the row must carry the suffixed file the writer landed on; '
         f'got {rows[0]["capture_result_file_name"]}'
     )
-    assert rows[0]['frame_count'] == 1
+    assert rows[0]['frame_count'] == len(added)
 
 
 def test_video_builder_create_video_reports_actual_output_file(tmp_path):

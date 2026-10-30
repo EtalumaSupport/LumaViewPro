@@ -10,23 +10,14 @@ required argument, so no encode path can silently decide it.
 
 import json
 import pathlib
-import threading
 from typing import ClassVar
-from unittest.mock import MagicMock
 
 import pytest
 
-from tests.frame_records import plate
-from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
-from modules.protocol_recording import ProtocolVideoStep
-from modules.run_events import RunEvents
-from tests.scope_fakes import answer_auto_gain_like_the_api
 from modules.layer_record import GREY, release_color
-from modules.layer_record import release_colors
-from tests.objective_records import objective
-from modules.scope_capabilities import FrameSize
 from tests.stock_channels import LED0
+from tests.video_step_drives import ElapsedClock, video_step_on
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -43,6 +34,7 @@ def test_shipped_default_is_overlay_on():
 
 class _OverlayCapturingWriter:
     captured: ClassVar[dict] = {}
+    on_frame: ClassVar = None
     dropped_frames = 0
 
     def __init__(self, **kwargs):
@@ -50,87 +42,54 @@ class _OverlayCapturingWriter:
         self.output_path = kwargs.get('output_path')
 
     def add_frame(self, **kwargs):
-        pass
+        _OverlayCapturingWriter.on_frame()
 
     def close(self):
         pass
 
 
-def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
-    """Drive one MP4 protocol video step whose camera delivers nothing.
+def _video_step(scope, monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
+    """Drive one MP4 protocol video step and return the config its writer was made with.
 
-    The writer is constructed before any frame arrives, so the config
-    that reaches it is pinned even on a frame-less step.
+    The first frame the writer takes ends the 1 s recording.
     """
+    elapsed = ElapsedClock()
+    monkeypatch.setattr(_OverlayCapturingWriter, 'on_frame', elapsed.pass_duration)
     monkeypatch.setattr(protocol_recording, 'VideoWriter', _OverlayCapturingWriter)
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
 
-    scope = MagicMock()
-    answer_auto_gain_like_the_api(scope.camera)
-    scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active = False  # wait loop exits on its first tick
-    scope.runtime_state.resolve_current_objective.return_value = (
-        '4x Oly',
-        objective(focal_length_mm=45.0),
-    )
-    scope.capabilities.camera_model = 'sim'
-    scope.capabilities.camera_serial_number = '0'
-    scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size = FrameSize(64, 48)
-
-    capture_config = MagicMock()
-    capture_config.capture_depth = 8
-    capture_config.save_encoding = '8bit'
-
-    step = {
-        'Video Config': {'fps': 5, 'duration': 1},
-        'Color': LED0,
-        'False_Color': false_color,
-        'Auto_Gain': False,
-        'Exposure': 10.0,
-    }
-    recorder = ProtocolVideoStep(
-        scope=scope,
-        step=step,
-        save_folder=tmp_path,
-        name='clip',
+    recorder = video_step_on(
+        scope,
+        tmp_path,
+        step={'False_Color': false_color},
         video_as_frames=False,
-        capture_config=capture_config,
         timestamp_overlay=timestamp_overlay,
-        global_max_fps=0,
-        autogain_settings={},
-        events=RunEvents(),
-        aborted_event=threading.Event(),
-        is_run_in_progress=lambda: True,
-        abort_run_fatal=MagicMock(),
-        record_step_row=MagicMock(),
-        record_dropped_capture=MagicMock(),
-        run_claim=lent_run_claim(),
-        to_plate=None,
-        labware=plate(),
-        fallback_focus=None,
-        channel_colors=release_colors(),
+        elapsed_clock=elapsed,
     )
-    outcome = recorder.run_blocking()
-    assert outcome == protocol_recording.NO_FRAMES
+    assert recorder.run_blocking() == protocol_recording.COMPLETED
+    assert recorder.wait_until_finished(timeout=10.0), 'the finish never ended'
     return _OverlayCapturingWriter.captured
 
 
 @pytest.mark.parametrize('overlay', [True, False])
-def test_protocol_video_hands_the_choice_to_the_writer(tmp_path, monkeypatch, overlay):
-    captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=overlay)
+def test_protocol_video_hands_the_choice_to_the_writer(tmp_path, monkeypatch, overlay, sim_scope):
+    captured = _video_step(sim_scope, monkeypatch, tmp_path, timestamp_overlay=overlay)
     assert captured['include_timestamp_overlay'] is overlay
 
 
-def test_grayscale_stream_encodes_grey(tmp_path, monkeypatch):
+def test_grayscale_stream_encodes_grey(tmp_path, monkeypatch, sim_scope):
     """False-color off must encode true grayscale (GREY), the same
     contract the manual leg uses."""
-    captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=True, false_color=False)
+    captured = _video_step(
+        sim_scope, monkeypatch, tmp_path, timestamp_overlay=True, false_color=False
+    )
     assert captured['color'] == GREY
 
 
-def test_false_color_stream_carries_the_layer(tmp_path, monkeypatch):
-    captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=True, false_color=True)
+def test_false_color_stream_carries_the_layer(tmp_path, monkeypatch, sim_scope):
+    captured = _video_step(
+        sim_scope, monkeypatch, tmp_path, timestamp_overlay=True, false_color=True
+    )
     assert captured['color'] == release_color(LED0)
 
 

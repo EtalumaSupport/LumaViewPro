@@ -19,7 +19,7 @@ import pathlib
 
 import modules.manual_recording as manual_recording_module
 import modules.protocol_recording as protocol_recording
-import tests.test_video_writer as video_writer_tests
+from tests.video_step_drives import record_first_frame
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
 from modules.notification_center import outcome_of
@@ -217,7 +217,9 @@ def test_a_manual_recordings_lost_details_file_is_reported_once_chained(
 # ---------------------------------------------------------------------------
 
 
-def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, monkeypatch):
+def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(
+    sim_scope, tmp_path, monkeypatch
+):
     reported = _record_reports(monkeypatch, protocol_recording)
     killer = _LaneKiller('scripted writer death')
 
@@ -226,9 +228,7 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, 
 
     monkeypatch.setattr(protocol_recording.ProtocolVideoStep, '_write_frame', _dying_write)
 
-    step = video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=False
-    )
+    step, _written = record_first_frame(sim_scope, tmp_path, monkeypatch)
 
     # Logged once with its cause, never shown by the reporter: the run's
     # fatal funnel shows the one popup, after the light is dark.
@@ -239,13 +239,11 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, 
     step._abort_run_fatal.assert_called_once_with('video_writer_died', 'Recording', str(fault))
 
 
-def test_a_video_steps_lost_details_file_is_reported_once_chained(tmp_path, monkeypatch):
+def test_a_video_steps_lost_details_file_is_reported_once_chained(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
     refused = _fail_manifest_writes(monkeypatch)
 
-    step = video_writer_tests.TestProtocolVideoDropNotification()._run_one_frame_step(
-        tmp_path, monkeypatch, write_fails=False
-    )
+    step, _written = record_first_frame(sim_scope, tmp_path, monkeypatch)
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingDetailsNotSavedError)
