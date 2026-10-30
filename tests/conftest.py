@@ -528,10 +528,29 @@ def _disconnect_the_scopes_a_test_built():
     A scope runs threads of its own until it is disconnected, so a suite of
     tests that each leave one behind accumulates them in every worker; the
     lanes `give_stub_lanes` gave a stub are shut the same way. A
-    module-scoped fixture's scope was built before this mark and is left to
-    the fixture, when the test asks for it as an argument: fetched inside the
-    test with `request.getfixturevalue`, it is built after the mark, and this
-    test's end shuts it down under the module's later tests.
+    module-scoped fixture's scope was built before this mark and is stopped
+    at the module's end (`_stop_what_a_module_built`), when the test asks for
+    it as an argument: fetched inside the test with `request.getfixturevalue`,
+    it is built after the mark, and this test's end shuts it down under the
+    module's later tests.
+    """
+    from tests.scope_fakes import tear_down_since, teardown_mark
+
+    mark = teardown_mark()
+    yield
+    tear_down_since(mark)
+
+
+@pytest.fixture(scope='module', autouse=True)
+def _stop_what_a_module_built():
+    """What a module-scoped fixture built is stopped, and let go of, when the module ends.
+
+    A test's own mark is taken after its module's fixtures are built, so the
+    test's end leaves their scopes and sessions queued. Each queued stop
+    holds what it stops, so a queue nobody ran kept every module fixture's
+    session alive for the rest of the worker's run. This fixture is torn
+    down after the module's own fixtures, so a fixture that stopped its
+    scope sees a second stop, a no-op, and one that did not has it stopped.
     """
     from tests.scope_fakes import tear_down_since, teardown_mark
 
@@ -547,8 +566,8 @@ def _every_simulated_camera_is_disconnected_by_its_test():
     A grabbing simulated camera free-runs on its own thread until it is
     disconnected. Hundreds of tests construct one directly, so the teardown
     is attached to the construction itself rather than to each site; a
-    camera built by a module-scoped fixture before the test began is left to
-    that fixture, as a scope is.
+    camera built by a module-scoped fixture before the test began is
+    disconnected at the module's end, as a scope is.
     """
     from drivers.simulated_camera import SimulatedCamera
     from tests.scope_fakes import disconnect_when_the_test_ends
@@ -586,7 +605,8 @@ def _every_session_is_shut_down_by_its_test():
 
     See `tests.scope_fakes.shut_down_when_the_test_ends`. Attached to the
     construction for the reason the simulated camera's is; a session built by
-    a module-scoped fixture before the test began is left to that fixture.
+    a module-scoped fixture before the test began is shut down at the
+    module's end.
     """
     from modules.scope_session import ScopeSession
     from tests.scope_fakes import shut_down_when_the_test_ends

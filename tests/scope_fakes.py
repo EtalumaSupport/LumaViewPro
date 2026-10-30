@@ -60,9 +60,8 @@ from unittest.mock import create_autospec
 
 #: What `build_scope` and `give_stub_lanes` built and no test teardown has
 #: stopped yet, oldest first, as the call that stops each. The autouse fixture
-#: in `conftest.py` runs the ones a test built when it ends; a scope a
-#: module-scoped fixture built before the test began is that fixture's to
-#: disconnect.
+#: in `conftest.py` runs the ones a test built when it ends, and its
+#: module-scoped twin the ones a module's fixtures built when the module ends.
 _TEARDOWNS: list = []
 
 

@@ -15,7 +15,7 @@ on the clock.
 A connect costs about 1.2 s: the driver resets the firmware and drains
 its boot output, as it does on a real board. The test's teardown
 disconnects what it built; a module-scoped fixture's board is built
-before the test begins and is that fixture's to disconnect.
+before the test begins and is disconnected at the module's end.
 
 The tests that use these carry the ``firmware_tier`` mark: the firmware
 runs on macOS and Linux only.
