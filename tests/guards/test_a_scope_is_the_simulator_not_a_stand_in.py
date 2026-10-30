@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 133
+ALLOWED_ENTRIES = 129
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -179,7 +179,6 @@ ALLOWED = frozenset(
         'tests/guards/test_live_display_hold_is_a_callback.py::_writer',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_direct_construction_is_not_owned',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_session_needs_a_bundle',
-        'tests/guards/test_session_metrics_lifecycle.py::_make_session',
         'tests/plugin_test_harness.py::_make_ctx',
         'tests/test_a_basler_camera_publishes_the_formats_it_offers.py::_capabilities',
         'tests/test_a_camera_states_its_analog_gain_maximum.py::_capabilities',
@@ -223,7 +222,6 @@ ALLOWED = frozenset(
         'tests/test_camera_getter_sentinel_containment.py::_build_camera',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
         'tests/test_composite_run_outcome.py::_runner',
-        'tests/test_diagnostic_claim.py::_make_session',
         'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe._make_board',
         'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe.test_diagnostic_query_returns_response_when_supported',
         'tests/test_exchange_multiline_logs_content.py::_make_board',
@@ -290,12 +288,10 @@ ALLOWED = frozenset(
         'tests/test_serial_safety.py::TestMotorFirmwareVersion._make_board',
         'tests/test_serial_safety.py::TestSerialDesyncRecovery._make_board',
         'tests/test_serial_safety.py::TestSilentBoardHandling._make_silent_board',
-        'tests/test_session_run_state.py::_make_session',
         'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone.test_a_directly_constructed_session_is_the_same_row',
         'tests/test_sim_wire_link.py::TestABoardOffTheBus.test_connect_errors_log_again_after_a_connect_succeeds',
         'tests/test_sim_wire_link.py::TestABoardOffTheBus.test_connect_errors_log_again_after_a_connect_succeeds.ok_open',
         'tests/test_still_pending_writes.py::_writer',
-        'tests/test_tech_support_report_holds_the_scope.py::_make_session',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_whose_layers_are_unresolved_still_comes_up',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_with_no_camera_is_not_applied_and_says_so',
         'tests/test_the_claim_names_the_holding_run.py::TestTheRunnerReadsTheClaim.test_a_runner_cannot_be_built_without_a_claim',
