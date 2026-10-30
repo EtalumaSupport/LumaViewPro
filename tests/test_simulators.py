@@ -1368,6 +1368,46 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert cam.is_grabbing() is False
 
 
+class TestADisconnectedCameraKeepsNothingItDrew:
+    """A disconnected simulated camera holds none of the specimen it drew.
+
+    The camera's scope and its API modules refer to each other, so a
+    disconnected scope is freed only at the collector's full pass; a test
+    process builds hundreds of scopes, and with each one's drawn tiles kept
+    until then a worker grew past its memory cap.
+    """
+
+    def test_disconnect_lets_go_of_the_drawn_specimen(self):
+        import tracemalloc
+
+        import drivers.simulated_specimen as specimen_module
+
+        def held_by_the_specimen() -> int:
+            snapshot = tracemalloc.take_snapshot().filter_traces(
+                [tracemalloc.Filter(True, specimen_module.__file__)]
+            )
+            return sum(stat.size for stat in snapshot.statistics('filename'))
+
+        tracemalloc.start()
+        try:
+            cam = SimulatedCamera(width=1920, height=1200)
+            cam.open_and_start()
+            grab_a_frame_made_after_now(cam)
+            drawn = held_by_the_specimen()
+            cam.disconnect()
+            kept = held_by_the_specimen()
+        finally:
+            tracemalloc.stop()
+        # A 1920 x 1200 frame touches dozens of 64 kB tiles. What stays
+        # counted after the specimen is freed is its small cache tuples,
+        # which CPython keeps on its tuple free list rather than returning:
+        # about 100 kB here, against the whole drawing when it is kept.
+        assert drawn > 2**20, f'the frame drew only {drawn} bytes of specimen'
+        assert kept < drawn // 10, (
+            f'{kept} of the {drawn} bytes drawn are still held after disconnect'
+        )
+
+
 class TestTheSpecimenField:
     """The specimen is one sample on the stage, drifting one pixel around a circle.
 

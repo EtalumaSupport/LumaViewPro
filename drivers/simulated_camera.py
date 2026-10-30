@@ -541,7 +541,7 @@ class SimulatedCamera(Camera):
             return True
 
     def _disconnect(self) -> bool:
-        """Mark the simulated camera as disconnected.
+        """Mark the simulated camera as disconnected and let go of what it drew.
 
         Returns:
             bool: True when the camera was active before this call,
@@ -566,6 +566,14 @@ class SimulatedCamera(Camera):
         # (the base config path takes them the other way). Acquisition is
         # stopped above, so nothing writes the frame buffer from here on.
         self._reset_lifecycle_state()
+        # A disconnected camera keeps nothing it drew. Its scope and the
+        # scope's API modules refer to each other, so the camera goes only at
+        # the collector's full pass, and its drawn tiles (up to the
+        # specimen's 512, about 34 MB) would go with it then, not now. A
+        # reconnect draws the same seeded specimen again.
+        self._specimen = Specimen()
+        self._specimen_cut = {}
+        self._defocused = {}
         return True
 
     def is_connected(self) -> bool:
