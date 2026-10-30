@@ -241,26 +241,26 @@ class MotorBoard(SerialBoard):
 
         Called once after connect() succeeds. Separate from connect() because
         connect's job is opening the port -- config loading is a post-connect step.
+
+        A config the board did not answer or that did not parse is recorded
+        as unread (``_read_board_config``); a value it cannot use is rejected
+        by the merge's validation. The merge itself is our code, so a defect
+        in it leaves as itself.
+
+        Raises:
+            BoardPortFailedError: the port is closed, or failed before CONFIG
+                was sent.
         """
         board_cfg = self._read_board_config()
         if not board_cfg:
             return
-        try:
-            self.motorconfig.update_from_board(board_cfg)
-            self._rebuild_cached_values()
-            logger.info(
-                f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
-                f'SN={self.motorconfig.serial_number()}, '
-                f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
-            )
-        except Exception as e:
-            # A half-applied merge leaves the per-unit values unreliable,
-            # which for every downstream consumer is the same state as an
-            # unreadable board: record it as one, and keep the scope up on
-            # defaults (motion works without per-unit config; a config
-            # problem must not take down connect).
-            self.motorconfig.mark_board_read_failed()
-            logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
+        self.motorconfig.update_from_board(board_cfg)
+        self._rebuild_cached_values()
+        logger.info(
+            f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+            f'SN={self.motorconfig.serial_number()}, '
+            f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
+        )
 
     def _read_board_config(self) -> dict | None:
         """Read the board's config, converting a failed READ into recorded state.
@@ -540,9 +540,9 @@ class MotorBoard(SerialBoard):
     def acceleration_limit(self, axis: str, parameter: str) -> int:
         """Read the firmware acceleration / deceleration limit for an axis.
 
-        Cached after the first read; the cache is invalidated by
-        ``_on_disconnect()``. Falls back to a hardcoded default when the
-        firmware does not implement the AMAX / DMAX query.
+        Cached after the first answer; the cache is invalidated by
+        ``_on_disconnect()``. Firmware that does not implement the AMAX /
+        DMAX query answers with a hardcoded default, cached like a read.
 
         Args:
             axis: Axis letter ('X' or 'Y').
@@ -556,6 +556,10 @@ class MotorBoard(SerialBoard):
         Raises:
             NotImplementedError: ``axis`` or ``parameter`` is not
                 supported.
+            BoardNoReplyError: the board did not answer; nothing is cached,
+                so the next call asks again.
+            BoardPortFailedError: the port is closed, or failed before the
+                query was sent.
         """
         if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
             return 0
@@ -570,39 +574,20 @@ class MotorBoard(SerialBoard):
         parameter_char = parameter_map[parameter]
         command = f'{parameter_char}MAX{axis}'
         DEFAULT_ACCELERATION_LIMIT = 30000
-        using_default = False
-        try:
-            resp = self.exchange_command(command)
+        resp = self.exchange_command(command)
 
-            # In case firmware doesn't support retrieving the acceleration limits
-            if resp.startswith('ERROR'):
-                raise ValueError(f'Firmware returned ERROR for {command}')
-
-            # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
-            if not resp.isdigit():
-                raise ValueError(f'Non-numeric response for {command}: {resp}')
-
-        except HardwareError as e:
-            # No reply says nothing about what the firmware supports,
-            # so the default serves this call and nothing is cached:
-            # the next call asks the board again.
-            logger.warning(
-                f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {e}, '
-                f'using default {DEFAULT_ACCELERATION_LIMIT} for this call'
-            )
-            return DEFAULT_ACCELERATION_LIMIT
-        except Exception:
-            resp = DEFAULT_ACCELERATION_LIMIT
-            using_default = True
-
-        if using_default:
+        # Firmware that does not implement the query answers ERROR or text
+        # that is not a register value: that is the board saying it has no
+        # limit to report, so the default is its answer, and it is cached.
+        if resp.startswith('ERROR') or not resp.isdigit():
             logger.debug(
-                f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support, using default {DEFAULT_ACCELERATION_LIMIT}'
+                f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support '
+                f'({resp!r}), using default {DEFAULT_ACCELERATION_LIMIT}'
             )
+            value = DEFAULT_ACCELERATION_LIMIT
         else:
             logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
-
-        value = int(resp)
+            value = int(resp)
 
         # Cache the result
         if self._accel_cache is None:

@@ -7,8 +7,9 @@ Probe shape (per `drivers/ledboard.py::LEDBoard.supports_firmware_stim`):
 - v3.0.8+ firmware replies with `STIM: mA must be > 0` (parser recognized)
 - Pre-v3.0.8 firmware echoes the command + returns `Command not recognized`
 
-Result is cached on the LEDBoard instance via `_supports_stim_cached` so
-subsequent calls return without re-probing the bus.
+Only an answer the board gave is cached on the LEDBoard instance (via
+`_supports_stim_cached`), so subsequent calls return without re-probing the
+bus; a probe the board did not answer raises and is asked again.
 
 The capability flag lands on `ScopeCapabilities` as `has_firmware_stim`
 (immutable per-Lumascope-instance fact, sourced at Lumascope.__init__
@@ -91,15 +92,44 @@ class TestSupportsFirmwareStimProbe:
         assert led.supports_firmware_stim() is True
 
     @pytest.mark.firmware_tier
-    def test_no_response_returns_false(self, caplog):
-        """Silent firmware -> probe deadline expires -> False. The reply is
-        held past the probe's 2.5 s deadline (a dropped reply on this board
-        takes the echo line, and the answer behind it still arrives)."""
+    def test_no_reply_by_the_deadline_raises_and_the_next_call_asks_again(self, caplog):
+        """The reply is held past the probe's 2.5 s deadline (a dropped reply
+        on this board takes the echo line, and the answer behind it still
+        arrives): not an answer, so nothing is cached and the next call asks
+        the firmware again, which answers it has no STIM."""
+        from drivers.exceptions import BoardNoReplyError
+
         led, sim = led_on_the_wire()
         sim.delay_next_reply(3.0)
         with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            with pytest.raises(
+                BoardNoReplyError, match=r'^STIM 0 0 1 2 1: no reply from the board$'
+            ):
+                led.supports_firmware_stim()
             assert led.supports_firmware_stim() is False
-        assert "'(no reply)'" in _stim_probes(caplog)[0].getMessage()
+        assert len(_stim_probes(caplog)) == 2, 'nothing was cached, so the firmware was asked again'
+
+    def test_lines_that_are_neither_answer_are_unreadable_and_not_cached(self):
+        """A board that talks but never says STIM or not-recognized gave no answer."""
+        from drivers.exceptions import BoardReplyUnreadableError
+
+        led = self._make_led([b'>>> \r\n', b'Traceback (most recent call last):\r\n'])
+        with pytest.raises(BoardReplyUnreadableError, match=r'^STIM 0 0 1 2 1: the board answered'):
+            led.supports_firmware_stim()
+        assert not hasattr(led, '_supports_stim_cached')
+
+    def test_a_port_that_fails_after_the_probe_is_sent_is_no_reply_and_closes_it(self):
+        # a stand-in by design: the simulated wire has no member that fails
+        # the port between the probe's write and its read
+        import serial
+
+        from drivers.exceptions import BoardNoReplyError
+
+        led = self._make_led([])
+        led.driver.readline = MagicMock(side_effect=serial.SerialException('device gone'))
+        with pytest.raises(BoardNoReplyError, match=r'after the probe was sent: device gone$'):
+            led.supports_firmware_stim()
+        assert led.driver is None, 'a failed port is closed, as the wire closes it'
 
     @pytest.mark.firmware_tier
     def test_result_is_cached_after_first_call(self, caplog):
@@ -111,13 +141,20 @@ class TestSupportsFirmwareStimProbe:
         assert first is second is False
         assert len(_stim_probes(caplog)) == 1, 'the cached answer went to the wire'
 
-    def test_driver_none_returns_false_without_probing(self, caplog):
-        """No LED board on the bus -> no driver -> probe short-circuits to False."""
+    def test_a_closed_port_is_the_port_failure_not_no_stim(self, caplog):
+        """No LED board on the bus -> no driver -> the port's failure, never
+        asked of the wire and nothing cached."""
+        from drivers.exceptions import BoardPortFailedError
+
         led = LEDBoard(backend=SimWireBackend(None, None))
         assert led.driver is None
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
-            assert led.supports_firmware_stim() is False
+        with (
+            caplog.at_level(logging.INFO, logger='LVP.serial'),
+            pytest.raises(BoardPortFailedError, match=r'^STIM 0 0 1 2 1: the port is closed$'),
+        ):
+            led.supports_firmware_stim()
         assert _stim_probes(caplog) == []
+        assert not hasattr(led, '_supports_stim_cached')
 
 
 class TestSimulatedLEDBoardParityStub:

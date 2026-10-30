@@ -1422,12 +1422,15 @@ class DiagnosticsAPI:
         answers these reads only in engineering mode; the caller enters it.
 
         Returns:
-            dict: Channel -> mA, or None for a channel whose current could
-                not be read (no reply, an unparseable one, or a board with
-                no current sensing). Empty when no LED board is connected.
+            dict: Channel -> mA, or None for every channel of a board with
+                no current sensing. Empty when no LED board is connected.
 
         Raises:
-            Nothing.
+            BoardNoReplyError: the board did not answer a channel's read.
+            BoardPortFailedError: the board's port is closed, or failed
+                before a read was sent.
+            BoardReplyUnreadableError: the board answered a read with no
+                current in it.
         """
         drv = self._scope._led_driver
         if not self._scope.led_connected:

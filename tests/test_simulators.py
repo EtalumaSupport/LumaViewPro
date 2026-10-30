@@ -94,6 +94,24 @@ class TestSimulatedLEDBoard:
 
 
 class TestSimulatedMotorBoard:
+    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    def test_a_home_raises_as_the_driver_does(self, method, monkeypatch):
+        """SimulatedMotorBoard mirrors the MotorBoard exception contract
+        so sim-backed tests exercise the same raise path as production."""
+        from drivers.exceptions import HardwareError
+
+        command = method.upper()
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant', fail_on={command}
+        )
+        with pytest.raises(BoardNoReplyError, match=rf'^{command}: no reply from the board'):
+            getattr(board, method)()
+        # a stand-in by design: the simulated board has no member that answers
+        # a home with a firmware error
+        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed')
+        with pytest.raises(HardwareError, match='firmware error'):
+            getattr(board, method)()
+
     def test_initial_state(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.found is True

@@ -1183,7 +1183,9 @@ class Lumascope:
         once the capture pixel format is on the camera. A start that fails
         is recorded on the camera's part (cause ``'stream_not_started'``)
         and reported once; the scope is initialized all the same, its camera
-        connected and not streaming.
+        connected and not streaming. A motor controller that does not take
+        the stored acceleration limit is recorded the same way, on its part
+        (cause ``'acceleration_not_set'``), and moves at the limit it holds.
 
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
@@ -1370,8 +1372,19 @@ class Lumascope:
             self.camera._store_delivered_geometry()
             self._store_absent_camera_features(config)
         # Asked first: a scope with no motor controller has no limit to set.
+        # A board that did not take it is what bring-up found about the motor
+        # controller, kept on its part as a camera stream that did not start
+        # is, and told once; it moves at the limit it holds.
         if self.motor_connected:
-            self.motion._set_acceleration_limit_impl(limit_pct=config.acceleration_pct)
+            try:
+                self.motion._set_acceleration_limit_impl(limit_pct=config.acceleration_pct)
+            except HardwareError as fault:
+                self._bring_up_parts[Part.MOTOR] = dataclasses.replace(
+                    self._bring_up_parts[Part.MOTOR],
+                    cause='acceleration_not_set',
+                    detail=f'{type(fault).__name__}: {fault}',
+                )
+                notifications.report_outcome(fault, solicited=False, category='Motion')
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
         # A start that fails is what bring-up found about the camera, kept

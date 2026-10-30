@@ -1625,6 +1625,10 @@ class MotionAPI:
                 or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``
                 (a ValueError). Refused on every board, real or simulated,
                 before it is commanded.
+            BoardNoReplyError: the board did not answer the limit's read or
+                its write; the limits written before it stand.
+            BoardPortFailedError: the board's port is closed, or failed
+                before a command was sent.
         """
         return self._dispatch_motion(
             self._set_acceleration_limit_impl,

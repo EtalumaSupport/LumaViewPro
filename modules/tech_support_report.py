@@ -1438,7 +1438,8 @@ class FirmwareDiagnostics:
         """Read every LED channel's current with the LEDs off.
 
         Passes only when every channel was read and is under the threshold:
-        a channel whose current could not be read is NOT MEASURED, and a
+        a read the board did not answer is the step's error, in the board's
+        words; a channel with no current sensing is NOT MEASURED; and a
         board that could not carry the check is ``not_applicable``, never a
         pass. Requires engineering mode (enters/exits automatically).
         """
@@ -1454,7 +1455,15 @@ class FirmwareDiagnostics:
                     ),
                     'passed': False,
                 }
-            currents = self._scope.diagnostics.read_led_currents_ma()
+            currents = {}
+            failed = self._what_the_hardware_said(
+                lambda: currents.update(self._scope.diagnostics.read_led_currents_ma())
+            )
+            if failed is not None:
+                return {
+                    'error': f'The LED board did not report its currents: {failed}',
+                    'passed': False,
+                }
         finally:
             self._exit_engineering()
         if not currents:

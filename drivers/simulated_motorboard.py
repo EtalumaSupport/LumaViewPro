@@ -1156,26 +1156,31 @@ class SimulatedMotorBoard:
     # Acceleration (stubs)
     # ------------------------------------------------------------------
     def acceleration_limit(self, axis: str, parameter: str) -> int:
-        """Stub: return the simulated firmware's fixed AMAX/DMAX value.
+        """The simulated firmware's AMAX/DMAX value, asked on the simulated wire.
 
         Args:
             axis: Axis letter ('X' or 'Y').
             parameter: ``'acceleration'`` or ``'deceleration'``.
 
         Returns:
-            int: Always 30000 (matches simulated AMAX/DMAX response).
+            int: 30000, the simulated firmware's answer.
+
+        Raises:
+            BoardNoReplyError: an injected drop (``drop_replies``), as the
+                driver raises a missed reply.
         """
-        return 30000
+        command = f'{"A" if parameter == "acceleration" else "D"}MAX{axis}'
+        return int(self.exchange_command(command))
 
     def acceleration_limits(self) -> dict:
-        """Stub: return acceleration + deceleration limits for X / Y.
+        """Acceleration + deceleration limits for X / Y, each asked on the wire.
 
         Returns:
             dict: ``{axis: {parameter: 30000}}`` for X and Y.
         """
         return {
-            'X': {'acceleration': 30000, 'deceleration': 30000},
-            'Y': {'acceleration': 30000, 'deceleration': 30000},
+            axis: {p: self.acceleration_limit(axis, p) for p in ('acceleration', 'deceleration')}
+            for axis in ('X', 'Y')
         }
 
     def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
@@ -1189,11 +1194,15 @@ class SimulatedMotorBoard:
         logger.info(f'[XYZ Sim   ] set_acceleration_limit({axis}, {parameter}, {val_pct}%)')
 
     def set_acceleration_limits(self, val_pct: int) -> None:
-        """Stub: log the requested global acceleration limit.
+        """Read each limit, as the driver does before writing it, and log the request.
 
         Args:
             val_pct: Percentage of the maximum (1-100, inclusive).
+
+        Raises:
+            BoardNoReplyError: an injected drop of a limit's read.
         """
+        self.acceleration_limits()
         logger.info(f'[XYZ Sim   ] set_acceleration_limits({val_pct}%)')
 
     # ------------------------------------------------------------------

@@ -135,6 +135,27 @@ def test_a_channel_that_was_not_read_is_not_a_pass(session, monkeypatch, tmp_pat
     assert 'CH2: not measured' in text and 'Overall: INCOMPLETE' in text, text
 
 
+def test_a_channel_the_board_did_not_report_is_the_check_s_error_in_its_words(session, monkeypatch):
+    driver = session.scope._led_driver
+    real = driver.read_led_current
+
+    def read(ch):
+        # a stand-in by design: the fast simulated LED board has no link to
+        # drop a reply on (drop_replies refuses it 'not_injectable_on_board')
+        if ch == 2:
+            raise BoardNoReplyError('LEDREAD2: no reply from the board')
+        return real(ch)
+
+    monkeypatch.setattr(driver, 'read_led_current', read)
+
+    leakage = FirmwareDiagnostics(scope=session.scope).check_led_leakage()
+
+    assert leakage == {
+        'error': 'The LED board did not report its currents: LEDREAD2: no reply from the board',
+        'passed': False,
+    }
+
+
 def test_a_leaking_channel_warns(session, monkeypatch):
     monkeypatch.setattr(
         session.scope._led_driver, 'read_led_current', lambda ch: 5.0 if ch == 1 else 0.0

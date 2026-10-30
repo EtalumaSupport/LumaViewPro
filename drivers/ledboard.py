@@ -5,9 +5,12 @@ import logging
 import math
 import re
 import time
+
+import serial
 from lvp_logger import logger
 from drivers.exceptions import (
     BoardNoReplyError,
+    BoardPortFailedError,
     BoardReplyUnreadableError,
     BoardReportedError,
     LedFirmwareWedgedError,
@@ -158,24 +161,36 @@ class LEDBoard(SerialBoard):
 
         Returns:
             bool: True if firmware understands the STIM command (v3.0.8+),
-            False otherwise (pre-v3.0.8 or no LED board connected). Result
-            is cached on the instance so subsequent calls return without
-            re-probing the bus.
+            False if it answered that it does not (pre-v3.0.8). Only an
+            answer the board gave is cached on the instance, so subsequent
+            calls return without re-probing the bus.
+
+        Raises:
+            BoardNoReplyError: no line arrived before the probe's deadline,
+                or the port failed after the probe was sent, which closes
+                it; nothing is cached, so the next call asks again.
+            BoardReplyUnreadableError: the board answered lines that are
+                neither answer; nothing is cached.
+            BoardPortFailedError: the port is closed, or failed before the
+                probe was sent, which closes it.
         """
         if hasattr(self, '_supports_stim_cached'):
             return self._supports_stim_cached
+        _probe_cmd = 'STIM 0 0 1 2 1'
         with self._lock:
             if self.driver is None:
-                return False
+                raise BoardPortFailedError(f'{_probe_cmd}: the port is closed')
             saved_timeout = self.driver.timeout
             self.driver.timeout = 0.3
+            sent = False
             try:
                 self.driver.reset_input_buffer()
-                _probe_cmd = 'STIM 0 0 1 2 1'
                 _t0 = time.monotonic()
                 self.driver.write(b'STIM 0 0 1 2 1\n')
-                got_stim = False
+                sent = True
+                got_stim = None
                 resp = ''
+                heard = []
                 deadline = time.monotonic() + 2.5
                 while time.monotonic() < deadline:
                     line = self.driver.readline()
@@ -190,10 +205,12 @@ class LEDBoard(SerialBoard):
                         got_stim = True
                         resp = s
                         break
+                    if s:
+                        heard.append(s)
                 # Record the probe send + reply in serial.log (this path scans
                 # multiple lines and so does not go through exchange_command,
                 # which logs its own traffic).
-                _shown = resp or '(no reply)'
+                _shown = resp or (f'(no answer in {heard!r})' if heard else '(no reply)')
                 _serial_log.info(
                     f'{self._label} {_probe_cmd} (firmware-stim probe) -> '
                     f'{_shown!r} ({(time.monotonic() - _t0) * 1000.0:.1f}ms)'
@@ -202,9 +219,22 @@ class LEDBoard(SerialBoard):
                 time.sleep(0.2)
                 if self.driver.in_waiting:
                     self.driver.read(self.driver.in_waiting)
+            except (serial.SerialException, OSError) as e:
+                self._close_driver()
+                if sent:
+                    raise BoardNoReplyError(
+                        f'{_probe_cmd}: the port failed after the probe was sent: {e}'
+                    ) from e
+                raise BoardPortFailedError(f'{_probe_cmd}: the port failed: {e}') from e
             finally:
                 if self.driver is not None:
                     self.driver.timeout = saved_timeout
+        if got_stim is None:
+            if heard:
+                raise BoardReplyUnreadableError(
+                    f'{_probe_cmd}: the board answered neither STIM nor not-recognized: {heard!r}'
+                )
+            raise BoardNoReplyError(f'{_probe_cmd}: no reply from the board')
         self._supports_stim_cached = got_stim
         logger.info(f'{self._label} firmware STIM support: {got_stim}')
         return got_stim
@@ -601,23 +631,25 @@ class LEDBoard(SerialBoard):
             channel: LED address (0-7).
 
         Returns:
-            float | None: Measured current in mA, or None on error or
-                when the firmware is too old.
+            float | None: Measured current in mA, or None when the firmware
+                is too old to sense current (not v2+).
+
+        Raises:
+            BoardNoReplyError: the board did not answer.
+            BoardPortFailedError: the port is closed, or failed before the
+                read was sent.
+            BoardReplyUnreadableError: the board answered with no current
+                in the reply.
         """
         if not self.is_v2:
             return None
         command = f'LEDREAD{int(channel)}'
-        try:
-            # Firmware sends: echo (handled by exchange_command), I_SENS line, LED_K line
-            lines = self.exchange_command(command, response_numlines=3)
-            if lines is None:
-                return None
-            # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
-            for line in lines:
-                if 'I_SENS' in line and 'mA' in line:
-                    m = re.search(r'([\d.]+)\s*mA', line)
-                    if m:
-                        return float(m.group(1))
-        except Exception as e:
-            logger.error(f'[LED Class ] read_led_current({channel}) failed: {e}')
-        return None
+        # Firmware sends: echo (handled by exchange_command), I_SENS line, LED_K line
+        lines = self.exchange_command(command, response_numlines=3)
+        # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
+        for line in lines:
+            if 'I_SENS' in line and 'mA' in line:
+                m = re.search(r'(\d+(?:\.\d+)?)\s*mA', line)
+                if m:
+                    return float(m.group(1))
+        raise BoardReplyUnreadableError(f'{command}: no current in the reply {lines!r}')

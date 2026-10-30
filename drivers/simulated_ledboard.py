@@ -283,7 +283,13 @@ class SimulatedLEDBoard:
         Test-injectable: pass ``supports_firmware_stim=True`` to the
         constructor to simulate v3.0.8+ firmware; defaults to False so
         existing sim runs match pre-v3.0.8 behavior.
+
+        Raises:
+            BoardNoReplyError: an injected failure on ``STIM``, as the
+                driver raises a probe the board did not answer.
         """
+        # Asked on the simulated wire so an injected failure answers as the board's.
+        self.exchange_command('STIM 0 0 1 2 1')
         return self._supports_firmware_stim
 
     def get_status(self) -> str:
@@ -458,10 +464,16 @@ class SimulatedLEDBoard:
         Returns:
             float | None: Set current in mA, 0.0 for unknown channels,
                 or None when firmware is too old (not v2+).
+
+        Raises:
+            BoardNoReplyError: an injected failure (``fail_on``), as the
+                driver raises a missed reply.
         """
         if not self.is_v2:
             return None
         ch = int(channel)
+        # Asked on the simulated wire so an injected failure answers as the board's.
+        self.exchange_command(f'LEDREAD{ch}')
         if ch in self._channel_states:
             return float(self._channel_states[ch])
         return 0.0

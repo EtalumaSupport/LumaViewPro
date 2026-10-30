@@ -113,11 +113,29 @@ def test_a_stop_with_no_reply_raises_and_caches_nothing(motor):
 
 
 @pytest.mark.slow
-def test_an_acceleration_read_with_no_reply_is_not_cached(motor):
+def test_an_acceleration_read_with_no_reply_raises_and_the_next_asks_again(motor):
     board, sim = motor
     sim.drop_next_reply()
-    board.acceleration_limit('X', 'acceleration')
-    assert 'X_acceleration' not in (board._accel_cache or {})
+    with pytest.raises(BoardNoReplyError, match=r'^AMAXX: no reply from the board'):
+        board.acceleration_limit('X', 'acceleration')
+    assert board.acceleration_limit('X', 'acceleration') > 0, 'nothing was cached in its place'
+
+
+def test_a_version_query_with_no_reply_is_recorded_as_not_responding(motor):
+    board, sim = motor
+    assert board.firmware_responding
+    sim.drop_next_reply()
+    board.detect_firmware_version()
+    assert (board.firmware_responding, board.firmware_version) == (False, None)
+
+
+def test_a_version_query_on_a_closed_port_is_the_port_s_failure(motor):
+    from drivers.exceptions import BoardPortFailedError
+
+    board, _sim = motor
+    board._close_driver()
+    with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed$'):
+        board.detect_firmware_version()
 
 
 @pytest.mark.slow

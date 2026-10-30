@@ -102,11 +102,20 @@ class MotorConfig:
             'Axis Timeout',
         }
     )
+    # Sections read by key: a board value that is not a mapping cannot be
+    # read, so it is rejected and the default kept, as a non-numeric value is.
+    _MAPPING_SECTIONS = _NUMERIC_SECTIONS | {'TurretPosition', 'Optics'}
 
     def _validate_board_config(self, board_config: dict) -> dict:
         """Return a copy of board_config with invalid values removed."""
         cleaned = {}
         for key, value in board_config.items():
+            if key in self._MAPPING_SECTIONS and not isinstance(value, dict):
+                logger.warning(
+                    f'[MotorConfig] Rejecting board section {key}={value!r} '
+                    f'(type={type(value).__name__}): not a mapping'
+                )
+                continue
             if key in self._NUMERIC_SECTIONS and isinstance(value, dict):
                 valid_axes = {}
                 for axis, val in value.items():

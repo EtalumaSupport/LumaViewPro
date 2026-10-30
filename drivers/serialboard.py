@@ -642,91 +642,80 @@ class SerialBoard:
         # partial/stale bytes waiting.
         pre_in_waiting = self._safe_in_waiting()
         _serial_log.info(f'{self._label} DETECT begin (in_waiting={pre_in_waiting}B)')
+        # Use a short timeout for version detection -- we don't want
+        # to block for the board's default timeout (could be 2-30s)
+        # on each of the 6 readline() calls. 0.5s per line is enough
+        # for USB CDC response delivery.
+        #
+        # stop_on_empty=True so we break out of the readline loop
+        # as soon as an empty line arrives after non-empty content.
+        # Motor INFO is single-line -- without this, we waste 5 x
+        # 0.5s = 2.5s on every motor connect waiting for lines
+        # that never come. LED INFO is multi-line with no empty
+        # lines inside the content, so this is also safe for LED.
+        #
+        # No reply is the board's answer here, recorded for the reset
+        # ladder to try its next recovery step; a port that failed
+        # before the send, and our own defect, leave as themselves.
         try:
-            # Use a short timeout for version detection -- we don't want
-            # to block for the board's default timeout (could be 2-30s)
-            # on each of the 6 readline() calls. 0.5s per line is enough
-            # for USB CDC response delivery.
-            #
-            # stop_on_empty=True so we break out of the readline loop
-            # as soon as an empty line arrives after non-empty content.
-            # Motor INFO is single-line -- without this, we waste 5 x
-            # 0.5s = 2.5s on every motor connect waiting for lines
-            # that never come. LED INFO is multi-line with no empty
-            # lines inside the content, so this is also safe for LED.
             resp_lines = self.exchange_command(
                 'INFO', response_numlines=6, timeout=0.5, stop_on_empty=True
             )
-            if isinstance(resp_lines, list):
-                resp = '\n'.join(resp_lines)
-            else:
-                resp = resp_lines or ''
-
-            # Accumulate non-empty response bytes so _reset_firmware
-            # can track whether any detection attempt ever saw output.
-            # Only non-empty lines count -- empty strings from readline
-            # timeouts are what we're trying to detect as "silent."
-            # getattr default for the __new__ test-construction path.
-            prev = getattr(self, '_detect_response_bytes', 0)
-            if isinstance(resp_lines, list):
-                self._detect_response_bytes = prev + sum(len(ln) for ln in resp_lines if ln)
-            elif resp_lines:
-                self._detect_response_bytes = prev + len(resp_lines)
-            else:
-                self._detect_response_bytes = prev
-
-            # Check if we got any meaningful content (not just empty lines)
-            resp_stripped = resp.strip()
-            if not resp_stripped:
-                self.firmware_version = None
-                self.firmware_responding = False
-                logger.info(f'{self._label} No response from INFO')
-                # Log full diagnostic snapshot so the failure case is
-                # debuggable from a user-uploaded log alone (#619).
-                _serial_log.warning(
-                    f'{self._label} DETECT empty-response: '
-                    f'pre_in_waiting={pre_in_waiting}B '
-                    f'post_in_waiting={self._safe_in_waiting()}B '
-                    f'raw={resp_lines!r}'
-                )
-                return
-
-            # Board is responding -- mark it even if we can't parse a version
-            self.firmware_responding = True
-
-            # v3.0 STUB: JSON Lines protocol detection
-            if resp_stripped.startswith('{'):
-                self.protocol_version = ProtocolVersion.V3
-                logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
-            else:
-                self.protocol_version = ProtocolVersion.LEGACY
-
-            # Try to parse version number (v3.0+ firmware)
-            match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
-            if match:
-                self.firmware_version = match.group(1)
-                logger.info(f'{self._label} Firmware version: {self.firmware_version}')
-            else:
-                self.firmware_version = None
-
-            # Try to parse firmware date (all firmware formats)
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
-            if date_match:
-                self.firmware_date = date_match.group(1)
-                logger.info(f'{self._label} Firmware date: {self.firmware_date}')
-
-            if self.firmware_version:
-                logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
-            else:
-                logger.info(
-                    f'{self._label} Legacy firmware (no version string, date={self.firmware_date})'
-                )
-
-        except Exception as e:
-            logger.debug(f'{self._label} version detection failed: {e}')
+        except BoardNoReplyError as e:
             self.firmware_version = None
             self.firmware_responding = False
             self.protocol_version = ProtocolVersion.LEGACY
+            logger.info(f'{self._label} No response from INFO')
+            # Log full diagnostic snapshot so the failure case is
+            # debuggable from a user-uploaded log alone (#619).
+            _serial_log.warning(
+                f'{self._label} DETECT no-reply: '
+                f'pre_in_waiting={pre_in_waiting}B '
+                f'post_in_waiting={self._safe_in_waiting()}B '
+                f'({e})'
+            )
+            return
+        resp = '\n'.join(resp_lines)
+
+        # Accumulate non-empty response bytes so _reset_firmware
+        # can track whether any detection attempt ever saw output.
+        # Only non-empty lines count -- empty strings from readline
+        # timeouts are what we're trying to detect as "silent."
+        # getattr default for the __new__ test-construction path.
+        prev = getattr(self, '_detect_response_bytes', 0)
+        self._detect_response_bytes = prev + sum(len(ln) for ln in resp_lines if ln)
+        resp_stripped = resp.strip()
+
+        # Board is responding -- mark it even if we can't parse a version
+        self.firmware_responding = True
+
+        # v3.0 STUB: JSON Lines protocol detection
+        if resp_stripped.startswith('{'):
+            self.protocol_version = ProtocolVersion.V3
+            logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
+        else:
+            self.protocol_version = ProtocolVersion.LEGACY
+
+        # Try to parse version number (v3.0+ firmware)
+        match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
+        if match:
+            self.firmware_version = match.group(1)
+            logger.info(f'{self._label} Firmware version: {self.firmware_version}')
+        else:
+            self.firmware_version = None
+
+        # Try to parse firmware date (all firmware formats)
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
+        if date_match:
+            self.firmware_date = date_match.group(1)
+            logger.info(f'{self._label} Firmware date: {self.firmware_date}')
+
+        if self.firmware_version:
+            logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
+        else:
+            logger.info(
+                f'{self._label} Legacy firmware (no version string, date={self.firmware_date})'
+            )
 
     def detect_firmware_version(self):
         """Re-detect firmware version from the connected board.

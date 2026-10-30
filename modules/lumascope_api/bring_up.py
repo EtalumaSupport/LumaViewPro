@@ -58,6 +58,7 @@ CAUSE_PHRASES = {
     'camera_bring_up_failed': 'LumaViewPro failed bringing it up',
     'safety_off_failed': 'safety LEDs-off not confirmed',
     'stream_not_started': 'stream did not start',
+    'acceleration_not_set': 'acceleration limit not set',
 }
 
 
@@ -75,7 +76,8 @@ class PartStatus:
         cause: Why it is not up, as a code from ``CAUSE_PHRASES``; or, on a
             part that is up, a problem it met coming up (the LED board's
             safety LEDs-off not confirmed; the camera's stream that did not
-            start, which a later start that succeeds does not clear). None
+            start, which a later start that succeeds does not clear; the
+            motor controller's stored acceleration limit not taken). None
             when nothing is wrong.
         detail: The driver's or the error's own words, for the log and the
             record; empty when there are none.

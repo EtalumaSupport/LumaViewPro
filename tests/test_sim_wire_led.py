@@ -14,12 +14,16 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
 import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import serial
 
-from drivers.exceptions import BoardNoReplyError
+from drivers import ledboard as ledboard_module
+from drivers.exceptions import BoardNoReplyError, HardwareError
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire import backend as sim_backend
@@ -270,6 +274,60 @@ def test_a_multiline_exchange_ends_when_the_reply_ends():
 
 
 @pytest.mark.firmware_tier
+class TestEngineeringModeEntry:
+    """``enter_engineering_mode`` raises a reply it cannot confirm, never False.
+
+    The wire is a stand-in by design: the emulated firmware answers FACTORY
+    with several lines, so one dropped line never leaves it unanswered, and
+    it never answers without the Y/N prompt an old board omits.
+    """
+
+    @staticmethod
+    def _make_ledboard(multiline_reply):
+        """LEDBoard stub with exchange_multiline answering a fixed reply
+        (an exception is raised, as the wire raises a dropped reply)."""
+        # a stand-in by design: replies the emulated firmware never gives
+        board = LEDBoard.__new__(LEDBoard)
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.driver = None
+        board.exchange_multiline = MagicMock(
+            side_effect=[multiline_reply] if isinstance(multiline_reply, Exception) else None,
+            return_value=multiline_reply,
+        )
+        return board
+
+    def test_no_reply_raises_the_wire_s_fault(self):
+        board = self._make_ledboard(BoardNoReplyError('FACTORY: no reply from the board'))
+        with pytest.raises(BoardNoReplyError, match=r'^FACTORY: no reply from the board'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_a_reply_without_the_y_n_prompt_raises(self):
+        """A reply with no Y/N confirmation prompt (firmware too old for
+        engineering mode) must raise, not silently return False."""
+        board = self._make_ledboard('Version: EL-0925 Gen3 LED Controller')
+        with pytest.raises(HardwareError, match='Y/N'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_a_prompt_is_confirmed_and_returns_true(self, monkeypatch):
+        """With a Y/N prompt presented, the method confirms with Y ended by
+        a carriage return (the firmware's input() ends a line on CR only),
+        sees the engineering-mode banner, and returns True."""
+        board = self._make_ledboard(None)
+        board.exchange_multiline.side_effect = [
+            'FACTORY mode? Y/N',
+            'Engineering Mode: Press q or Q to exit',
+        ]
+        monkeypatch.setattr(
+            ledboard_module, 'time', SimpleNamespace(sleep=lambda s: None, monotonic=time.monotonic)
+        )
+        assert board.enter_engineering_mode(timeout=0.1) is True
+        calls = board.exchange_multiline.call_args_list
+        sent = [c.args[0] for c in calls]
+        assert sent == ['FACTORY', 'Y'], f'must send FACTORY then confirm with Y; sent {sent}'
+        assert calls[1].kwargs['line_end'] == b'\r'
+
+
 class TestWhatTheDacDrives:
     OFF = (True, True, 0)
 

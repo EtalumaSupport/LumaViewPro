@@ -10657,7 +10657,7 @@ One part of the scope at bring-up.
 
 **Fields**
 
-- <a id="PartStatus.cause"></a>`cause`: `str | None` -- Why it is not up, as a code from `CAUSE_PHRASES`; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear). None when nothing is wrong.
+- <a id="PartStatus.cause"></a>`cause`: `str | None` -- Why it is not up, as a code from `CAUSE_PHRASES`; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
 - <a id="PartStatus.detail"></a>`detail`: `str` -- The driver's or the error's own words, for the log and the record; empty when there are none.
 - <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
 - <a id="PartStatus.part"></a>`part`: `Part` -- Which part.

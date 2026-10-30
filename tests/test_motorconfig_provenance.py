@@ -119,15 +119,30 @@ class TestLoaderRecordsProvenance:
         board._load_board_config()
         assert board.motorconfig.board_config_read_ok is True
 
-    def test_merge_failure_records_unreliable_state(self, tmp_path, monkeypatch):
+    def test_a_section_that_is_not_a_mapping_is_rejected_and_its_default_kept(
+        self, tmp_path, monkeypatch
+    ):
+        board = self._board_with_config(
+            tmp_path, monkeypatch, '{"Axis Present": 1, "Serial Number": "SN1"}'
+        )
+        board.motorconfig = make_config(tmp_path, {'Axis Present': {'X': False}})
+        board._load_board_config()
+        assert board.motorconfig.axis_present('X') is False, 'the default stands'
+        assert board.motorconfig.serial_number() == 'SN1', 'the rest of the config merges'
+        assert board.motorconfig.board_config_read_ok is True, 'the board answered'
+
+    def test_a_defect_in_the_merge_leaves_as_itself(self, tmp_path, monkeypatch):
         board = self._board_with_config(tmp_path, monkeypatch, '{"Serial Number": "SN1"}')
 
         def boom():
+            # a stand-in by design: our own defect in the merge, which no
+            # board config can produce
             raise RuntimeError('cache rebuild failed')
 
         monkeypatch.setattr(board, '_rebuild_cached_values', boom, raising=False)
-        board._load_board_config()
-        assert board.motorconfig.board_config_read_ok is False
+        with pytest.raises(RuntimeError, match='cache rebuild failed'):
+            board._load_board_config()
+        assert board.motorconfig.board_config_read_ok is True, 'not recorded as the board unread'
 
 
 class TestFlagExistsEverywhere:

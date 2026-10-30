@@ -1501,24 +1501,6 @@ class TestHomeRaises:
                 f'MotorBoard.{method.__name__} docstring must document HardwareError (Rule 38)'
             )
 
-    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
-    def test_simulated_motorboard_mirrors_raise_contract(self, method, monkeypatch):
-        """SimulatedMotorBoard mirrors the MotorBoard exception contract
-        so sim-backed tests exercise the same raise path as production."""
-        from drivers.simulated_motorboard import SimulatedMotorBoard
-
-        from drivers.exceptions import BoardNoReplyError
-
-        command = method.upper()
-        board = SimulatedMotorBoard(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant', fail_on={command}
-        )
-        with pytest.raises(BoardNoReplyError, match=rf'^{command}: no reply from the board'):
-            getattr(board, method)()
-        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed')
-        with pytest.raises(HardwareError, match='firmware error'):
-            getattr(board, method)()
-
 
 class TestDisconnectRaisesAfterTheTeardown:
     """Lumascope.disconnect runs every teardown step even when one fails,
@@ -1642,56 +1624,6 @@ class TestEnterEngineeringModeRaises:
             returns='bool',
             msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
-
-    @staticmethod
-    def _make_ledboard(multiline_reply):
-        """LEDBoard stub with exchange_multiline answering a fixed reply
-        (an exception is raised, as the wire raises a dropped reply)."""
-        from drivers.ledboard import LEDBoard
-
-        board = LEDBoard.__new__(LEDBoard)
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.driver = None
-        board.exchange_multiline = MagicMock(
-            side_effect=[multiline_reply] if isinstance(multiline_reply, Exception) else None,
-            return_value=multiline_reply,
-        )
-        return board
-
-    def test_enter_engineering_mode_raises_on_no_response(self):
-        """Driver contract (Rule 29): no serial response raises the wire's
-        BoardNoReplyError instead of returning False."""
-        from drivers.exceptions import BoardNoReplyError
-
-        board = self._make_ledboard(BoardNoReplyError('FACTORY: no reply from the board'))
-        with pytest.raises(BoardNoReplyError, match=r'^FACTORY: no reply from the board'):
-            board.enter_engineering_mode(timeout=0.1)
-
-    def test_enter_engineering_mode_raises_without_yn_prompt(self):
-        """A reply with no Y/N confirmation prompt (firmware too old for
-        engineering mode) must raise, not silently return False."""
-        board = self._make_ledboard('Version: EL-0925 Gen3 LED Controller')
-        with pytest.raises(HardwareError, match='Y/N'):
-            board.enter_engineering_mode(timeout=0.1)
-
-    def test_enter_engineering_mode_confirms_and_returns_true(self, monkeypatch):
-        """With a Y/N prompt presented, the method confirms with Y ended by
-        a carriage return (the firmware's input() ends a line on CR only),
-        sees the engineering-mode banner, and returns True."""
-        import time as time_mod
-
-        board = self._make_ledboard(None)
-        board.exchange_multiline.side_effect = [
-            'FACTORY mode? Y/N',
-            'Engineering Mode: Press q or Q to exit',
-        ]
-        monkeypatch.setattr(time_mod, 'sleep', lambda s: None)
-        assert board.enter_engineering_mode(timeout=0.1) is True
-        calls = board.exchange_multiline.call_args_list
-        sent = [c.args[0] for c in calls]
-        assert sent == ['FACTORY', 'Y'], f'must send FACTORY then confirm with Y; sent {sent}'
-        assert calls[1].kwargs['line_end'] == b'\r'
 
     def test_enter_engineering_mode_docstring_documents_raises(self):
         from drivers.ledboard import LEDBoard

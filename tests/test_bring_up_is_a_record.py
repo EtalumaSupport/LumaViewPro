@@ -19,10 +19,12 @@ import pathlib
 
 import modules.lumascope_api._lumascope as lumascope_module
 import modules.settings_init as settings_init
+from drivers.exceptions import BoardNoReplyError
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverFallback, NoLiveDriverError
 from drivers.simulated_camera import SimulatedCamera
+from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
@@ -40,6 +42,7 @@ from modules.lumascope_api.bring_up import (
 from modules.notification_center import OutcomeKind
 from modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
@@ -289,6 +292,26 @@ class TestAProblemOnAPartThatCameUp:
             assert len(safety) == 1
             assert safety[0].title == LedSafetyOffNotTakenError.title
             assert 'TimeoutError: no reply' in safety[0].message
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_motor_board_that_does_not_take_the_acceleration_limit_is_up_and_says_so(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant', fail_on={'AMAXX'}
+        )
+        s = _bring_up(monkeypatch, tmp_path, motor=board, microscope='LS850T')
+        try:
+            motor = _status(s.bring_up_record(), Part.MOTOR)
+            assert (motor.up, motor.cause) == (True, 'acceleration_not_set')
+            assert motor.detail == 'BoardNoReplyError: AMAXX: no reply from the board'
+            assert not motor.missing
+            told = [n for n in centre_posts if n.reason == BoardNoReplyError.reason]
+            assert len(told) == 1, 'told once'
+            assert (told[0].title, told[0].category) == (BoardNoReplyError.title, 'Motion')
+            assert s.scope.motor_connected, 'the scope came up with its motor board'
         finally:
             s.shutdown()
             s.scope.disconnect()
