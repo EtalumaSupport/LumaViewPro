@@ -50,6 +50,7 @@ import modules.autofocus_functions as autofocus_functions
 import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
 from modules.frame_validity import FrameValidity
+from modules.kivy_utils import schedule_ui_latest
 
 logger = logging.getLogger('LVP.ui.scope_display')
 
@@ -112,7 +113,11 @@ class ScopeDisplay(Image):
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
-        self.camera_disconnected_display_set = False
+        # Whether the camera was present when the display thread last posted
+        # the indicator: None until the first frame, then True or False.
+        # Written only by _render_one_frame, on the display thread, which
+        # posts again only when presence differs from it.
+        self._camera_presence_posted = None
 
         # Single-pending-blit coalescing. The display thread produces a
         # full-frame byte buffer (~3.5 MB) per iteration and marshals the blit
@@ -327,8 +332,8 @@ class ScopeDisplay(Image):
     def _update_validity_dot(self, is_valid: bool):
         """Draw a small green (valid) or red (settling) dot in the top-right corner.
 
-        Only visible in engineering mode. Called from the main thread via
-        Clock.schedule_once after each frame grab.
+        Only visible in engineering mode. Posted by the display thread after
+        each frame grab, the newest state only (schedule_ui_latest).
         """
         self._validity_group.clear()
         ctx = _app_ctx.ctx
@@ -671,25 +676,19 @@ class ScopeDisplay(Image):
         # Edge-logged so the post-mortem shows the moment the user was given
         # the no-camera indicator (the only on-screen signal of a lost camera;
         # there is no popup). Fires once per connected->absent transition, not
-        # per frame, because the caller gates on camera_disconnected_display_set.
+        # per frame, because the display thread posts it only on that change.
         logger.info('Camera display: showing no-camera indicator to user (camera_connected=False)')
         gui_logger.display('LIVE_VIEW', 'no camera')
         self.source = './data/icons/camera_to_USB.png'
-        self.camera_disconnected_display_set = True
-        # Drop the bullseye RGB scratch buffer so a reconnect at a
-        # different camera resolution doesn't retain the old allocation
-        # (swapping 2K->4K->2K otherwise leaks ~60 MB per cycle).
-        self._bullseye_rgb_buf = None
-        self._bullseye_buf_shape = None
-        self._display_8bit_buf = None
-        return
 
-    def source_clear(self):
-        logger.info('Camera display: camera available, live view restored')
-        gui_logger.display('LIVE_VIEW', 'live')
+    def source_clear(self, restored):
+        """Show the live view. ``restored`` is whether the camera came back
+        after being absent; a display that starts with a camera shows the
+        live view silently."""
+        if restored:
+            logger.info('Camera display: camera available, live view restored')
+            gui_logger.display('LIVE_VIEW', 'live')
         self.source = ''
-        self.camera_disconnected_display_set = False
-        return
 
     def _render_one_frame(
         self,
@@ -737,13 +736,28 @@ class ScopeDisplay(Image):
         cycle_start = dispatch_time or time.monotonic()
         self._record_frame_interval(cycle_start, intentional_wait_ms)
 
-        if not ctx.scope.camera_connected:
-            if not self.camera_disconnected_display_set:
-                Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
+        camera_present = ctx.scope.camera_connected
+        if camera_present != self._camera_presence_posted:
+            was_absent = self._camera_presence_posted is False
+            self._camera_presence_posted = camera_present
+            if camera_present:
+                schedule_ui_latest(
+                    (self, 'camera_indicator'),
+                    lambda dt, r=was_absent: self.source_clear(r),
+                )
+            else:
+                # Drop the render buffers so a reconnect at a different
+                # camera resolution doesn't retain the old allocation
+                # (swapping 2K->4K->2K otherwise leaks ~60 MB per cycle).
+                self._bullseye_rgb_buf = None
+                self._bullseye_buf_shape = None
+                self._display_8bit_buf = None
+                schedule_ui_latest(
+                    (self, 'camera_indicator'),
+                    lambda dt: self.set_camera_disconnected_display(),
+                )
+        if not camera_present:
             return STATUS_NOT_READY
-
-        if self.camera_disconnected_display_set:
-            Clock.schedule_once(lambda dt: self.source_clear(), 0)
 
         # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
         if active_layer is not None:
@@ -793,7 +807,9 @@ class ScopeDisplay(Image):
         if ctx.session.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
             fv_valid = ctx.scope.imaging.frames_until_valid() == 0
-            Clock.schedule_once(lambda dt, v=fv_valid: self._update_validity_dot(v), 0)
+            schedule_ui_latest(
+                (self, 'validity_dot'), lambda dt, v=fv_valid: self._update_validity_dot(v)
+            )
 
             # Engineering stats: 2x per second (time-based, not frame-based)
             now_eng = time.monotonic()
@@ -815,8 +831,9 @@ class ScopeDisplay(Image):
                     af_score = 'off'
                 t_eng_stats = time.monotonic() - t_eng_start
 
-                Clock.schedule_once(
-                    lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0
+                schedule_ui_latest(
+                    (self, 'engineering_stats'),
+                    lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer),
                 )
 
         if self.use_bullseye:
@@ -1042,6 +1059,8 @@ class ScopeDisplay(Image):
     def create_and_set_bullseye_texture(self, image_bytes, shape, generation=0):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
+        if self._protocol_hold_in_force():
+            return  # a held frame is on screen for its time
         size = (shape[1], shape[0])
         # Mirror the mono path's caching -- only allocate a new GDI texture
         # when the frame size changes; otherwise blit into the existing
@@ -1074,12 +1093,21 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         return thread.generation if thread is not None else 0
 
+    def _protocol_hold_in_force(self):
+        """Whether a held frame is still due its time on screen, from the
+        thread that keeps the deadline; False before the thread exists."""
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        return thread is not None and thread.protocol_hold_in_force
+
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0, *, live):
         """Put a frame on the screen. ``live`` says whether it is a live-view
-        frame, which the display rate counts, or a held one (a saved protocol
-        image), which it does not."""
+        frame, which the display rate counts and a hold keeps off the screen,
+        or a held one (a saved protocol image), which it does not."""
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
+        if live and self._protocol_hold_in_force():
+            return  # a held frame is on screen for its time
         if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
@@ -1131,7 +1159,6 @@ class ScopeDisplay(Image):
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
-        from kivy.clock import Clock as _Clock
         import modules.image_utils as _image_utils
 
         arr = image
@@ -1145,11 +1172,15 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         if thread is not None:
             thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
-        _Clock.schedule_once(
+        # One pending saved frame, the newest: each holds a whole frame's
+        # bytes, and a run captures faster than a held-up UI thread draws.
+        # A live frame already rendering when the hold began is posted after
+        # this one; the live blit draws nothing while the hold is in force.
+        schedule_ui_latest(
+            (self, 'saved_frame'),
             lambda dt, b=data, s=shape, g=gen: self.create_and_set_texture(
                 b, s, generation=g, live=False
             ),
-            0,
         )
 
     def hold_derived_image(self, image, significant_bits):

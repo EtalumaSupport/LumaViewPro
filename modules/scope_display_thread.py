@@ -21,6 +21,9 @@ Public API:
   bump_protocol_hold(hold_seconds)
                         -- protocol-side bumps the hold deadline so
                            the saved frame stays on screen
+  protocol_hold_in_force
+                        -- whether that deadline is still ahead; a live
+                           blit run during it draws nothing
   add_frame_listener(callback) / remove_frame_listener(callback)
                         -- per-frame fan-out hook for future REST
                            streaming / plugin live-processing.
@@ -204,6 +207,12 @@ class ScopeDisplayThread:
     @property
     def is_paused(self) -> bool:
         return self._paused.is_set()
+
+    @property
+    def protocol_hold_in_force(self) -> bool:
+        """Whether a held frame (a saved or derived image) is still due its time on screen."""
+        with self._config_lock:
+            return self._protocol_hold_until > time.monotonic()
 
     @property
     def generation(self) -> int:
