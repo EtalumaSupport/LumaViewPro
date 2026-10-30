@@ -79,31 +79,24 @@ def test_the_lock_is_inside_the_bracket_and_the_camera_snapshot_precedes_it():
     )
 
 
-def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
+def test_restore_re_arms_on_every_exit_of_the_bracket(sim_scope):
     """The re-arm rides the camera-state restore in the bracket's finally,
     so a failure exit (here a flat curve) puts a live-view arm back the
     same way a completion does. The snapshot is taken at the top of the try and always carries
     its tag, so once it has been taken the restore branch cannot be
     skipped on any exit. A preservation guard on the exit path; the
     re-arm itself is proven on the API in test_auto_gain_lock."""
-    from modules.lumascope_api.camera import AutoGainLock, _AutoGainArm
-    from tests.af_drives import af_runner_and_scope, drive_af
+    from modules.lumascope_api.camera import CameraAutoMode
+    from tests.af_drives import af_runner_on, sweep
 
-    arm = _AutoGainArm(dict(AG_SETTINGS_TRANSMITTED), True)
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
-    runner, scope = af_runner_and_scope()
-    scope.camera.save_camera_state.return_value = {
-        'tag': 'autofocus',
-        'gain_db': 1.0,
-        'exposure_ms': 10.0,
-        'auto_gain_arm': arm,
-    }
-    scope.camera.lock_auto_gain.return_value = AutoGainLock(state=None)
-    with pytest.raises(AutofocusFailedError):
-        drive_af(runner)
-    restored = scope.camera.restore_camera_state.call_args.args[0]
-    assert restored['auto_gain_arm'] is arm
-    assert scope.camera._resume_auto_gain_impl.call_count == 0
+    runner = af_runner_on(sim_scope, pattern='white')
+    sim_scope.camera.set_auto_gain(True, dict(AG_SETTINGS_TRANSMITTED), resume_after_capture=True)
+    with pytest.raises(AutofocusFailedError) as failed:
+        sweep(runner, sim_scope)
+    assert failed.value.reason == 'flat_focus_curve'
+    assert sim_scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, (
+        'a failed sweep must put the live-view arm it locked back'
+    )
 
 
 def test_lock_and_resume_pair_on_the_api():

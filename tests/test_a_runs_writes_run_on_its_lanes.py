@@ -279,29 +279,41 @@ def test_a_lease_released_dark_darkens_on_the_io_lane(sim_session, monkeypatch):
     assert threads == [sim_session.io_executor.executor_name], threads
 
 
-def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(monkeypatch):
+def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypatch):
     """A dark frame mid-sweep is grabbed again through the public member,
     under the sweep's taking, and the retry is what gets scored."""
     import numpy as np
 
-    from tests.af_drives import af_runner_and_scope, drive_af
+    import modules.autofocus_functions as autofocus_functions
+    from tests.af_drives import af_runner_on, sweep
 
+    # The field is dark for the sweep's first grab, then shows the target.
+    runner = af_runner_on(sim_scope, pattern='black')
+    grabs = []
+    grab = sim_scope.imaging.capture_and_wait
+
+    def first_grab_dark(*args, **kwargs):
+        frame = grab(*args, **kwargs)
+        grabs.append(float(np.mean(frame)))
+        sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='focus_target')
+        return frame
+
+    monkeypatch.setattr(sim_scope.imaging, 'capture_and_wait', first_grab_dark)
     scored = []
+    score = autofocus_functions.focus_function
 
     def _score(image):
-        scored.append(float(np.mean(image)))
-        return 7.0
+        scored.append((len(grabs), float(np.mean(image))))
+        return score(image)
 
     monkeypatch.setattr('modules.autofocus_functions.focus_function', _score)
-    runner, scope = af_runner_and_scope()
-    lit = np.full((40, 40), 50, dtype=np.uint8)
-    frames = iter([np.zeros((40, 40), dtype=np.uint8)])
-    scope.imaging.capture_and_wait.side_effect = lambda **kw: next(frames, lit)
 
-    drive_af(runner)
+    sweep(runner, sim_scope)
 
-    assert scored and scored[0] == 50.0, (
-        f'the first position must be scored on the retry, not the dark frame; scored {scored}'
+    assert grabs[0] == 0.0, f'precondition: the first grab was dark; grabs {grabs[:3]}'
+    assert scored and scored[0][0] == 2 and scored[0][1] > 0.0, (
+        'the first position must be scored on the retry, the second grab, '
+        f'not the dark frame; grabs {grabs[:3]}, scored (grabs made, mean) {scored[:3]}'
     )
 
 

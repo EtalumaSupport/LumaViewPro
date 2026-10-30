@@ -18,26 +18,35 @@ The setup now runs inside the bracket, so nothing raise-capable remains
 between claiming the run and the block that guarantees the claim is
 released. Three consequences are asserted here rather than discovered:
 the flag clears, the original exception reaches the caller unmasked by
-anything in the finally (chained as the cause of the one failure the run
-reports and raises), and the unwind does to the stage and the camera
+anything in the finally (raised as itself, as every API failure is, or
+chained as the cause of the one failure the run reports and raises), and
+the unwind does to the stage and the camera
 exactly what the state reached so far justifies -- no more.
 """
 
 from __future__ import annotations
 
-
 import pytest
 
-
-from modules.lumascope_api.illumination import LedTransition
-from tests.af_drives import (
-    AF_CENTER_Z,
-    af_lease,
-    af_runner_and_scope,
-    drive_af,
-    raises_the_failure_from,
+from modules.exceptions import (
+    AutofocusAborted,
+    CameraReadFailedError,
+    CaptureError,
+    CatalogueNameRefusedError,
 )
-from tests.stock_channels import LED1
+from modules.lumascope_api.camera import CameraAutoMode
+from modules.lumascope_api.illumination import LedLease, LedState, LedTransition
+from tests.af_drives import (
+    FOCAL_Z_UM,
+    PARKED_Z_UM,
+    af_runner_on,
+    park_z,
+    raises_the_failure_from,
+    sweep,
+    z_asked,
+)
+from tests.protocol_drives import held_run_claim
+from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED
 
 
 class SetupError(Exception):
@@ -45,19 +54,52 @@ class SetupError(Exception):
     sees it knows the caller got the ORIGINAL failure."""
 
 
-def _raise(*_args, **_kwargs):
-    raise SetupError('the setup statement under test')
+@pytest.fixture
+def scope(sim_scope):
+    """The simulated scope; ``runner`` makes it one a sweep can run on."""
+    return sim_scope
 
 
-# The five raise-capable setup statements, in source order, each paired
-# with the seam that makes it fail and with whether the scan parameters
+@pytest.fixture
+def runner(scope):
+    return af_runner_on(scope)
+
+
+def _unknown_objective(scope, sweep_kwargs):
+    sweep_kwargs['objective_id'] = 'not an objective'
+
+
+def _z_at_the_floor(scope, sweep_kwargs):
+    # The first window, centre +- AF_range, reaches below the floor.
+    park_z(scope, scope.motion.get_axis_limits('Z').min_um)
+
+
+def _camera_setting_unreadable(scope, sweep_kwargs):
+    scope.simulation.refuse_camera_read('frame_size', 'failed')
+
+
+# The raise-capable setup statements, in source order, each with a real
+# failure of it, the failure it raises, and whether the scan parameters
 # exist by the time it runs. The parameters are what the unwind's Z
-# restore reads, so they decide what the unwind is entitled to do.
-SETUP_STATEMENTS = [
-    ('objective load', 'objective', False),
-    ('parameter calculation', 'position_read', False),
-    ('LED snapshot', 'led_snapshot', True),
-    ('camera snapshot', 'camera_snapshot', True),
+# restore reads, so they decide what the unwind is entitled to do. The LED
+# snapshot raises nothing (``save_led_state``: Raises: Nothing), so it has
+# no case; the parameter calculation's raise is the first window past travel.
+SETUP_FAILURES = [
+    (
+        'objective load',
+        _unknown_objective,
+        CatalogueNameRefusedError,
+        'objective_not_in_catalogue',
+        False,
+    ),
+    ('parameter calculation', _z_at_the_floor, CaptureError, 'out_of_travel', False),
+    (
+        'camera snapshot',
+        _camera_setting_unreadable,
+        CameraReadFailedError,
+        'camera_read_failed',
+        True,
+    ),
 ]
 
 # The fifth setup statement, the AF START log line, is covered
@@ -73,44 +115,73 @@ SETUP_CALLS_IN_SOURCE_ORDER = [
 ]
 
 
-def _break(runner, scope, seam, monkeypatch):
-    """Make one setup statement raise, leaving the other four intact."""
-    if seam == 'objective':
-        scope.objective_helper.get_objective_info.side_effect = _raise
-    elif seam == 'position_read':
-        # The scan centre is the first thing _calculate_params reads.
-        scope.motion.get_current_position.side_effect = _raise
-    elif seam == 'led_snapshot':
-        scope.illumination.save_led_state.side_effect = _raise
-    elif seam == 'camera_snapshot':
-        scope.camera.save_camera_state.side_effect = _raise
-    else:
-        raise AssertionError(f'unknown seam {seam}')
+def _fail_setup(scope, runner, breaker, raised_type, reason):
+    """Sweep with one setup statement failing; it raises that statement's failure, as itself."""
+    sweep_kwargs = {}
+    breaker(scope, sweep_kwargs)
+    with pytest.raises(raised_type) as raised:
+        sweep(runner, scope, **sweep_kwargs)
+    assert raised.value.reason == reason
 
 
-def _z_moves(scope):
-    return [call.args[0] for call in scope.motion.move_z.call_args_list]
+def _live_view_arm(scope):
+    """A standing live-view auto-gain arm: the one thing only the camera restore puts back."""
+    scope.camera.set_auto_gain(True, dict(AG_SETTINGS_TRANSMITTED), resume_after_capture=True)
+    assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS
+
+
+def _while_sweeping(scope, monkeypatch, then):
+    """Run ``then`` once, at the sweep's first scored frame: after the setup's writes."""
+    import modules.autofocus_functions as autofocus_functions
+
+    score = autofocus_functions.focus_function
+    done = []
+
+    def scoring(image):
+        if not done:
+            done.append(True)
+            then()
+        return score(image)
+
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', scoring)
+
+
+def _camera_restores(scope, monkeypatch) -> list:
+    """Every camera-state restore asked of the scope: the exception it
+    raised, or None when it returned."""
+    asked = []
+    real = scope.camera.restore_camera_state
+
+    def spy(snapshot):
+        try:
+            result = real(snapshot)
+        except Exception as raised:
+            asked.append(raised)
+            raise
+        asked.append(None)
+        return result
+
+    monkeypatch.setattr(scope.camera, 'restore_camera_state', spy)
+    return asked
+
+
+def _focused(result) -> bool:
+    return result == pytest.approx(FOCAL_Z_UM, abs=10.0)
 
 
 @pytest.mark.parametrize(
-    'label,seam,params_exist', SETUP_STATEMENTS, ids=[s[0] for s in SETUP_STATEMENTS]
+    'label,breaker,raised_type,reason,params_exist',
+    SETUP_FAILURES,
+    ids=[s[0] for s in SETUP_FAILURES],
 )
 class TestSetupFailureReleasesTheRunner:
     """D9: the window is the defect, so every statement in it is a case."""
 
     def test_the_runner_is_left_free_and_the_caller_gets_the_original_error(
-        self, label, seam, params_exist, monkeypatch
+        self, scope, runner, label, breaker, raised_type, reason, params_exist
     ):
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
-        runner, scope = af_runner_and_scope()
-        _break(runner, scope, seam, monkeypatch)
+        _fail_setup(scope, runner, breaker, raised_type, reason)
 
-        with raises_the_failure_from(SetupError):
-            drive_af(runner)
-
-        assert runner._af_in_progress.is_set() is False, (
-            f'a raise from the {label} must not latch the in-progress flag'
-        )
         assert scope.imaging.is_focusing is False, (
             f'a raise from the {label} must not leave is_focusing standing True'
         )
@@ -118,25 +189,15 @@ class TestSetupFailureReleasesTheRunner:
             f'a raise from the {label} must leave the public probe clear'
         )
 
-    def test_a_later_run_can_still_start(self, label, seam, params_exist, monkeypatch):
+    def test_a_later_run_can_still_start(
+        self, scope, runner, label, breaker, raised_type, reason, params_exist
+    ):
         """The symptom the window actually produced: autofocus dead for the
         session. A healthy run after the failure must start normally."""
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        _break(runner, scope, seam, monkeypatch)
+        _fail_setup(scope, runner, breaker, raised_type, reason)
+        park_z(scope, PARKED_Z_UM)
 
-        with raises_the_failure_from(SetupError):
-            drive_af(runner)
-
-        # Heal every seam, then run for real.
-        scope.objective_helper.get_objective_info.side_effect = None
-        scope.motion.get_current_position.side_effect = None
-        scope.illumination.save_led_state.side_effect = None
-        scope.camera.save_camera_state.side_effect = None
-        monkeypatch.undo()
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-
-        assert drive_af(runner) == AF_CENTER_Z, (
+        assert _focused(sweep(runner, scope)), (
             f'autofocus must still be usable after a raise from the {label}'
         )
 
@@ -144,78 +205,67 @@ class TestSetupFailureReleasesTheRunner:
 class TestTheUnwindDoesOnlyWhatTheStateJustifies:
     """D10: `_params` is not a proxy for "nothing happened".
 
-    Of the five setup statements, two run before the scan parameters
-    exist and three run after. The unwind's Z restore reads those
-    parameters, so it is skipped for the first two and FIRES for the last
-    three. Firing is a real hardware write on a failure path: it is a
-    no-op in VALUE -- the sweep's first move never ran, so the stage is
-    still at the scan centre -- and it is asserted here rather than
-    discovered on a bench.
+    Of the setup statements, the first two run before the scan parameters
+    exist and the camera snapshot after. The unwind's Z restore reads those
+    parameters, so it is skipped for the first two and FIRES for the last.
+    Firing is a real hardware write on a failure path: it is a no-op in
+    VALUE -- the sweep's first move never ran, so the stage is still at the
+    scan centre -- and it is asserted here rather than discovered on a
+    bench.
     """
 
-    # parametrize-justified: each case breaks a different seam on a fresh runner
-    @pytest.mark.parametrize('label,seam', [(s[0], s[1]) for s in SETUP_STATEMENTS if not s[2]])
-    def test_before_the_parameters_exist_the_stage_is_not_touched(self, label, seam, monkeypatch):
-        runner, scope = af_runner_and_scope()
-        _break(runner, scope, seam, monkeypatch)
+    # parametrize-justified: each case breaks a different statement on a fresh runner
+    @pytest.mark.parametrize(
+        'label,breaker,raised_type,reason',
+        [s[:4] for s in SETUP_FAILURES if not s[4]],
+        ids=[s[0] for s in SETUP_FAILURES if not s[4]],
+    )
+    def test_before_the_parameters_exist_the_stage_is_not_touched(
+        self, scope, runner, monkeypatch, label, breaker, raised_type, reason
+    ):
+        sweep_kwargs = {}
+        breaker(scope, sweep_kwargs)
+        asked = z_asked(scope, monkeypatch)
 
-        with raises_the_failure_from(SetupError):
-            drive_af(runner)
+        with pytest.raises(raised_type):
+            sweep(runner, scope, **sweep_kwargs)
 
-        assert _z_moves(scope) == [], (
+        assert asked == [], (
             f'a raise from the {label} happens before the scan centre is known, '
             'so the unwind has no position to restore to and must not move'
         )
 
-    # parametrize-justified: each case breaks a different seam on a fresh runner
-    @pytest.mark.parametrize('label,seam', [(s[0], s[1]) for s in SETUP_STATEMENTS if s[2]])
     def test_after_the_parameters_exist_the_restore_fires_as_a_no_op_move(
-        self, label, seam, monkeypatch
+        self, scope, runner, monkeypatch
     ):
-        runner, scope = af_runner_and_scope()
-        _break(runner, scope, seam, monkeypatch)
+        asked = z_asked(scope, monkeypatch)
 
-        with raises_the_failure_from(SetupError):
-            drive_af(runner)
+        _fail_setup(
+            scope, runner, _camera_setting_unreadable, CameraReadFailedError, 'camera_read_failed'
+        )
 
-        assert _z_moves(scope) == [AF_CENTER_Z], (
-            f'a raise from the {label} unwinds with the scan centre known, so the '
-            'restore issues exactly one move -- to where the stage already is'
+        assert asked == [PARKED_Z_UM], (
+            'a raise from the camera snapshot unwinds with the scan centre known, so '
+            'the restore issues exactly one move -- to where the stage already is'
         )
 
 
-class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
-    """D11: the invariant the auto-gain bracket test now states outright.
+def test_a_failure_before_the_snapshot_restores_no_camera_state(scope, runner, monkeypatch):
+    """D11: the restore is owed exactly when the snapshot was taken.
 
     The camera snapshot records a live-view auto-gain arm before the lock
-    consumes it, and the restore in the finally is what puts it back. So
-    the restore is owed exactly when the snapshot was taken -- including
-    when the lock itself is what failed -- and owed nothing before that,
-    because nothing has been consumed yet.
+    consumes it, and the restore in the finally is what puts it back; before
+    the snapshot nothing has been consumed, so there is nothing to write back.
     """
+    restores = _camera_restores(scope, monkeypatch)
 
-    def test_a_failure_at_the_lock_still_restores_the_snapshot(self, monkeypatch):
-        runner, scope = af_runner_and_scope()
-        scope.camera.lock_auto_gain.side_effect = _raise
+    _fail_setup(
+        scope, runner, _unknown_objective, CatalogueNameRefusedError, 'objective_not_in_catalogue'
+    )
 
-        with raises_the_failure_from(SetupError):
-            drive_af(runner)
-
-        assert scope.camera.restore_camera_state.called, (
-            'the lock consumes a live-view arm; a raise there must still reach '
-            'the restore that puts it back'
-        )
-
-    def test_a_failure_before_the_snapshot_restores_nothing(self, monkeypatch):
-        runner, scope = af_runner_and_scope()
-        _break(runner, scope, 'objective', monkeypatch)
-
-        with raises_the_failure_from(SetupError):
-            drive_af(runner)
-
-        assert not scope.camera.restore_camera_state.called, (
-            'nothing was snapshotted or consumed yet, so there is no camera state to write back'
-        )
+    assert restores == [], (
+        'nothing was snapshotted or consumed yet, so no camera state is written back'
+    )
 
 
 def test_every_setup_statement_sits_inside_the_bracket():
@@ -259,7 +309,37 @@ def test_every_setup_statement_sits_inside_the_bracket():
     )
 
 
-def test_a_failure_during_the_unwind_does_not_latch_the_runner(monkeypatch):
+def _camera_restore_refused(scope):
+    # The restore reads the frame size to compare with the snapshot's: a
+    # read the camera fails raises from the restore.
+    scope.simulation.refuse_camera_read('frame_size', 'failed')
+
+
+def _the_restore_raised(restores) -> bool:
+    return bool(restores) and isinstance(restores[-1], CameraReadFailedError)
+
+
+def _af_end_light_refused(monkeypatch):
+    """The AF lease's end transition raises, once; its start transition runs.
+
+    Breaking ``apply`` wholesale breaks AF_ENTER first, which runs inside
+    the try during setup -- that measures the setup window, not the
+    unwind. The fast simulated LED board takes no refused-write fault (the
+    FX2's ``refuse_led_write`` is that fault), so it is raised at the lease.
+    """
+    real = LedLease.apply
+    raised = []
+
+    def apply(lease, transition, ctx):
+        if transition is LedTransition.AF_TO_CAPTURE and not raised:
+            raised.append(transition)
+            raise SetupError('usb')
+        return real(lease, transition, ctx)
+
+    monkeypatch.setattr(LedLease, 'apply', apply)
+
+
+def test_a_failure_during_the_unwind_does_not_latch_the_runner(scope, runner, monkeypatch):
     """D12 + D15: a cleanup failure costs the run neither its claim nor its
     answer.
 
@@ -270,56 +350,40 @@ def test_a_failure_during_the_unwind_does_not_latch_the_runner(monkeypatch):
     the run that found a focus reports it, and the camera failure is in
     the log where a cleanup failure belongs.
     """
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-    runner, scope = af_runner_and_scope()
-    scope.camera.restore_camera_state.side_effect = SetupError('camera went away mid-restore')
+    restores = _camera_restores(scope, monkeypatch)
+    _while_sweeping(scope, monkeypatch, lambda: _camera_restore_refused(scope))
 
-    result = drive_af(runner)
+    result = sweep(runner, scope)
 
-    assert result == AF_CENTER_Z, (
+    assert _the_restore_raised(restores), f'precondition: the camera restore failed; {restores}'
+    assert _focused(result), (
         "a cleanup failure must not become the run's answer; the sweep found "
         f'a focus and must report it, got {result}'
     )
-    assert runner._af_in_progress.is_set() is False, (
+    assert runner.in_progress() is False, (
         'a raise in the unwind must not latch the runner for the session'
     )
 
 
-# The two unwind statements that can raise from PRODUCTION hardware. The
-# diagnostic log line between them reads gain and exposure off the camera
-# inside its f-string, which looks like a third -- but those getters
-# swallow every driver exception and answer from the last-known-good
-# cache, so they cannot raise in production. It is covered structurally
-# below instead, not by fault injection.
-UNWIND_SEAMS = [
-    ('LED transition', 'led_apply'),
-    ('camera restore', 'camera_restore'),
-]
+UNWIND_SEAMS = ['LED transition', 'camera restore']
 
 
-def _break_unwind(scope, seam):
-    """Break one UNWIND step, and only in the unwind.
-
-    The LED seam must fire on AF_TO_CAPTURE alone. Breaking `apply`
-    wholesale breaks AF_ENTER first, which runs inside the try during
-    setup -- that measures the setup window, not the unwind, and an
-    earlier version of this file made exactly that mistake.
-    """
-    if seam == 'led_apply':
-        lease = af_lease(scope)
-
-        def _raise_on_af_end(transition, ctx):
-            if transition is LedTransition.AF_TO_CAPTURE:
-                raise SetupError('usb')
-
-        lease.apply.side_effect = _raise_on_af_end
-    elif seam == 'camera_restore':
-        scope.camera.restore_camera_state.side_effect = SetupError('usb')
+def _break_unwind(scope, seam, monkeypatch):
+    """Break one UNWIND step, and only in the unwind."""
+    if seam == 'LED transition':
+        _af_end_light_refused(monkeypatch)
     else:
-        raise AssertionError(f'unknown seam {seam}')
+        restores = _camera_restores(scope, monkeypatch)
+        _while_sweeping(scope, monkeypatch, lambda: _camera_restore_refused(scope))
+        return restores
 
 
-@pytest.mark.parametrize('label,seam', UNWIND_SEAMS, ids=[s[0] for s in UNWIND_SEAMS])
+def _the_af_lease_is_released(scope, run_lease) -> bool:
+    """The run's lease is the top one again: the AF child under it was released."""
+    return scope.illumination.led_lease_purpose == run_lease.purpose
+
+
+@pytest.mark.parametrize('seam', UNWIND_SEAMS)
 class TestEveryUnwindFailureStillReleasesTheClaim:
     """D13: three things latched, not one, and all three must clear.
 
@@ -330,40 +394,40 @@ class TestEveryUnwindFailureStillReleasesTheClaim:
     liveness probe is the very flag that stayed set.
     """
 
-    def test_the_run_succeeded_and_the_runner_is_left_free(self, label, seam, monkeypatch):
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        _break_unwind(scope, seam)
+    def test_the_run_succeeded_and_the_runner_is_left_free(self, scope, runner, monkeypatch, seam):
+        restores = _break_unwind(scope, seam, monkeypatch)
+        run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
 
-        assert drive_af(runner) == AF_CENTER_Z, (
-            f'a {label} failure is cleanup, not the run; the run must still '
+        assert _focused(sweep(runner, scope, led_lease=run_lease)), (
+            f'a {seam} failure is cleanup, not the run; the run must still '
             'report the focus it found'
         )
+        assert restores is None or _the_restore_raised(restores), (
+            f'precondition: the camera restore failed; {restores}'
+        )
 
-        assert runner._af_in_progress.is_set() is False, (
-            f'a raise from the {label} must not latch the in-progress flag'
+        assert runner.in_progress() is False, (
+            f'a raise from the {seam} must not latch the in-progress probe'
         )
         assert scope.imaging.is_focusing is False, (
-            f'a raise from the {label} must not leave is_focusing standing True, '
+            f'a raise from the {seam} must not leave is_focusing standing True, '
             'which suppresses every live camera apply the UI makes'
         )
-        assert runner._led_lease is None, (
-            f'a raise from the {label} must still release the LED lease; an '
-            'un-released lease makes illumination authority unclaimable'
+        assert _the_af_lease_is_released(scope, run_lease), (
+            f'a raise from the {seam} must still release the LED lease; an '
+            'un-released lease makes illumination authority unclaimable; '
+            f'top lease: {scope.illumination.led_lease_purpose}'
         )
+        run_lease.release()
 
-    def test_a_later_run_can_still_start(self, label, seam, monkeypatch):
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        _break_unwind(scope, seam)
+    @pytest.mark.slow
+    def test_a_later_run_can_still_start(self, scope, runner, monkeypatch, seam):
+        _break_unwind(scope, seam, monkeypatch)
+        sweep(runner, scope)
+        park_z(scope, PARKED_Z_UM)
 
-        drive_af(runner)
-
-        af_lease(scope).apply.side_effect = None
-        scope.camera.restore_camera_state.side_effect = None
-
-        assert drive_af(runner) == AF_CENTER_Z, (
-            f'autofocus must still be usable after a raise from the {label}'
+        assert _focused(sweep(runner, scope)), (
+            f'autofocus must still be usable after a raise from the {seam}'
         )
 
 
@@ -423,73 +487,86 @@ class TestTheRunsOwnOutcomeSurvivesACleanupFailure:
     is the common path, not an exotic one.
     """
 
-    def test_the_runs_own_exception_reaches_the_caller(self, monkeypatch):
-        runner, scope = af_runner_and_scope()
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        monkeypatch.setattr(runner, '_iterate', lambda: (_ for _ in ()).throw(RunError('boom')))
-        scope.camera.restore_camera_state.side_effect = SetupError('camera went away')
+    def test_the_runs_own_exception_reaches_the_caller(self, scope, runner, monkeypatch):
+        restores = _camera_restores(scope, monkeypatch)
+
+        def fail_the_run():
+            _camera_restore_refused(scope)
+            raise RunError('boom')
+
+        _while_sweeping(scope, monkeypatch, fail_the_run)
 
         with raises_the_failure_from(RunError):
-            drive_af(runner)
+            sweep(runner, scope)
+        assert _the_restore_raised(restores), f'precondition: the camera restore failed; {restores}'
 
-    def test_an_abort_is_still_reported_as_an_abort(self, monkeypatch):
+    def test_an_abort_is_still_reported_as_an_abort(self, scope, runner, monkeypatch):
         """The common case: the caller stopped the run, and the cleanup
         then failed. The caller must hear about their own abort."""
         import threading
 
-        from modules.exceptions import AutofocusAborted
-
-        runner, scope = af_runner_and_scope()
         abort = threading.Event()
-        # The caller stops the sweep during its first pass, before it chose
-        # any focus.
-        monkeypatch.setattr(runner, '_iterate', abort.set)
-        scope.camera.restore_camera_state.side_effect = SetupError('camera went away')
+        restores = _camera_restores(scope, monkeypatch)
+
+        def stop_the_sweep():
+            # The caller stops the sweep during its first pass, before it
+            # chose any focus.
+            _camera_restore_refused(scope)
+            abort.set()
+
+        _while_sweeping(scope, monkeypatch, stop_the_sweep)
+        run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
 
         with pytest.raises(AutofocusAborted):
-            drive_af(runner, abort_event=abort)
+            sweep(runner, scope, abort_event=abort, led_lease=run_lease)
 
-        assert runner._af_in_progress.is_set() is False
-        assert runner._led_lease is None
+        assert _the_restore_raised(restores), f'precondition: the camera restore failed; {restores}'
+        assert runner.in_progress() is False
+        assert _the_af_lease_is_released(scope, run_lease)
+        run_lease.release()
 
 
-def test_an_led_failure_still_re_arms_the_live_view(monkeypatch):
+def test_an_led_failure_still_re_arms_the_live_view(scope, runner, monkeypatch):
     """D17: the harm that made this change worth building.
 
     The auto-gain lock CONSUMES a live-view arm and only the camera
     restore puts it back. The LED transition runs first, so before this
     change an LED failure cost the user their live-view auto gain with no
     message -- the camera restore was never reached at all.
-
-    The seam fires on AF_TO_CAPTURE alone: breaking `apply` wholesale
-    would break AF_ENTER during setup and measure the wrong window.
     """
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-    runner, scope = af_runner_and_scope()
-    _break_unwind(scope, 'led_apply')
+    _live_view_arm(scope)
+    _af_end_light_refused(monkeypatch)
 
-    assert drive_af(runner) == AF_CENTER_Z
+    assert _focused(sweep(runner, scope))
 
-    assert scope.camera.restore_camera_state.called, (
+    assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, (
         'the camera restore is the ONLY thing that re-arms a live-view auto-gain '
         'arm; an LED failure ahead of it must not cost the user that arm'
     )
 
 
-def test_a_clean_exit_still_runs_every_restore_step(monkeypatch):
+def test_a_clean_exit_still_runs_every_restore_step(scope, runner, monkeypatch):
     """D18: the preservation lock.
 
     Guards that swallow are indistinguishable from steps that never ran,
     unless something asserts the steps DO run when nothing is broken.
     """
-    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-    runner, scope = af_runner_and_scope()
+    precision = []
+    real = scope.motion.set_precision_mode
 
-    assert drive_af(runner, keep_led_on=True, led_color=LED1) == AF_CENTER_Z
+    def spy(axis, enabled):
+        precision.append((axis, enabled))
+        return real(axis, enabled)
 
-    assert scope.motion.set_precision_mode.called, 'the precision restore must still run'
-    assert af_lease(scope).apply.called, 'the AF-end LED transition must still run'
-    assert scope.camera.restore_camera_state.called, 'the camera restore must still run'
+    monkeypatch.setattr(scope.motion, 'set_precision_mode', spy)
+    _live_view_arm(scope)
+
+    assert _focused(sweep(runner, scope, keep_led_on=True))
+
+    assert precision[-1] == ('Z', True), f'the precision restore must still run; {precision}'
+    lit = [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
+    assert lit == ['BF'], f'the AF-end LED transition must still run; lit: {lit}'
+    assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, 'the camera restore must still run'
 
 
 # The one restore statement that is deliberately NOT guarded, and the proof

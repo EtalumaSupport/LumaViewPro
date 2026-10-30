@@ -91,7 +91,12 @@ def af_runner_on(scope, pattern: str = 'focus_target'):
 
 
 def sweep(runner, scope, **overrides):
-    """Call runner.run() on ``scope`` as a run calls it: BF lit, under the run's lease."""
+    """Call runner.run() on ``scope`` as a run calls it: BF lit, under the run's lease.
+
+    A lease the caller does not pass is taken here and released when the
+    sweep ends, leaving lit what the sweep left lit, as a run's end does;
+    so a later sweep on the same scope can take its own.
+    """
     from tests.protocol_drives import held_run_claim
 
     kwargs = {
@@ -101,11 +106,13 @@ def sweep(runner, scope, **overrides):
         'led_illumination': 5.0,
     }
     kwargs.update(overrides)
-    if 'led_lease' not in kwargs:
-        kwargs['led_lease'] = scope.illumination.acquire_led_lease(
-            'protocol', claim=held_run_claim()
-        )
-    return runner.run(**kwargs)
+    if 'led_lease' in kwargs:
+        return runner.run(**kwargs)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
+    try:
+        return runner.run(led_lease=lease, **kwargs)
+    finally:
+        lease.release(leave_on=True)
 
 
 def z_asked(scope, monkeypatch) -> list[float]:
