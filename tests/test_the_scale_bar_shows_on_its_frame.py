@@ -16,6 +16,9 @@ Scale-bar rendering is pure numpy/cv2, so the draw's tests run without the
 Kivy app; they need a scale, which the scale_capabilities fixture supplies.
 The capture's test runs on the simulated scope, no GUI, so the colour is the
 API's.
+
+Whether the bar is drawn is the Session's setting, and it cannot change while
+a run, a diagnostic, a home or a recording holds the scope.
 """
 
 from __future__ import annotations
@@ -24,7 +27,9 @@ import numpy as np
 import pytest
 
 import modules.image_utils as image_utils
+from modules.exceptions import HardwareCommandRefusedError
 from tests.objective_records import objective
+from tests.protocol_drives import run_identity
 from tests.scope_fakes import bind_settings_like_a_session
 
 _OBJECTIVE = objective(focal_length_mm=10.0, magnification=20)
@@ -158,3 +163,23 @@ def test_a_capture_draws_the_bar_its_frame_needs_with_no_gui(sim_scope, pattern,
     bar = image != frame_value
     assert bar.sum() > 20, 'no bar was drawn'
     assert set(np.unique(image[bar])) == ({0} if bar_is_black else {255})
+
+
+@pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording', 'home'])
+def test_the_setting_is_refused_while_the_scope_is_held(sim_session, kind):
+    """A run's stills, a diagnostic's and a recording's live view keep the bar they started under."""
+    before = sim_session.scale_bar_enabled
+    held = sim_session.activity_claim.try_claim(
+        kind, run=run_identity() if kind == 'protocol' else None
+    )
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            sim_session.set_scale_bar(not before)
+        # The setting it already has is no change, and is admitted.
+        sim_session.set_scale_bar(before)
+    finally:
+        held.release()
+    assert (refused.value.reason, refused.value.holder) == ('exclusive_activity_running', kind)
+    assert sim_session.scale_bar_enabled is before
+    sim_session.set_scale_bar(not before)
+    assert sim_session.scale_bar_enabled is (not before)

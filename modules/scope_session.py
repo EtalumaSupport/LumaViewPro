@@ -5800,6 +5800,9 @@ class ScopeSession:
         # the objective it started under. A recording states every frame at
         # the pixel size and in the plate frame it started with, so a new
         # objective or plate would leave the scope disagreeing with its file.
+        # The scale bar is drawn on every still a run takes, so a toggle
+        # mid-run would draw the run's stills two ways; a recording's live
+        # view keeps the bar it started under.
         holder = self.activity_claim.owner
         if holder is not None:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
@@ -5869,8 +5872,16 @@ class ScopeSession:
                 not.
 
         Raises:
-            Nothing.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``, a
+                run, a diagnostic, a home or a recording holds the scope and
+                ``enabled`` is not the setting now: each is captured under the
+                setting it started with. Nothing is written.
         """
+        if enabled == self.settings['scale_bar']['enabled']:
+            # The objective's and the plate's rule: a write that changes
+            # nothing is admitted under any hold.
+            return
+        self._refuse_configuration_change_while_held('set_scale_bar')
         with self.settings_lock:
             self._store_setting('scale_bar.enabled', enabled)
 

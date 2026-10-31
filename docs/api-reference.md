@@ -3106,11 +3106,11 @@ at each capture.
 
 **Raises**
 
-Nothing.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a run, a diagnostic, a home or a recording holds the scope and `enabled` is not the setting now: each is captured under the setting it started with. Nothing is written.
 
 **Refusals by REST status**
 
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 
 <a id="ScopeSession.set_step_autofocus"></a>
 ### `ScopeSession.set_step_autofocus`
@@ -14914,7 +14914,10 @@ lane refuses any task not made for its holder with
 The Session's objective writers (select, slot assign and slot clear)
 raise it too while a run, a diagnostic or a home holds the scope: the run
 stamps the active objective's scale into each capture, so a change
-mid-run is a command against the run's hardware state.
+mid-run is a command against the run's hardware state. The Session's
+scale bar setter (`set_scale_bar`) raises it while a run, a diagnostic,
+a home or a recording holds the scope, since a run's stills are drawn
+under the setting it started with.
 
 A motion or LED command for hardware the scope does not have raises it
 too, and `missing` names the part: `'not_connected'` when the model
