@@ -13,11 +13,34 @@ the API reports a removal as well: the raise is the report.
 
 from __future__ import annotations
 
+import logging
+import re
+
 import pytest
 
 from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError
+from modules.lumascope_api import imaging
 from modules.notification_center import Severity, notifications
+from tests.log_capture import records_of
+
+# The facts a give-up line appends: the wait, the feed's two counts across
+# it, and the last stored frame's age at the give-up.
+_FEED_ACCOUNT = re.compile(
+    r'waited (?P<waited>\d+\.\d+)s from steady \d+\.\d+s; '
+    r'handed over (?P<handed_from>\d+)->(?P<handed_to>\d+), '
+    r'stored (?P<stored_from>\d+)->(?P<stored_to>\d+); '
+    r'last stored seq=\d+, (?P<age>\d+\.\d+)s before'
+)
+
+
+def _give_up_lines(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in records_of(caplog, imaging)
+        if r.levelno >= logging.WARNING and 'waited ' in r.getMessage()
+    ]
+
 
 AUTO_GAIN = {
     'target_brightness': 0.5,
@@ -67,6 +90,46 @@ class TestAStalledStream:
             )
 
         assert failed.value.reason == 'no_frame'
+
+
+class TestAGiveUpStatesItsWait:
+    """A capture that gives up waiting for a frame logs how long it waited and
+    what the camera's feed did meanwhile, so a red or a field log names whether
+    the feed stopped, the store stopped, or frames were stored and not taken.
+    The line is the product here: it is what a red's report carries."""
+
+    @pytest.mark.parametrize('pending', [True, False], ids=['draining', 'grabbing'])
+    def test_a_held_feed_names_the_wait_no_frame_in_it_and_the_last_frames_age(
+        self, sim_scope, caplog, pending
+    ):
+        sim_scope.imaging.capture_and_wait(timeout_s=1.0)  # a frame stored before the hold
+        if pending:
+            sim_scope.imaging.frame_validity.invalidate('exposure', began_ns=None)
+        sim_scope.simulation.stall_stream(0.0, 30.0)
+        caplog.clear()
+
+        with pytest.raises(CaptureFailedError):
+            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+
+        lines = _give_up_lines(caplog)
+        assert len(lines) == 1, f'one give-up line, stating its wait; got {lines}'
+        account = _FEED_ACCOUNT.search(lines[0])
+        assert account is not None, f'the line does not state the wait: {lines[0]}'
+        assert float(account['waited']) >= 1.0
+        assert account['handed_from'] == account['handed_to'], 'a frame handed over in a hold'
+        assert account['stored_from'] == account['stored_to'], 'a frame stored in a hold'
+        assert float(account['age']) >= float(account['waited']), (
+            'the last frame arrived before the wait began'
+        )
+
+    def test_a_feed_released_inside_the_bound_captures_and_states_no_give_up(
+        self, sim_scope, caplog
+    ):
+        sim_scope.simulation.stall_stream(0.0, 0.3)
+
+        sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+
+        assert _give_up_lines(caplog) == []
 
 
 class TestARemovedCamera:

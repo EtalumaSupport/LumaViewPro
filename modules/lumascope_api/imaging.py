@@ -131,6 +131,44 @@ class _Judged:
         return None
 
 
+@dataclasses.dataclass(frozen=True)
+class _FeedMark:
+    """The camera's feed at one instant on the scope's steady clock: where a wait starts.
+
+    A wait that gives up states against its mark how long it waited and what
+    the feed did meanwhile (``account``). Both counts are read because they
+    stop apart: frames handed over stop when the feed stops, frames stored
+    stop when the store stage wedges while the feed runs, and both rising
+    with no frame taken is a wait that missed frames the store had. The last
+    stored frame is read at the give-up; a driver whose fresh-frame grab
+    empties the store as it starts (the FX2's) holds none after a wait in
+    which nothing arrived.
+    """
+
+    at_ns: int
+    handed_over: int
+    stored: int
+
+    @classmethod
+    def read(cls, driver: Camera) -> _FeedMark:
+        return cls(host_clock.steady_ns(), driver.frames_delivered, driver.delivered_counts[0])
+
+    def account(self, driver: Camera) -> str:
+        """The wait from this mark to now and what the feed did in it, for a give-up line."""
+        now = _FeedMark.read(driver)
+        last = driver.grab()
+        last_stored = (
+            f'last stored seq={last.seq}, {(now.at_ns - last.arrived_ns) / 1e9:.3f}s before'
+            if last is not None
+            else 'no frame in the store'
+        )
+        return (
+            f'waited {(now.at_ns - self.at_ns) / 1e9:.3f}s from steady {self.at_ns / 1e9:.3f}s; '
+            f'handed over {self.handed_over}->{now.handed_over}, '
+            f'stored {self.stored}->{now.stored}; {last_stored}'
+        )
+
+
 def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
     """The one line a successful capture leaves: the frame it returned, how
     well the camera's clock was mapped beside it, and how long after each
@@ -922,6 +960,7 @@ class ImagingAPI:
             raise HardwareCommandRefusedError('camera_not_streaming', member)
 
         hold_start = time.monotonic()
+        hold_mark = _FeedMark.read(self._driver)
         exposure_s = self._camera._grab_sizing_exposure_s()
         grab_timeout_s = max(exposure_s * 3, 1.0)
 
@@ -979,7 +1018,8 @@ class ImagingAPI:
                 f'deadline_s={deadline_s:.3f}s (n_entry={n_entry}, '
                 f'rechecks={recheck_cycles}, '
                 f'wall={time.monotonic() - hold_start:.3f}s); invalidation '
-                f'outran the capture budget. Distinct from grab failure.'
+                f'outran the capture budget. Distinct from grab failure. '
+                f'{hold_mark.account(self._driver)}'
             )
             _record_capture_info()
             return CaptureFailedError('deadline_expired')
@@ -1048,6 +1088,7 @@ class ImagingAPI:
                     break
                 if _deadline_expired():
                     raise _deadline_expired_error('drain-loop')
+                drain_mark = _FeedMark.read(self._driver)
                 drained = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
                 if drained is not None:
                     self.frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
@@ -1062,7 +1103,7 @@ class ImagingAPI:
                         f'grab_new_capture returned status=False after '
                         f'{grab_timeout_s:.1f}s timeout '
                         f'(drained={drain_iterations}, frames_until_valid={remaining}, '
-                        f'device_removed={removed})'
+                        f'device_removed={removed}); {drain_mark.account(self._driver)}'
                     )
                     _record_capture_info()
                     if removed:
@@ -1662,12 +1703,14 @@ class ImagingAPI:
         # until the first one lands. Local by construction: a bound that
         # outlived one capture would reject the next capture's frames.
         earliest_seq = None
-        timeout_td = datetime.timedelta(seconds=timeout_s)
+        timeout_ns = int(timeout_s * 1e9)
         for frame_index in range(sum_count):
             # Waiting for a sum's next frame is its own leg, for the log.
             leg = 'sum' if frame_index else 'grab'
-            start_time = datetime.datetime.now()
-            stop_time = start_time + timeout_td
+            # Timed on the clock the frames' arrivals carry, so a give-up
+            # line's wait and the last frame's age are on one clock.
+            mark = _FeedMark.read(self._driver)
+            stop_ns = mark.at_ns + timeout_ns
 
             while True:
                 # Acquire cam_lock for camera grab -- prevents concurrent
@@ -1689,8 +1732,11 @@ class ImagingAPI:
                     if self._camera.camera_removed or not self._driver.active:
                         logger.error('[SCOPE API ] get_image: camera disconnected')
                         return _NoFrame('removed', leg)
-                    if datetime.datetime.now() > stop_time:
-                        logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
+                    if host_clock.steady_ns() > stop_ns:
+                        logger.error(
+                            f'[SCOPE API ] get_image timeout ({timeout_s:.1f}s) exceeded; '
+                            f'{mark.account(self._driver)}'
+                        )
                         return _NoFrame('no_frame', leg)
                     logger.debug('[SCOPE API ] get_image grab failed, retrying')
                     time.sleep(0.05)
@@ -1704,14 +1750,15 @@ class ImagingAPI:
                     expired = (
                         host_clock.steady_ns() > judged.clock_bound_ns
                         if judged.clock_bound_ns is not None
-                        else datetime.datetime.now() > stop_time
+                        else host_clock.steady_ns() > stop_ns
                     )
                     source = unmet.change.source
                     if expired:
                         logger.warning(
                             f'[SCOPE API ] get_image: no frame counted for the {source} '
                             f'change within the grab bound (last frame seq={frame.seq}, '
-                            f'{unmet.change.rule.rule.value} rule) -- capture rejected.'
+                            f'{unmet.change.rule.rule.value} rule) -- capture rejected. '
+                            f'{mark.account(self._driver)}'
                         )
                         return _NoFrame('no_fresh_frame', leg, source=source)
                     logger.debug(
@@ -1777,7 +1824,7 @@ class ImagingAPI:
                         # Darkness says nothing about the LED -- only tracked
                         # illumination state does -- so it decides nothing
                         # here beyond what gets logged and recorded.
-                        if datetime.datetime.now() > stop_time:
+                        if host_clock.steady_ns() > stop_ns:
                             # Recorded as dark on the capture's record, and
                             # told by whoever took the capture, as a blown
                             # frame is.
@@ -1823,7 +1870,7 @@ class ImagingAPI:
                     # is equally acceptable.
                     stale_source = self._chunk_target_mismatch(frame.chunks)
                     if stale_source is not None:
-                        if datetime.datetime.now() > stop_time:
+                        if host_clock.steady_ns() > stop_ns:
                             chunks = frame.chunks or {}
                             chunk_key = self.frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
                             logger.warning(
@@ -1834,7 +1881,8 @@ class ImagingAPI:
                                 f'target={self.frame_validity.target(stale_source)}) -- '
                                 f'either the camera is still delivering frames '
                                 f'exposed under the previous settings, or it '
-                                f'clamped the requested value. Capture rejected.'
+                                f'clamped the requested value. Capture rejected. '
+                                f'{mark.account(self._driver)}'
                             )
                             return _NoFrame('chunk_rejected', leg, source=stale_source)
                         logger.debug(
@@ -1871,8 +1919,11 @@ class ImagingAPI:
                 )
 
                 # Timestamp not met -- check timeout then retry
-                if datetime.datetime.now() > stop_time:
-                    logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
+                if host_clock.steady_ns() > stop_ns:
+                    logger.error(
+                        f'[SCOPE API ] get_image timeout ({timeout_s:.1f}s) exceeded; '
+                        f'{mark.account(self._driver)}'
+                    )
                     return _NoFrame('no_frame', leg)
                 time.sleep(0.05)
 
