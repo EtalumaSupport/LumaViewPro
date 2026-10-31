@@ -47,7 +47,7 @@ from modules.sequenced_capture_runner import (
 from modules.run_events import RunEvents
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -104,8 +104,7 @@ def _build_protocol():
 
     import pandas as pd
 
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_make_step()]),

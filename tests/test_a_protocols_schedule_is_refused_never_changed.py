@@ -33,9 +33,9 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
-from tests.scope_fakes import stock_unit
 from tests.installation_fixtures import shipped_grids
 from modules.protocol import StoredNames
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TEMPLATE = REPO / 'data' / 'settings.json'
@@ -62,8 +62,7 @@ def _schedule_s(protocol: Protocol) -> tuple:
 
 
 def _protocol(period=PERIOD, duration=DURATION) -> Protocol:
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),
@@ -115,7 +114,9 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
+            protocol_from_file(
+                file_path=path,
+            )
 
         assert str(path) in str(refused.value)
 
@@ -127,7 +128,9 @@ class TestTheConstructors:
         path.write_text(text)
 
         with pytest.raises(ProtocolScheduleRefusedError) as refused:
-            Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
+            protocol_from_file(
+                file_path=path,
+            )
 
         assert str(path) in str(refused.value)
 
@@ -189,17 +192,13 @@ class TestAReaderThatNeverRunsTheProtocol:
 
     def test_the_same_file_is_still_refused_when_loaded_to_run(self, tmp_path):
         with pytest.raises(ProtocolScheduleRefusedError):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
-                tiling_grids=shipped_grids(),
-                unit=stock_unit(),
             )
 
     def test_a_reader_that_does_not_judge_keeps_the_schedule_as_the_file_has_it(self, tmp_path):
-        protocol = Protocol.from_file(
-            file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
-            tiling_grids=shipped_grids(),
-            unit=StoredNames.KEPT,
+        protocol = protocol_from_file(
+            self._run_folder(tmp_path) / 'unsaved_protocol.tsv', unit=StoredNames.KEPT
         )
 
         assert protocol.period_s() == 0.005 * 60

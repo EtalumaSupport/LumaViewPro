@@ -18,8 +18,7 @@ import pandas as pd
 from modules.notification_center import Severity
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunMode, SequencedCaptureRunner
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 
 def _step():
@@ -55,8 +54,7 @@ def _step():
 
 
 def _protocol(*, period: datetime.timedelta, duration: datetime.timedelta) -> Protocol:
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step()]),
@@ -97,7 +95,9 @@ def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path):
     protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(hours=1))
     path = tmp_path / 'period_zero.tsv'
     protocol.to_file(path)
-    reloaded = Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
+    reloaded = protocol_from_file(
+        file_path=path,
+    )
     assert _scan_count(reloaded) == 1
 
 

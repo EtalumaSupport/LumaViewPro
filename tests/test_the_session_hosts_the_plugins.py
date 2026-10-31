@@ -36,7 +36,7 @@ from modules.scope_session import ScopeSession
 from tests.test_a_late_write_records_its_frame import _step
 from tests.settings_fixtures import complete_settings
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 WAIT_S = 60.0
 
@@ -99,8 +99,7 @@ def _recording_processor():
 
 def _one_scan_protocol(name='P1'):
     """A Full Protocol whose duration ends it after its first scan."""
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step(name, 0, x=20.0, gain=1.0)]),

@@ -37,7 +37,6 @@ from modules.common_utils import PostFunction
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 
@@ -49,9 +48,9 @@ from tests.test_validate_steps import (
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
 from tests.log_capture import records_of
-from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -141,7 +140,9 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, centr
     tsv = tmp_path / 'renamed_dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.num_steps() == 2, 'the file must load so the user can rename the steps'
     captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
@@ -172,7 +173,9 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
     rows = _step_row('custom0007_BF', '', '', -1, -1, 46.5, 34.6, 4972.9)
     tsv = tmp_path / 'custom7.tsv'
     tsv.write_text(_build_tsv(rows))
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.step_row(step_index=0)['Label'] == 'custom0007'
 
     returned_name = proto.insert_step(
@@ -547,7 +550,9 @@ def test_loader_infers_tiling_from_tile_column(tmp_path):
     tsv = tmp_path / 'tiled.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.tiling() == '2x2'
 
 
@@ -564,7 +569,9 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
     tsv = tmp_path / 'tile_shaped_names.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     # Anything but the no-tiling label means a tiling was faked from the names.
     assert proto.tiling() == '1x1'
     # The user text itself survives as the labels.
@@ -627,7 +634,9 @@ def test_load_sanitizes_labels_loudly(tmp_path, caplog):
     tsv.write_text(_V8_HEADER + _v8_row('A.1_BF', 'A.1', 'B2'))
 
     with caplog.at_level(logging.WARNING):
-        proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+        proto = protocol_from_file(
+            file_path=tsv,
+        )
     warnings = [
         r.getMessage() for r in records_of(caplog, protocol_mod) if r.levelno == logging.WARNING
     ]
@@ -646,7 +655,9 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, centre_posts)
         + _v8_row('A.1_BF', 'A.1', 'B2', tile_group=0, x=1.0)
         + _v8_row('A1_BF', 'A1', 'B3', tile_group=1, x=2.0)
     )
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert list(proto.steps()['Label']) == ['A1', 'A1']
     notified = [n.message for n in centre_posts]
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
@@ -672,7 +683,9 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts
     rows += _step_row('A1_BF', 'A1', '', -1, 1, 46.5, 34.6, 5001.7)
     tsv = tmp_path / 'objective_disambiguated.tsv'
     tsv.write_text(_build_tsv(rows))
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    proto = protocol_from_file(
+        file_path=tsv,
+    )
     assert proto.num_steps() == 2
     assert centre_posts == [], centre_posts
 

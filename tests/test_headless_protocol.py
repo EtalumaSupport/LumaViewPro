@@ -22,6 +22,7 @@ import datetime
 import sys
 import threading
 from unittest.mock import MagicMock
+from tests.protocol_fixtures import protocol_of
 
 
 # Heavy non-GUI deps (lvp_logger, pypylon, ids_peak, ...) are mocked by
@@ -65,7 +66,6 @@ from modules.scope_session import ScopeSession
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
-from tests.installation_fixtures import shipped_grids
 from modules.layer_record import release_colors
 
 install_mock_deps()
@@ -215,7 +215,7 @@ class TestHeadlessProtocolExecution:
             'capture_root': '',
             'tiling': '1x1',
         }
-        return Protocol(tiling_grids=shipped_grids(), config=config)
+        return protocol_of(config=config)
 
     def test_kivy_stays_unloaded_during_protocol_run(self, tmp_path):
         """Full protocol run must not cause Kivy to be loaded at any point."""

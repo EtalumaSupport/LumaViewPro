@@ -16,13 +16,12 @@ import pytest
 
 from modules import labware_loader
 from modules.exceptions import ConfigError
-from modules.protocol import Protocol, ProtocolFormatError
+from modules.protocol import ProtocolFormatError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.case_walk import failing_cases
-from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 
 CATALOGUE = labware_loader.WellPlateLoader(source_path='.')
@@ -118,10 +117,8 @@ class TestTheReader:
 
     def test_a_retired_spelling_loads_as_its_key(self, tmp_path):
         def check(old_name, key):
-            proto = Protocol.from_file(
+            proto = protocol_from_file(
                 file_path=_protocol_file(tmp_path, old_name),
-                tiling_grids=shipped_grids(),
-                unit=stock_unit(),
             )
             assert proto.labware_id() == key
 
@@ -132,29 +129,23 @@ class TestTheReader:
         self, tmp_path
     ):
         with pytest.raises(ProtocolFormatError, match=UNKNOWN_PLATE):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
-                tiling_grids=shipped_grids(),
                 wellplate_loader=CATALOGUE,
-                unit=stock_unit(),
             )
 
     def test_without_the_catalogue_an_unknown_plate_loads(self, tmp_path):
         """Post-processing re-reads a run's protocol on whatever install it is
         on, and never uses the plate. A reader that does not know the
         installation has no standing to refuse for it."""
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
-            tiling_grids=shipped_grids(),
-            unit=stock_unit(),
         )
         assert proto.labware_id() == UNKNOWN_PLATE
 
     def test_a_reloaded_legacy_file_is_saved_under_the_key(self, tmp_path):
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=_protocol_file(tmp_path, 'Center Dish'),
-            tiling_grids=shipped_grids(),
-            unit=stock_unit(),
         )
         saved = tmp_path / 'resaved.tsv'
         proto.to_file(file_path=saved)

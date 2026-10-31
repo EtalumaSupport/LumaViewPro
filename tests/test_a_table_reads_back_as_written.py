@@ -20,13 +20,12 @@ from modules.post_processing import (
     PostProcessing,
     read_cell_count_results,
 )
-from modules.protocol import Protocol, ProtocolFormatError
+from modules.protocol import ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
 from tests.test_post_processing_stays_inside_its_folder import _project, _run_folder
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from modules.protocol import StoredNames
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']
 
@@ -61,7 +60,7 @@ def test_a_step_renamed_to_a_missing_value_word_reloads_with_that_name(tmp_path,
     path = tmp_path / 'protocol.tsv'
     protocol.to_file(path)
 
-    step = Protocol.from_file(path, shipped_grids(), unit=stock_unit()).step_row(step_index=0)
+    step = protocol_from_file(path).step_row(step_index=0)
 
     assert (step['Label'], step['Name']) == (name, f'{name}_BF_Z0')
 
@@ -83,7 +82,7 @@ def test_a_protocol_whose_step_cell_no_writer_produces_is_refused_naming_it(
     path = _saved_with_well_cell(tmp_path, cell)
 
     with pytest.raises(ProtocolFormatError, match=words) as refused:
-        Protocol.from_file(path, shipped_grids(), unit=stock_unit() if to_run else StoredNames.KEPT)
+        protocol_from_file(path, unit=None if to_run else StoredNames.KEPT)
 
     assert refused.value.file == path
 

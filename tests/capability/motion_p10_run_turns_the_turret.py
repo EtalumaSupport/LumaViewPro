@@ -24,7 +24,7 @@ import pandas as pd
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless_session, report
 
 from modules.lumascope_api.illumination import LedState
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 RUN_TIMEOUT_S = 120.0
 
@@ -128,8 +128,7 @@ def main():
         position = session.get_current_plate_position()
         figure('step position (plate mm, z um)', position)
         layer = session.settings['BF']
-        protocol = Protocol(
-            tiling_grids=shipped_grids(),
+        protocol = protocol_of(
             config={
                 'version': Protocol.CURRENT_VERSION,
                 'steps': pd.DataFrame(

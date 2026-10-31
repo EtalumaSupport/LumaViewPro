@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from tests.protocol_fixtures import protocol_of
 
 
 class _StubWidget:
@@ -51,9 +52,7 @@ for _name, _attr in (
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 from modules.notification_center import notifications
-from modules.protocol import Protocol
 from modules.coord_transformations import PlateLocation
-from tests.installation_fixtures import shipped_grids
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -72,8 +71,7 @@ LAYER_CONFIG = {
 
 
 def _protocol(num_steps):
-    protocol = Protocol(
-        tiling_grids=shipped_grids(),
+    protocol = protocol_of(
         config={'steps': pd.DataFrame(), 'custom_step_count': 0},
     )
     for i in range(num_steps):

@@ -39,9 +39,8 @@ from tests.scope_fakes import TEST_TURRET_OBJECTIVES, channel_reading, home_sim_
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
-from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 _PLATE = '96 well microplate'
 _OTHER_PLATE = 'Four-Slide Holder'
@@ -81,8 +80,7 @@ def _step(x: float, y: float, z: float, objective: str) -> dict:
 
 
 def _protocol(labware: str, *steps: dict) -> Protocol:
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(list(steps)),
@@ -444,7 +442,7 @@ class TestTheStepIntoItsLayer:
                 cells = [cells[i] for i in keep]
             lines.append('\t'.join(cells))
         saved.write_text('\n'.join(lines) + '\n')
-        protocol = Protocol.from_file(saved, shipped_grids(), unit=stock_unit())
+        protocol = protocol_from_file(saved)
         stimulating = [
             layer
             for layer, values in no_motor_session.settings.items()

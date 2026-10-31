@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from tests.protocol_fixtures import protocol_of
 
 
 class _StubWidget:
@@ -61,7 +62,6 @@ from modules.notification_center import notifications
 from modules.acquire_mode import AcquireMode
 from modules.protocol import Protocol
 from tests.ast_seams import parse_module
-from tests.installation_fixtures import shipped_grids
 from tests.scope_fakes import home_sim_scope
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -73,8 +73,7 @@ STORED = (20, 48)
 
 
 def _protocol() -> Protocol:
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),

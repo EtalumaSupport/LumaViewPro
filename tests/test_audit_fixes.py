@@ -47,6 +47,7 @@ from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import EngineRun
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.protocol_drives import run_identity
+from tests.protocol_fixtures import protocol_from_file
 
 
 def _posted(centre_posts, *severities):
@@ -137,31 +138,26 @@ class TestProtocolFileLimits:
 
     def test_rejects_oversized_file(self, tmp_path):
         """A file > 10 MB should be rejected before parsing."""
-        from modules.protocol import Protocol, ProtocolFormatError
+        from modules.protocol import ProtocolFormatError
 
         big_file = tmp_path / 'huge_protocol.tsv'
         big_file.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
 
         with pytest.raises(ProtocolFormatError, match='exhausting memory'):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=big_file,
-                tiling_grids=shipped_grids(),
-                unit=stock_unit(),
             )
 
     def test_accepts_file_under_limit(self, tmp_path):
         """A small file should pass the size check (may fail later on format,
         but should NOT be refused for its size)."""
-        from modules.protocol import Protocol
 
         small_file = tmp_path / 'small.tsv'
         small_file.write_text('LumaViewPro Protocol\n')
 
         with pytest.raises(Exception) as exc_info:
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=small_file,
-                tiling_grids=shipped_grids(),
-                unit=stock_unit(),
             )
         assert 'exhausting memory' not in str(exc_info.value)
 
@@ -2829,10 +2825,8 @@ from tests.scope_fakes import (
 from tests.installation_fixtures import copy_installation_files
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
-from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
 from modules.lumascope_api.frame_record import CapturedStill
-from tests.installation_fixtures import shipped_grids
 
 
 def _function_source(source: str, func_name: str) -> str:

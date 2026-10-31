@@ -47,6 +47,7 @@ from tests.protocol_drives import (
     held_run_claim,
     wait_for_run_end,
 )
+from tests.protocol_fixtures import protocol_of
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -181,7 +182,7 @@ def _make_protocol(steps_config):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_grids=shipped_grids(), config=config)
+    return protocol_of(config=config)
 
 
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
@@ -691,7 +692,6 @@ class TestIntegrationStateAssertions:
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
-from tests.installation_fixtures import shipped_grids
 from modules.protocol_runner import ProtocolRunner
 from modules.layer_record import release_colors
 

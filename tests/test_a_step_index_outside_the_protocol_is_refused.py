@@ -25,8 +25,8 @@ from modules.protocol import Protocol, StepEditRefusedError, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from tests.installation_fixtures import shipped_grids
 from modules.coord_transformations import PlateLocation
+from tests.protocol_fixtures import protocol_of
 
 NUM_STEPS = 3
 OUTSIDE = [NUM_STEPS, NUM_STEPS + 3, -1]
@@ -120,8 +120,7 @@ def test_a_frame_with_its_own_index_is_written_by_position():
         [_make_step(name=f'A{i + 1}_BF', well=f'A{i + 1}') for i in range(NUM_STEPS)],
         index=[5, 7, 9],
     )
-    protocol = Protocol(
-        tiling_grids=shipped_grids(),
+    protocol = protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': frame,

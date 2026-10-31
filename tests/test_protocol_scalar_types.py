@@ -34,8 +34,7 @@ import pandas as pd
 
 from modules.config_helpers import find_nearest_step
 from modules.protocol import Protocol
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 
 def _step_row(name='S1', x=1.5, y=2.5, z=3.5, color='BF', illumination=5.0):
@@ -91,8 +90,7 @@ def _protocol_from_dataframe(rows):
 
 
 def _wrap(df):
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': df,
@@ -138,8 +136,8 @@ class TestProtocolHandsOutPythonScalars:
         protocol = _protocol_from_declared_schema([_step_row()])
         filepath = tmp_path / 'p.tsv'
         assert protocol.to_file(filepath) is None
-        reloaded = Protocol.from_file(
-            file_path=filepath, tiling_grids=shipped_grids(), unit=stock_unit()
+        reloaded = protocol_from_file(
+            file_path=filepath,
         )
         offenders = _numpy_valued(reloaded.step_row(0))
         assert not offenders, (

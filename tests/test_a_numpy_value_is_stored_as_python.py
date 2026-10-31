@@ -21,13 +21,11 @@ import pytest
 from modules import post_processing
 from modules.python_values import python_values
 from tests.settings_fixtures import complete_settings
-from modules.protocol import Protocol
-from tests.scope_fakes import stock_unit
 from tests.test_run_refusal_contract import (
     _build_real_protocol,
     _make_single_step_protocol,
 )
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 
 def test_numpy_scalars_at_any_depth_become_python_and_nothing_else_changes():
@@ -131,7 +129,7 @@ class TestAProtocolsConfigCells:
 
         protocol.to_file(path)
 
-        reopened = Protocol.from_file(path, shipped_grids(), unit=stock_unit())
+        reopened = protocol_from_file(path)
         assert reopened.step_row(0)['Video Config'] == {'duration': 1, 'fps': 5.0}
 
 

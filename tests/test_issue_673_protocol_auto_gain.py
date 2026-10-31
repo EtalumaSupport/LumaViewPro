@@ -49,7 +49,7 @@ from modules.sequenced_capture_runner import (
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.layer_record import release_colors
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 
 def _build_single_step_ag_protocol(color='BF', auto_gain=True):
@@ -100,7 +100,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_grids=shipped_grids(), config=config)
+    return protocol_of(config=config)
 
 
 # ---------------------------------------------------------------------------

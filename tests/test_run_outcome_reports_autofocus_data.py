@@ -45,8 +45,8 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
-from tests.installation_fixtures import shipped_grids
 from modules.layer_record import release_colors
+from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -96,7 +96,7 @@ def _make_af_step_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_grids=shipped_grids(), config=config)
+    return protocol_of(config=config)
 
 
 @contextlib.contextmanager

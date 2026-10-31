@@ -17,16 +17,14 @@ import pandas as pd
 from modules.protocol import Protocol
 from tests.ast_seams import REPO_ROOT
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 TYPED = 'exp/2026:10'
 PREFIX = 'exp202610'
 
 
 def _protocol(capture_root=''):
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),
@@ -66,8 +64,8 @@ class TestTheRootAndItsPrefix:
         assert _protocol(TYPED).capture_prefix() == PREFIX
 
     def test_a_loaded_root_keeps_its_text_and_gives_the_same_prefix(self, tmp_path):
-        loaded = Protocol.from_file(
-            _file(tmp_path, TYPED), tiling_grids=shipped_grids(), unit=stock_unit()
+        loaded = protocol_from_file(
+            _file(tmp_path, TYPED),
         )
 
         assert (loaded.capture_root(), loaded.capture_prefix()) == (TYPED, PREFIX)

@@ -27,7 +27,7 @@ from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -75,8 +75,7 @@ def _token(objective_id):
 
 
 def _two_objective_protocol():
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step('first', FIRST, 0), _step('second', SECOND, 1)]),

@@ -18,23 +18,7 @@ import pytest
 
 
 from modules.protocol import Protocol
-from modules.tiling_config import TilingGrids
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_tiling_configs(tmp_path):
-    """Create minimal tiling configs file for Protocol.
-
-    A file every reader of tiling.json can use: one grid, and a default
-    naming it.
-    """
-    configs_file = tmp_path / 'tiling_configs.json'
-    configs_file.write_text('{"metadata": {"default": "1x1"}, "data": {"1x1": {"m": 1, "n": 1}}}')
-    return configs_file
+from tests.protocol_fixtures import protocol_of
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +103,7 @@ class TestDurationPrecision:
 
     def test_save_writes_nonzero_duration(self, tmp_path):
         """Saved protocol file must contain a non-zero duration for short protocols."""
-        tiling_file = _make_tiling_configs(tmp_path)
-        protocol = Protocol(tiling_grids=TilingGrids(tiling_file))
+        protocol = protocol_of()
 
         # Configure a minimal protocol with 10-second duration
         protocol._config = {

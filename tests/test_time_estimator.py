@@ -23,7 +23,7 @@ from modules.protocol_time_estimator import (
 )
 from tests.objective_records import objective
 from tests.stock_channels import LED0
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 
 # ---------------------------------------------------------------------------
@@ -40,8 +40,7 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None,
         df = pd.DataFrame()
     protocol.steps.return_value = df
     protocol.num_steps.return_value = len(df)
-    schedule = Protocol(
-        tiling_grids=shipped_grids(),
+    schedule = protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(),

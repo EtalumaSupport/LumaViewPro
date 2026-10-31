@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
+from tests.protocol_fixtures import protocol_of
 
 
 class _StubWidget:
@@ -62,12 +63,10 @@ import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
 from modules.acquire_mode import AcquireMode
 from modules.exceptions import ProtocolError
-from modules.protocol import Protocol
 from modules.coord_transformations import PlateLocation
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.stock_channels import LED0, LED2
-from tests.installation_fixtures import shipped_grids
 
 
 PLATE = '96 well microplate'
@@ -175,8 +174,7 @@ def env(gui_ctx, monkeypatch):
 
     def protocol(num_steps):
         """A real protocol whose step i stands at X = i past the base."""
-        built = Protocol(
-            tiling_grids=shipped_grids(),
+        built = protocol_of(
             config={
                 'steps': pd.DataFrame(),
                 'custom_step_count': 0,

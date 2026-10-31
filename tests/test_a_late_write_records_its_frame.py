@@ -41,7 +41,7 @@ from tests.test_manual_capture_member import (
     _settings,
     over_the_first_well,
 )
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -86,8 +86,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
 
 
 def _protocol(steps):
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame(steps),

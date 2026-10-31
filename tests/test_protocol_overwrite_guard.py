@@ -21,6 +21,7 @@ Defense-in-depth, two layers:
 import logging
 import pathlib
 import textwrap
+from tests.protocol_fixtures import protocol_from_file
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -36,8 +37,6 @@ from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 from modules.layer_record import release_colors
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
 from modules.lumascope_api.frame_record import CapturedStill
 from tests.log_capture import records_of
 
@@ -193,7 +192,6 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
     rejects: that would block the in-app rename which is the remedy; the
     data-loss gate is validate_for_run at run start.
     """
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -201,10 +199,8 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
     tsv = tmp_path / 'dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_grids=shipped_grids(),
-        unit=stock_unit(),
     )
     assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
     captured = [n.message for n in centre_posts]
@@ -218,7 +214,6 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     IDs still loads (nothing is rejected at load anymore; the collision
     warning fires and the run gate handles the rest).
     """
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -227,10 +222,8 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     tsv = tmp_path / 'tiled.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_grids=shipped_grids(),
-        unit=stock_unit(),
     )
     assert proto.num_steps() == 3
 
@@ -243,7 +236,6 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     telling the user the RUN will be refused until the steps are renamed
     -- the file still loads so the names can be edited.
     """
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -253,10 +245,8 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     tsv = tmp_path / 'cross_tgid.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_grids=shipped_grids(),
-        unit=stock_unit(),
     )
     assert proto.num_steps() == 4, (
         'Cross-TGID duplicates must NOT be rejected (the legitimate tiled-'
@@ -282,7 +272,6 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
 def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
     """Happy path: unique (Name, Well, Tile, Z-Slice) tuples produce
     no notification."""
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -290,10 +279,8 @@ def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
     tsv = tmp_path / 'clean.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    Protocol.from_file(
+    protocol_from_file(
         file_path=tsv,
-        tiling_grids=shipped_grids(),
-        unit=stock_unit(),
     )
     assert centre_posts == [], (
         f'No notification should fire for a well-formed protocol. Captured: {centre_posts}'
@@ -302,7 +289,6 @@ def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
 
 def test_load_accepts_unique_steps(tmp_path):
     """Sanity: unique steps load fine."""
-    from modules.protocol import Protocol
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -310,10 +296,8 @@ def test_load_accepts_unique_steps(tmp_path):
     tsv = tmp_path / 'ok.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    proto = Protocol.from_file(
+    proto = protocol_from_file(
         file_path=tsv,
-        tiling_grids=shipped_grids(),
-        unit=stock_unit(),
     )
     assert proto.num_steps() == 2
 

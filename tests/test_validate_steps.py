@@ -18,7 +18,7 @@ from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.stock_channels import LED0
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 
 # Real objective names from data/objectives.json -- must match for validation
@@ -36,8 +36,7 @@ def _make_protocol(
     labware_id: str = '96 well microplate',
 ) -> Protocol:
     """A protocol over ``steps_data``, built as a caller's ``config=`` is."""
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'steps': pd.DataFrame(steps_data),
             'period': datetime.timedelta(minutes=1),

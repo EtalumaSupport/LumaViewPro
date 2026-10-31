@@ -16,10 +16,8 @@ import pandas as pd
 import pytest
 
 from modules.exceptions import ProtocolNotSavedError
-from modules.protocol import Protocol
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 
 def _protocol(label='first'):
@@ -46,8 +44,8 @@ class TestAFailedSave:
         assert 'No space left on device' in str(raised.value)
         assert raised.value.file == target
         assert target.read_bytes() == before
-        reloaded = Protocol.from_file(
-            file_path=target, tiling_grids=shipped_grids(), unit=stock_unit()
+        reloaded = protocol_from_file(
+            file_path=target,
         )
         assert reloaded.steps()['Label'].to_list() == ['first']
         assert sorted(p.name for p in tmp_path.iterdir()) == ['plate.tsv'], (
@@ -69,7 +67,9 @@ def test_a_save_replaces_the_previous_file(tmp_path):
 
     _protocol(label='second').to_file(file_path=str(target))
 
-    reloaded = Protocol.from_file(file_path=target, tiling_grids=shipped_grids(), unit=stock_unit())
+    reloaded = protocol_from_file(
+        file_path=target,
+    )
     assert reloaded.steps()['Label'].to_list() == ['second']
     assert [p.name for p in tmp_path.iterdir()] == ['plate.tsv']
 

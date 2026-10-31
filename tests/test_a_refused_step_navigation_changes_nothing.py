@@ -35,10 +35,10 @@ import ui.ui_helpers as ui_helpers
 from modules.protocol import Protocol
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import ENQUEUED
-from tests.installation_fixtures import shipped_grids
 from tests.pool_fakes import run_task_now
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.stock_channels import LED1
+from tests.protocol_fixtures import protocol_of
 
 
 ON_TURRET = '10x Oly'
@@ -86,8 +86,7 @@ def _step(x: float, objective: str) -> dict:
 
 def _protocol(objective: str) -> Protocol:
     """Two steps apart in X, the second naming *objective*; the first the turret carries."""
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
             'steps': pd.DataFrame([_step(20.0, ON_TURRET), _step(40.0, objective)]),

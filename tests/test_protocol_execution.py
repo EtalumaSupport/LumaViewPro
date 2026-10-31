@@ -49,7 +49,7 @@ from tests.scope_fakes import (
 )
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -136,7 +136,7 @@ def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_grids=shipped_grids(), config=config)
+    return protocol_of(config=config)
 
 
 def _make_single_step_protocol(

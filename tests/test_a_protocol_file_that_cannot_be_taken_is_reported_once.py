@@ -17,13 +17,14 @@ import pytest
 
 from modules.exceptions import ProtocolNotLoadedError, Refusal
 from modules.notification_center import NotificationCenter, Severity
-from modules.protocol import Protocol, ProtocolFormatError
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from modules.protocol import ProtocolFormatError
+from tests.protocol_fixtures import protocol_from_file
 
 
 def _load(path):
-    return Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
+    return protocol_from_file(
+        file_path=path,
+    )
 
 
 def _report(error):

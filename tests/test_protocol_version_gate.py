@@ -26,8 +26,7 @@ import pytest
 
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file
 
 
 def _write_versioned_file(tmp_path, version, drop_columns=()):
@@ -74,7 +73,9 @@ def test_previous_version_file_loads_and_upgrades(tmp_path):
     filepath = _write_versioned_file(
         tmp_path, version=8, drop_columns=('Channel Group ID', 'Turret Slot')
     )
-    protocol = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+    protocol = protocol_from_file(
+        filepath,
+    )
     steps = protocol.steps()
     assert len(steps) == 1
     assert list(steps['Channel Group ID']) == [-1]
@@ -100,11 +101,15 @@ def test_every_enumerated_older_version_is_accepted(tmp_path):
         (8, ('Channel Group ID', 'Turret Slot')),
     ):
         filepath = _write_versioned_file(tmp_path, version=version, drop_columns=dropped)
-        protocol = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+        protocol = protocol_from_file(
+            filepath,
+        )
         assert len(protocol.steps()) == 1
 
 
 def test_future_version_refuses_loudly(tmp_path):
     filepath = _write_versioned_file(tmp_path, version=Protocol.CURRENT_VERSION + 1)
     with pytest.raises(ProtocolFormatError):
-        Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+        protocol_from_file(
+            filepath,
+        )

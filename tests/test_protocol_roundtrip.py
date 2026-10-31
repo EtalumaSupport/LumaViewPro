@@ -47,9 +47,8 @@ from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
-from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1, LED2
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_from_file, protocol_of
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +182,7 @@ def _build_protocol(steps, period_min=1.0, duration_hrs=1.0, labware='6 well mic
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(
-        tiling_grids=shipped_grids(),
+    return protocol_of(
         config=config,
     )
 
@@ -197,10 +195,8 @@ def _save_and_reload(protocol, tmp_path):
     assert result is None, f'to_file failed: {result}'
     assert filepath.exists(), 'Protocol file not created'
 
-    reloaded = Protocol.from_file(
+    reloaded = protocol_from_file(
         file_path=filepath,
-        tiling_grids=shipped_grids(),
-        unit=stock_unit(),
     )
     return reloaded
 
@@ -438,10 +434,8 @@ class TestRoundTripBasic:
             f'20x Oly\t\t\t-1\tTrue\t-1\t-1\tvideo\t{video_legacy}\t{stim_legacy}\t0\n'
         )
 
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=tsv,
-            tiling_grids=shipped_grids(),
-            unit=stock_unit(),
         )
         assert proto is not None
         step = proto.step_row(step_index=0)
@@ -490,10 +484,8 @@ class TestRoundTripBasic:
             f'20x Oly\t\t\t-1\tTrue\t-1\t-1\tvideo\t{video_only_duration}\t{stim_config}\t0\n'
         )
 
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=tsv,
-            tiling_grids=shipped_grids(),
-            unit=stock_unit(),
         )
         assert proto is not None
         step = proto.step_row(step_index=0)
@@ -540,10 +532,8 @@ class TestRoundTripBasic:
             "'frequency': 1, 'pulse_width': 10, 'pulse_count': 1}}\t0\n"
         )
 
-        proto = Protocol.from_file(
+        proto = protocol_from_file(
             file_path=tsv,
-            tiling_grids=shipped_grids(),
-            unit=stock_unit(),
         )
         assert proto is not None
         assert proto.labware_id() == '384 well microplate'
@@ -990,10 +980,8 @@ class TestRoundTripMetadata:
         filepath.write_text(patched, encoding='utf-8')
 
         with pytest.raises(ProtocolFormatError):
-            Protocol.from_file(
+            protocol_from_file(
                 file_path=filepath,
-                tiling_grids=shipped_grids(),
-                unit=stock_unit(),
             )
 
     def test_period_none_round_trips_as_zero(self, tmp_path):
@@ -1012,8 +1000,7 @@ class TestRoundTripMetadata:
             'capture_root': '',
             'tiling': '1x1',
         }
-        proto = Protocol(
-            tiling_grids=shipped_grids(),
+        proto = protocol_of(
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
@@ -1036,8 +1023,7 @@ class TestRoundTripMetadata:
             'capture_root': '',
             'tiling': '1x1',
         }
-        proto = Protocol(
-            tiling_grids=shipped_grids(),
+        proto = protocol_of(
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
@@ -2297,7 +2283,9 @@ class TestV6LayerSettings:
         # Save WITHOUT layer_settings (legacy save path)
         filepath = tmp_path / 'v5_shape.tsv'
         proto.to_file(filepath)
-        reloaded = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+        reloaded = protocol_from_file(
+            filepath,
+        )
         inferred = reloaded.channel_settings()
 
         assert set(inferred.keys()) == {'BF', LED0, LED1, LED2}
@@ -2348,7 +2336,9 @@ class TestV6LayerSettings:
         assert 'Layer Settings' in text
         assert 'Stim_Enabled' in text
 
-        reloaded = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+        reloaded = protocol_from_file(
+            filepath,
+        )
         ls_out = reloaded.channel_settings()
         assert set(ls_out.keys()) == {'BF', LED0}
         assert ls_out['BF'].acquire == 'image'
@@ -2376,7 +2366,9 @@ class TestV6LayerSettings:
         }
         filepath = tmp_path / 'v6_partial.tsv'
         proto.to_file(filepath, layer_settings=ls_in)
-        reloaded = Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+        reloaded = protocol_from_file(
+            filepath,
+        )
         ls_out = reloaded.channel_settings()
         assert 'BF' in ls_out
         assert LED0 not in ls_out
@@ -2404,14 +2396,18 @@ class TestV6LayerSettings:
             },
         )
 
-        reloaded1 = Protocol.from_file(filepath1, tiling_grids=shipped_grids(), unit=stock_unit())
+        reloaded1 = protocol_from_file(
+            filepath1,
+        )
         filepath2 = tmp_path / 'v6_second.tsv'
         # No layer_settings kwarg this time
         reloaded1.to_file(filepath2)
 
         text = filepath2.read_text()
         assert 'Layer Settings' in text
-        reloaded2 = Protocol.from_file(filepath2, tiling_grids=shipped_grids(), unit=stock_unit())
+        reloaded2 = protocol_from_file(
+            filepath2,
+        )
         ls = reloaded2.channel_settings()
         assert ls['BF'].acquire == 'image'
         assert ls['BF'].illumination_ma == 7.5
@@ -2447,7 +2443,9 @@ class TestV6LayerSettings:
             'A1_BF\t14.38\t11.24\t4000.0\tFalse\tBF\tFalse\t2.0\t1.0\tFalse\t2.0\t1\t10x Air\tA1\t\t-1\tFalse\t-1\t-1\timage\t"{""duration"": 5}"\t"{""Blue"": {""enabled"": false}}"\n'
         )
         with pytest.raises(ProtocolFormatError) as refused:
-            Protocol.from_file(filepath, tiling_grids=shipped_grids(), unit=stock_unit())
+            protocol_from_file(
+                filepath,
+            )
         assert refused.value.file == filepath
 
 

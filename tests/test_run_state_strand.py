@@ -27,7 +27,7 @@ from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from modules.run_events import RunEvents
-from tests.installation_fixtures import shipped_grids
+from tests.protocol_fixtures import protocol_of
 
 COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 
@@ -96,7 +96,7 @@ def _make_single_step_protocol():
         'capture_root': '',
         'tiling': '1x1',
     }
-    return Protocol(tiling_grids=shipped_grids(), config=config)
+    return protocol_of(config=config)
 
 
 class TestClaimRefusalLeavesNoState:

@@ -28,9 +28,8 @@ import pandas as pd
 import modules.protocol as protocol_module
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
-from tests.scope_fakes import stock_unit
-from tests.installation_fixtures import shipped_grids
 from tests.log_capture import records_of
+from tests.protocol_fixtures import protocol_from_file
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SHIPPED_DEFAULT = REPO / 'data' / 'new_default_protocol.tsv'
@@ -38,7 +37,9 @@ STEPPED_EXAMPLE = REPO / 'data' / 'example_protocol.tsv'
 
 
 def _load(path: pathlib.Path) -> Protocol:
-    return Protocol.from_file(file_path=path, tiling_grids=shipped_grids(), unit=stock_unit())
+    return protocol_from_file(
+        file_path=path,
+    )
 
 
 def test_the_shipped_default_loads_as_an_empty_protocol_carrying_the_files_own_facts():
