@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Application environment initialization -- paths, version, platform detection."""
 
+import datetime
 import logging
 import os
 import pathlib
@@ -262,6 +263,12 @@ def loaded_module_census() -> list[str]:
 INSTALLER_LOG_PATTERN = 'LumaViewPro*.log'
 _MAX_CAPTURED_INSTALLER_LOGS = 10
 
+# Each startup's captures land in their own folder under ``install/``, named
+# for the capture's time; the newest three are kept, so the logs of the last
+# three installs travel in a support bundle and older ones do not.
+INSTALL_CAPTURES_KEPT = 3
+_CAPTURE_FOLDER_FORMAT = '%Y-%m-%d-%H%M%S'
+
 # MSI writes its verbose log as UTF-16, so every character costs two bytes
 # for no added information -- a single install log runs ~6 MB where the
 # same text is ~3 MB. These land in the user's Documents folder and stay
@@ -325,9 +332,15 @@ def capture_installer_logs(
     (see ``_transcode_utf16_to_utf8``), which halves what the user's
     Documents folder carries and loses nothing.
 
+    Each start's captures go into their own folder,
+    ``install/<YYYY-MM-DD-HHMMSS>/``, and only the newest
+    ``INSTALL_CAPTURES_KEPT`` folders are kept. A capture is grouped by the
+    start that took it, never by the logs' names: the elevated step's log
+    carries its own time, so names would split one install in two.
+
     Args:
-        log_dir: Application log folder; logs land in its ``install``
-            subfolder.
+        log_dir: Application log folder; logs land in a capture folder under
+            its ``install`` subfolder.
         temp_dir: Directory to scan. Defaults to the system temp folder.
         max_files: Newest-first cap, so a long-lived TEMP cannot turn
             startup into a large copy.
@@ -348,19 +361,28 @@ def capture_installer_logs(
     source_dir = (
         pathlib.Path(temp_dir) if temp_dir is not None else pathlib.Path(tempfile.gettempdir())
     )
-    destination = pathlib.Path(log_dir) / 'install'
+    install_dir = pathlib.Path(log_dir) / 'install'
+    _fold_flat_captures(install_dir)
     try:
         candidates = [path for path in source_dir.glob(INSTALLER_LOG_PATTERN) if path.is_file()]
     except OSError as e:
         _logger.warning(f'Could not scan {source_dir} for installer logs: {e}')
         return copied
 
+    # A log captured before and still in TEMP -- it grew, or Windows would
+    # not let it be deleted -- belongs to the install it was first taken
+    # with, so it is recaptured into that folder; every other log goes into
+    # this capture's own folder.
+    captured_before = {
+        path.name: path for folder in _capture_folders(install_dir) for path in folder.iterdir()
+    }
+    this_capture = install_dir / datetime.datetime.now().strftime(_CAPTURE_FOLDER_FORMAT)
     candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     for source in candidates[:max_files]:
-        target = destination / source.name
+        target = captured_before.get(source.name, this_capture / source.name)
         try:
             if not (target.exists() and target.stat().st_mtime_ns == source.stat().st_mtime_ns):
-                destination.mkdir(parents=True, exist_ok=True)
+                target.parent.mkdir(parents=True, exist_ok=True)
                 if not _transcode_utf16_to_utf8(source, target):
                     shutil.copy2(source, target)
                 copied.append(source.name)
@@ -373,8 +395,51 @@ def capture_installer_logs(
             _logger.warning(f'Installer log {source.name} captured but left in {source_dir}: {e}')
 
     if copied:
-        _logger.info(f'Captured {len(copied)} installer log(s) into {destination}')
+        _logger.info(f'Captured {len(copied)} installer log(s) into {install_dir}')
+    for old in _capture_folders(install_dir)[:-INSTALL_CAPTURES_KEPT]:
+        shutil.rmtree(old)
+        _logger.info(
+            f'Removed the installer logs of {old.name}: '
+            f'only the last {INSTALL_CAPTURES_KEPT} are kept'
+        )
     return copied
+
+
+def _capture_folders(install_dir: pathlib.Path) -> list[pathlib.Path]:
+    """The capture folders under ``install_dir``, oldest first.
+
+    A folder's name is its capture's time, so the names sort in time order.
+    """
+    if not install_dir.is_dir():
+        return []
+    folders = []
+    for path in install_dir.iterdir():
+        try:
+            datetime.datetime.strptime(path.name, _CAPTURE_FOLDER_FORMAT)
+        except ValueError:
+            continue
+        if path.is_dir():
+            folders.append(path)
+    return sorted(folders, key=lambda path: path.name)
+
+
+def _fold_flat_captures(install_dir: pathlib.Path) -> None:
+    """Move logs captured before capture folders existed into one of their own.
+
+    Earlier versions captured every install's logs straight into
+    ``install/``; they are moved into a folder stamped with the newest of
+    them, so they are counted, and in time removed, like any other capture.
+    """
+    if not install_dir.is_dir():
+        return
+    flat = [path for path in install_dir.iterdir() if path.is_file()]
+    if not flat:
+        return
+    newest = max(path.stat().st_mtime for path in flat)
+    folder = install_dir / datetime.datetime.fromtimestamp(newest).strftime(_CAPTURE_FOLDER_FORMAT)
+    folder.mkdir(exist_ok=True)
+    for path in flat:
+        path.replace(folder / path.name)
 
 
 def preload_camera_sdks() -> None:
