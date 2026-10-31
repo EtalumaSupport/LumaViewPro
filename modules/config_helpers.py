@@ -213,7 +213,7 @@ def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
 def log_resolved_optics(
     objective_id: str,
     focal_length: float,
-    binning_size: int,
+    binning_size: int | None,
     *,
     capabilities: 'ScopeCapabilities | None',
 ) -> None:
@@ -254,6 +254,7 @@ def log_resolved_optics(
                 ('active scope', capabilities),
                 ('tube lens focal length', tube_focal_length),
                 ('sensor pixel size', pixel_width),
+                ('camera binning', binning_size),
             )
             if value is None
         ]

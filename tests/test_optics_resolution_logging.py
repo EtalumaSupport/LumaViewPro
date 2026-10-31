@@ -134,6 +134,39 @@ class TestNoScaleIsItselfReported:
         )
         assert 'None' not in line
 
+    def test_each_input_the_resolver_lacked_is_named(self, optics, caplog):
+        """Every way the resolver can answer no scale is named on the line,
+        so the missing list is never empty: the binning, read off the
+        camera, is unknown until the camera reports it, and a bundle showed
+        "missing: ." for exactly that case."""
+        cases = {
+            'active scope': (1, None),
+            'tube lens focal length': (
+                1,
+                SimpleNamespace(lens_focal_length_mm=None, pixel_size_um=SENSOR_PIXEL_SIZE_UM),
+            ),
+            'sensor pixel size': (
+                1,
+                SimpleNamespace(lens_focal_length_mm=TUBE_FOCAL_LENGTH_MM, pixel_size_um=None),
+            ),
+            'camera binning': (None, optics),
+        }
+        unnamed = {}
+        for expected, (binning_size, capabilities) in cases.items():
+            caplog.clear()
+            with caplog.at_level(logging.DEBUG):
+                config_helpers.log_resolved_optics(
+                    objective_id='20x',
+                    focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
+                    binning_size=binning_size,
+                    capabilities=capabilities,
+                )
+            line = ' '.join(_emitted(caplog))
+            named = line.partition('missing: ')[2].partition('.')[0]
+            if expected not in named:
+                unnamed[expected] = line
+        assert not unnamed, f'a no-scale line did not name what was missing: {unnamed}'
+
 
 class TestResolverStaysSilent:
     def test_get_pixel_size_does_not_log(self):
