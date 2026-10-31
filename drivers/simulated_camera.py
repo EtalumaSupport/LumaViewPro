@@ -31,7 +31,7 @@ from drivers.exceptions import (
     PartAbsentError,
 )
 from drivers.registry import camera_registry
-from drivers.simulated_specimen import DRIFT_STEPS, Specimen
+from drivers.simulated_specimen import DRIFT_STEPS, the_specimen
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -445,7 +445,7 @@ class SimulatedCamera(Camera):
         # unchanged; and each source's last defocused frame, reused while Z,
         # the objective, the frame and where it was cut are unchanged. Each
         # cache entry is a (key, value) pair, rebuilt when its key changes.
-        self._specimen = Specimen()
+        self._specimen = the_specimen()
         self._specimen_cut: dict[int, tuple] = {}
         self._drift_index = 0
         self._defocused: dict[str, tuple] = {}
@@ -566,12 +566,11 @@ class SimulatedCamera(Camera):
         # (the base config path takes them the other way). Acquisition is
         # stopped above, so nothing writes the frame buffer from here on.
         self._reset_lifecycle_state()
-        # A disconnected camera keeps nothing it drew. Its scope and the
+        # A disconnected camera keeps no frame it cut. Its scope and the
         # scope's API modules refer to each other, so the camera goes only at
-        # the collector's full pass, and its drawn tiles (up to the
-        # specimen's 512, about 34 MB) would go with it then, not now. A
-        # reconnect draws the same seeded specimen again.
-        self._specimen = Specimen()
+        # the collector's full pass, and its cut frames would go with it
+        # then, not now. The drawn tiles are the process's sample's, capped
+        # at its 512 (about 36 MB) however many cameras come and go.
         self._specimen_cut = {}
         self._defocused = {}
         return True

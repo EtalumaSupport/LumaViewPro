@@ -61,7 +61,7 @@ from drivers.fx2driver import (
     frame_time_s,
     parse_intel_hex,
 )
-from drivers.simulated_specimen import DRIFT_STEPS, Specimen
+from drivers.simulated_specimen import DRIFT_STEPS, the_specimen
 from drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
@@ -259,7 +259,7 @@ class SimulatedFX2Device:
         self._streaming = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._specimen = Specimen()
+        self._specimen = the_specimen()
         self._frame_index = 0
         self._pending: deque[bytes] = deque()
         self.extra_rows = 0

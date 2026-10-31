@@ -1365,44 +1365,80 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert cam.is_grabbing() is False
 
 
-class TestADisconnectedCameraKeepsNothingItDrew:
-    """A disconnected simulated camera holds none of the specimen it drew.
+def _held_by_the_specimen() -> int:
+    """Bytes allocated in the specimen's module since tracemalloc started, and still held.
 
-    The camera's scope and its API modules refer to each other, so a
-    disconnected scope is freed only at the collector's full pass; a test
-    process builds hundreds of scopes, and with each one's drawn tiles kept
-    until then a worker grew past its memory cap.
+    A frame a camera cuts from the sample is allocated there too, so a
+    count of the drawn sample is taken with no camera connected.
+    """
+    import tracemalloc
+
+    import drivers.simulated_specimen as specimen_module
+
+    snapshot = tracemalloc.take_snapshot().filter_traces(
+        [tracemalloc.Filter(True, specimen_module.__file__)]
+    )
+    return sum(stat.size for stat in snapshot.statistics('filename'))
+
+
+def _a_frame_at(x_um: float, y_um: float) -> SimulatedCamera:
+    """A connected simulated camera that has made a frame at (``x_um``, ``y_um``)."""
+    cam = SimulatedCamera(width=1920, height=1200)
+    cam.set_stage_xy(x_um, y_um)
+    cam.open_and_start()
+    grab_a_frame_made_after_now(cam)
+    return cam
+
+
+class TestTheSampleIsDrawnOncePerProcess:
+    """Every simulated camera in a process draws from one sample.
+
+    A camera that built its own sample drew every region again from cold,
+    and on a slow host that drawing, between a frame's hand-over and its
+    store, outlasted a capture's wait. The positions are far from any
+    other test's, so the tiles each test draws are its own.
     """
 
-    def test_disconnect_lets_go_of_the_drawn_specimen(self):
+    def test_a_second_camera_draws_no_region_the_first_drew(self, monkeypatch):
+        # Counted at the drawing itself: no public surface sees a drawing
+        # but its time, and a wall-time bound is what this fix removes.
+        # Only this test's region is counted, so a camera another test
+        # left streaming elsewhere does not count.
+        drawn = []
+        draw = Specimen._draw
+
+        def counted(specimen, top, left, scale):
+            if left * scale < -800_000.0:
+                drawn.append((top, left, scale))
+            return draw(specimen, top, left, scale)
+
+        monkeypatch.setattr(Specimen, '_draw', counted)
+        _a_frame_at(-900_000.0, 0.0).disconnect()
+        by_the_first = len(drawn)
+        drawn.clear()
+        _a_frame_at(-900_000.0, 0.0).disconnect()
+        assert by_the_first > 0, 'the first camera drew nothing: the count sees no drawing'
+        assert drawn == [], f'the second camera drew {len(drawn)} of the regions the first drew'
+
+    @pytest.mark.slow
+    def test_the_drawn_sample_is_capped_however_many_cameras_come_and_go(self):
         import tracemalloc
 
-        import drivers.simulated_specimen as specimen_module
-
-        def held_by_the_specimen() -> int:
-            snapshot = tracemalloc.take_snapshot().filter_traces(
-                [tracemalloc.Filter(True, specimen_module.__file__)]
-            )
-            return sum(stat.size for stat in snapshot.statistics('filename'))
-
+        # 20 frames of 1920 x 1200 at distinct places draw about 1000
+        # tiles. A tile keeps its 264 x 264 drawing with the margin, so the
+        # cap of 512 holds about 36 MB, with the cells of the grid squares
+        # beside it; 1000 kept would be about 70 MB. Every camera is
+        # disconnected before the count, so no frame cut from the sample is
+        # held.
         tracemalloc.start()
         try:
-            cam = SimulatedCamera(width=1920, height=1200)
-            cam.open_and_start()
-            grab_a_frame_made_after_now(cam)
-            drawn = held_by_the_specimen()
-            cam.disconnect()
-            kept = held_by_the_specimen()
+            for i in range(20):
+                _a_frame_at(900_000.0 + 4000.0 * i, 0.0).disconnect()
+            held = _held_by_the_specimen()
         finally:
             tracemalloc.stop()
-        # A 1920 x 1200 frame touches dozens of 64 kB tiles. What stays
-        # counted after the specimen is freed is its small cache tuples,
-        # which CPython keeps on its tuple free list rather than returning:
-        # about 100 kB here, against the whole drawing when it is kept.
-        assert drawn > 2**20, f'the frame drew only {drawn} bytes of specimen'
-        assert kept < drawn // 10, (
-            f'{kept} of the {drawn} bytes drawn are still held after disconnect'
-        )
+        assert held < 50 * 2**20, f'the drawn sample holds {held} bytes past its cap'
+        assert held > 30 * 2**20, f'the drawing held only {held} bytes, never reaching the cap'
 
 
 class TestTheSpecimenField:

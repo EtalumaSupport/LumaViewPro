@@ -4,7 +4,11 @@
 Both simulated cameras -- the stand-in ``SimulatedCamera`` and the simulated
 FX2's MT9P031 -- draw their frames from this one sample, so a simulated
 LS720 and a simulated LS850 at one stage position and objective look at the
-same cells, and a change to the scene is made once.
+same cells, and a change to the scene is made once. The process holds the
+sample once (``the_specimen()``): a region drawn for one camera is not drawn
+again for the next, and the drawn tiles are capped for the process however
+many cameras come and go. A camera with its own sample drew every region
+again from cold, between a frame's hand-over and its store.
 
 The sample is laid out in stage micrometres. A stage position shows the
 same cells every time it is imaged, two frames whose fields overlap on the
@@ -23,6 +27,7 @@ from __future__ import annotations
 
 import collections
 import math
+import threading
 
 import cv2
 import numpy as np
@@ -85,12 +90,17 @@ class Specimen:
     """The sample on the stage, drawn as a camera sees it.
 
     Holds the tiles drawn so far and the cells of the grid squares they
-    drew. One per camera: a camera draws from its
-    own frame-making thread, so the cache is never shared between threads.
+    drew. Shared by every simulated camera in the process, each drawing
+    from its own frame-making thread: the lock is held only to look a tile
+    or square up and to store it, never across its drawing, so one
+    camera's drawing of a region new to the process stalls no other
+    camera. Two threads drawing the same missing tile at once both draw
+    it, and the second store keeps an identical one: the scene is seeded.
     """
 
     def __init__(self, seed: int = _SEED):
         self._seed = seed
+        self._lock = threading.Lock()
         self._tiles: collections.OrderedDict[tuple, np.ndarray] = collections.OrderedDict()
         self._squares: collections.OrderedDict[tuple, tuple] = collections.OrderedDict()
 
@@ -146,15 +156,17 @@ class Specimen:
     def _tile(self, ty: int, tx: int, scale: float) -> np.ndarray:
         """Tile (``ty``, ``tx``) of the plane at ``scale``, drawn once and kept while it is in use."""
         key = (scale, ty, tx)
-        tile = self._tiles.get(key)
-        if tile is not None:
-            self._tiles.move_to_end(key)
-            return tile
+        with self._lock:
+            tile = self._tiles.get(key)
+            if tile is not None:
+                self._tiles.move_to_end(key)
+                return tile
         tile = self._draw(ty * _TILE_PX - _TILE_MARGIN_PX, tx * _TILE_PX - _TILE_MARGIN_PX, scale)
         tile = tile[_TILE_MARGIN_PX:-_TILE_MARGIN_PX, _TILE_MARGIN_PX:-_TILE_MARGIN_PX]
-        self._tiles[key] = tile
-        if len(self._tiles) > _TILES_KEPT:
-            self._tiles.popitem(last=False)
+        with self._lock:
+            self._tiles[key] = tile
+            if len(self._tiles) > _TILES_KEPT:
+                self._tiles.popitem(last=False)
         return tile
 
     def _draw(self, top: int, left: int, scale: float) -> np.ndarray:
@@ -236,10 +248,11 @@ class Specimen:
             each of x and y in um.
         """
         key = (gx, gy)
-        cached = self._squares.get(key)
-        if cached is not None:
-            self._squares.move_to_end(key)
-            return cached
+        with self._lock:
+            cached = self._squares.get(key)
+            if cached is not None:
+                self._squares.move_to_end(key)
+                return cached
         # The generator's seed takes no negative numbers; the stage's
         # squares run both ways from 0.
         rng = np.random.default_rng([self._seed, gx + 2**31, gy + 2**31])
@@ -252,9 +265,11 @@ class Specimen:
         owner = np.repeat(np.arange(n), rng.integers(2, 6, size=n))
         reach = cells[owner, 2:4] / 2
         puncta = cells[owner, 0:2] + rng.uniform(-reach, reach)
-        self._squares[key] = cached = (cells, puncta)
-        if len(self._squares) > _SQUARES_KEPT:
-            self._squares.popitem(last=False)
+        cached = (cells, puncta)
+        with self._lock:
+            self._squares[key] = cached
+            if len(self._squares) > _SQUARES_KEPT:
+                self._squares.popitem(last=False)
         return cached
 
     def _medium(self, rows_um: np.ndarray, cols_um: np.ndarray) -> np.ndarray:
@@ -279,3 +294,11 @@ class Specimen:
         h = (h ^ (h >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
         h = h ^ (h >> np.uint64(31))
         return (h >> np.uint64(11)).astype(np.float64) / float(1 << 53)
+
+
+_THE_SPECIMEN = Specimen()
+
+
+def the_specimen() -> Specimen:
+    """The one sample on the stage, which every simulated camera in the process images."""
+    return _THE_SPECIMEN
