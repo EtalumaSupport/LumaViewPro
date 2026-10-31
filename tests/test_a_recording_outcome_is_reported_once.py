@@ -104,7 +104,8 @@ def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch, post_
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingStoppedError) and fault.reason == 'camera_disconnected'
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # The recording's end, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
 
 def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
@@ -125,7 +126,8 @@ def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_pr
     stopped = [(f, kw) for f, kw in reported if isinstance(f, RecordingStoppedError)]
     ((fault, kw),) = stopped
     assert fault.reason == 'disk_floor'
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # The recording's end, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
 
 def test_a_failed_finish_is_one_fault_chained_from_what_failed(

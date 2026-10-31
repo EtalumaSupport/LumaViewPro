@@ -1888,6 +1888,7 @@ class SequencedCaptureRunner:
             RunFailedToStartError(reason=ending.reason, message=ending.message),
             solicited=False,
             category='Protocol',
+            ends_a_run=True,
         )
 
     def _unwind_run_not_begun(self, ending: RunEnding, run: EngineRun) -> None:
@@ -2147,7 +2148,7 @@ class SequencedCaptureRunner:
             from modules.notification_center import notifications
 
             notifications.report_outcome(
-                RunEndedByStopNotice(), solicited=False, category='Protocol'
+                RunEndedByStopNotice(), solicited=False, category='Protocol', ends_a_run=True
             )
             return ending
         if ending.status != RunStatus.COMPLETED:
@@ -2165,7 +2166,9 @@ class SequencedCaptureRunner:
         if self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE:
             from modules.notification_center import notifications
 
-            notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+            notifications.report_outcome(
+                incomplete, solicited=False, category='Protocol', ends_a_run=True
+            )
         return RunEnding(
             RunStatus.INCOMPLETE,
             'captures_failed',
@@ -2479,9 +2482,12 @@ class SequencedCaptureRunner:
                         solicited=False,
                         category='Protocol',
                         untyped_title='Composite Failed',
+                        ends_a_run=True,
                     )
                 if incomplete is not None:
-                    notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+                    notifications.report_outcome(
+                        incomplete, solicited=False, category='Protocol', ends_a_run=True
+                    )
             finally:
                 outcome.resolve(
                     token,

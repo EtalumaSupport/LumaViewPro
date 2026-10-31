@@ -804,6 +804,7 @@ class ProtocolImageWriter:
             solicited=False,
             category=domain,
             log_only=told is FatalTold.LOG,
+            ends_a_run=True,
         )
 
     @property

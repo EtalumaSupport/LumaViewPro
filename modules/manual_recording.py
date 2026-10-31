@@ -774,7 +774,7 @@ class ManualRecordingController:
         logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
         self._end(reason)
         notifications.report_outcome(
-            RecordingStoppedError(reason), solicited=False, category='Recording'
+            RecordingStoppedError(reason), solicited=False, category='Recording', ends_a_run=True
         )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
@@ -919,7 +919,10 @@ class ManualRecordingController:
                 f'{MIN_REQUIRED_DISK_MB} MB)'
             )
             notifications.report_outcome(
-                RecordingStoppedError('disk_floor'), solicited=False, category='Recording'
+                RecordingStoppedError('disk_floor'),
+                solicited=False,
+                category='Recording',
+                ends_a_run=True,
             )
             self._end('disk_floor')
 
@@ -981,7 +984,9 @@ class ManualRecordingController:
                 if result.writer_failure is not None:
                     died = VideoWriterFailedError(protocol_step=False)
                     died.__cause__ = result.writer_failure
-                    notifications.report_outcome(died, solicited=False, category='Recording')
+                    notifications.report_outcome(
+                        died, solicited=False, category='Recording', ends_a_run=True
+                    )
                 if result.manifest_failure is not None:
                     unsaved = RecordingDetailsNotSavedError()
                     unsaved.__cause__ = result.manifest_failure

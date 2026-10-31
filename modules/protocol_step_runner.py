@@ -265,6 +265,9 @@ class ProtocolStepRunner:
                 # AF runs inside this protocol step, which holds the LED
                 # lease; AF drives the LEDs through a child of it.
                 led_lease=p._led_lease,
+                # The run whose only job is this autofocus ends on its
+                # failure, so the autofocus tells that failure as the ending.
+                ends_its_run=p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
             )
             return
 

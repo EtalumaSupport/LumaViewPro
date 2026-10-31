@@ -191,7 +191,8 @@ def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch, 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoWriterFailedError) and fault.protocol_step is False
     assert fault.__cause__ is killer
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # The recording's end, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
 
 def test_a_manual_recordings_lost_details_file_is_reported_once_chained(

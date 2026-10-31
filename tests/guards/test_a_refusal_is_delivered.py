@@ -82,10 +82,11 @@ def test_an_unsolicited_fault_is_still_muted_during_an_unattended_run(centre_and
 def test_one_fault_repeating_is_still_one_popup(centre_and_seen):
     """``fatal`` must not acquire the dedup exemption along the way.
 
-    ``critical()`` defaults ``fatal=True``, and the run-abort path behind
-    it is documented as safe to re-enter -- which is true of the popup
-    only because the dedup window holds. Five aborts must still be one
-    dialog.
+    ``critical()`` defaults ``fatal=True``, and a direct fatal post that
+    repeats is held to one dialog by the dedup window: five must still be
+    one. A run's own abort is held to one by the run's latch, not by the
+    window, which does not hold back a run's ending
+    (``test_one_run_whose_fault_repeats_says_so_once``).
     """
     centre, seen = centre_and_seen
 

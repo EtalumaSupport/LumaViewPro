@@ -10516,7 +10516,7 @@ them all.
 - <a id="Notification.reason"></a>`reason`: `str` -- The outcome's machine-readable code, read from its type; empty for a post that declares none.
 - <a id="Notification.remedy"></a>`remedy`: `Remedy | None` -- The action that answers the outcome, offered to a person; None when it has none.
 - <a id="Notification.severity"></a>`severity`: `Severity` -- How the post is logged; `shown` says whether it is displayed.
-- <a id="Notification.shown"></a>`shown`: `bool` -- Whether it is for display now; False when shutdown, an unattended run's mute, a run that already showed it, or the repeat window holds it back.
+- <a id="Notification.shown"></a>`shown`: `bool` -- Whether it is for display now; False when shutdown, an unattended run's mute, a run that already showed it, or the repeat window holds it back. The window never holds back a run's ending.
 - <a id="Notification.solicited"></a>`solicited`: `bool` -- True when it answers a request just made, a refused press or call, so neither the unattended mute nor the repeat window holds it back.
 - <a id="Notification.source"></a>`source`: `str` -- The module or function that posted it; empty when none was named.
 - <a id="Notification.title"></a>`title`: `str` -- The short heading a person reads.

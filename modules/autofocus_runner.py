@@ -192,6 +192,7 @@ class AutofocusRunner:
         led_illumination: float,
         led_lease: 'LedLease',
         write_batch: 'RunWriteBatch | None' = None,
+        ends_its_run: bool = False,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -217,6 +218,10 @@ class AutofocusRunner:
             write_batch: the write batch of that run; required when
                 save_results_to_file, so the save is counted among the run's
                 writes and lands before the run says its files are written.
+            ends_its_run: True when the sweep is its run's whole job, the
+                Autofocus button's run, so its failure is how that run ended
+                and is reported as the run's ending. A scan step's sweep
+                failing is a step's failure; the run goes on.
 
         Returns:
             best_focus_position (float): the focus the sweep chose.
@@ -463,7 +468,9 @@ class AutofocusRunner:
             elif _its_run_has_ended():
                 logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
             else:
-                notifications.report_outcome(failed, solicited=False, category='Autofocus')
+                notifications.report_outcome(
+                    failed, solicited=False, category='Autofocus', ends_a_run=ends_its_run
+                )
             # The object reported is the object raised, so whoever reads the
             # future holds what the one report named.
             if failed is ex:

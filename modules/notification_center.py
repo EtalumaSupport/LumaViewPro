@@ -288,7 +288,8 @@ class Notification:
             empty for a post that declares none.
         shown: Whether it is for display now; False when shutdown, an
             unattended run's mute, a run that already showed it, or the
-            repeat window holds it back.
+            repeat window holds it back. The window never holds back a
+            run's ending.
         wall_time_epoch_s: When it was posted, in seconds since the epoch,
             for a client in another process.
     """
@@ -372,7 +373,8 @@ class NotificationCenter:
     Deduplication: a notification with the same ``(category, title)`` as
     one shown within ``dedup_window_s`` is not shown. Every listener still
     receives it, with ``shown`` False, and the full message still goes to
-    the log file.
+    the log file. A run's ending is not held back by the window: each run
+    tells its ending once, so two same-titled endings are two runs.
     """
 
     def __init__(self, dedup_window_s: float = 10.0):
@@ -509,6 +511,7 @@ class NotificationCenter:
         fatal: bool = False,
         operation_key: str = '',
         solicited: bool = False,
+        ends_a_run: bool = False,
         reason: str = '',
         remedy: Remedy | None = None,
         kind: OutcomeKind | None = None,
@@ -519,6 +522,7 @@ class NotificationCenter:
 
         ``notify()`` writes the display line first; ``report_outcome`` writes
         each outcome's one line itself, so an outcome is never logged twice.
+        ``ends_a_run`` is ``report_outcome``'s, and is described there.
         """
         from modules import gui_logger
 
@@ -561,10 +565,14 @@ class NotificationCenter:
                 suppressed_reason = 'shown_this_run'
             else:
                 last = self._dedup.get(key, 0.0)
-                # The window still advances for a solicited notification, so a
-                # later unsolicited repeat of the same (category, title) is
-                # measured from the answer the user actually saw.
-                if not solicited and (now - last) < self._dedup_window_s:
+                # The window still advances for a solicited notification or a
+                # run's ending, so a later ordinary repeat of the same
+                # (category, title) is measured from the one the user saw.
+                # Neither repeats: a request asked twice is asked twice, and
+                # each run tells its ending once, so a second same-titled
+                # ending is another run's.
+                held_back_by_window = not solicited and not ends_a_run
+                if held_back_by_window and (now - last) < self._dedup_window_s:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
                     self._dedup[key] = now
@@ -663,6 +671,7 @@ class NotificationCenter:
         log_only: bool = False,
         untyped_title: str = UNTYPED_FAULT_TITLE,
         operation_key: str = '',
+        ends_a_run: bool = False,
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
 
@@ -699,6 +708,13 @@ class NotificationCenter:
         earlier notice announced it, so the outcome replaces that notice
         instead of opening beside it. A refusal given none replaces the last
         refusal shown.
+
+        ``ends_a_run`` says this outcome is how a run ended, which only the
+        report site knows: one type can be a step's failure in a scan and the
+        whole ending of another run. A run tells its ending once, so the
+        repeat window does not hold it back, and a second run ending the same
+        way inside the window is still shown; shutdown, an unattended run's
+        mute and an attended run's shown-once judge it as any other post.
 
         Each half happens once per exception object, whoever reports it and
         from whichever thread. Shown once means delivered once: a post that
@@ -753,6 +769,7 @@ class NotificationCenter:
                 exception.title,
                 words,
                 solicited=solicited,
+                ends_a_run=ends_a_run,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=reason,
                 remedy=remedy,
@@ -767,6 +784,7 @@ class NotificationCenter:
                 exception.title,
                 words,
                 solicited=solicited,
+                ends_a_run=ends_a_run,
                 operation_key=operation_key,
                 reason=reason,
                 remedy=remedy,
@@ -784,6 +802,7 @@ class NotificationCenter:
                 title,
                 body,
                 solicited=solicited,
+                ends_a_run=ends_a_run,
                 operation_key=operation_key,
                 fatal=fatal,
                 reason=reason,
