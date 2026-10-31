@@ -38,10 +38,10 @@ single ``ExecutorBundle`` that holds every executor with the aliases
 already wired and ``start()`` already called. Callers unpack the bundle
 into their context object.
 
-LVP-A-8 -- ``ExecutorBundle.snapshot()`` returns ``{name: queue_depth}``
-so the App's executor watchdog (and engineering-plugin, REST status
-endpoint, future health-check) can read the same view through the same
-lens instead of hardcoding executor handle names.
+``ExecutorBundle.snapshot()`` returns ``{name: queue_depth}`` and
+``thread_states()`` the queueless threads' states, so the executor
+watchdog and the system-metrics line read one view instead of
+hardcoding executor handle names.
 """
 
 from __future__ import annotations
@@ -79,34 +79,29 @@ class ExecutorBundle:
         ]
 
     def snapshot(self) -> dict[str, int]:
-        """Return ``{logical_name: queue_size}`` for every executor.
+        """Return ``{logical_name: queue_size}`` for every executor with a queue.
 
         Aliased executors (stage, turret) are omitted to avoid double-
-        counting their queue depth. Engineering plugin / REST status
-        endpoint / app watchdog all consume the same view.
-
-        SCOPEDISPLAY and PROTOCOL are bare Threads -- no queue, so their
-        slots report 0 (running) or -1 (stopped) instead of a queue depth.
-        AUTOFOCUS is similarly a bare Thread and reported via
-        AppContext.autofocus_thread (not in this bundle).
+        counting their queue depth. Every value is a depth: the threads
+        with no queue are ``thread_states``'s, and a depth that cannot be
+        read raises rather than standing in as a number.
         WORKER_POOL is priority-aware; queue_size aggregates all
         priorities (HIGH + MED + LOW).
         """
-        out = {}
-        for name, ex in self.queued_executors():
-            try:
-                out[name] = ex.queue_size()
-            except Exception:
-                out[name] = -1
-        try:
-            out['SCOPEDISPLAY'] = 0 if self.scope_display_thread.is_running else -1
-        except Exception:
-            out['SCOPEDISPLAY'] = -1
-        try:
-            out['PROTOCOL'] = 0 if self.protocol_thread.is_running else -1
-        except Exception:
-            out['PROTOCOL'] = -1
-        return out
+        return {name: ex.queue_size() for name, ex in self.queued_executors()}
+
+    def thread_states(self) -> dict[str, str]:
+        """The bundle's threads with no queue, each's state in a word.
+
+        PROTOCOL is ``running`` while a run is in flight, else ``idle``;
+        SCOPEDISPLAY is ``running`` or ``off`` (never started, as on a host
+        with no display, or stopped). AUTOFOCUS is a bare Thread too, held
+        on the session, not in this bundle.
+        """
+        return {
+            'SCOPEDISPLAY': 'running' if self.scope_display_thread.is_running else 'off',
+            'PROTOCOL': 'running' if self.protocol_thread.is_running else 'idle',
+        }
 
     def shutdown(self) -> None:
         """Stop every thread this bundle started, without waiting for queued work.

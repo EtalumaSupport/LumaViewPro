@@ -84,8 +84,8 @@ class MetricsLogger:
                 tick (delegates to ``scope.imaging._log_camera_temps``) and any
                 future tick that needs hardware access.
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
-                -- the executor watchdog reads ``.snapshot()`` and prunes
-                the SCOPEDISPLAY queue when it exceeds the threshold.
+                -- the executor watchdog reads its ``snapshot()`` and
+                ``thread_states()``.
             settings: LVP settings dict, passed verbatim to
                 ``config_helpers.log_system_metrics``.
         """
@@ -135,33 +135,31 @@ class MetricsLogger:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
 
     def tick_executor_watchdog(self) -> None:
-        """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.
+        """Log the lanes' queue depths and the queueless threads' states.
 
         Internal metrics scheduling -- driven by the host's periodic
         scheduler and not part of the L2 API surface.
 
         WARNING-level log when total backlog exceeds 10; DEBUG otherwise.
-        SCOPEDISPLAY queue >20 is pruned (UI-responsiveness guard). The
-        thresholds are carried unchanged from the inline watchdog this
+        The threshold is carried unchanged from the inline watchdog this
         replaced, so log lines stay comparable across that change.
 
         A snapshot that fails raises to the scheduler, whose error hook
         reports it; the timer re-arms either way.
         """
-        snap = self._bundle.snapshot()
-        total_q = sum(q for q in snap.values() if q > 0)
-        fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
+        depths = self._bundle.snapshot()
+        total_q = sum(depths.values())
+        fmt = ' '.join(
+            f'{name}:{value}' for name, value in {**depths, **self._bundle.thread_states()}.items()
+        )
         if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
             logger.warning(f'[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}')
         else:
             logger.debug(f'[Watchdog  ] Queues -- {fmt}')
 
-        # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
-        # the prune-on-backlog branch retires. The snapshot reports
-        # 0 (running) / -1 (stopped). Watchdog has no actionable
+        # SCOPEDISPLAY has no queue to prune. Watchdog has no actionable
         # response if the thread itself is wedged -- that's a
-        # daemon=True process-exit-reap scenario, not a queue
-        # prune.
+        # daemon=True process-exit-reap scenario, not a queue prune.
 
     def tick_ui_watch(self) -> None:
         """Post a probe to the UI thread; report once when the last one has not run.
@@ -218,20 +216,6 @@ class MetricsLogger:
             waited_s = now - self._ui_probe_posted_at
         if reported:
             logger.info(f'[Watchdog  ] UI thread ran again; it was held at least {waited_s:.0f} s')
-
-    def snapshot_executors(self) -> dict[str, int]:
-        """On-demand executor depth snapshot for status endpoints.
-
-        Internal queue introspection -- not part of the L2 API surface;
-        the depths are host telemetry, not a contract a client reads.
-
-        Returns ``{logical_name: queue_depth}`` from the bundle without
-        emitting any log lines.
-        """
-        try:
-            return self._bundle.snapshot()
-        except Exception:
-            return {}
 
     # ---- Lifecycle ----
 

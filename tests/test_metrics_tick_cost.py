@@ -258,6 +258,9 @@ class TestEveryHostLogsTheExecutors:
         queues = [m for m in lines if m.startswith('[QUEUE METRICS]')]
         futures = [m for m in lines if m.startswith('[FUTURES METRICS]')]
         assert queues and 'IO=0' in queues[0]
+        # The queueless threads are stated in words, never as a depth.
+        assert 'PROTOCOL=idle' in queues[0] and 'SCOPEDISPLAY=off' in queues[0], queues[0]
+        assert not re.search(r'=-\d', queues[0]), queues[0]
         # Named fields, not A/P/L, which read as Active/Pending/Leaked.
         assert futures and re.search(r'IO: alloc=\d+ pop=\d+ live=\d+', futures[0])
         assert not any('display_fps' in m or '[FRAME INTERVAL]' in m for m in lines)

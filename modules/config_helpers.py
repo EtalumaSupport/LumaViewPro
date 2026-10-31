@@ -808,9 +808,9 @@ def log_system_metrics(
     # retaining 16-48 MB each. Direct mechanism for slow-onset
     # multi-hour memory growth on the save path. The session's own
     # executors, so every host logs it.
-    depths = executors.snapshot()
+    states = {**executors.snapshot(), **executors.thread_states()}
     metrics_logger.info(
-        f'[QUEUE METRICS] {" | ".join(f"{name}={depth}" for name, depth in depths.items())}',
+        f'[QUEUE METRICS] {" | ".join(f"{name}={value}" for name, value in states.items())}',
     )
 
     # Per-executor caller_futures alloc/pop/live counters. Sustained
