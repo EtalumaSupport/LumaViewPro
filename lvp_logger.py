@@ -52,15 +52,6 @@ lvp_appdata = str(get_source_root())
 
 from modules.settings_init import load_debug_setting
 
-try:
-    debug = load_debug_setting(lvp_appdata)
-except Exception as e:
-    print(
-        f'[lvp_logger] WARNING: Failed to load debug setting, defaulting to False: {e}',
-        file=sys.stderr,
-    )
-    debug = False
-
 
 log_dir = str(get_log_dir())
 os.makedirs(log_dir, exist_ok=True)
@@ -154,24 +145,7 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
-
-# The verbosity floor until a session is created: DEBUG when debug_mode is on
-# (the installation's switch for a detailed log, so startup is in it too),
-# INFO otherwise. After that the session applies the same rule -- DEBUG under
-# debug_mode, else logging.default.level -- to both logger trees that write to
-# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
-# [PERF] line) and lvp_logger's own logger, on every host
-# (scope_session._apply_logging). Loggers that want a fixed floor
-# set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
-# firehose).
-# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
-# logger's own level (it was silently starving camera.log of DEBUG) and split
-# the toggle into two gates. The per-logger level is the canonical mechanism.
-_log_level = logging.DEBUG if debug else logging.INFO
-
 _lvp_parent = logging.getLogger('LVP')
-_lvp_parent.setLevel(_log_level)
-logger.setLevel(_log_level)
 
 # The root logger is the single owner of the bundle file handlers (set up
 # below); every logger reaches the bundle by propagating to root, and no logger
@@ -540,6 +514,34 @@ _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 _root_logger.addHandler(file_handler)
 _root_logger.addHandler(error_file_handler)
+
+# debug_mode is read once the log files are open. A shipped settings file
+# that cannot answer stops the launch (InstallationFileError, naming the
+# file), and the main log records it once as the crash it is: the crash hook
+# is not installed until after this import, and a debug flag read as off
+# would hide the broken installation behind a quieter log.
+try:
+    debug = load_debug_setting(lvp_appdata)
+except Exception:
+    custom_except_hook(*sys.exc_info())
+    raise
+
+# The verbosity floor until a session is created: DEBUG when debug_mode is on
+# (the installation's switch for a detailed log, so startup is in it too),
+# INFO otherwise. After that the session applies the same rule -- DEBUG under
+# debug_mode, else logging.default.level -- to both logger trees that write to
+# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
+# [PERF] line) and lvp_logger's own logger, on every host
+# (scope_session._apply_logging). Loggers that want a fixed floor
+# set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
+# firehose).
+# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
+# logger's own level (it was silently starving camera.log of DEBUG) and split
+# the toggle into two gates. The per-logger level is the canonical mechanism.
+_log_level = logging.DEBUG if debug else logging.INFO
+_lvp_parent.setLevel(_log_level)
+logger.setLevel(_log_level)
+
 if debug and sys.__stderr__ is not None:
     _root_console = logging.StreamHandler(sys.__stderr__)
     _root_console.addFilter(_MainLogFloor())

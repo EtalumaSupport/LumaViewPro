@@ -60,30 +60,28 @@ def is_enabled() -> bool:
 def start(source_path: str) -> None:
     """Read the gate and, if enabled, begin tracemalloc + RSS sampling.
 
-    Idempotent and best-effort: any failure logs a warning and leaves the
-    profiler disabled rather than disrupting startup. Call as early as
-    possible in __main__ so the tracemalloc baseline reflects the resident
-    set, not just post-startup growth.
+    Idempotent. Call as early as possible in __main__ so the tracemalloc
+    baseline reflects the resident set, not just post-startup growth.
 
     Args:
         source_path: App source/data directory, used to resolve the live
             settings file for the gate.
+
+    Raises:
+        InstallationFileError: the gate cannot be read because the shipped
+            settings file is missing, unusable, or lacks it; a gate read as
+            off would hide the broken installation behind a missing profile.
     """
     global _started, _enabled, _interval_s, _proc, _t0
     with _lock:
         if _started:
             return
         _started = True
-    try:
-        from modules.settings_init import load_memory_profile_setting
+    from modules.settings_init import load_memory_profile_setting
 
-        cfg = load_memory_profile_setting(source_path)
-        _enabled = cfg['enabled']
-        _interval_s = cfg['interval_s']
-    except Exception as e:
-        logger.warning(f'[MEM PROFILE] gate read failed ({type(e).__name__}: {e}); disabled')
-        _enabled = False
-        return
+    cfg = load_memory_profile_setting(source_path)
+    _enabled = cfg['enabled']
+    _interval_s = cfg['interval_s']
     if not _enabled:
         return
     try:

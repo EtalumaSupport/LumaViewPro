@@ -11,6 +11,7 @@ import json
 import pytest
 
 from lib import memory_profile
+from modules.exceptions import InstallationFileError
 from modules.settings_init import load_memory_profile_setting
 
 _SHIPPED = {'memory_profile_enabled': False, 'memory_profile_interval_s': 5.0}
@@ -26,8 +27,16 @@ class TestGate:
     """Read before preparation: current.json, else the shipped settings.json."""
 
     def test_an_installation_with_no_settings_is_an_error_not_off(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InstallationFileError) as refused:
             load_memory_profile_setting(tmp_path)
+        assert refused.value.file_path == tmp_path / 'data' / 'settings.json'
+
+    def test_a_shipped_file_without_the_gate_is_an_error_not_off(self, tmp_path):
+        _write(tmp_path, 'settings.json', {'memory_profile_enabled': False})
+        with pytest.raises(InstallationFileError) as refused:
+            load_memory_profile_setting(tmp_path)
+        assert refused.value.file_path == tmp_path / 'data' / 'settings.json'
+        assert "has no 'memory_profile_interval_s'" in str(refused.value)
 
     def test_the_shipped_values_answer_with_no_current_json(self, tmp_path):
         _write(tmp_path, 'settings.json', _SHIPPED)
@@ -67,3 +76,12 @@ class TestDisabledNoOps:
         # disabled outcome, which holds regardless of prior start() calls.
         memory_profile.start(str(tmp_path))
         assert memory_profile.is_enabled() is False
+
+    def test_start_on_a_broken_installation_raises_rather_than_reading_off(
+        self, tmp_path, monkeypatch
+    ):
+        # A first start in this process; there is no settings.json to read.
+        monkeypatch.setattr(memory_profile, '_started', False)
+        with pytest.raises(InstallationFileError) as refused:
+            memory_profile.start(str(tmp_path))
+        assert refused.value.file_path == tmp_path / 'data' / 'settings.json'

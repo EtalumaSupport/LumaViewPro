@@ -1123,9 +1123,10 @@ def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
         The value, and the basename of the file it came from.
 
     Raises:
-        FileNotFoundError: no shipped ``settings.json``.
-        SettingsFileError: the shipped ``settings.json`` is unusable.
-        KeyError: the shipped ``settings.json`` lacks ``key``.
+        InstallationFileError: the shipped ``settings.json`` is missing,
+            unusable, or lacks ``key``. The installation is at fault, so
+            the caller does not answer with a default: the launch stops and
+            names the file.
     """
     data_dir = os.path.join(directory, 'data')
     try:
@@ -1134,7 +1135,11 @@ def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
         live = {}
     if key in live:
         return live[key], 'current.json'
-    return read_settings_json(os.path.join(data_dir, 'settings.json'))[key], 'settings.json'
+    template_path = os.path.join(data_dir, 'settings.json')
+    template = read_installation_file(template_path)
+    if key not in template:
+        raise InstallationFileError(template_path, f'has no {key!r}')
+    return template[key], 'settings.json'
 
 
 def load_debug_setting(directory: str) -> bool:

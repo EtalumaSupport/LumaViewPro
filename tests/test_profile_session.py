@@ -12,6 +12,7 @@ banner in the log it holds open, never the profiler's checkout.
 import contextlib
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
@@ -80,6 +81,9 @@ def _linked_folder(tmp_path):
     folder.mkdir()
     for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt'):
         (folder / item).symlink_to(REPO / item)
+    # The shipped settings an installation carries; the logger reads debug_mode from it.
+    (folder / 'data').mkdir()
+    shutil.copy(REPO / 'data' / 'settings.json', folder / 'data' / 'settings.json')
     return folder
 
 
