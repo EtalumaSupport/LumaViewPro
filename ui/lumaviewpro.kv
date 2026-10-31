@@ -1,5 +1,7 @@
 #:kivy 2.1.0
 #:import live_work modules.live_work
+# The share of its row that a button or box alone in that row takes, centred.
+#:set NARROW_WIDTH 0.6
 
 #-------------------------------------------------------------------------------
 # MIT License
@@ -631,6 +633,8 @@
 
 				    TextInput:
 						id: z_position_id
+						size_hint_x: NARROW_WIDTH
+						pos_hint: {'center_x': 0.5}
 		            	multiline: False
 				        size_hint_y: None
 				        height: '30dp'
@@ -680,6 +684,8 @@
 			# locks only while a rival recording is live.
 			RoundedToggleButton:
 				id: autofocus_id
+				size_hint_x: NARROW_WIDTH
+				pos_hint: {'center_x': 0.5}
 				tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
 				size_hint_y: None
 				height: '30dp' if self.visible else 0
@@ -756,8 +762,8 @@
 				disabled: (not self.visible) or app.lock.controls_locked
 				visible: True
 				spacing: '5dp'
-				# Centred at 60% of the row: a button needs no more than its label.
-				padding: [self.width * 0.2, 0]
+				# A horizontal row ignores center_x, so its padding centres the button.
+				padding: [self.width * (1 - NARROW_WIDTH) / 2, 0]
 				RoundedButton:
 					id: reset_turret_objective_btn
 					text: 'Reset Turret Objective'
@@ -774,7 +780,7 @@
 				opacity: 1 if self.visible else 0
 				disabled: (not self.visible) or app.lock.controls_locked
 				visible: False
-				padding: [self.width * 0.2, 0]
+				padding: [self.width * (1 - NARROW_WIDTH) / 2, 0]
 				RoundedButton:
 					id: assign_objective_btn
 					text: 'Assign Objective'
@@ -886,6 +892,8 @@
 
 		RoundedToggleButton:
 			id: zstack_aqr_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			size_hint_y: None
 			height: '30dp'
 			text: 'Acquire'
@@ -924,6 +932,8 @@
 				size_hint_y: None
 				height: '30dp'
 				spacing: '5dp'
+				# A horizontal row ignores center_x, so its padding centres the button.
+				padding: [self.width * (1 - NARROW_WIDTH) / 2, 0]
 
 				# HOME STAGE
 				RoundedButton: 
@@ -1745,6 +1755,8 @@
 
 		RoundedToggleButton:
 			id: run_autofocus_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			text: 'Autofocus All Steps'
 			tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
 			size_hint_y: None
@@ -1765,6 +1777,8 @@
 
 		RoundedToggleButton:
 			id: run_scan_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			text: 'Run One Scan'
 			tooltip_text: 'Acquire one Interval of data'
 			size_hint_y: None
@@ -1775,6 +1789,8 @@
 
 		RoundedToggleButton:
 			id: run_protocol_btn
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {'center_x': 0.5}
 			text: 'Run Full Protocol'
 			tooltip_text: 'Initiate complete Protocol for the full Duration'
 			size_hint_y: None
@@ -1800,7 +1816,9 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Create video from Protocol data folder'
+		text: 'Create Video...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		tooltip_text: 'Combines sequential images into a video file'
 		size_hint_y: None
 		height: '30dp'
@@ -1885,6 +1903,8 @@
 	FolderChooseBTN:
 
 		id: quality_stitch_btn
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		text: 'Quality Stitch'
 		tooltip_text: 'Quality uses bounded local registration only when stage data shows real overlap. At 0% overlap, both modes fall back to stage placement. Source pixels and colors are preserved either way.'
 		size_hint_y: None
@@ -1898,6 +1918,8 @@
 	FolderChooseBTN:
 
 		id: fast_preview_stitch_btn
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		text: 'Fast Preview Stitch'
 		tooltip_text: 'Fast Preview uses bounded FFT registration for rapid visual review. At 0% overlap, both modes fall back to stage placement. Source pixels and colors are preserved either way.'
 		size_hint_y: None
@@ -1924,7 +1946,9 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Apply Z-Projection to Z-stacks in folder'
+		text: 'Z-Project Folder...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		tooltip_text: 'Creates single image from Z-stacks'
 		size_hint_y: None
 		height: '30dp'
@@ -1978,7 +2002,9 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Create fluorescence composites'
+		text: 'Create Composites...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		tooltip_text: 'Combine fluorescence images and one transmitted image in Protocol data folder'
 		size_hint_y: None
 		height: '30dp'
@@ -2005,12 +2031,16 @@
 
 	FileChooseBTN:
 		text: 'Enhance image...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		size_hint_y: None
 		height: '38dp'
 		on_release: self.choose('load_quick_enhance_input_image')
 
 	FolderChooseBTN:
 		text: 'Enhance folder...'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
 		size_hint_y: None
 		height: '38dp'
 		on_release: self.choose('apply_quick_enhance_to_folder')
@@ -2195,6 +2225,8 @@
 
 					RoundedButton:
 						text:'Analyze'
+						size_hint_x: NARROW_WIDTH
+						pos_hint: {'center_x': 0.5}
 						size_hint_y: None
 						height: '30dp'
 						font_size: '12sp'
@@ -2208,6 +2240,8 @@
 
 					RoundedButton:
 						text: 'Plot'
+						size_hint_x: NARROW_WIDTH
+						pos_hint: {'center_x': 0.5}
 						size_hint_y: None
 						height: '30dp'
 						font_size: '12sp'
@@ -2726,9 +2760,8 @@
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_bullseye_state()
 
-			# Panel action buttons, stacked vertically and held to a uniform
-			# narrower width so 'Generate Support Report' reads fully at 12sp
-			# without each button spanning the full panel.
+			# Panel action buttons, stacked vertically, each alone in its row
+			# and so at NARROW_WIDTH.
 			BoxLayout:
 				orientation: 'vertical'
 				size_hint_y: None
@@ -2739,21 +2772,21 @@
 					id: btn_advanced_settings
 					text: 'Advanced Settings'
 					font_size: '12sp'
-					size_hint_x: 0.85
+					size_hint_x: NARROW_WIDTH
 					pos_hint: {'center_x': 0.5}
 					on_release: root.open_advanced_settings()
 				RoundedButton:
 					id: btn_support_report
 					text: 'Generate Support Report'
 					font_size: '12sp'
-					size_hint_x: 0.85
+					size_hint_x: NARROW_WIDTH
 					pos_hint: {'center_x': 0.5}
 					on_release: root.generate_support_report()
 				RoundedButton:
 					id: btn_zip_logs
 					text: 'Zip Logs Only'
 					font_size: '12sp'
-					size_hint_x: 0.85
+					size_hint_x: NARROW_WIDTH
 					pos_hint: {'center_x': 0.5}
 					on_release: root.zip_logs_only()
 
@@ -3381,7 +3414,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					text: 'Apply to Steps'
+					text: 'To All Steps'
 					tooltip_text: 'Set every protocol step in this channel to the current focus'
 					disabled: app.lock.run_lockout
 					on_release: root.apply_focus_to_channel_steps()
@@ -3996,7 +4029,7 @@
 		# Select image to load
 		FileChooseBTN:
 			text: 'Load Image'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Select example image to configure analysis settings'
 			size_hint_y: None
@@ -4268,7 +4301,7 @@
 			
 		RoundedButton:
 			text: 'Apply Method to Preview'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Re-analyze image with new settings'
 			size_hint_y: None
@@ -4279,7 +4312,7 @@
 		# Save method
 		FileSaveBTN:
 			text: 'Save Method As...'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Store analysis settings in a Method file'
 			size_hint_y: None
@@ -4291,7 +4324,7 @@
 		# Select method to load
 		FileChooseBTN:
 			text: 'Load Method'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Retrieve a saved analysis Method'
 			size_hint_y: None
@@ -4302,7 +4335,7 @@
 		# Apply method
 		FolderChooseBTN:
 			text: 'Apply Method to Folder'
-			size_hint_x: 0.6
+			size_hint_x: NARROW_WIDTH
 			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Analyze all images in a folder according to the current Method'
 			size_hint_y: None
