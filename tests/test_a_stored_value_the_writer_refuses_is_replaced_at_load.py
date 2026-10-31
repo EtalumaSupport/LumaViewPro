@@ -149,6 +149,34 @@ def test_every_value_one_load_replaced_is_in_one_notice(tmp_path):
     assert 'motion.acceleration_max_pct 500' in str(notice)
 
 
+def test_a_stored_auto_gain_range_whose_minimum_is_above_its_maximum_is_replaced_and_told(
+    tmp_path,
+):
+    """Each bound is in range alone, so the leaf rules keep both; the pair is
+    the arm's rule, and an inverted stored pair stopped bring-up there, at the
+    BF hold, with auto-gain on. The pair takes the shipped bounds, both."""
+    shipped = json.loads(TEMPLATE.read_text())['protocol']['autogain']
+
+    def edit(current):
+        current['protocol']['autogain']['min_gain_db'] = 10.0
+        current['protocol']['autogain']['max_gain_db'] = 2.0
+        current['BF']['auto_gain'] = True
+
+    settings, told = _prepare(tmp_path, edit)
+
+    stored = settings['protocol']['autogain']
+    assert (stored['min_gain_db'], stored['max_gain_db']) == (
+        shipped['min_gain_db'],
+        shipped['max_gain_db'],
+    )
+    assert settings['BF']['auto_gain'] is True, 'a value in range was replaced'
+    (notice,) = told
+    assert notice.replacements == [
+        ('protocol.autogain.min_gain_db', 10.0, shipped['min_gain_db']),
+        ('protocol.autogain.max_gain_db', 2.0, shipped['max_gain_db']),
+    ]
+
+
 def test_values_in_range_are_kept_and_nothing_is_told(tmp_path):
     def edit(current):
         current['video']['max_fps'] = 25

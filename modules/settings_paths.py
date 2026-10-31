@@ -31,7 +31,11 @@ from modules.closed_sets import member_of
 from modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
 from modules.finite_number import is_finite_number
 from modules.layer_record import parse_display_color
-from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
+from modules.lumascope_api._constants import (
+    SIMULATOR_TIERS,
+    refuse_acceleration_pct,
+    refuse_inverted_gain_range,
+)
 from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
 from modules.zstack_config import ZStackReference
 from modules.python_values import python_values
@@ -739,7 +743,10 @@ def replace_refused_stored_values(
     kind, NaN, or outside a range -- and nobody can fix a file at load, so
     that key alone takes the template's value, in the settings the app runs
     on and so in the file at its next save; every other setting stays the
-    person's.
+    person's. The auto-gain range is judged after its bounds, by the arm's
+    own rule: each bound may be in range while the pair is inverted, and an
+    inverted pair stopped bring-up at the arm, so both bounds take the
+    template's.
 
     Returns:
         One notice naming every replaced value, for the Session to report
@@ -749,6 +756,13 @@ def replace_refused_stored_values(
     for path, holder, leaf, shipped, _refused in _values_the_writer_refuses(settings, template):
         replaced.append((path, holder[leaf], shipped))
         holder[leaf] = copy.deepcopy(shipped)
+    stored, shipped = settings['protocol']['autogain'], template['protocol']['autogain']
+    try:
+        refuse_inverted_gain_range(stored, 'protocol.autogain')
+    except ArgumentRefusedError:
+        for leaf in ('min_gain_db', 'max_gain_db'):
+            replaced.append((f'protocol.autogain.{leaf}', stored[leaf], shipped[leaf]))
+            stored[leaf] = shipped[leaf]
     return StoredSettingReplacedNotice(replaced) if replaced else None
 
 

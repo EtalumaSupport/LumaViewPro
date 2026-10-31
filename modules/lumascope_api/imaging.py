@@ -1494,7 +1494,8 @@ class ImagingAPI:
                 kwargs={'member': 'capture_still', **capture},
                 timeout_s=wait_s,
             )
-        _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
+        if hold.request.auto_gain:
+            _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
         # The hold's writes run in the same task, ahead of the capture.
         return self._camera._dispatch_camera(
             self._capture_holding_layer_impl,

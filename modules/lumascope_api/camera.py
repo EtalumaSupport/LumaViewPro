@@ -54,6 +54,7 @@ from modules.scope_capabilities import FrameSize
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import Admission, api, api_fields
+from modules.lumascope_api._constants import refuse_inverted_gain_range
 
 if TYPE_CHECKING:
     from drivers.camera import Camera
@@ -398,15 +399,7 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
         refuse_unless_kind(required(settings, key, argument), 'number', key_path(argument, key))
     for key in ('max_exposure_ms', 'min_exposure_ms'):
         refuse_unless_kind(settings.get(key), 'number', key_path(argument, key), nullable=True)
-    # The pair is judged here, where every arm passes, and not at the
-    # settings write: each bound is written alone, so a write judging the
-    # pair would make a client order its two writes.
-    if settings['min_gain_db'] > settings['max_gain_db']:
-        raise ArgumentRefusedError(
-            'gain_range_inverted',
-            argument=argument,
-            value={key: settings[key] for key in ('min_gain_db', 'max_gain_db')},
-        )
+    refuse_inverted_gain_range(settings, argument)
 
 
 def _no_answer_rejection(rejected: CameraSettingRejected) -> CameraSettingRejected:
@@ -3719,7 +3712,10 @@ class CameraAPI:
         ``_dispatch_camera``. In-process only: the Session reads the layer's
         store and hands it in.
         """
-        _refuse_unless_auto_gain_settings(request.auto_gain_settings, 'auto_gain_settings')
+        # Judged only for a layer that arms auto-gain, as ``apply`` judges it:
+        # a layer with auto-gain off never hands the camera these settings.
+        if request.auto_gain:
+            _refuse_unless_auto_gain_settings(request.auto_gain_settings, 'auto_gain_settings')
         return self._dispatch_camera(
             self._hold_layer_impl,
             'hold_layer',

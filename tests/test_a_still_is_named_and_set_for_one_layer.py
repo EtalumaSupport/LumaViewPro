@@ -146,6 +146,18 @@ def test_a_typed_value_is_the_next_stills(session):
     assert _settings_of(record) == (12.0, _BF['gain_db'])
 
 
+def test_an_inverted_auto_gain_range_does_not_stop_a_still_whose_layer_does_not_arm_it(session):
+    # Two writes each bound allows leave the range inverted; a still named for
+    # its layer holds it, and the hold arms nothing on a layer with auto-gain
+    # off.
+    session.update_settings('protocol.autogain.max_gain_db', 2.0)
+    session.update_settings('protocol.autogain.min_gain_db', 10.0)
+
+    still = session.capture_still(channel='BF')
+
+    assert _settings_of(still.record) == _stored('BF')
+
+
 def test_a_still_pressed_as_the_shown_layer_changes_is_one_layers(session):
     """Pressed from the shown-channel listener: after the show has changed the
     name and before its camera half has run. Taken first on the camera lane,

@@ -216,18 +216,18 @@ class TestBothHostsAgreeOnTheSlotKeyType:
     def _prepared(self, tmp_path, on_disk):
         import json as _json
         import logging
+        import os
+        import shutil
 
         import modules.settings_init as si
-
-        import modules.layer_record as layer_record
 
         payload = {**_REQUIRED_KEYS, **on_disk}
         data = tmp_path / 'data'
         data.mkdir()
         (data / 'current.json').write_text(_json.dumps(payload))
-        # The template gives every catalogue key a block; empty ones will do here.
-        defaults = {modality: {} for modality in layer_record.Modality}
-        (data / 'settings.json').write_text(_json.dumps({**payload, 'channel_defaults': defaults}))
+        # The shipped template, which the preparation reads as the schema.
+        shipped = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        shutil.copy(os.path.join(shipped, 'settings.json'), data / 'settings.json')
         prepared, _ = si.prepare_settings(
             logging.getLogger('t'), str(tmp_path), fall_back_to_template=True
         )
@@ -238,6 +238,7 @@ class TestBothHostsAgreeOnTheSlotKeyType:
             tmp_path, {'turret_objectives': {'1': '4x Oly', '2': None, '3': None, '4': None}}
         )
         assert list(prepared['turret_objectives']) == [1, 2, 3, 4]
+        assert prepared['turret_objectives'][1] == '4x Oly', 'the file was set aside'
 
     def test_a_file_already_holding_duplicates_saves_back_clean(self, tmp_path, monkeypatch):
         """Field files carry the duplicates already. Assigning and saving

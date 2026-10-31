@@ -16,6 +16,7 @@ import numbers
 
 from modules.exceptions import (
     AccelerationLimitRefusedError,
+    ArgumentRefusedError,
     PositionOutOfRangeError,
 )
 from modules.api_surface import api_fields
@@ -71,6 +72,25 @@ def refuse_acceleration_pct(val_pct: object) -> None:
         or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
     ):
         raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
+
+
+def refuse_inverted_gain_range(settings: dict, argument: str) -> None:
+    """Refuse an auto-gain range whose minimum gain is above its maximum.
+
+    The one check of the pair, for every place it is judged: an arm of
+    auto-gain and a stored pair at load. Not at the settings write: each
+    bound is written alone, so a write judging the pair would make a client
+    order its two writes.
+
+    Raises:
+        ArgumentRefusedError: ``'gain_range_inverted'``, naming both bounds.
+    """
+    if settings['min_gain_db'] > settings['max_gain_db']:
+        raise ArgumentRefusedError(
+            'gain_range_inverted',
+            argument=argument,
+            value={key: settings[key] for key in ('min_gain_db', 'max_gain_db')},
+        )
 
 
 def is_turret_slot(slot: object) -> bool:

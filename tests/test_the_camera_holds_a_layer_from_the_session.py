@@ -283,6 +283,16 @@ class TestTheHeldLayer:
 
         assert camera.get_held_layer() is None
 
+    def test_an_inverted_auto_gain_range_does_not_stop_a_layer_that_does_not_arm_it(self, session):
+        # Two writes each bound allows leave the range inverted; it is the
+        # arm's to refuse, and a layer with auto-gain off arms nothing.
+        session.update_settings('protocol.autogain.max_gain_db', 2.0)
+        session.update_settings('protocol.autogain.min_gain_db', 10.0)
+
+        session.apply_layer_camera(LED0)
+
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+
     def test_a_refused_layer_is_not_held_and_is_written_again(self, session, monkeypatch):
         camera = session.scope.camera
         real = camera._apply_settings_impl
