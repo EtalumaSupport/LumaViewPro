@@ -34,6 +34,7 @@ from drivers.camera import ImageHandlerBase
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import fx2_stream
 from tests.settings_fixtures import complete_settings
+from tests.log_capture import messages, records_of
 
 T = fx2driver.ISO_TRANSACTION_SIZE
 DELIM = fx2driver.FRAME_DELIM
@@ -356,9 +357,8 @@ def test_a_simulated_ls620_stores_every_frame_whatever_its_delimiters(session, f
     assert after[key] > before[key]
 
 
-def test_the_stream_and_stop_lines_say_how_often_the_delimiter_failed(session, caplog, monkeypatch):
-    monkeypatch.setattr(fx2driver, 'logger', logging.getLogger('fx2_under_test'))
-    caplog.set_level(logging.INFO, logger='fx2_under_test')
+def test_the_stream_and_stop_lines_say_how_often_the_delimiter_failed(session, caplog):
+    caplog.set_level(logging.INFO, logger='lvp_logger')
     camera = session.scope._camera_driver
     camera.STATS_LOG_INTERVAL = 0.2
     transport = session.scope._led_driver._fx2._transport
@@ -379,7 +379,7 @@ def test_the_stream_and_stop_lines_say_how_often_the_delimiter_failed(session, c
 
     s = camera.stream_stats.summary()
     said = f'delimiters {s["delimiters_missing"]} missing / {s["delimiters_wrong"]} wrong'
-    lines = [r.getMessage() for r in caplog.records]
+    lines = messages(records_of(caplog, fx2driver))
     assert any(
         'stream:' in m and 'delimiters' in m and '0 missing / 0 wrong' not in m for m in lines
     )

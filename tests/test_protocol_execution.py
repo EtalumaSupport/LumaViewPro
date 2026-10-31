@@ -14,6 +14,7 @@ from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import json
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -479,6 +480,15 @@ class TestSingleScanAutoFocusNoneResult:
         )
 
 
+def _af_warnings(caplog) -> list[str]:
+    """The AF-failure warnings the run logged."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and 'Autofocus failed' in r.getMessage()
+    ]
+
+
 class TestAutofocusFailureDoesNotHaltProtocol:
     """An autofocus failure mid-protocol must not stop the run or pop a modal --
     an unattended scan keeps capturing at the fallback Z. The autofocus thread is
@@ -490,10 +500,8 @@ class TestAutofocusFailureDoesNotHaltProtocol:
     """
 
     def test_af_exception_warns_with_step_context_without_halt(
-        self, executor, scope, tmp_path, monkeypatch
+        self, executor, scope, tmp_path, caplog
     ):
-        import modules.protocol_step_runner as psr
-
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         af = executor._autofocus_runner
         af.complete.return_value = True
@@ -507,13 +515,11 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         af_future.exception.return_value = RuntimeError('camera fault during AF')
         executor.autofocus_thread.run_autofocus.return_value = af_future
 
-        warnings = []
-        monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
-
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        with caplog.at_level(logging.WARNING):
+            completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'an AF failure must not halt the protocol'
 
-        af_warnings = [w for w in warnings if 'Autofocus failed' in w]
+        af_warnings = _af_warnings(caplog)
         assert len(af_warnings) == 1, (
             'the step runner must emit exactly one step-correlated AF-failure '
             f'warning (got {len(af_warnings)})'
@@ -528,7 +534,7 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         )
         assert 'fallback Z' in w, f'warning must say capture continues at fallback Z: {w!r}'
 
-    def test_af_failure_consumed_once_no_log_flood(self, executor, scope, monkeypatch):
+    def test_af_failure_consumed_once_no_log_flood(self, executor, scope, monkeypatch, caplog):
         """Drive scan_iterate directly while the stage stays in motion -- the
         exact condition that made the old gate re-handle and re-log the same
         resolved AF future on every ~1 kHz settle poll. A single fault must be
@@ -536,8 +542,6 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         across all the settle polls -- not zero, and not one per poll.
         """
         import threading as _threading
-
-        import modules.protocol_step_runner as psr
 
         # Stage never reports idle: scan_iterate keeps hitting the motion-settle
         # early-return after the AF gate, so _af_future is not cleared between
@@ -575,13 +579,11 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         writer = _RecordingWriter()
         monkeypatch.setattr(executor, '_image_writer', writer)
 
-        warnings = []
-        monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+        with caplog.at_level(logging.WARNING):
+            for _ in range(10):
+                executor._step_executor.scan_iterate()
 
-        for _ in range(10):
-            executor._step_executor.scan_iterate()
-
-        af_warnings = [w for w in warnings if 'Autofocus failed' in w]
+        af_warnings = _af_warnings(caplog)
         assert len(af_warnings) == 1, (
             'the step runner must emit exactly one step-correlated AF-failure '
             f'warning across the settle polls, not one per poll (got {len(af_warnings)})'

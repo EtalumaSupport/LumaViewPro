@@ -23,12 +23,14 @@ tests build the camera API over a scripted driver double.
 
 from __future__ import annotations
 
+import logging
 import threading
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from tests.log_capture import records_of
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
@@ -36,6 +38,7 @@ from drivers.camera import Camera
 from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import HardwareCommandRefusedError
 from modules.lumascope_api import Lumascope
+import modules.lumascope_api.camera as camera_mod
 from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 
@@ -381,17 +384,6 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
 # --- Temp-logger un-latch (Seams-4) ----------------------------------------------
 
 
-def _recording_logger(sink: list) -> SimpleNamespace:
-    """Recorder standing in for the conftest-mocked lvp_logger logger."""
-    return SimpleNamespace(
-        warning=lambda msg, *a, **kw: sink.append(str(msg)),
-        info=lambda *a, **kw: None,
-        debug=lambda *a, **kw: None,
-        error=lambda *a, **kw: None,
-        exception=lambda *a, **kw: None,
-    )
-
-
 def test_temp_logger_survives_transient_disconnect_and_resumes():
     # Seams-4 regression: a single transient camera_connected False during a
     # tick must NOT unschedule the temp logger. The old tick self-unscheduled
@@ -483,7 +475,12 @@ SHIPPED_STORED = {
 }
 
 
-def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch):
+def _camera_warnings(caplog) -> list[str]:
+    """The WARNING lines the camera API's own code logged."""
+    return [r.getMessage() for r in records_of(caplog, camera_mod) if r.levelno == logging.WARNING]
+
+
+def test_save_camera_state_records_unknown_fields_as_none_and_warns(caplog):
     # Cold cache, gain and exposure reads fail: the snapshot records each as
     # None, unknown, which the restore leaves alone (the old shape stored gain
     # -1 and a later restore drove the sentinel back toward the camera), and
@@ -493,10 +490,9 @@ def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch)
     # bring-up's populate, which the simulator cannot yet inject (a simulator
     # gap).
     camera = _build_camera(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
-    warnings = []
-    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
-    snapshot = camera.save_camera_state('t')
+    with caplog.at_level(logging.WARNING):
+        snapshot = camera.save_camera_state('t')
 
     assert snapshot == {
         'tag': 't',
@@ -510,13 +506,13 @@ def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch)
         'line_noise_reduction': None,
         'stored': SHIPPED_STORED,
     }
-    save_warnings = [w for w in warnings if 'save_camera_state' in w]
+    save_warnings = [w for w in _camera_warnings(caplog) if 'save_camera_state' in w]
     assert len(save_warnings) == 4, save_warnings
     for field in ('the gain is', 'the exposure is', 'high_conversion_gain', 'line_noise_reduction'):
         assert any(field in w for w in save_warnings), (field, save_warnings)
 
 
-def test_save_camera_state_carries_both_fields_without_warning(sim_scope, monkeypatch):
+def test_save_camera_state_carries_both_fields_without_warning(sim_scope, caplog):
     camera = sim_scope.camera
     # As bring-up does: a camera without either toggle is at its standard
     # setting, which the writer records without reaching the driver.
@@ -524,33 +520,33 @@ def test_save_camera_state_carries_both_fields_without_warning(sim_scope, monkey
     camera._set_line_noise_reduction_impl(False)
     camera.set_gain_db(12.5)
     camera.set_exposure_ms(50.0)
-    warnings = []
-    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
-    snapshot = camera.save_camera_state('t')
+    with caplog.at_level(logging.WARNING):
+        snapshot = camera.save_camera_state('t')
 
     assert (snapshot['gain_db'], snapshot['exposure_ms']) == (12.5, 50.0)
-    assert warnings == []
+    assert _camera_warnings(caplog) == []
 
 
-def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(sim_scope, monkeypatch):
+def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(
+    sim_scope, monkeypatch, caplog
+):
     # A caller-trimmed snapshot (autofocus keeps only the fields its run
     # targeted) is legitimate: restore the present field, skip the absent one,
     # and log NO warning -- save_camera_state already warned if the omission
     # was a never-read.
     camera = sim_scope.camera
-    warnings = []
-    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
     calls = []
     monkeypatch.setattr(camera, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
     monkeypatch.setattr(camera, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
-    camera.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
+    with caplog.at_level(logging.WARNING):
+        camera.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
 
     assert calls == [('exposure', 50.0)], (
         f'only the present field may be restored; set_gain_db must not run: {calls}'
     )
-    assert warnings == []
+    assert _camera_warnings(caplog) == []
 
 
 def test_restore_camera_state_empty_snapshot_is_noop(sim_scope, monkeypatch):

@@ -13,6 +13,7 @@ The live grab loop and real conversion are bench-gated.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from types import SimpleNamespace
@@ -34,6 +35,7 @@ from drivers.idscamera import (
 )
 from drivers.exceptions import CameraUsbOpenFailedError
 from tests.camera_fakes import bare_ids_camera
+from tests.log_capture import records_of
 
 
 def _time_at(now):
@@ -43,6 +45,17 @@ def _time_at(now):
     in the process.
     """
     return SimpleNamespace(monotonic=lambda: now, perf_counter=time.perf_counter, sleep=time.sleep)
+
+
+def _cam_lines(caplog, level):
+    """The lines at ``level`` the driver wrote to its camera log."""
+    from drivers import idscamera
+
+    return [
+        r.getMessage()
+        for r in records_of(caplog, idscamera)
+        if r.name == idscamera._cam_log.name and r.levelno == level
+    ]
 
 
 class _RecordingNode:
@@ -105,34 +118,25 @@ class TestSignificantBitsFromFormat:
     def test_significant_bits(self, wire, expected):
         assert ids_significant_bits(wire) == expected
 
-    def test_unrecognized_format_warns_but_defaults_8(self):
+    def test_unrecognized_format_warns_but_defaults_8(self, caplog):
         # A non-Mono (color/packed) name is unexpected on this mono-only driver:
         # still default to 8, but WARN so it is loud rather than silently stamped.
-        from drivers import idscamera
-
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('BayerRG12') == 8
-        log.warning.assert_called_once()
+        assert len(_cam_lines(caplog, logging.WARNING)) == 1, caplog.messages
 
-    def test_recognized_mono_format_does_not_warn(self):
-        from drivers import idscamera
-
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+    def test_recognized_mono_format_does_not_warn(self, caplog):
+        with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('Mono12') == 12
-        log.warning.assert_not_called()
+        assert _cam_lines(caplog, logging.WARNING) == []
 
-    def test_empty_format_defaults_8_quietly(self):
+    def test_empty_format_defaults_8_quietly(self, caplog):
         # An empty/None format is a failed-read sentinel, not a color camera --
         # default to 8 without the misleading "unrecognized color format" warning.
-        from drivers import idscamera
-
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('') == 8
             assert ids_significant_bits(None) == 8
-        log.warning.assert_not_called()
+        assert _cam_lines(caplog, logging.WARNING) == []
 
 
 class TestIplTarget:
@@ -267,26 +271,21 @@ class TestFreeRunConfig:
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value is _RecordingNode._UNSET
 
-    def test_a_rate_write_the_camera_refuses_is_a_warning_naming_it(self):
+    def test_a_rate_write_the_camera_refuses_is_a_warning_naming_it(self, caplog):
         # A refused write leaves the rate where it was, which can be clamped
         # low by an earlier long exposure: a bundle must say so.
-        from drivers import idscamera
-
         class _RefusingNode(_RecordingNode):
             def SetValue(self, v):
                 raise RuntimeError('OUT_OF_RANGE')
 
         cam = self._cam()
         cam.remote_nodemap.nodes['AcquisitionFrameRate'] = _RefusingNode(maximum=45.0)
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             assert cam._set_free_run_frame_rate() is None
-        (message,), _ = log.warning.call_args
+        message = _cam_lines(caplog, logging.WARNING)[-1]
         assert 'AcquisitionFrameRate' in message and 'OUT_OF_RANGE' in message
 
-    def test_a_camera_without_the_rate_node_is_not_a_warning(self):
-        from drivers import idscamera
-
+    def test_a_camera_without_the_rate_node_is_not_a_warning(self, caplog):
         class _NoRateNodemap(_RecordingNodemap):
             def FindNode(self, name):
                 if name == 'AcquisitionFrameRate':
@@ -295,10 +294,9 @@ class TestFreeRunConfig:
 
         cam = self._cam()
         cam.remote_nodemap = _NoRateNodemap()
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             assert cam._set_free_run_frame_rate() is None
-        log.warning.assert_not_called()
+        assert _cam_lines(caplog, logging.WARNING) == []
 
 
 class TestGainDbConversion:
@@ -926,34 +924,29 @@ class TestWedgedBufferBreaksLoop:
         assert ds.requeued == []  # never touch an invalid handle to re-queue it
         h._parent._handle_device_lost.assert_called_once()  # the uniform removal drop
 
-    def test_handle_buffer_error_breaks_logs_and_routes_to_removal(self):
-        from drivers import idscamera
-
+    def test_handle_buffer_error_breaks_logs_and_routes_to_removal(self, caplog):
         ds = MagicMock()
         h = _ids_handler(ds)
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             should_stop = h._handle_buffer_error(RuntimeError('bufferHandle is invalid'))
         assert should_stop is True  # break the loop -- do NOT catch-and-continue
-        log.error.assert_called_once()  # routed through the camera log
+        assert len(_cam_lines(caplog, logging.ERROR)) == 1  # routed through the camera log
         h._parent._handle_device_lost.assert_called_once()  # the uniform removal drop
 
-    def test_handle_wait_error_invalid_stream_handle_breaks_and_routes(self):
+    def test_handle_wait_error_invalid_stream_handle_breaks_and_routes(self, caplog):
         # The SAME invalid-handle fault can surface from WaitForFinishedBuffer
         # itself (the data stream revoked during the wait), not only from buffer
         # access. The wait-path classifier must stop the loop and escalate the
         # wedge -- NOT fall through to keep-polling, which hot-spins on the dead
         # stream (a single wedge produced tens of thousands of identical warnings
         # on the bench before this case existed).
-        from drivers import idscamera
-
         ds = MagicMock()
         h = _ids_handler(ds)
-        log = MagicMock()
-        with patch.object(idscamera, '_cam_log', log):
+        with caplog.at_level(logging.WARNING):
             should_stop = h._handle_wait_error(RuntimeError('dataStreamHandle is invalid!'))
         assert should_stop is True  # stop the loop -- do NOT keep polling (no hot-spin)
-        log.error.assert_called_once()  # routed through the camera log as a wedge
+        # routed through the camera log as a wedge
+        assert len(_cam_lines(caplog, logging.ERROR)) == 1
         h._parent._handle_device_lost.assert_called_once()  # same drop as the buffer path
 
     def test_buffer_device_lost_routes_to_single_owner(self):
@@ -1809,36 +1802,26 @@ class TestPipelineLifecycle:
         assert ds.requeued.count(bad) == 1  # re-queued once, by the poll loop
 
     def test_an_incomplete_buffer_is_logged_with_what_it_delivered_against_what_it_expected(
-        self, monkeypatch
+        self, caplog
     ):
-        from unittest.mock import MagicMock
-
-        import drivers.idscamera as idscamera
-
-        cam_log = MagicMock()
-        monkeypatch.setattr(idscamera, '_cam_log', cam_log)
-        _ids_handler(_FakeDataStream([]))._log_incomplete(_FakeBuffer('bad', complete=False))
-        (line,), _ = cam_log.warning.call_args
+        with caplog.at_level(logging.WARNING):
+            _ids_handler(_FakeDataStream([]))._log_incomplete(_FakeBuffer('bad', complete=False))
+        line = _cam_lines(caplog, logging.WARNING)[-1]
         assert 'delivered=3 expected=4 capacity=2' in line
 
-    def test_a_size_the_sdk_cannot_give_is_named_and_the_others_still_logged(self, monkeypatch):
+    def test_a_size_the_sdk_cannot_give_is_named_and_the_others_still_logged(self, caplog):
         # IDS peak 26.06 on the U3-34L answers one of an incomplete buffer's
         # sizes with GC_ERR_NOT_AVAILABLE (bench, 2026-10-20); the sizes it can
         # give still describe the loss.
-        from unittest.mock import MagicMock
-
-        import drivers.idscamera as idscamera
-
         class _ExpectedUnavailable(_FakeBuffer):
             def ExpectedDataSize(self):
                 raise RuntimeError('GC_ERR_NOT_AVAILABLE')
 
-        cam_log = MagicMock()
-        monkeypatch.setattr(idscamera, '_cam_log', cam_log)
-        _ids_handler(_FakeDataStream([]))._log_incomplete(
-            _ExpectedUnavailable('bad', complete=False)
-        )
-        (line,), _ = cam_log.warning.call_args
+        with caplog.at_level(logging.WARNING):
+            _ids_handler(_FakeDataStream([]))._log_incomplete(
+                _ExpectedUnavailable('bad', complete=False)
+            )
+        line = _cam_lines(caplog, logging.WARNING)[-1]
         assert 'delivered=3' in line
         assert 'capacity=2' in line
         assert 'expected=<not available: RuntimeError>' in line

@@ -18,6 +18,7 @@ Defense-in-depth, two layers:
    folder) cannot lose data.
 """
 
+import logging
 import pathlib
 import textwrap
 
@@ -38,6 +39,7 @@ from modules.layer_record import release_colors
 from tests.scope_fakes import stock_unit
 from tests.installation_fixtures import shipped_grids
 from modules.lumascope_api.frame_record import CapturedStill
+from tests.log_capture import records_of
 
 
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
@@ -329,27 +331,14 @@ class _MinimalScope:
     """
 
 
-def _patch_image_save_logger(monkeypatch):
-    """Replace ``image_save.logger`` (a MagicMock under LVP's conftest mock)
-    with a real captured-record list. Returns the list; tests assert
-    against record messages directly.
-    """
+def _image_save_lines(caplog) -> list:
+    """(level name, message) of each line ``image_save`` logged."""
     from modules import image_save
 
-    captured: list = []
-
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            captured.append(('WARNING', msg % args if args else msg))
-
-        def info(self, msg, *args, **kwargs):
-            captured.append(('INFO', msg % args if args else msg))
-
-    monkeypatch.setattr(image_save, 'logger', _RecordingLogger())
-    return captured
+    return [(r.levelname, r.getMessage()) for r in records_of(caplog, image_save)]
 
 
-def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
+def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
     """When a filename collides under if_collision mode, the user must
     be told via a WARNING log. The duplicate-key class (#636 customer
     case where TGIDs collide on filename) is silently data-preserving
@@ -361,16 +350,16 @@ def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
     base = tmp_path / '_PC_TA1.tiff'
     base.write_bytes(b'')
 
-    captured = _patch_image_save_logger(monkeypatch)
-
-    path = generate_image_save_path(
-        scope=_MinimalScope(),
-        save_folder=tmp_path,
-        file_root='_PC_TA1',
-        append='',
-        tail_id_mode='if_collision',
-        output_format='TIFF',
-    )
+    with caplog.at_level(logging.INFO):
+        path = generate_image_save_path(
+            scope=_MinimalScope(),
+            save_folder=tmp_path,
+            file_root='_PC_TA1',
+            append='',
+            tail_id_mode='if_collision',
+            output_format='TIFF',
+        )
+    captured = _image_save_lines(caplog)
 
     assert path.name == '_PC_TA1_000001.tiff', (
         f'if_collision should append _000001 on first collision; got {path.name}'
@@ -387,20 +376,20 @@ def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
     )
 
 
-def test_if_collision_no_warning_when_no_collision(tmp_path, monkeypatch):
+def test_if_collision_no_warning_when_no_collision(tmp_path, caplog):
     """Happy path: no warning when the filename is fresh."""
     from modules.image_save import generate_image_save_path
 
-    captured = _patch_image_save_logger(monkeypatch)
-
-    path = generate_image_save_path(
-        scope=_MinimalScope(),
-        save_folder=tmp_path,
-        file_root='_PC_TA1',
-        append='',
-        tail_id_mode='if_collision',
-        output_format='TIFF',
-    )
+    with caplog.at_level(logging.INFO):
+        path = generate_image_save_path(
+            scope=_MinimalScope(),
+            save_folder=tmp_path,
+            file_root='_PC_TA1',
+            append='',
+            tail_id_mode='if_collision',
+            output_format='TIFF',
+        )
+    captured = _image_save_lines(caplog)
 
     assert path.name == '_PC_TA1.tiff'
     assert not any('filename collision' in msg for _, msg in captured), (

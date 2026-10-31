@@ -20,8 +20,8 @@ catches the silent ones, and the log assertion pins the phantom row.
 
 from __future__ import annotations
 
+import logging
 import pathlib
-from unittest.mock import patch
 
 import pandas as pd
 
@@ -30,6 +30,7 @@ from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from tests.scope_fakes import stock_unit
 from tests.installation_fixtures import shipped_grids
+from tests.log_capture import records_of
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SHIPPED_DEFAULT = REPO / 'data' / 'new_default_protocol.tsv'
@@ -62,12 +63,15 @@ def test_the_per_row_columns_keep_their_type_at_zero_rows():
     assert steps['Stim_Config'].dtype == object
 
 
-def test_a_zero_step_load_logs_nothing_for_a_step_that_does_not_exist():
-    with patch.object(protocol_module, 'logger') as logger:
-        _load(SHIPPED_DEFAULT)
+def test_a_zero_step_load_logs_nothing_for_a_step_that_does_not_exist(caplog):
+    _load(SHIPPED_DEFAULT)
 
-    assert logger.error.call_args_list == []
-    assert logger.warning.call_args_list == []
+    told = [
+        (r.levelname, r.getMessage())
+        for r in records_of(caplog, protocol_module)
+        if r.levelno in (logging.WARNING, logging.ERROR)
+    ]
+    assert told == [], told
 
 
 def test_a_stepped_file_is_unaffected():

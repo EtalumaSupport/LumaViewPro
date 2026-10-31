@@ -15,14 +15,15 @@ evidence, which is the whole point of recording it.
 """
 
 import ast
+import logging
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from tests.ast_seams import find_def
+from tests.log_capture import messages, records_of
 
 
 TUBE_FOCAL_LENGTH_MM = 47.8
@@ -46,13 +47,13 @@ def no_optics():
     return SimpleNamespace(lens_focal_length_mm=None, pixel_size_um=SENSOR_PIXEL_SIZE_UM)
 
 
-def _emitted(mock_logger):
-    """Every message the call put on the log, whatever the level."""
-    return [str(call.args[0]) for call in mock_logger.method_calls if call.args]
+def _emitted(caplog):
+    """Every message config_helpers put on the log, whatever the level."""
+    return messages(records_of(caplog, config_helpers))
 
 
 class TestLoggedScaleCannotDriftFromWrittenScale:
-    def test_logged_um_per_pixel_is_the_resolver_s_own_answer(self, optics):
+    def test_logged_um_per_pixel_is_the_resolver_s_own_answer(self, optics, caplog):
         """The number logged and the number baked into images are one value."""
         expected = common_utils.get_pixel_size(
             focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
@@ -60,7 +61,7 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
             capabilities=optics,
         )
 
-        with patch.object(config_helpers, 'logger') as mock_logger:
+        with caplog.at_level(logging.DEBUG):
             config_helpers.log_resolved_optics(
                 objective_id='20x',
                 focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
@@ -68,15 +69,15 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
                 capabilities=optics,
             )
 
-        line = ' '.join(_emitted(mock_logger))
+        line = ' '.join(_emitted(caplog))
         assert f'{expected}um/px' in line, (
             f'logged scale must be the resolver output {expected}; got: {line}'
         )
 
-    def test_every_input_to_the_scale_is_on_the_line(self, optics):
+    def test_every_input_to_the_scale_is_on_the_line(self, optics, caplog):
         """A bundle has to be able to tell a misconfigured scope from a wrong
         resolver, which needs the inputs and not only the result."""
-        with patch.object(config_helpers, 'logger') as mock_logger:
+        with caplog.at_level(logging.DEBUG):
             config_helpers.log_resolved_optics(
                 objective_id='20x',
                 focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
@@ -84,7 +85,7 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
                 capabilities=optics,
             )
 
-        line = ' '.join(_emitted(mock_logger))
+        line = ' '.join(_emitted(caplog))
         for expected in (
             '20x',
             str(OBJECTIVE_FOCAL_LENGTH_MM),
@@ -94,10 +95,10 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
         ):
             assert expected in line, f'{expected!r} missing from the optics line: {line}'
 
-    def test_binning_reaches_the_resolver(self, optics):
+    def test_binning_reaches_the_resolver(self, optics, caplog):
         """Binning multiplies the scale; logging it unbinned would mislabel
         every binned image in the bundle."""
-        with patch.object(config_helpers, 'logger') as mock_logger:
+        with caplog.at_level(logging.DEBUG):
             config_helpers.log_resolved_optics(
                 objective_id='20x',
                 focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
@@ -110,15 +111,15 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
             binning_size=1,
             capabilities=optics,
         )
-        line = ' '.join(_emitted(mock_logger))
+        line = ' '.join(_emitted(caplog))
         assert f'{unbinned * 2}um/px' in line
 
 
 class TestNoScaleIsItselfReported:
-    def test_missing_optics_still_logs_and_names_what_is_missing(self, no_optics):
+    def test_missing_optics_still_logs_and_names_what_is_missing(self, no_optics, caplog):
         """The condition a returned bundle most needs explained is the one
         where there is no scale at all -- staying silent there is the defect."""
-        with patch.object(config_helpers, 'logger') as mock_logger:
+        with caplog.at_level(logging.DEBUG):
             config_helpers.log_resolved_optics(
                 objective_id='20x',
                 focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
@@ -126,7 +127,7 @@ class TestNoScaleIsItselfReported:
                 capabilities=no_optics,
             )
 
-        line = ' '.join(_emitted(mock_logger))
+        line = ' '.join(_emitted(caplog))
         assert line, 'a scope that cannot report its optics logged nothing at all'
         assert 'tube lens focal length' in line, (
             f'the missing input must be named, not printed as None: {line}'

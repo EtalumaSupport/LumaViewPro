@@ -8,6 +8,8 @@ Who started the run is not the member's to say: ``prepare`` reads it from
 the host's stamp on the calling thread (``modules.caller``).
 """
 
+import logging
+
 import pytest
 
 from tests.test_run_refusal_contract import _make_single_step_protocol
@@ -66,16 +68,14 @@ class TestTheRunReadsOneSnapshotOfTheSettings:
 
 
 class TestTheScanLogNamesTheFormatInForce:
-    def test_the_scan_line_names_the_pixel_format_the_camera_delivers(self, monkeypatch):
-        import modules.protocol_runner as protocol_runner
-
-        lines = []
-        monkeypatch.setattr(protocol_runner.logger, 'info', lambda msg, *a, **k: lines.append(msg))
+    def test_the_scan_line_names_the_pixel_format_the_camera_delivers(self, caplog):
         runner = _runner()
         runner.session.scope.camera.pixel_format = 'Mono8'
 
-        _run(runner, 'start_single_scan')
+        with caplog.at_level(logging.INFO):
+            _run(runner, 'start_single_scan')
 
+        lines = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
         (scan,) = [line for line in lines if '[Protocol] scan' in line]
         assert 'pixel_format=Mono8' in scan
         assert 'capture_depth=' not in scan

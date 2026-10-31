@@ -25,6 +25,7 @@ without pyusb installed.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 from pathlib import Path
@@ -42,6 +43,7 @@ from drivers.exceptions import CameraWriteFailedError
 from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
 from drivers.protocols import LEDBoardProtocol
 from drivers.camera_profiles import lookup_profile
+from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -835,7 +837,7 @@ def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
     assert result is not None
 
 
-def test_the_led_short_write_detector_fires_on_a_zero_byte_write():
+def test_the_led_short_write_detector_fires_on_a_zero_byte_write(caplog):
     """The test that would have failed for the whole life of the defect.
 
     `_led_write` compares i2c_write's return against the 1 byte it expects,
@@ -847,22 +849,26 @@ def test_the_led_short_write_detector_fires_on_a_zero_byte_write():
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 0)  # wrote nothing
     led._wire_debug_enabled = lambda: False
 
-    with patch.object(fx2driver, 'logger') as mock_logger:
+    with caplog.at_level(logging.WARNING):
         led._led_write(channel=0, brightness=0x10)
-        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+    warned = ' '.join(
+        r.getMessage() for r in records_of(caplog, fx2driver) if r.levelno == logging.WARNING
+    )
 
     assert 'short write' in warned, f'a 0-of-1-byte write was not reported: {warned!r}'
 
 
-def test_the_led_detector_stays_quiet_on_a_good_write():
+def test_the_led_detector_stays_quiet_on_a_good_write(caplog):
     """The converse -- the detector must not cry wolf on every LED command."""
     led = object.__new__(fx2driver.FX2LEDController)
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 1)
     led._wire_debug_enabled = lambda: False
 
-    with patch.object(fx2driver, 'logger') as mock_logger:
+    with caplog.at_level(logging.WARNING):
         led._led_write(channel=0, brightness=0x10)
-        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+    warned = ' '.join(
+        r.getMessage() for r in records_of(caplog, fx2driver) if r.levelno == logging.WARNING
+    )
 
     assert 'short write' not in warned
 
@@ -1081,16 +1087,12 @@ class TestFx2DriverLibusbBackendProbe:
         return gate, found, handed_to_usb1
 
     @staticmethod
-    def _logged(monkeypatch, gate):
-        records = []
-
-        class _Recorder:
-            def __getattr__(self, level):
-                return lambda msg, *a, **k: records.append((level.upper(), str(msg)))
-
-        monkeypatch.setattr(fx2driver, 'logger', _Recorder())
-        fx2driver._log_fx2_gate(gate)
-        return records
+    def _logged(caplog, gate):
+        """(level, message) for each line the driver module logs saying the gate."""
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG):
+            fx2driver._log_fx2_gate(gate)
+        return [(r.levelname, r.getMessage()) for r in records_of(caplog, fx2driver)]
 
     @staticmethod
     def _registered(monkeypatch, gate):
@@ -1124,7 +1126,7 @@ class TestFx2DriverLibusbBackendProbe:
         ],
     )
     def test_each_failed_bundled_load_classifies_unavailable_and_says_why(
-        self, monkeypatch, case, kwargs, reason
+        self, monkeypatch, caplog, case, kwargs, reason
     ):
         backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
         if backend == 'OTHER':
@@ -1134,7 +1136,7 @@ class TestFx2DriverLibusbBackendProbe:
         assert gate.available is False, case
         assert reason in gate.library_refusal, (case, gate.library_refusal)
         assert gate.unavailable_reason == f'bundled libusb not in use: {gate.library_refusal}'
-        records = self._logged(monkeypatch, gate)
+        records = self._logged(caplog, gate)
         assert any(
             lvl == 'INFO' and 'bundled libusb not in use' in msg and reason in msg
             for lvl, msg in records
@@ -1155,7 +1157,7 @@ class TestFx2DriverLibusbBackendProbe:
         )
         assert (gate.available, gate.unavailable_reason) == (available, reason), case
 
-    def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
+    def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch, caplog):
         """The backend is asked for the bundled file and nothing else, the
         gate opens, the drivers register, and the log names the file."""
         backend = self._backend_on(self._BUNDLED)
@@ -1169,7 +1171,7 @@ class TestFx2DriverLibusbBackendProbe:
         assert gate.library_path == self._BUNDLED
         assert gate.available is True
         assert ('INFO', f'[FX2 Driver] libusb 1.0.30 loaded from {self._BUNDLED}') in self._logged(
-            monkeypatch, gate
+            caplog, gate
         )
         assert self._registered(monkeypatch, gate) == ['fx2'], (
             'FX2 drivers must register when prerequisites are met'

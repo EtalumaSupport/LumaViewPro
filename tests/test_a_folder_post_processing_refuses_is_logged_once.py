@@ -16,18 +16,13 @@ import pandas as pd
 import pytest
 
 import modules.protocol_post_processing_helper as helper_module
-import modules.protocol_post_processor as processor_module
 from modules.exceptions import PostProcessingRefusedError
 from modules.notification_center import NotificationCenter
 from tests.test_post_processing_tells_whoever_asked import _Processor
 from tests.installation_fixtures import shipped_grids
 
 
-def test_an_empty_folder_is_one_warning_and_no_error(tmp_path, caplog, monkeypatch):
-    # The suite's lvp_logger is a stand-in that records nothing; the loader
-    # and the processor log into real loggers here so their records are seen.
-    monkeypatch.setattr(helper_module, 'logger', logging.getLogger('LVP.test.pp_helper'))
-    monkeypatch.setattr(processor_module, 'logger', logging.getLogger('LVP.test.pp_processor'))
+def test_an_empty_folder_is_one_warning_and_no_error(tmp_path, caplog):
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(PostProcessingRefusedError) as raised:
             _Processor([]).load_folder(path=tmp_path, tiling_grids=shipped_grids())
@@ -71,8 +66,6 @@ _FOLDERS = {
 @pytest.mark.parametrize('folder', sorted(_FOLDERS))
 def test_every_folder_it_cannot_process_logs_no_error(folder, tmp_path, caplog, monkeypatch):
     stubs, words = _FOLDERS[folder]
-    monkeypatch.setattr(helper_module, 'logger', logging.getLogger('LVP.test.pp_helper'))
-    monkeypatch.setattr(processor_module, 'logger', logging.getLogger('LVP.test.pp_processor'))
     found = {
         'protocol': tmp_path / 'protocol.tsv',
         'protocol_execution_record': tmp_path / 'protocol_record.tsv',

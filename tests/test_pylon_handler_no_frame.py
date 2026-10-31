@@ -11,12 +11,13 @@ quiet on the way.
 """
 
 import datetime
-from unittest.mock import MagicMock
+import logging
 
 import numpy as np
 import pytest
 
 from tests.camera_fakes import bare_image_handler
+from tests.log_capture import records_of
 
 
 @pytest.fixture
@@ -56,14 +57,15 @@ class TestDetachedDeviceReportsNoFrame:
         parent.active = None
         assert handler.get_last_image() is None
 
-    def test_grab_answers_no_frame_quietly(self, detached_camera, monkeypatch):
+    def test_grab_answers_no_frame_quietly(self, detached_camera, caplog):
         """grab pre-checks the removal flag, so it never reaches the guard;
         pinned here so the pre-check is not later removed on the strength
         of the guard alone."""
         from drivers import camera as camera_mod
 
         _handler, parent = detached_camera
-        cam_log = MagicMock()
-        monkeypatch.setattr(camera_mod, '_cam_log', cam_log)
         assert parent.grab() is None
-        cam_log.exception.assert_not_called()
+        logged = [
+            r for r in records_of(caplog, camera_mod) if r.levelno == logging.ERROR and r.exc_info
+        ]
+        assert logged == [], [r.getMessage() for r in logged]

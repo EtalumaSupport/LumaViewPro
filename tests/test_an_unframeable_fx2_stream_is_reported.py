@@ -20,6 +20,7 @@ import pytest
 from drivers import fx2driver
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.log_capture import records_of
 
 _UNFRAMEABLE = 'no frame stored for'
 
@@ -45,12 +46,14 @@ def session():
 
 
 @pytest.fixture
-def log(caplog, monkeypatch):
-    # The suite replaces lvp_logger with a mock; the driver's lines go to a
-    # real logger here so the test can read them.
-    monkeypatch.setattr(fx2driver, 'logger', logging.getLogger('fx2_under_test'))
-    caplog.set_level(logging.INFO, logger='fx2_under_test')
+def log(session, caplog):
+    # After the session's bring-up, which sets the main log's level.
+    caplog.set_level(logging.INFO, logger='lvp_logger')
     return caplog
+
+
+def _driver_records(log):
+    return records_of(log, fx2driver)
 
 
 def _transport(session):
@@ -59,7 +62,9 @@ def _transport(session):
 
 def _unframeable(log):
     return [
-        r for r in log.records if r.levelno == logging.WARNING and _UNFRAMEABLE in r.getMessage()
+        r
+        for r in _driver_records(log)
+        if r.levelno == logging.WARNING and _UNFRAMEABLE in r.getMessage()
     ]
 
 
@@ -98,6 +103,8 @@ def test_the_stop_line_carries_the_shifted_count(session, log):
     camera.stop_grabbing()
 
     shifted = camera.stream_stats.summary()['shifted_frames']
-    stop_lines = [r.getMessage() for r in log.records if 'streaming stopped' in r.getMessage()]
+    stop_lines = [
+        r.getMessage() for r in _driver_records(log) if 'streaming stopped' in r.getMessage()
+    ]
     assert stop_lines
     assert f'{shifted} shifted' in stop_lines[-1]

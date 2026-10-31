@@ -14,6 +14,7 @@ moves control onto the stream's handle and back.
 from __future__ import annotations
 
 import ast
+import logging
 import threading
 import time
 from pathlib import Path
@@ -579,7 +580,7 @@ def test_the_streams_start_and_stop_wait_no_longer_than_any_control_write(monkey
     }
 
 
-def test_a_stop_the_camera_did_not_take_is_said(monkeypatch):
+def test_a_stop_the_camera_did_not_take_is_said(monkeypatch, caplog):
     events = []
     conn = _connection_on_libusb(monkeypatch, events)
     handle = _IsoHandle(events)
@@ -591,12 +592,11 @@ def test_a_stop_the_camera_did_not_take_is_said(monkeypatch):
 
     handle.controlWrite = refuse_the_stop
     monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: _Context(handle), raising=False)
-    said = []
-    monkeypatch.setattr(fx2driver.logger, 'warning', lambda msg, *a: said.append(msg % a))
+    with caplog.at_level(logging.WARNING):
+        conn.start_stream(ImageHandlerBase().hand_over)
+        conn.stop_stream()
 
-    conn.start_stream(ImageHandlerBase().hand_over)
-    conn.stop_stream()
-
+    said = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert [line for line in said if 'VR_STOP_STREAMING' in line] == [
         '[FX2 Conn  ] VR_STOP_STREAMING not taken: LIBUSB_ERROR_TIMEOUT'
     ]

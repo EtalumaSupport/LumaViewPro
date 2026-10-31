@@ -4382,6 +4382,25 @@ class TestPylonGigeDiagnosticNodeCoverage:
         assert result['deltas']['Statistic_Resend_Packet_Count'] == 5
 
 
+def _pylon_lines(caplog, logger_name, level):
+    """The lines at ``level`` (a level name) the Pylon driver's own code wrote to ``logger_name``."""
+    from drivers import pyloncamera
+    from tests.log_capture import records_of
+
+    return [
+        r.getMessage()
+        for r in records_of(caplog, pyloncamera)
+        if r.name == logger_name and r.levelname == level
+    ]
+
+
+def _pylon_cam_warnings(caplog):
+    """The WARNING lines the Pylon driver wrote to its camera log."""
+    from drivers import pyloncamera
+
+    return _pylon_lines(caplog, pyloncamera._cam_log.name, 'WARNING')
+
+
 class TestPylonDltlClampAndDocWarnings:
     """set_device_link_throughput_limit must clamp out-of-range
     values via DeviceLinkThroughputLimit.GetMin() / GetMax() rather
@@ -4403,47 +4422,41 @@ class TestPylonDltlClampAndDocWarnings:
         cam.active.DeviceLinkThroughputLimit.GetMax.return_value = hi
         return cam
 
-    def _set_dltl(self, cam, value_bps):
-        from unittest import mock
-
-        from drivers import pyloncamera
-
-        log = MagicMock()
-        with mock.patch.object(pyloncamera, '_cam_log', log):
+    def _set_dltl(self, caplog, cam, value_bps):
+        with caplog.at_level('WARNING'):
             result = cam.set_device_link_throughput_limit('On', value_bps=value_bps)
-        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
-        return result, warnings
+        return result, _pylon_cam_warnings(caplog)
 
-    def test_below_minimum_clamps_to_min_and_warns(self):
+    def test_below_minimum_clamps_to_min_and_warns(self, caplog):
         cam = self._camera_with_dltl_range()
-        result, warnings = self._set_dltl(cam, 500)
+        result, warnings = self._set_dltl(caplog, cam, 500)
         assert result is True
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(1000)
         assert any('clamping' in m for m in warnings), (
             f'A clamped low DLTL value must warn the operator; got {warnings!r}'
         )
 
-    def test_above_maximum_clamps_to_max_and_warns(self):
+    def test_above_maximum_clamps_to_max_and_warns(self, caplog):
         cam = self._camera_with_dltl_range()
-        result, warnings = self._set_dltl(cam, 9000)
+        result, warnings = self._set_dltl(caplog, cam, 9000)
         assert result is True
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(5000)
         assert any('clamping' in m for m in warnings)
 
-    def test_in_range_value_passes_unclamped(self):
+    def test_in_range_value_passes_unclamped(self, caplog):
         cam = self._camera_with_dltl_range()
-        result, warnings = self._set_dltl(cam, 3000)
+        result, warnings = self._set_dltl(caplog, cam, 3000)
         assert result is True
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(3000)
         assert not warnings
 
-    def test_minmax_query_failure_passes_value_through(self):
+    def test_minmax_query_failure_passes_value_through(self, caplog):
         """Best-effort contract: if the range query fails, the value is
         written unchanged (the SDK's own OutOfRangeException then
         surfaces through the RuntimeException branch)."""
         cam = _bare_pylon_camera()
         cam.active.DeviceLinkThroughputLimit.GetMin.side_effect = RuntimeError('no node')
-        result, _warnings = self._set_dltl(cam, 12345)
+        result, _warnings = self._set_dltl(caplog, cam, 12345)
         assert result is True
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(12345)
 
@@ -4480,21 +4493,20 @@ class TestPylonResyncProminentLog:
     Audit finding B5.
     """
 
-    def _poll_once(self, cam):
-        """Run one real poller cycle with _cam_log + profile_trace
-        captured; returns (warning messages, stats-trace calls)."""
+    def _poll_once(self, caplog, cam):
+        """Run one real poller cycle with profile_trace captured; returns
+        (the camera log's warning messages, stats-trace calls)."""
         from unittest import mock
 
         from drivers import pyloncamera
 
-        log = MagicMock()
         trace_mod = MagicMock()
         with (
-            mock.patch.object(pyloncamera, '_cam_log', log),
+            caplog.at_level('WARNING'),
             mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
         ):
             _run_one_stats_poll(cam)
-        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        warnings = _pylon_cam_warnings(caplog)
         stats_calls = [
             call
             for call in trace_mod.trace.call_args_list
@@ -4509,13 +4521,13 @@ class TestPylonResyncProminentLog:
 
         assert 'Statistic_Resynchronization_Count' in PylonCamera._STATS_NODE_NAMES
 
-    def test_resync_warning_on_positive_delta(self):
+    def test_resync_warning_on_positive_delta(self, caplog):
         """The poller must emit a [INSTR RESYNC] warning when the count
         advanced since the prior cycle, and track the new total."""
         cam = _stats_poll_pylon_camera()
         cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
         cam._prev_resync_count = 2
-        warnings, _ = self._poll_once(cam)
+        warnings, _ = self._poll_once(caplog, cam)
         assert any('[INSTR RESYNC]' in m and 'delta=5' in m for m in warnings), (
             'Stats poller must warn with [INSTR RESYNC] + the delta on '
             'positive resync delta -- per Basler doc this is the most '
@@ -4523,19 +4535,19 @@ class TestPylonResyncProminentLog:
         )
         assert cam._prev_resync_count == 7
 
-    def test_resync_quiet_when_count_unchanged(self):
+    def test_resync_quiet_when_count_unchanged(self, caplog):
         cam = _stats_poll_pylon_camera()
         cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
         cam._prev_resync_count = 7
-        warnings, _ = self._poll_once(cam)
+        warnings, _ = self._poll_once(caplog, cam)
         assert not any('[INSTR RESYNC]' in m for m in warnings)
 
-    def test_resync_csv_column_present(self):
+    def test_resync_csv_column_present(self, caplog):
         """The pylon_stats_trace.csv row must carry the running resync
         total under a resync_count column."""
         cam = _stats_poll_pylon_camera()
         cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
-        _, stats_calls = self._poll_once(cam)
+        _, stats_calls = self._poll_once(caplog, cam)
         assert stats_calls, 'poller cycle must write a pylon_stats_trace.csv row'
         columns = stats_calls[0].args[1].split(',')
         row = stats_calls[0].args[2]
@@ -4557,22 +4569,19 @@ class TestPylonTemperatureStateMonitoring:
     Audit finding B13.
     """
 
-    def _poll_once(self, cam):
+    def _poll_once(self, caplog, cam):
         from unittest import mock
 
         from drivers import pyloncamera
 
-        log = MagicMock()
-        info_log = MagicMock()
         trace_mod = MagicMock()
         with (
-            mock.patch.object(pyloncamera, '_cam_log', log),
-            mock.patch.object(pyloncamera, 'logger', info_log),
+            caplog.at_level('INFO'),
             mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
         ):
             _run_one_stats_poll(cam)
-        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
-        infos = [str(call.args[0]) for call in info_log.info.call_args_list]
+        warnings = _pylon_cam_warnings(caplog)
+        infos = _pylon_lines(caplog, pyloncamera.logger.name, 'INFO')
         stats_calls = [
             call
             for call in trace_mod.trace.call_args_list
@@ -4580,24 +4589,24 @@ class TestPylonTemperatureStateMonitoring:
         ]
         return warnings, infos, stats_calls
 
-    def test_stats_poller_warns_on_critical_temperature_state(self):
+    def test_stats_poller_warns_on_critical_temperature_state(self, caplog):
         """A transition into Critical must surface as an [INSTR TEMP]
         warning (over-temp halts acquisition and otherwise presents as
         an unattributed frame-rate stall), and the new state is
         tracked."""
         cam = _stats_poll_pylon_camera()
         cam.active.TemperatureState.GetValue.return_value = 'Critical'
-        warnings, _infos, _ = self._poll_once(cam)
+        warnings, _infos, _ = self._poll_once(caplog, cam)
         assert any('[INSTR TEMP]' in m and 'Critical' in m for m in warnings), (
             f'Critical temperature state must warn with [INSTR TEMP]; got {warnings!r}'
         )
         assert cam._prev_temp_state == 'Critical'
 
-    def test_stats_poller_logs_ok_transition_at_info(self):
+    def test_stats_poller_logs_ok_transition_at_info(self, caplog):
         """Non-error temperature transitions are informational, not
         operator-actionable warnings."""
         cam = _stats_poll_pylon_camera()
-        warnings, infos, _ = self._poll_once(cam)
+        warnings, infos, _ = self._poll_once(caplog, cam)
         assert not any('[INSTR TEMP]' in m for m in warnings)
         assert any('[INSTR TEMP]' in m and 'Ok' in m for m in infos)
 
@@ -4614,13 +4623,13 @@ class TestPylonTemperatureStateMonitoring:
         assert result['config']['temperature_max_degC'] == 61.2
         assert result['config']['temperature_status_error_count'] == 0
 
-    def test_temperature_csv_column_present(self):
+    def test_temperature_csv_column_present(self, caplog):
         """The pylon_stats_trace.csv row must carry the temperature
         state so post-hoc analysis can correlate stalls with thermal
         history."""
         cam = _stats_poll_pylon_camera()
         cam.active.TemperatureState.GetValue.return_value = 'Critical'
-        _warnings, _infos, stats_calls = self._poll_once(cam)
+        _warnings, _infos, stats_calls = self._poll_once(caplog, cam)
         assert stats_calls
         columns = stats_calls[0].args[1].split(',')
         row = stats_calls[0].args[2]
@@ -4642,19 +4651,18 @@ class TestPylonMissedFrameDeltaLog:
     Audit finding B14.
     """
 
-    def _poll_once(self, cam):
+    def _poll_once(self, caplog, cam):
         from unittest import mock
 
         from drivers import pyloncamera
 
-        log = MagicMock()
         trace_mod = MagicMock()
         with (
-            mock.patch.object(pyloncamera, '_cam_log', log),
+            caplog.at_level('WARNING'),
             mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
         ):
             _run_one_stats_poll(cam)
-        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        warnings = _pylon_cam_warnings(caplog)
         stats_calls = [
             call
             for call in trace_mod.trace.call_args_list
@@ -4670,22 +4678,22 @@ class TestPylonMissedFrameDeltaLog:
             'so the live poller reads it each cycle.'
         )
 
-    def test_missed_frame_warning_on_positive_delta(self):
+    def test_missed_frame_warning_on_positive_delta(self, caplog):
         """An advancing missed-frame count must surface as an
         [INSTR MISSED] warning -- the early bandwidth-stress signal."""
         cam = _stats_poll_pylon_camera()
         cam.active.StreamGrabber.Statistic_Missed_Frame_Count.GetValue.return_value = 12
         cam._prev_missed_frame_count = 10
-        warnings, _ = self._poll_once(cam)
+        warnings, _ = self._poll_once(caplog, cam)
         assert any('[INSTR MISSED]' in m and 'delta=2' in m for m in warnings), (
             f'Stats poller must warn with [INSTR MISSED] + delta; got {warnings!r}'
         )
         assert cam._prev_missed_frame_count == 12
 
-    def test_missed_frame_csv_column_present(self):
+    def test_missed_frame_csv_column_present(self, caplog):
         cam = _stats_poll_pylon_camera()
         cam.active.StreamGrabber.Statistic_Missed_Frame_Count.GetValue.return_value = 12
-        _, stats_calls = self._poll_once(cam)
+        _, stats_calls = self._poll_once(caplog, cam)
         assert stats_calls
         columns = stats_calls[0].args[1].split(',')
         row = stats_calls[0].args[2]
@@ -5442,7 +5450,7 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
             f'UserSetLoad.Execute(); got {sequence!r}'
         )
 
-    def test_init_warns_and_proceeds_if_still_grabbing_after_poll(self):
+    def test_init_warns_and_proceeds_if_still_grabbing_after_poll(self, caplog):
         """If is_grabbing() stays True past the bounded poll, a warning
         must fire (silently letting UserSetLoad raise inside the outer
         try/except hides the condition from operators) and UserSetLoad
@@ -5453,13 +5461,12 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
 
         cam = _init_configurable_pylon_camera()
         cam.is_grabbing = lambda: True
-        log = MagicMock()
         with (
             mock.patch.object(pyloncamera, 'time', MagicMock()),
-            mock.patch.object(pyloncamera, '_cam_log', log),
+            caplog.at_level('WARNING'),
         ):
             cam.init_camera_config()
-        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        warnings = _pylon_cam_warnings(caplog)
         assert any('grabbing' in message for message in warnings), (
             'init_camera_config must warn when the camera is still '
             f'grabbing after the bounded poll; got {warnings!r}'
@@ -6461,25 +6468,20 @@ class TestPylonChunkModeActiveWriteRaceGuard:
     refusing the write is safe by default.
     """
 
-    def test_guard_skips_write_and_warns_when_grabbing(self):
+    def test_guard_skips_write_and_warns_when_grabbing(self, caplog):
         """When is_grabbing() is True the method must return without
         touching ChunkModeActive AND warn. The fake camera here is
         fully probe-capable, so the guard is the ONLY thing standing
         between the call and the write."""
-        from unittest import mock
-
-        from drivers import pyloncamera
-
         cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain', 'Timestamp', 'FrameID'])
         cam.is_grabbing = lambda: True
-        log = MagicMock()
-        with mock.patch.object(pyloncamera, '_cam_log', log):
+        with caplog.at_level('WARNING'):
             cam._enable_validity_chunks()
         assert cam.active.ChunkModeActive.writes == [], (
             'ChunkModeActive write must be skipped while grabbing; got '
             f'{cam.active.ChunkModeActive.writes!r}'
         )
-        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        warnings = _pylon_cam_warnings(caplog)
         assert any('ChunkModeActive' in m for m in warnings), (
             f'the skipped write must be warned about; got {warnings!r}'
         )

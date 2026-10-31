@@ -12,9 +12,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
-import modules.sequential_io_executor as sio
 from modules.exceptions import ObjectiveUnknownError
 from modules.notification_center import Severity
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -22,13 +19,6 @@ from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 # The notification centre also writes an INFO forensic line of what the
 # user was shown; it records the popup, not the refusal.
 FORENSIC_LOGGER = 'LVP.gui_interactions'
-
-
-@pytest.fixture(autouse=True)
-def _executor_log(monkeypatch):
-    # The suite mocks lvp_logger, so the executor's own lines go nowhere;
-    # a real logger lets these tests read what it writes.
-    monkeypatch.setattr(sio, 'logger', logging.getLogger('LVP.test_executor'))
 
 
 def _jog_step():

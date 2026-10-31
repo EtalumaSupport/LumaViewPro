@@ -25,6 +25,7 @@ Layers covered:
 
 from __future__ import annotations
 
+import logging
 import pathlib
 from unittest.mock import MagicMock
 
@@ -47,6 +48,7 @@ from tests.test_validate_steps import (
 )
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
+from tests.log_capture import records_of
 from tests.scope_fakes import stock_unit
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
@@ -369,20 +371,11 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
 # ---------------------------------------------------------------------------
 
 
-def _patch_video_writer_logger(monkeypatch):
+def _video_writer_lines(caplog):
+    """(level, message) for each line the video writer's own code logged."""
     from modules import video_writer as vw_mod
 
-    captured: list = []
-
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            captured.append(('WARNING', msg % args if args else msg))
-
-        def info(self, msg, *args, **kwargs):
-            captured.append(('INFO', msg % args if args else msg))
-
-    monkeypatch.setattr(vw_mod, 'logger', _RecordingLogger())
-    return captured
+    return [(r.levelname, r.getMessage()) for r in records_of(caplog, vw_mod)]
 
 
 def _write_one_frame_and_close(writer):
@@ -397,20 +390,21 @@ def _write_one_frame_and_close(writer):
     writer.close()
 
 
-def test_video_writer_uniquifies_existing_output_path(tmp_path, monkeypatch):
+def test_video_writer_uniquifies_existing_output_path(tmp_path, caplog):
     # Collision resolution runs at encoder init -- after the backend (and
     # so the REAL container suffix) is known -- and writer.output_path is
     # the record authority. Pre-create the path the active backend will
     # actually open (.avi covers the cv2 fallback; .mp4 covers PyAV).
     from modules.video_writer import VideoWriter
 
-    captured = _patch_video_writer_logger(monkeypatch)
     requested = tmp_path / 'A1_BF_video.mp4'
     for suffix in ('.mp4', '.avi'):
         requested.with_suffix(suffix).write_bytes(b'previous recording')
 
-    writer = VideoWriter(output_path=requested, fps=5.0)
-    _write_one_frame_and_close(writer)
+    with caplog.at_level(logging.INFO):
+        writer = VideoWriter(output_path=requested, fps=5.0)
+        _write_one_frame_and_close(writer)
+    captured = _video_writer_lines(caplog)
 
     actual = writer.output_path
     assert actual.stem == 'A1_BF_video_000001', (
@@ -426,14 +420,15 @@ def test_video_writer_uniquifies_existing_output_path(tmp_path, monkeypatch):
     )
 
 
-def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
+def test_video_writer_keeps_fresh_output_path(tmp_path, caplog):
     from modules.video_writer import VideoWriter
 
-    captured = _patch_video_writer_logger(monkeypatch)
     requested = tmp_path / 'A1_BF_video.mp4'
 
-    writer = VideoWriter(output_path=requested, fps=5.0)
-    _write_one_frame_and_close(writer)
+    with caplog.at_level(logging.INFO):
+        writer = VideoWriter(output_path=requested, fps=5.0)
+        _write_one_frame_and_close(writer)
+    captured = _video_writer_lines(caplog)
 
     actual = writer.output_path
     # The backend may rewrite the container suffix (.avi fallback), but a
@@ -576,27 +571,25 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
     assert list(proto.steps()['Label']) == ['Region_TA1', 'Region_TA2', 'Region_TB1', 'Region_TB2']
 
 
-def test_tiling_inference_skips_malformed_tile_cells_with_warning(monkeypatch):
+def test_tiling_inference_skips_malformed_tile_cells_with_warning(caplog):
     from modules import tiling_config as tc_mod
 
-    warnings: list = []
+    def warnings():
+        return [r.getMessage() for r in records_of(caplog, tc_mod) if r.levelno == logging.WARNING]
 
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            warnings.append(msg % args if args else msg)
-
-    monkeypatch.setattr(tc_mod, 'logger', _RecordingLogger())
     tc = shipped_grids()
 
     # Hand-edited / corrupt cells must be skipped with a warning, never
     # raise out of the load path.
-    assert tc.determine_tiling_label_from_tiles(['AA', 'A1B', 'A 1']) is None
-    assert warnings and 'malformed' in warnings[0].lower(), warnings
+    with caplog.at_level(logging.WARNING):
+        assert tc.determine_tiling_label_from_tiles(['AA', 'A1B', 'A 1']) is None
+    assert warnings() and 'malformed' in warnings()[0].lower(), warnings()
 
     # Valid cells still infer, with malformed ones contributing nothing.
-    warnings.clear()
-    assert tc.determine_tiling_label_from_tiles(['A1', 'A2', 'B1', 'B2', 'A 1']) == '2x2'
-    assert warnings and 'malformed' in warnings[0].lower(), warnings
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert tc.determine_tiling_label_from_tiles(['A1', 'A2', 'B1', 'B2', 'A 1']) == '2x2'
+    assert warnings() and 'malformed' in warnings()[0].lower(), warnings()
 
 
 # ---------------------------------------------------------------------------
@@ -627,31 +620,17 @@ def _v8_row(name, label, well, tile_group=0, x=1.0):
     )
 
 
-def _capture_protocol_logger(monkeypatch):
+def test_load_sanitizes_labels_loudly(tmp_path, caplog):
     from modules import protocol as protocol_mod
 
-    warnings: list = []
-
-    class _RecordingLogger:
-        def warning(self, msg, *args, **kwargs):
-            warnings.append(msg % args if args else msg)
-
-        def info(self, msg, *args, **kwargs):
-            pass
-
-        def error(self, msg, *args, **kwargs):
-            pass
-
-    monkeypatch.setattr(protocol_mod, 'logger', _RecordingLogger())
-    return warnings
-
-
-def test_load_sanitizes_labels_loudly(tmp_path, monkeypatch):
-    warnings = _capture_protocol_logger(monkeypatch)
     tsv = tmp_path / 'dotted_label.tsv'
     tsv.write_text(_V8_HEADER + _v8_row('A.1_BF', 'A.1', 'B2'))
 
-    proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    with caplog.at_level(logging.WARNING):
+        proto = Protocol.from_file(file_path=tsv, tiling_grids=shipped_grids(), unit=stock_unit())
+    warnings = [
+        r.getMessage() for r in records_of(caplog, protocol_mod) if r.levelno == logging.WARNING
+    ]
     step = proto.step_row(step_index=0)
     assert step['Label'] == 'A1', 'the stripped-character form is what the writer saves'
     assert step['Name'] == 'A1_BF'

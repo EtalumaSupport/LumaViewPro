@@ -11,8 +11,9 @@ scope, which hands it to the LED driver when it builds it.
 """
 
 import ast
+import logging
 import pathlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,10 +23,20 @@ import modules.lumascope_api.illumination as illumination_module
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from modules.scope_session import ScopeSession
+from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 from tests.stock_channels import LED0
 
 _DRIVER = pathlib.Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
+
+
+def _info_lines(caplog, module, text) -> list[str]:
+    """The INFO lines *module* logged that carry *text*."""
+    return [
+        r.getMessage()
+        for r in records_of(caplog, module)
+        if r.levelno == logging.INFO and text in r.getMessage()
+    ]
 
 
 def test_the_fx2_driver_imports_no_application_module():
@@ -81,32 +92,29 @@ def test_the_session_hands_the_setting_to_the_led_driver(monkeypatch, tmp_path, 
 
 
 @pytest.mark.parametrize('enabled', [True, False])
-def test_the_fx2_led_driver_traces_only_when_asked(monkeypatch, enabled):
+def test_the_fx2_led_driver_traces_only_when_asked(monkeypatch, caplog, enabled):
     fake = MagicMock(name='_FX2Connection_fake')
     fake.i2c_write.return_value = 1
     monkeypatch.setattr(fx2driver._FX2Connection, 'get', classmethod(lambda cls: fake))
     led = fx2driver.FX2LEDController(debug_wire=enabled)
 
-    with patch.object(fx2driver, 'logger') as mock_logger:
+    with caplog.at_level(logging.INFO):
         led.led_on(0, 100)
-        traced = [c for c in mock_logger.info.call_args_list if '[FX2 LED diag]' in str(c.args[0])]
+    traced = _info_lines(caplog, fx2driver, '[FX2 LED diag]')
 
     assert bool(traced) is enabled
 
 
 @pytest.mark.parametrize('enabled', [True, False])
-def test_the_illumination_cache_check_traces_by_the_sessions_setting(tmp_path, enabled):
+def test_the_illumination_cache_check_traces_by_the_sessions_setting(tmp_path, caplog, enabled):
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path), fx2_debug_wire_enabled=enabled),
         simulate=True,
         warn_pre_release=False,
     )
     try:
-        with patch.object(illumination_module, '_api_log') as mock_log:
-            session.scope.illumination.led_on(LED0, 50)
-            traced = [
-                c for c in mock_log.info.call_args_list if 'led_on cache-check' in str(c.args[0])
-            ]
+        session.scope.illumination.led_on(LED0, 50)
+        traced = _info_lines(caplog, illumination_module, 'led_on cache-check')
         assert bool(traced) is enabled
     finally:
         session.shutdown()

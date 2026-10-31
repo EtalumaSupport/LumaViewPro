@@ -14,10 +14,9 @@ is made (the run's claim is still needed by the setup after it) and just
 before the lanes enter run mode (the setup after it re-enters run mode).
 """
 
+import logging
 import threading
 import time
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -33,6 +32,7 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     executors,
     scope,
 )
+from tests.log_capture import records_of
 
 
 def _start_run(executor, tmp_path):
@@ -81,12 +81,8 @@ def _inject_before_the_lanes_enter_run_mode(executor, monkeypatch):
     ids=['at_setup_run_dir', 'before_the_lanes_enter_run_mode'],
 )
 def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
-    executor, tmp_path, monkeypatch, centre_posts, inject
+    executor, tmp_path, monkeypatch, centre_posts, inject, caplog
 ):
-    # The test environment's logger is a mock, so its calls are read
-    # directly; caplog would see nothing.
-    engine_log = MagicMock()
-    monkeypatch.setattr(sequenced_capture_runner, 'logger', engine_log)
     loop_entries = []
     run_loop = executor._run_loop_executor.run_loop
 
@@ -111,7 +107,11 @@ def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
     assert not executor.camera_executor.is_protocol_running(), 'the camera lane is left in run mode'
     assert not executor._io_executor.is_protocol_running(), 'the IO lane is left in run mode'
     assert executor._activity_claim.holder is None, 'the scope is still held'
-    errors = [str(call) for call in engine_log.error.call_args_list]
+    errors = [
+        r.getMessage()
+        for r in records_of(caplog, sequenced_capture_runner)
+        if r.levelno == logging.ERROR
+    ]
     assert errors == [], f'a Stop during setup logged an error: {errors}'
     told = [n.title for n in centre_posts if n.title == 'Run failed to start']
     assert told == [], 'a person who pressed Stop was told the run failed to start'

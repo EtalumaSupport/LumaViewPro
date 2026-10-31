@@ -52,10 +52,11 @@ from tests.installation_fixtures import shipped_grids
 class TestStitchLoudDegradeOnMissingPixelSize:
     """When tiles lack pixel-size metadata the montage degrades loudly, not silently."""
 
-    def test_warns_by_name_when_pixel_size_missing(self):
+    def test_warns_by_name_when_pixel_size_missing(self, caplog):
         from unittest import mock
 
         import modules.stitcher as stitcher_mod
+        from tests.log_capture import records_of
 
         st = stitcher_mod.Stitcher.__new__(stitcher_mod.Stitcher)
         df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1'], 'Channel Group ID': [0]})
@@ -65,11 +66,11 @@ class TestStitchLoudDegradeOnMissingPixelSize:
                 stitcher_mod, 'channel_aware_stitcher', return_value=mock.MagicMock()
             ),
             mock.patch.object(stitcher_mod, 'PostProcResult'),
-            mock.patch.object(stitcher_mod, 'logger') as log,
         ):
             st._group_algorithm(pathlib.Path('/tmp'), df, channel_colors=release_colors())
-        assert log.warning.called
-        assert 'PhysicalSizeX' in log.warning.call_args[0][0]
+        warnings = [r for r in records_of(caplog, stitcher_mod) if r.levelno == logging.WARNING]
+        assert warnings
+        assert 'PhysicalSizeX' in warnings[-1].getMessage()
 
 
 class TestSimplePositionStitcher:

@@ -18,6 +18,7 @@ last value. Every session here is headless, with no display at all.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 
@@ -26,6 +27,7 @@ import pytest
 from modules import app_context, config_helpers
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.scope_session import ScopeSession
+from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 
 # The stream check's cadence, shortened so a window is seen in a fraction of a second.
@@ -111,7 +113,7 @@ class TestTheRateIsTheCameras:
 
 
 class TestEveryHostLogsIt:
-    def test_a_headless_session_logs_the_cameras_rate(self, session, monkeypatch, tmp_path):
+    def test_a_headless_session_logs_the_cameras_rate(self, session, monkeypatch, tmp_path, caplog):
         imaging, _camera, _camera_fps = _streaming_fast(session)
         assert _wait_for(lambda: imaging.get_delivered_rate().frame_rate_fps > 0, 5.0)
 
@@ -129,15 +131,6 @@ class TestEveryHostLogsIt:
 
         monkeypatch.setattr(imaging, 'get_delivered_rate', _kept)
 
-        class _RecordingLogger:
-            def __init__(self):
-                self.messages = []
-
-            def info(self, msg):
-                self.messages.append(msg)
-
-        rec = _RecordingLogger()
-        monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
         monkeypatch.setattr(app_context, 'ctx', None)
         monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
         monkeypatch.setattr(
@@ -145,9 +138,14 @@ class TestEveryHostLogsIt:
         )
         monkeypatch.setitem(session.metrics_logger._settings, 'live_folder', str(tmp_path))
 
+        caplog.set_level(logging.INFO, logger='LVP.metrics')
         session.metrics_logger.tick_system_metrics()
 
-        lines = [m for m in rec.messages if '[BUFFER METRICS]' in m]
+        lines = [
+            r.getMessage()
+            for r in records_of(caplog, config_helpers)
+            if r.name == 'LVP.metrics' and '[BUFFER METRICS]' in r.getMessage()
+        ]
         assert lines, 'a headless session logged no [BUFFER METRICS] line'
         fields = dict(part.strip().split('=', 1) for part in lines[0].split(']', 1)[1].split('|'))
         assert len(answered) == 1, 'the tick did not read the API rate once'

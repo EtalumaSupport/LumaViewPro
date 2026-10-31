@@ -14,6 +14,7 @@ extension routing.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import pathlib
 import sys
 import threading
@@ -163,19 +164,17 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
     )
 
 
-def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path):
+def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path, caplog):
     # The post-save log line reports the depth that was written; for a single
     # (non-summed) wide frame it must log the depth resolved at capture.
     import modules.image_mode as image_mode
     from modules import manual_capture
+    from tests.log_capture import records_of
     from tests.test_manual_capture_member import _capture, _open_session, _settings
-
-    messages = []
-    monkeypatch.setattr(manual_capture.logger, 'info', lambda msg: messages.append(msg))
 
     settings = _settings(tmp_path)
     settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
-    with _open_session(settings) as session:
+    with caplog.at_level(logging.INFO), _open_session(settings) as session:
         # Each frame carries a depth no image mode gives, so the log can only
         # have it from the captured frame itself.
         camera = session.scope._camera_driver
@@ -190,4 +189,7 @@ def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path):
         monkeypatch.setattr(camera, 'grab_new_capture', a_frame_of_its_own_depth)
         _capture(session)
 
+    messages = [
+        r.getMessage() for r in records_of(caplog, manual_capture) if r.levelno == logging.INFO
+    ]
     assert any(f'capture_bits={_CAMERA_DEPTH}' in m for m in messages), messages

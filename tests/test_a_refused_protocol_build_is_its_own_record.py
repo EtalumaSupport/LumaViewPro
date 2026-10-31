@@ -9,8 +9,8 @@ shown. The refusal is the record: whoever catches it reports it once.
 
 from __future__ import annotations
 
+import logging
 import pathlib
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,6 +19,7 @@ from modules.protocol import Protocol, ProtocolFormatError
 from tests.scope_fakes import build_scope
 from tests.test_a_zstack_with_no_range_is_refused import _standalone_config
 from tests.installation_fixtures import shipped_grids
+from tests.log_capture import records_of
 
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent
@@ -33,14 +34,10 @@ def sim_scope():
         scope.disconnect()
 
 
-def test_invalid_steps_are_refused_without_a_log_line_each(sim_scope, monkeypatch):
+def test_invalid_steps_are_refused_without_a_log_line_each(sim_scope, caplog):
     config = _standalone_config({'range': 20.0, 'step_size': 5.0}, use_zstacking=False)
     config['positions'] = [{'name': f'P{i}', 'x': 1.0 + i, 'y': 2.0, 'z': 3.0} for i in range(3)]
     config['layer_configs']['BF']['exposure_ms'] = 0.0
-
-    # The suite replaces lvp_logger, so the module's logger is watched directly.
-    logger = MagicMock()
-    monkeypatch.setattr(protocol_module, 'logger', logger)
 
     with pytest.raises(ProtocolFormatError) as refusal:
         Protocol.from_config(
@@ -52,4 +49,7 @@ def test_invalid_steps_are_refused_without_a_log_line_each(sim_scope, monkeypatc
         )
 
     assert 'validation error(s)' in str(refusal.value)
-    assert logger.error.call_args_list == []
+    errors = [
+        r.getMessage() for r in records_of(caplog, protocol_module) if r.levelno == logging.ERROR
+    ]
+    assert errors == [], errors

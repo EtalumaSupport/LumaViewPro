@@ -11,9 +11,9 @@ where a raise exits the app.
 
 import ast
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,6 +23,7 @@ import ui.vertical_control as vc
 from modules.exceptions import ConfigurationDefectError
 from modules.scope_session import ObjectiveQuestion
 from tests.ast_seams import parse_module
+from tests.log_capture import records_of
 from ui.vertical_control import VerticalControl
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -100,7 +101,6 @@ class _Harness:
         self.popups = []
         self.error_popups = []
         self.gui_log = []
-        self.logger = MagicMock()
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
         monkeypatch.setattr(
             notification_popup,
@@ -115,7 +115,6 @@ class _Harness:
             'select',
             lambda kind, value: self.gui_log.append(('SELECT', kind, value)),
         )
-        monkeypatch.setattr(vc, 'logger', self.logger)
         monkeypatch.setattr(
             vc.gui_logger,
             'button',
@@ -133,8 +132,10 @@ class _Harness:
         assert len(self.popups) == 1
         self.popups[0]['on_confirm'](chosen)
 
-    def info_lines(self):
-        return [str(call.args[0]) for call in self.logger.info.call_args_list]
+    @staticmethod
+    def info_lines(caplog):
+        """The INFO lines the widget module logged."""
+        return [r.getMessage() for r in records_of(caplog, vc) if r.levelno == logging.INFO]
 
 
 class TestTheQuestionIsRendered:
@@ -280,11 +281,12 @@ class TestTheAnswerReachesTheSession:
         h.answer('20x Oly')
         assert h.gui_log == []
 
-    def test_an_unchanged_objective_logs_no_change(self, monkeypatch):
+    def test_an_unchanged_objective_logs_no_change(self, monkeypatch, caplog):
+        caplog.set_level(logging.INFO)
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=False))
         h.prompt()
         h.answer('10x Oly')
-        assert not any('select_objective()' in line for line in h.info_lines())
+        assert not any('select_objective()' in line for line in h.info_lines(caplog))
         assert h.stand.shown == [True]
 
     def test_no_position_hands_the_answer_over_without_one(self, monkeypatch):

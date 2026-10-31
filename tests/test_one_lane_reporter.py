@@ -33,13 +33,6 @@ _WAIT_S = 2.0
 OUTCOMES = 'LVP.outcomes'
 
 
-@pytest.fixture(autouse=True)
-def _executor_log(monkeypatch):
-    # The suite mocks lvp_logger, so the executor's own lines go nowhere;
-    # a real logger lets these tests read what it writes.
-    monkeypatch.setattr(sio, 'logger', logging.getLogger('LVP.test_executor'))
-
-
 @pytest.fixture
 def lane():
     ex = SequentialIOExecutor(name='TEST_IO')

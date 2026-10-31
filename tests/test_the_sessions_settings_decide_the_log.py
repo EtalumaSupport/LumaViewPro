@@ -12,13 +12,13 @@ switch for a detailed log, holds the level at DEBUG.
 """
 
 import logging
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 import modules.autofocus_functions as autofocus_functions
 from modules.scope_session import ScopeSession
+from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 
 
@@ -36,11 +36,13 @@ def _session(level='INFO', autofocus=False, debug_mode=False):
     )
 
 
-def _logs_a_focus_score(monkeypatch):
-    logged = MagicMock()
-    monkeypatch.setattr(autofocus_functions, 'logger', logged)
+def _logs_a_focus_score(caplog):
+    caplog.clear()
     autofocus_functions.focus_function(np.arange(64, dtype=np.uint8).reshape(8, 8))
-    return any('Focus Score' in str(call) for call in logged.info.call_args_list)
+    return any(
+        r.levelno == logging.INFO and 'Focus Score' in r.getMessage()
+        for r in records_of(caplog, autofocus_functions)
+    )
 
 
 @pytest.mark.parametrize(
@@ -76,11 +78,11 @@ def test_debug_mode_puts_the_main_log_at_debug_whatever_the_level_says():
         session.shutdown()
 
 
-def test_the_autofocus_score_log_follows_its_setting(monkeypatch):
+def test_the_autofocus_score_log_follows_its_setting(caplog):
     session = _session(autofocus=True)
     try:
-        assert _logs_a_focus_score(monkeypatch)
+        assert _logs_a_focus_score(caplog)
         session.update_settings('logging.autofocus', False)
-        assert not _logs_a_focus_score(monkeypatch)
+        assert not _logs_a_focus_score(caplog)
     finally:
         session.shutdown()

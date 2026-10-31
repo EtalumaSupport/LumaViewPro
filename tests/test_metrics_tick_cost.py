@@ -23,6 +23,7 @@ string, and reading it loosely would switch the probe back on while its
 operator believed it off.
 """
 
+import logging
 import os
 import re
 from collections import defaultdict
@@ -34,6 +35,7 @@ import pytest
 
 from modules import common_utils, config_helpers
 from modules.scheduler import ThreadingTimerScheduler
+from tests.log_capture import records_of
 from tests.scope_fakes import real_executor_bundle
 from tests.settings_fixtures import complete_settings
 
@@ -59,12 +61,16 @@ def counting_proc(monkeypatch):
     return proc
 
 
-class _RecordingLogger:
-    def __init__(self):
-        self.messages = []
-
-    def info(self, msg):
-        self.messages.append(msg)
+def _metrics_lines(caplog, call):
+    """The INFO lines config_helpers writes to the metrics log while ``call`` runs."""
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=config_helpers.metrics_logger.name):
+        call()
+    return [
+        r.getMessage()
+        for r in records_of(caplog, config_helpers)
+        if r.name == config_helpers.metrics_logger.name and r.levelno == logging.INFO
+    ]
 
 
 def _drive_log_system_metrics(monkeypatch, scope, settings, metrics, on_call=None):
@@ -78,8 +84,6 @@ def _drive_log_system_metrics(monkeypatch, scope, settings, metrics, on_call=Non
     rendered, and a failed or unavailable reading is not one this host
     can be made to produce.
     """
-    rec = _RecordingLogger()
-    monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
     monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
 
     def _stub(**kwargs):
@@ -89,7 +93,6 @@ def _drive_log_system_metrics(monkeypatch, scope, settings, metrics, on_call=Non
 
     monkeypatch.setattr(config_helpers.common_utils, 'system_metrics', _stub)
     config_helpers.log_system_metrics(settings, scope=scope, executors=real_executor_bundle())
-    return rec
 
 
 def _routed_gate_value(monkeypatch, scope, settings):
@@ -139,40 +142,47 @@ class TestOpenFilesGate:
 
 
 class TestHandleMetricsLine:
-    def _emit(self, monkeypatch, scope, tmp_path, metrics):
+    def _emit(self, monkeypatch, caplog, scope, tmp_path, metrics):
         # defaultdict(float): direct-subscript metric keys resolve to 0.0
         # while .get() still honours the caller's default for absent keys,
         # which is the distinction under test.
         backing = defaultdict(float)
         backing.update(metrics)
-        rec = _drive_log_system_metrics(
-            monkeypatch, scope, complete_settings(live_folder=str(tmp_path)), backing
+        lines = _metrics_lines(
+            caplog,
+            lambda: _drive_log_system_metrics(
+                monkeypatch, scope, complete_settings(live_folder=str(tmp_path)), backing
+            ),
         )
-        return [m for m in rec.messages if '[HANDLE METRICS]' in m]
+        return [m for m in lines if '[HANDLE METRICS]' in m]
 
-    def test_disabled_renders_as_off_not_as_a_failure(self, monkeypatch, sim_scope, tmp_path):
-        lines = self._emit(monkeypatch, sim_scope, tmp_path, {'os_handles': 812})
+    def test_disabled_renders_as_off_not_as_a_failure(
+        self, monkeypatch, caplog, sim_scope, tmp_path
+    ):
+        lines = self._emit(monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': 812})
         assert lines, 'no [HANDLE METRICS] line emitted'
         assert 'handles=812' in lines[0]
         assert 'open_files=off' in lines[0]
         assert 'open_files=-1' not in lines[0]
 
-    def test_failure_still_renders_as_minus_one(self, monkeypatch, sim_scope, tmp_path):
+    def test_failure_still_renders_as_minus_one(self, monkeypatch, caplog, sim_scope, tmp_path):
         lines = self._emit(
-            monkeypatch, sim_scope, tmp_path, {'os_handles': 812, 'open_files_count': -1}
+            monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': 812, 'open_files_count': -1}
         )
         assert lines and 'open_files=-1' in lines[0]
 
-    def test_measured_renders_the_count(self, monkeypatch, sim_scope, tmp_path):
+    def test_measured_renders_the_count(self, monkeypatch, caplog, sim_scope, tmp_path):
         lines = self._emit(
-            monkeypatch, sim_scope, tmp_path, {'os_handles': 812, 'open_files_count': 34}
+            monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': 812, 'open_files_count': 34}
         )
         assert lines and 'open_files=34' in lines[0]
 
-    def test_no_line_when_neither_metric_is_available(self, monkeypatch, sim_scope, tmp_path):
+    def test_no_line_when_neither_metric_is_available(
+        self, monkeypatch, caplog, sim_scope, tmp_path
+    ):
         # The disabled probe must not conjure a line on a platform where
         # the handle count is unavailable too.
-        lines = self._emit(monkeypatch, sim_scope, tmp_path, {'os_handles': -1})
+        lines = self._emit(monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': -1})
         assert not lines
 
 
@@ -232,19 +242,19 @@ class TestEveryHostLogsTheExecutors:
     REST or headless host logs them too; only the display's rates need a
     display, which the GUI hands down."""
 
-    def _lines(self, monkeypatch, sim_scope, tmp_path, display=None):
-        rec = _RecordingLogger()
-        monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
-        config_helpers.log_system_metrics(
-            complete_settings(live_folder=str(tmp_path)),
-            scope=sim_scope,
-            executors=real_executor_bundle(),
-            display=display,
+    def _lines(self, caplog, sim_scope, tmp_path, display=None):
+        return _metrics_lines(
+            caplog,
+            lambda: config_helpers.log_system_metrics(
+                complete_settings(live_folder=str(tmp_path)),
+                scope=sim_scope,
+                executors=real_executor_bundle(),
+                display=display,
+            ),
         )
-        return rec.messages
 
-    def test_a_host_with_no_display_logs_queues_and_futures(self, monkeypatch, sim_scope, tmp_path):
-        lines = self._lines(monkeypatch, sim_scope, tmp_path)
+    def test_a_host_with_no_display_logs_queues_and_futures(self, caplog, sim_scope, tmp_path):
+        lines = self._lines(caplog, sim_scope, tmp_path)
         queues = [m for m in lines if m.startswith('[QUEUE METRICS]')]
         futures = [m for m in lines if m.startswith('[FUTURES METRICS]')]
         assert queues and 'IO=0' in queues[0]
@@ -252,7 +262,7 @@ class TestEveryHostLogsTheExecutors:
         assert futures and re.search(r'IO: alloc=\d+ pop=\d+ live=\d+', futures[0])
         assert not any('display_fps' in m or '[FRAME INTERVAL]' in m for m in lines)
 
-    def test_a_display_handed_down_is_logged(self, monkeypatch, sim_scope, tmp_path):
+    def test_a_display_handed_down_is_logged(self, caplog, sim_scope, tmp_path):
         # a stand-in by design: the display is the GUI's widget, which the
         # test process cannot build; the subject is the line it feeds.
         display = SimpleNamespace(
@@ -265,6 +275,6 @@ class TestEveryHostLogsTheExecutors:
                 'n': 24,
             },
         )
-        lines = self._lines(monkeypatch, sim_scope, tmp_path, display)
+        lines = self._lines(caplog, sim_scope, tmp_path, display)
         assert any('display_fps=24.0' in m for m in lines)
         assert any(m.startswith('[FRAME INTERVAL] p50=40.0 ms') for m in lines)

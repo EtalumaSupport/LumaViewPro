@@ -10,9 +10,9 @@ injected time source precisely so these stay deterministic.
 """
 
 import json
+import logging
 import pathlib
 import threading
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,6 +29,7 @@ from tests.video_engine_harness import (
     WriterStub,
 )
 from tests.protocol_drives import run_identity
+from tests.log_capture import records_of
 
 # Every recording manifest must carry at least these keys; downstream
 # consumers (support bundles, char tooling, the end-of-run report) key
@@ -862,25 +863,23 @@ class TestClaimLifetime:
         assert not list(pathlib.Path(tmp_path).glob('*.json'))
         assert claim.owner is None
 
-    def test_lane_boundary_logs_its_own_abnormal_exit(self, tmp_path, monkeypatch):
+    def test_lane_boundary_logs_its_own_abnormal_exit(self, tmp_path, caplog):
         # An exception escaping a thread target reaches
         # threading.excepthook, not this module's logger, so without the
         # lane's own boundary the failure it exists to report leaves no
         # trace in the app log -- a support bundle would show a recording
         # that simply stopped. A queue read that raises is outside the
         # per-frame try, so it carries an exception out of the lane body.
-        #
-        # Asserted on the module's logger rather than caplog: conftest
-        # installs lvp_logger as a MagicMock for the whole session, so
-        # these calls never become logging records for caplog to capture.
-        recorder = MagicMock()
-        monkeypatch.setattr(video_recording_module, 'logger', recorder)
         engine, _writer, _clock, claim = make_engine(tmp_path)
         engine._queue = _QueueThatFailsToRead()
         engine.start(lambda: make_config(tmp_path, fps=5, duration_s=2))
         assert engine.wait_for_drain(timeout=5)
 
-        logged = [call.args[0] for call in recorder.critical.call_args_list if call.args]
+        logged = [
+            r.getMessage()
+            for r in records_of(caplog, video_recording_module)
+            if r.levelno == logging.CRITICAL
+        ]
         assert any('writer lane exited abnormally' in message for message in logged)
         assert claim.owner is None
 

@@ -17,6 +17,7 @@ removal stops new calls whatever the driver does.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -33,6 +34,7 @@ from tests.test_manual_recording_controller import make_controller
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.protocol_drives import run_identity
 from tests.video_step_drives import video_step_on
+from tests.log_capture import records_of
 
 
 def _refuse(*_a, **_kw):
@@ -137,8 +139,19 @@ class TestTheRegistrantHearsTheFailure:
         assert reported == [], 'the run reports our defect where it ends, not the step'
 
 
+def _tracebacks(caplog):
+    """The imaging API's lines logged with a traceback (``logger.exception``)."""
+    return [r for r in records_of(caplog, imaging_mod) if r.levelno == logging.ERROR and r.exc_info]
+
+
+def _warnings(caplog):
+    return [r for r in records_of(caplog, imaging_mod) if r.levelno == logging.WARNING]
+
+
 class TestAFailingHandlerIsBounded:
-    def test_a_handler_raising_k_frames_running_is_removed_with_one_traceback(self, centre_posts):
+    def test_a_handler_raising_k_frames_running_is_removed_with_one_traceback(
+        self, centre_posts, caplog
+    ):
         imaging = MagicMock()
         calls = []
 
@@ -147,12 +160,11 @@ class TestAFailingHandlerIsBounded:
             raise ValueError('plugin bug')
 
         w = _BudgetedHandler(imaging, raises, name='bad_plugin')
-        with patch.object(imaging_mod, 'logger') as log:
-            for _ in range(HANDLER_DROP_K + 5):
-                w(None)
+        for _ in range(HANDLER_DROP_K + 5):
+            w(None)
 
         assert len(calls) == HANDLER_DROP_K, 'no call reaches the handler once it is removed'
-        assert log.exception.call_count == 1, 'the first failure is logged; the rest counted'
+        assert len(_tracebacks(caplog)) == 1, 'the first failure is logged; the rest counted'
         imaging._remove_wrapper.assert_called_once_with(w)
         assert [(n.kind, n.title, n.reason) for n in centre_posts] == [
             (OutcomeKind.REFUSAL, 'Plugin Removed', 'raised')
@@ -168,21 +180,16 @@ class TestAFailingHandlerIsBounded:
                 raise result
 
         w = _BudgetedHandler(imaging, flaky, name='flaky')
-        with patch.object(imaging_mod, 'logger'):
-            for _ in range(HANDLER_DROP_K + 2):
-                w(None)
+        for _ in range(HANDLER_DROP_K + 2):
+            w(None)
 
         imaging._remove_wrapper.assert_not_called()
         assert w._consecutive_raised == 0
         assert centre_posts == []
 
     def test_on_a_streaming_camera_a_raising_handler_logs_once_and_is_removed(
-        self, sim_scope, centre_posts, monkeypatch
+        self, sim_scope, centre_posts, monkeypatch, caplog
     ):
-        logged = []
-        monkeypatch.setattr(
-            imaging_mod.logger, 'exception', lambda msg, *a, **k: logged.append(msg)
-        )
         removed = threading.Event()
         original_remove = sim_scope.imaging._remove_wrapper
 
@@ -211,6 +218,7 @@ class TestAFailingHandlerIsBounded:
         finally:
             notification_center.notifications.remove_listener(_reported)
 
+        logged = _tracebacks(caplog)
         assert len(logged) == 1, f'one traceback, not one per frame: {len(logged)}'
         assert bad not in sim_scope.imaging._frame_listener_wrappers
         assert [(n.severity, n.title) for n in centre_posts] == [
@@ -219,15 +227,7 @@ class TestAFailingHandlerIsBounded:
 
 
 class TestARemovalIsReportedAndStopsCalls:
-    def test_an_over_budget_removal_is_one_warning_and_no_traceback(
-        self, centre_posts, monkeypatch
-    ):
-        errors = []
-        monkeypatch.setattr(
-            notification_center._outcome_logger,
-            'error',
-            lambda *a, **k: errors.append(a),
-        )
+    def test_an_over_budget_removal_is_one_warning_and_no_traceback(self, centre_posts, caplog):
         imaging = MagicMock()
         calls = []
 
@@ -244,10 +244,15 @@ class TestARemovalIsReportedAndStopsCalls:
             (Severity.WARNING, 'Plugin Removed')
         ]
         assert 'slow_plugin' in centre_posts[0].message
+        errors = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == notification_center._outcome_logger.name and r.levelno == logging.ERROR
+        ]
         assert errors == [], 'a removal is a refusal: no ERROR, no traceback'
 
     def test_a_removal_the_driver_fails_to_unregister_still_stops_calls(
-        self, sim_scope, monkeypatch
+        self, sim_scope, monkeypatch, caplog
     ):
         calls = []
 
@@ -257,22 +262,21 @@ class TestARemovalIsReportedAndStopsCalls:
         sim_scope.imaging.add_frame_listener(handler, name='leaky')
         wrapper = sim_scope.imaging._frame_listener_wrappers[handler]
         monkeypatch.setattr(sim_scope._camera_driver, 'unregister_frame_callback', _refuse)
-        with patch.object(imaging_mod, 'logger') as log:
-            sim_scope.imaging.remove_frame_listener(handler)
+        sim_scope.imaging.remove_frame_listener(handler)
 
         # The driver still holds the wrapper; a frame it delivers does not
         # reach the handler.
         wrapper(None)
         assert calls == []
-        log.warning.assert_called_once()
-        log.exception.assert_not_called()
+        assert len(_warnings(caplog)) == 1, [r.getMessage() for r in _warnings(caplog)]
+        assert _tracebacks(caplog) == []
 
 
 class TestTheUnwindAndRemovalEdges:
     """Each pins one hunk that no test above catches when reverted."""
 
     def test_an_auto_remove_stops_calls_even_when_the_driver_unregister_raises(
-        self, sim_scope, monkeypatch
+        self, sim_scope, monkeypatch, caplog
     ):
         calls = []
 
@@ -283,15 +287,14 @@ class TestTheUnwindAndRemovalEdges:
         sim_scope.imaging.add_frame_listener(bad, name='leaky_bad')
         wrapper = sim_scope.imaging._frame_listener_wrappers[bad]
         monkeypatch.setattr(sim_scope._camera_driver, 'unregister_frame_callback', _refuse)
-        with patch.object(imaging_mod, 'logger') as log:
-            for _ in range(HANDLER_DROP_K + 3):
-                wrapper(None)
+        for _ in range(HANDLER_DROP_K + 3):
+            wrapper(None)
 
         assert len(calls) == HANDLER_DROP_K
         assert bad not in sim_scope.imaging._frame_listener_wrappers
         # The first failure's traceback only; the unregister failure is a WARNING.
-        assert log.exception.call_count == 1
-        log.warning.assert_called_once()
+        assert len(_tracebacks(caplog)) == 1
+        assert len(_warnings(caplog)) == 1, [r.getMessage() for r in _warnings(caplog)]
 
     def test_a_removal_with_no_driver_still_stops_calls_and_forgets_the_listener(self, sim_scope):
         calls = []

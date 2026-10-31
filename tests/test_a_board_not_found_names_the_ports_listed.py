@@ -8,10 +8,13 @@ search's log line names every listed port, and a found board names its
 description and serial number, so a support bundle says which one it was.
 """
 
+import logging
+
 from serial.tools.list_ports_common import ListPortInfo
 
 import drivers.serialboard as serialboard
 from drivers.serialboard import SerialBoard
+from tests.log_capture import records_of
 
 
 def _port(device, vid, pid, description, serial_number):
@@ -32,16 +35,16 @@ class _Listed:
         return list(self._ports)
 
 
-def _search(monkeypatch, *ports):
-    lines = []
-    monkeypatch.setattr(serialboard.logger, 'info', lambda message, *a, **k: lines.append(message))
+def _search(caplog, *ports):
+    caplog.set_level(logging.INFO)
     board = SerialBoard(vid=0x0424, pid=0x704C, label='[LED Class ]', backend=_Listed(*ports))
+    lines = [r.getMessage() for r in records_of(caplog, serialboard) if r.levelno == logging.INFO]
     return board, lines
 
 
-def test_a_board_not_found_names_every_port_the_os_listed(monkeypatch):
+def test_a_board_not_found_names_every_port_the_os_listed(caplog):
     board, lines = _search(
-        monkeypatch,
+        caplog,
         _port('/dev/cu.usbmodem1', 0x2E8A, 0x0005, 'Board CDC', 'E6614'),
         _port('/dev/cu.Bluetooth', None, None, 'n/a', None),
     )
@@ -54,17 +57,17 @@ def test_a_board_not_found_names_every_port_the_os_listed(monkeypatch):
     ]
 
 
-def test_no_ports_at_all_says_none(monkeypatch):
-    _board, lines = _search(monkeypatch)
+def test_no_ports_at_all_says_none(caplog):
+    _board, lines = _search(caplog)
 
     assert lines == [
         '[LED Class ] No device with VID:PID 0424:704C; the OS listed 0 serial port(s): none'
     ]
 
 
-def test_a_found_board_names_its_description_and_serial_number(monkeypatch):
+def test_a_found_board_names_its_description_and_serial_number(caplog):
     board, lines = _search(
-        monkeypatch, _port('/dev/cu.usbmodem2', 0x0424, 0x704C, 'LED Controller', 'SN-0042')
+        caplog, _port('/dev/cu.usbmodem2', 0x0424, 0x704C, 'LED Controller', 'SN-0042')
     )
 
     assert board.found and board.port == '/dev/cu.usbmodem2'

@@ -201,27 +201,32 @@ def test_depth_truncation_warning_active(feature_count, mode, expected):
     assert depth_truncation_warning_active(feature_count, mode) is expected
 
 
-def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys():
+def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys(caplog):
     """A present-but-unrecognized stored image_mode beside the legacy keys is a
     corrupt setting: the migration derives the mode from the legacy keys AND
     surfaces a warning so the derivation does not hide the data loss. A file
     with no image_mode at all (a pre-consolidation install) is a normal
     migration and derives silently."""
-    from unittest import mock
+    import logging
 
     import modules.image_mode as image_mode
+    from tests.log_capture import records_of
 
-    with mock.patch.object(image_mode, 'logger') as mock_logger:
+    def warnings():
+        return [r for r in records_of(caplog, image_mode) if r.levelno == logging.WARNING]
+
+    with caplog.at_level(logging.WARNING):
         settings = {'image_mode': 'bogus', 'use_full_pixel_depth': True}
         assert image_mode.migrate_settings_dict(settings) is True
         assert settings['image_mode'] == '12bit_scientific'
-        assert mock_logger.warning.call_count == 1
+        assert len(warnings()) == 1, caplog.messages
 
-    with mock.patch.object(image_mode, 'logger') as mock_logger:
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
         settings = {}
         assert image_mode.migrate_settings_dict(settings) is True
         assert settings['image_mode'] == '8bit'
-        mock_logger.warning.assert_not_called()
+        assert warnings() == [], caplog.messages
 
 
 # ---------------------------------------------------------------------------

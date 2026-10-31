@@ -966,33 +966,35 @@ class TestSetExposureTimeValueWarningSuppression:
     bright-BF captures stop spamming the warning.
     """
 
-    def _patch_logger(self, monkeypatch):
-        from unittest.mock import MagicMock
+    @staticmethod
+    def _camera_warnings(caplog):
+        import logging
 
         # set_exposure_ms's body lives in camera.py; the warning is
-        # emitted via camera.py's `logger` import.
+        # written by camera.py's own code.
         import modules.lumascope_api.camera as camera_mod
+        from tests.log_capture import records_of
 
-        mock = MagicMock()
-        monkeypatch.setattr(camera_mod, 'logger', mock)
-        return mock
+        return [
+            r.getMessage() for r in records_of(caplog, camera_mod) if r.levelno == logging.WARNING
+        ]
 
-    def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
-        mock_logger = self._patch_logger(monkeypatch)
+    def test_warning_fires_by_default_at_sub_0_005_ms(self, caplog):
+        caplog.set_level('WARNING')
         scope = _scope_without_an_exposure_floor()
         scope.camera.set_exposure_ms(0.003)
         # Find the warning among any other logger calls
-        warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        warn_msgs = self._camera_warnings(caplog)
         assert any('set_exposure_ms(0.003ms)' in m and 'below' in m for m in warn_msgs), (
             f'expected sub-0.005ms warning but got: {warn_msgs}'
         )
 
-    def test_warning_suppressed_inside_context_manager(self, monkeypatch):
-        mock_logger = self._patch_logger(monkeypatch)
+    def test_warning_suppressed_inside_context_manager(self, caplog):
+        caplog.set_level('WARNING')
         scope = _scope_without_an_exposure_floor()
         with scope.camera.suppress_value_warnings():
             scope.camera.set_exposure_ms(0.003)
-        warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        warn_msgs = self._camera_warnings(caplog)
         assert not any('set_exposure_ms(0.003ms)' in m for m in warn_msgs), (
             f'expected no sub-0.005ms warning inside context, got: {warn_msgs}'
         )
@@ -1023,12 +1025,12 @@ class TestSetExposureTimeValueWarningSuppression:
             assert scope.camera._suppress_value_warnings is True
         assert scope.camera._suppress_value_warnings is False
 
-    def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
-        mock_logger = self._patch_logger(monkeypatch)
+    def test_warning_does_not_fire_at_or_above_threshold(self, caplog):
+        caplog.set_level('WARNING')
         scope = build_scope(simulate=True)
         scope.camera.set_exposure_ms(0.5)
         scope.camera.set_exposure_ms(20.0)
-        warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        warn_msgs = self._camera_warnings(caplog)
         assert not any('very low' in m for m in warn_msgs), (
             f'no sub-0.1ms warning expected, got: {warn_msgs}'
         )

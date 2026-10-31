@@ -22,7 +22,6 @@ import logging
 
 import pytest
 
-import modules.sequential_io_executor as sio
 from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
 from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -42,13 +41,6 @@ REFUSALS = [
         id='outside_travel',
     ),
 ]
-
-
-@pytest.fixture(autouse=True)
-def _executor_log(monkeypatch):
-    # The suite mocks lvp_logger, so the executor's own lines go nowhere;
-    # a real logger lets these tests read what it writes.
-    monkeypatch.setattr(sio, 'logger', logging.getLogger('LVP.test_executor'))
 
 
 def _move_absolute_impl(error):

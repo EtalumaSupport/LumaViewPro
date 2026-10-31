@@ -7,9 +7,8 @@ log and stands out in a support bundle. The log is the product here: it is
 what a bench run on a stalling camera is read from.
 
 A stand-in by design: no simulated Pylon camera exists, so the SDK camera is
-``camera_fakes.bare_pylon_camera``'s MagicMock, and the camera log is a real
-logger with a list handler patched over ``pyloncamera._cam_log`` (the suite
-mocks ``lvp_logger``, so ``caplog`` would see nothing).
+``camera_fakes.bare_pylon_camera``'s MagicMock; the camera log is read
+from ``caplog``, the driver's own ``LVP.camera`` lines.
 """
 
 import logging
@@ -21,18 +20,10 @@ from pypylon import genicam
 
 from drivers.camera import ImageHandlerBase
 from tests.camera_fakes import bare_pylon_camera
+from tests.log_capture import records_of
 
 
-class _Records(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.records = []
-
-    def emit(self, record):
-        self.records.append(record)
-
-
-def _stop_with_log(cam, stop_takes_s, during_stop=None):
+def _stop_with_log(caplog, cam, stop_takes_s, during_stop=None):
     """Run ``cam.stop_grabbing()`` with a clock the stop advances by ``stop_takes_s``.
 
     ``during_stop``, when given, runs inside the stop, as the SDK's own
@@ -52,20 +43,14 @@ def _stop_with_log(cam, stop_takes_s, during_stop=None):
     fake_time = types.SimpleNamespace(
         perf_counter=lambda: clock[0], monotonic=time.monotonic, sleep=time.sleep
     )
-    handler = _Records()
-    log = logging.getLogger('test.camera_stop')
-    log.handlers = [handler]
-    log.setLevel(logging.DEBUG)
-    log.propagate = False
-    with (
-        mock.patch.object(pyloncamera, '_cam_log', log),
-        mock.patch.object(pyloncamera, 'time', fake_time),
-    ):
+    caplog.set_level(logging.DEBUG, logger='LVP.camera')
+    caplog.clear()
+    with mock.patch.object(pyloncamera, 'time', fake_time):
         cam.stop_grabbing()
-    return handler.records
+    return [r for r in records_of(caplog, pyloncamera) if r.name == 'LVP.camera']
 
 
-def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopped_from():
+def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopped_from(caplog):
     cam = bare_pylon_camera()
     # The real handler, so the fake's teardown at GC finds every member it calls.
     cam.cam_image_handler = ImageHandlerBase()
@@ -80,7 +65,7 @@ def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopp
     def a_write_times_out():
         write_timeouts[0] += 1
 
-    records = _stop_with_log(cam, stop_takes_s=11.02, during_stop=a_write_times_out)
+    records = _stop_with_log(caplog, cam, stop_takes_s=11.02, during_stop=a_write_times_out)
 
     cam.active.StopGrabbing.assert_called_once_with()
     pre = [r.getMessage() for r in records if r.getMessage().startswith('pylon StopGrabbing() [')]
@@ -105,10 +90,10 @@ def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopp
     assert 'StatisticReadWriteTimeoutCount=1 ' in warnings[0], warnings[0]
 
 
-def test_a_fast_stop_logs_its_elapsed_time_and_no_warning():
+def test_a_fast_stop_logs_its_elapsed_time_and_no_warning(caplog):
     cam = bare_pylon_camera()
 
-    records = _stop_with_log(cam, stop_takes_s=0.02)
+    records = _stop_with_log(caplog, cam, stop_takes_s=0.02)
 
     assert not [r for r in records if r.levelno >= logging.WARNING]
     assert any(
@@ -117,13 +102,13 @@ def test_a_fast_stop_logs_its_elapsed_time_and_no_warning():
     ), [r.getMessage() for r in records]
 
 
-def test_a_node_the_camera_lacks_is_named_and_the_stop_still_runs():
+def test_a_node_the_camera_lacks_is_named_and_the_stop_still_runs(caplog):
     cam = bare_pylon_camera()
     cam.active.GetNodeMap.return_value.GetNode.side_effect = genicam.LogicalErrorException(
         'Node not existing'
     )
 
-    records = _stop_with_log(cam, stop_takes_s=0.02)
+    records = _stop_with_log(caplog, cam, stop_takes_s=0.02)
 
     cam.active.StopGrabbing.assert_called_once_with()
     pre = next(
@@ -132,11 +117,11 @@ def test_a_node_the_camera_lacks_is_named_and_the_stop_still_runs():
     assert 'BslAcquisitionStopMode=<missing>' in pre, pre
 
 
-def test_a_stop_with_no_camera_logs_its_failure_and_raises_nothing():
+def test_a_stop_with_no_camera_logs_its_failure_and_raises_nothing(caplog):
     cam = bare_pylon_camera()
     cam.active = None
 
-    records = _stop_with_log(cam, stop_takes_s=0.0)
+    records = _stop_with_log(caplog, cam, stop_takes_s=0.0)
 
     messages = [r.getMessage() for r in records]
     assert 'pylon StopGrabbing() [stop_grabbing]: no camera' in messages

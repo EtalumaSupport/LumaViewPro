@@ -27,6 +27,7 @@ from modules.objectives_loader import ObjectiveLoader
 from tests.test_protocol_execution import _make_multi_step_protocol, scope  # noqa: F401
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
+from tests.log_capture import messages, records_of
 
 # Text order and protocol order differ: sorted, 'W10' comes before 'W2'.
 _LABELS = ['W2', 'W10', 'W1', 'W11', 'W3', 'W12', 'W4', 'W13']
@@ -86,10 +87,8 @@ def test_a_camera_range_refusal_names_five_steps_then_the_rest(scope):
 
 
 @pytest.fixture
-def protocol_log(monkeypatch, caplog):
-    # The suite's lvp_logger is a stand-in that records nothing.
-    monkeypatch.setattr(protocol_module, 'logger', logging.getLogger('LVP.test.protocol'))
-    caplog.set_level(logging.INFO, logger='LVP.test.protocol')
+def protocol_log(caplog):
+    caplog.set_level(logging.INFO, logger='lvp_logger')
     return caplog
 
 
@@ -99,7 +98,7 @@ def test_a_stack_that_is_built_says_how_many_steps_it_made(protocol_log):
         zstack_params=_STACK, axis_limits={'Z': AxisLimits(min_um=0.0, max_um=10_000.0)}
     )
 
-    assert [r.getMessage() for r in protocol_log.records] == [
+    assert messages(records_of(protocol_log, protocol_module)) == [
         '[Protocol] Z-stack applied (range 100.0 um, step 20.0 um): 1 -> 6 steps'
     ]
 
@@ -118,6 +117,6 @@ def test_a_grid_that_is_built_says_how_many_steps_it_made(protocol_log, scale_ca
         objective_helper=ObjectiveLoader(),
     )
 
-    assert [r.getMessage() for r in protocol_log.records] == [
+    assert messages(records_of(protocol_log, protocol_module)) == [
         '[Protocol] Tile grid 2x2 applied: 1 -> 4 steps'
     ]

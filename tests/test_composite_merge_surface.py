@@ -186,19 +186,17 @@ class TestAFailedMergeTellsTheUserOnce:
 
     def test_the_merge_raise_is_logged_once_with_its_traceback(self, tmp_path, monkeypatch, caplog):
         import logging
-        from unittest.mock import MagicMock
 
         import modules.sequenced_capture_runner as scr
         from modules.composite_generation import CompositeGeneration
+        from tests.log_capture import records_of
 
         def _explode(self, path, **kwargs):
             raise RuntimeError('synthetic merge crash')
 
         monkeypatch.setattr(CompositeGeneration, 'load_folder', _explode)
-        run_log = MagicMock()
-        monkeypatch.setattr(scr, 'logger', run_log)
         with (
-            caplog.at_level(logging.ERROR, logger='LVP.outcomes'),
+            caplog.at_level(logging.ERROR),
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
             pytest.raises(CaptureError),
         ):
@@ -211,7 +209,8 @@ class TestAFailedMergeTellsTheUserOnce:
         assert 'RuntimeError: synthetic merge crash' in formatted
         assert 'Traceback' in formatted
         # ... so the run does not log the same failure a second time.
-        assert run_log.error.call_args_list == []
+        run_errors = [r for r in records_of(caplog, scr) if r.levelno >= logging.ERROR]
+        assert run_errors == [], [r.getMessage() for r in run_errors]
 
     def test_the_writes_never_drain(self, tmp_path, monkeypatch):
         import modules.protocol_image_writer as piw

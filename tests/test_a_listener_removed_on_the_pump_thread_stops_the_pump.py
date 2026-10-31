@@ -10,21 +10,18 @@ when the driver had already let it go.
 
 from __future__ import annotations
 
+import logging
 import threading
 
 import modules.lumascope_api.imaging as imaging_mod
+from tests.log_capture import records_of
 
 
-def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(monkeypatch):
+def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(monkeypatch, caplog):
     from tests.scope_fakes import build_scope
 
     scope = build_scope(simulate=True)
     try:
-        warnings = []
-        monkeypatch.setattr(
-            imaging_mod.logger, 'warning', lambda msg, *a, **k: warnings.append(msg)
-        )
-        monkeypatch.setattr(imaging_mod.logger, 'exception', lambda *a, **k: None)
         monkeypatch.setattr(imaging_mod.notifications, 'report_outcome', lambda *a, **k: None)
         removed = threading.Event()
         original_remove = scope.imaging._remove_wrapper
@@ -43,7 +40,12 @@ def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(mon
         scope.imaging.enable_streaming()
         assert removed.wait(timeout=5.0)
 
-        assert [w for w in warnings if 'did not unregister' in w] == []
+        warnings = [
+            r.getMessage()
+            for r in records_of(caplog, imaging_mod)
+            if r.levelno == logging.WARNING and 'did not unregister' in r.getMessage()
+        ]
+        assert warnings == [], warnings
         assert scope._camera_driver._registered_frame_callbacks == []
     finally:
         scope.imaging.disable_streaming()
