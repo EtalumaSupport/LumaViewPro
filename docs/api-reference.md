@@ -122,6 +122,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`ShownChannel`](#ShownChannel)
 - [`SimulatedCameraWriteRefusal`](#SimulatedCameraWriteRefusal)
 - [`SimulatedModelAnswer`](#SimulatedModelAnswer)
+- [`SimulatedScope`](#SimulatedScope)
 - [`SimulatedStall`](#SimulatedStall)
 - [`SizeSliderStops`](#SizeSliderStops)
 - [`SkippedBuild`](#SkippedBuild)
@@ -1011,13 +1012,7 @@ def create(
     warn_pre_release: bool = True,
     engineering_mode: bool = False,
     no_engineering: bool = False,
-    sim_model: str | None = None,
-    sim_model_answer: SimulatedModelAnswer | None = None,
-    sim_refused_stream_starts: int = 0,
-    sim_refused_camera_writes: tuple[SimulatedCameraWriteRefusal, ...] = (),
-    sim_camera_stall: SimulatedStall | None = None,
-    sim_file_stall: SimulatedStall | None = None,
-    sim_focal_spread_um: float = 0.0,
+    simulated: SimulatedScope | None = None,
     outcome_listener: Callable[[Notification], None] | None = None,
     settings_file: FilePath | None = None,
 ) -> ScopeSession
@@ -1055,19 +1050,13 @@ then the camera start gate released) and is torn down by
 - `warn_pre_release`: whether this construction fires the pre-release FutureWarning -- the factory's own call and the scope constructor's. A host that ships with the API passes False; a separately shipped caller leaves the default.
 - `engineering_mode`: the session's engineering mode to begin with; a plugin may turn it on when the host loads plugins.
 - `no_engineering`: `load_plugins` leaves out the installed plugin named `etaluma_engineering` before it is imported, as if it were not installed.
-- `sim_model`: the model the simulated scope is, when it is not the one `settings` declares: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None (the default) is the declared model. Refused unless `simulate`.
-- `sim_model_answer`: the model the simulated motor board names as its own at bring-up, whatever it was built as (`scope.simulation.answer_model`), until the scope's faults are cleared. Refused unless `simulate`, and by the scope on any board but the fast motor board.
-- `sim_refused_stream_starts`: how many of the camera's stream starts it refuses from bring-up on (`scope.simulation.refuse_stream_start`), so bring-up's own start is refused; 0 (the default) refuses none. Refused unless `simulate`, and by the scope on any camera but the simulated FX2.
-- `sim_refused_camera_writes`: camera writes the simulated camera refuses from bring-up on (`scope.simulation.refuse_camera_write`, each in turn), so bring-up's own writes meet them; empty (the default) refuses none. Refused unless `simulate`, and by the scope on the FX2 camera.
-- `sim_camera_stall`: a stall for the simulated camera's stream, so a simulated scope shows a stream that stops delivering; refused by the scope itself unless it is simulated with the simulated camera.
-- `sim_file_stall`: a stall for the session's file lane, so a simulated scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. Refused unless `simulate`.
-- `sim_focal_spread_um`: how far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; 0 (the default) puts it in focus there. Refused as `sim_camera_stall` is.
+- `simulated`: the scope a simulated session is built as and the faults it shows from bring-up on (`SimulatedScope`, the simulator surface's); None (the default) is the declared model with no fault. Refused unless `simulate`.
 - `outcome_listener`: heard from before the scope is built, so it hears what bring-up reports; the session's `add_outcome_listener` says what it receives. A factory that raises takes it back; otherwise the session's `shutdown()` does.
 - `settings_file`: the file the session saves its settings to, one second after the first unsaved write and once at `shutdown()`, whole or not at all; the hosts name the installation's `user_settings_file(source_path)`. None (the default) saves nothing: a script's or a test's handed dict stays in memory. Writes are kept unsaved, and the session says so once (`SettingsNotSavedNotice`), while the settings are provisional or when the scope found no hardware at bring-up. Saving starts once the scope is up, so a factory that raises writes no file.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`, a `sim_` argument without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, `sim_camera_stall` for a model simulated with an FX2. `'not_injectable_on_board'`, `sim_model_answer`, `sim_refused_stream_starts` or `sim_refused_camera_writes` for a scope whose board or camera cannot show it; `'fault_bound'`, a negative `sim_refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it).
+- `ArgumentRefusedError`: `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall` or `focal_spread_um` for a model simulated with an FX2 (`argument` names the scope's `sim_camera_stall` or `sim_focal_spread_um`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts` or `refused_camera_writes` for a scope whose board or camera cannot show it; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
 
@@ -12242,7 +12231,7 @@ the camera, and whether its LED is lit with every other one dark.
 ## `SimulatedCameraWriteRefusal`
 
 A record: it crosses the wire as its data.  
-Taken by: [`ScopeSession.create`](#ScopeSession.create).
+Held in: [`SimulatedScope.refused_camera_writes`](#SimulatedScope.refused_camera_writes).
 
 Camera writes of one setting that a simulated camera refuses (`refuse_camera_write`).
 
@@ -12256,7 +12245,7 @@ Camera writes of one setting that a simulated camera refuses (`refuse_camera_wri
 ## `SimulatedModelAnswer`
 
 A record: it crosses the wire as its data.  
-Taken by: [`ScopeSession.create`](#ScopeSession.create).
+Held in: [`SimulatedScope.model_answer`](#SimulatedScope.model_answer).
 
 The model a simulated motor board names as its own (`answer_model`).
 
@@ -12267,11 +12256,35 @@ is an answer a caller can ask for.
 
 - <a id="SimulatedModelAnswer.model"></a>`model`: `str | None` -- The model the board names, or None for none.
 
+<a id="SimulatedScope"></a>
+## `SimulatedScope`
+
+A record: it crosses the wire as its data.  
+Taken by: [`ScopeSession.create`](#ScopeSession.create).
+
+The scope a simulated session is built as, and what it shows from bring-up on.
+
+Handed to `ScopeSession.create(simulate=True, simulated=...)`, which
+builds the scope from it and arms each fault before bring-up, so what
+bring-up does with a fault is what a caller sees. Each part's default
+is the declared scope with no fault. A fault is refused where the
+`scope.simulation` member that injects it later refuses it.
+
+**Fields**
+
+- <a id="SimulatedScope.camera_stall"></a>`camera_stall`: `SimulatedStall | None` -- A stall for the simulated camera's stream, so the scope shows a stream that stops delivering; the simulated camera's alone. None stalls nothing.
+- <a id="SimulatedScope.file_stall"></a>`file_stall`: `SimulatedStall | None` -- A stall for the session's file lane, so the scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. None stalls nothing.
+- <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there.
+- <a id="SimulatedScope.model"></a>`model`: `str | None` -- The model the simulated scope is, when it is not the one the settings declare: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None is the declared model.
+- <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
+- <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...]` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
+- <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused; the simulated FX2's alone. 0 refuses none.
+
 <a id="SimulatedStall"></a>
 ## `SimulatedStall`
 
 A record: it crosses the wire as its data.  
-Taken by: [`ScopeSession.create`](#ScopeSession.create).
+Held in: [`SimulatedScope.camera_stall`](#SimulatedScope.camera_stall), [`SimulatedScope.file_stall`](#SimulatedScope.file_stall).
 
 When a simulated camera's stream stalls, and for how long.
 

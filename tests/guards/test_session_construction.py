@@ -109,26 +109,36 @@ class TestCreateTakesTheHostInjections:
         with pytest.raises(TypeError):
             ScopeSession.create(settings=complete_settings(), scope=None)
 
-    def test_a_simulators_fault_is_refused_for_a_real_scope_before_anything_is_built(self):
+    def test_a_simulated_scope_is_refused_for_a_real_scope_before_anything_is_built(self):
+        # One keyword carries every part a simulated scope is built with, so
+        # a real scope refuses the record whatever it holds -- an empty one
+        # included, since only a simulated session is built from it.
         from modules.lumascope_api.simulation import (
             SimulatedCameraWriteRefusal,
             SimulatedModelAnswer,
+            SimulatedScope,
         )
 
         wrong = {}
-        for argument, value in (
-            ('sim_model', 'LS850T'),
-            ('sim_model_answer', SimulatedModelAnswer('LS850T')),
-            ('sim_refused_stream_starts', 1),
-            ('sim_refused_camera_writes', (SimulatedCameraWriteRefusal('gain', 'false'),)),
+        for label, record in (
+            ('empty', SimulatedScope()),
+            (
+                'every part',
+                SimulatedScope(
+                    model='LS850T',
+                    model_answer=SimulatedModelAnswer('LS850T'),
+                    refused_stream_starts=1,
+                    refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'false'),),
+                ),
+            ),
         ):
             with pytest.raises(ArgumentRefusedError) as refused:
-                ScopeSession.create(settings=complete_settings(), **{argument: value})
+                ScopeSession.create(settings=complete_settings(), simulated=record)
             if (refused.value.reason, refused.value.argument) != (
                 'needs_simulated_scope',
-                argument,
+                'simulated',
             ):
-                wrong[argument] = (refused.value.reason, refused.value.argument)
+                wrong[label] = (refused.value.reason, refused.value.argument)
         assert not wrong, wrong
 
     def test_the_default_still_warns_once(self, tmp_path, fresh_warning_latch):

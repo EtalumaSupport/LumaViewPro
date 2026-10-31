@@ -1313,10 +1313,11 @@ scope.motion.move_xy(x_um=1000.0)           # lid_open_before_motion
 ```
 
 `create` also arms a fault before bring-up, so what bring-up does with it is
-what a test sees: `sim_model` builds the scope as another model than the
-settings declare, `sim_camera_stall` stops the camera's frames for a while, and
-`sim_file_stall` holds the save drive. Over REST the faults are at
-`/api/v1/scope/simulation/<member>`.
+what a test sees. The simulated scope is one record, `SimulatedScope`, passed
+as `create(simulate=True, simulated=...)`: its `model` builds the scope as
+another model than the settings declare, its `camera_stall` stops the camera's
+frames for a while, and its `file_stall` holds the save drive. Over REST the
+faults are at `/api/v1/scope/simulation/<member>`.
 
 ## Plugins
 

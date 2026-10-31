@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from modules.exceptions import ArgumentRefusedError
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -182,7 +183,9 @@ class TestTheSimulatorStartsWhereItsSampleIs:
 
     def test_a_focal_spread_puts_the_focus_within_it_of_the_stage(self, tmp_path):
         s = ScopeSession.create(
-            complete_settings(live_folder=str(tmp_path)), simulate=True, sim_focal_spread_um=25.0
+            complete_settings(live_folder=str(tmp_path)),
+            simulate=True,
+            simulated=SimulatedScope(focal_spread_um=25.0),
         )
         try:
             camera = s.scope._camera_driver
@@ -194,9 +197,10 @@ class TestTheSimulatorStartsWhereItsSampleIs:
     def test_a_focal_spread_is_refused_on_a_real_scope(self, tmp_path):
         with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.create(
-                complete_settings(live_folder=str(tmp_path)), sim_focal_spread_um=25.0
+                complete_settings(live_folder=str(tmp_path)),
+                simulated=SimulatedScope(focal_spread_um=25.0),
             )
         assert (refused.value.reason, refused.value.argument) == (
             'needs_simulated_scope',
-            'sim_focal_spread_um',
+            'simulated',
         )

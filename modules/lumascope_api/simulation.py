@@ -151,6 +151,64 @@ class SimulatedCameraWriteRefusal:
     count: int = 1
 
 
+@api_fields(
+    'model',
+    'model_answer',
+    'refused_stream_starts',
+    'refused_camera_writes',
+    'camera_stall',
+    'focal_spread_um',
+    'file_stall',
+)
+@dataclasses.dataclass(frozen=True)
+class SimulatedScope:
+    """The scope a simulated session is built as, and what it shows from bring-up on.
+
+    Handed to ``ScopeSession.create(simulate=True, simulated=...)``, which
+    builds the scope from it and arms each fault before bring-up, so what
+    bring-up does with a fault is what a caller sees. Each part's default
+    is the declared scope with no fault. A fault is refused where the
+    ``scope.simulation`` member that injects it later refuses it.
+
+    Attributes:
+        model: The model the simulated scope is, when it is not the one the
+            settings declare: a stored file that disagrees with the scope
+            attached, which bring-up settles by the scope's answer. None is
+            the declared model.
+        model_answer: The model the simulated motor board names as its own
+            at bring-up, whatever it was built as (``answer_model``), until
+            the scope's faults are cleared; the fast motor board's alone.
+            None arms no answer.
+        refused_stream_starts: How many of the camera's stream starts it
+            refuses from bring-up on (``refuse_stream_start``), so
+            bring-up's own start is refused; the simulated FX2's alone. 0
+            refuses none.
+        refused_camera_writes: Camera writes the simulated camera refuses
+            from bring-up on (``refuse_camera_write``, each in turn), so
+            bring-up's own writes meet them; not on the FX2. Empty refuses
+            none.
+        camera_stall: A stall for the simulated camera's stream, so the
+            scope shows a stream that stops delivering; the simulated
+            camera's alone. None stalls nothing.
+        focal_spread_um: How far the simulated sample's focus may lie from
+            where bring-up places the stage, drawn once per session, so
+            every session needs a real autofocus; the simulated camera's
+            alone. 0 puts the sample in focus there.
+        file_stall: A stall for the session's file lane, so the scope shows
+            a save drive that stops answering: ``after_s`` seconds after
+            bring-up the lane's worker is held for ``for_s`` seconds. None
+            stalls nothing.
+    """
+
+    model: str | None = None
+    model_answer: SimulatedModelAnswer | None = None
+    refused_stream_starts: int = 0
+    refused_camera_writes: tuple[SimulatedCameraWriteRefusal, ...] = ()
+    camera_stall: SimulatedStall | None = None
+    focal_spread_um: float = 0.0
+    file_stall: SimulatedStall | None = None
+
+
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is
 # asked, so a held session never answers for a fault the scope cannot have.
 _guarded_write = guarded_write(

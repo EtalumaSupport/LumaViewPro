@@ -25,6 +25,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import ArgumentRefusedError
 from modules.lumascope_api import camera as camera_api
 from modules.lumascope_api.simulation import SimulatedCameraWriteRefusal as Refusal
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -33,14 +34,15 @@ from tests.settings_fixtures import complete_settings
 _BF = {'gain_db': 7.0, 'exposure_ms': 33.0}
 
 
-def _create(heard, *refusals, microscope='LS850', bf=None, **kwargs):
+def _create(heard, *refusals, microscope='LS850', bf=None, refused_stream_starts=0):
     return ScopeSession.create(
         complete_settings(microscope=microscope, BF={**_BF, **(bf or {})}),
         simulate=True,
         warn_pre_release=False,
-        sim_refused_camera_writes=refusals,
+        simulated=SimulatedScope(
+            refused_camera_writes=refusals, refused_stream_starts=refused_stream_starts
+        ),
         outcome_listener=heard.append,
-        **kwargs,
     )
 
 
@@ -125,7 +127,7 @@ def test_a_camera_that_left_outranks_a_stream_that_did_not_start(monkeypatch):
 
     monkeypatch.setattr(camera_api.CameraAPI, '_hold_layer_impl', leave_then_hold)
     heard = []
-    session = _create(heard, microscope='LS620', sim_refused_stream_starts=1)
+    session = _create(heard, microscope='LS620', refused_stream_starts=1)
     try:
         camera = _camera_part(session)
         assert camera.cause == 'camera_left'

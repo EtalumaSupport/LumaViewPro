@@ -8,7 +8,7 @@ what bring-up found about the camera, kept on its part of the bring-up
 record and reported once with the start's own fault, and the scope comes
 up with its camera connected and not streaming.
 
-The refusal is armed through ``create``'s ``sim_refused_stream_starts``,
+The refusal is armed through ``create``'s ``SimulatedScope.refused_stream_starts``,
 before bring-up runs, so the start refused is bring-up's own.
 """
 
@@ -22,6 +22,7 @@ import modules.video_cadence as video_cadence
 from drivers.exceptions import CameraStreamStartFailedError
 from modules.exceptions import CameraStreamStalledError
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -40,7 +41,7 @@ def refused_at_bring_up(heard):
     session = ScopeSession.create(
         complete_settings(microscope='LS620'),
         simulate=True,
-        sim_refused_stream_starts=1,
+        simulated=SimulatedScope(refused_stream_starts=1),
         warn_pre_release=False,
         outcome_listener=heard.append,
     )

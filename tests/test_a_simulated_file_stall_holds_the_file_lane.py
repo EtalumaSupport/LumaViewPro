@@ -19,6 +19,7 @@ import pytest
 import modules.sequenced_capture_runner as runner_module
 from drivers.simulated_camera import SimulatedStall
 from modules.exceptions import ArgumentRefusedError
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -44,11 +45,11 @@ class TestAStallIsRefusedWhereItCannotHappen:
             ScopeSession.create(
                 complete_settings(live_folder=str(tmp_path)),
                 simulate=False,
-                sim_file_stall=SimulatedStall(0.0, 1.0),
+                simulated=SimulatedScope(file_stall=SimulatedStall(0.0, 1.0)),
             )
         assert (refused.value.reason, refused.value.argument) == (
             'needs_simulated_scope',
-            'sim_file_stall',
+            'simulated',
         )
 
 
@@ -57,7 +58,7 @@ class TestTheLaneIsHeld:
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)),
             simulate=True,
-            sim_file_stall=SimulatedStall(after_s=0.3, for_s=0.8),
+            simulated=SimulatedScope(file_stall=SimulatedStall(after_s=0.3, for_s=0.8)),
         )
         try:
             assert not _held(session), 'held before its delay'
@@ -75,7 +76,7 @@ class TestTheLaneIsHeld:
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)),
             simulate=True,
-            sim_file_stall=SimulatedStall(after_s=0.0, for_s=5.0),
+            simulated=SimulatedScope(file_stall=SimulatedStall(after_s=0.0, for_s=5.0)),
         )
         try:
             assert _wait_for(lambda: _held(session), 3.0)

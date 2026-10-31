@@ -17,8 +17,11 @@ import pytest
 
 from drivers.simulated_camera import SimulatedCamera, SimulatedStall
 from modules.exceptions import ArgumentRefusedError
+from modules.lumascope_api.simulation import SimulatedScope
+from modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.scope_fakes import build_scope
+from tests.settings_fixtures import complete_settings
 
 
 def _count_over(cam, seconds):
@@ -76,3 +79,20 @@ class TestTheStreamStopsAndResumes:
         assert _count_over(cam, 0.5) == 0, (
             'the stall given at construction did not reach the camera'
         )
+
+
+def test_a_session_created_with_a_stall_stops_its_cameras_frames(tmp_path):
+    # The session's door: the record's stall reaches the camera the
+    # session's scope is built with, through bring-up's own stream start.
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'),
+        simulate=True,
+        simulated=SimulatedScope(camera_stall=SimulatedStall(0.0, 30.0)),
+        warn_pre_release=False,
+    )
+    try:
+        cam = session.scope._camera_driver
+        assert cam.is_grabbing(), 'bring-up did not start the stream'
+        assert _count_over(cam, 0.5) == 0, 'the stall given to create did not reach the camera'
+    finally:
+        session.shutdown()

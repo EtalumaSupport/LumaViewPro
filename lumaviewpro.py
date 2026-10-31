@@ -115,6 +115,18 @@ if __name__ == '__main__':
             )
     except ValueError as _refused_error:
         sys.exit(f'--sim-refused-camera-write=NODE,ANSWER[,COUNT]: {_refused_error}')
+    # The flags above are the simulated scope the session is built as; a
+    # real scope is given none.
+    simulated_scope = None
+    if simulate_mode:
+        from modules.lumascope_api.simulation import SimulatedScope
+
+        simulated_scope = SimulatedScope(
+            refused_camera_writes=sim_refused_camera_writes,
+            camera_stall=sim_camera_stall,
+            focal_spread_um=sim_focal_spread_um,
+            file_stall=sim_file_stall,
+        )
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
     # below). Simulator only: a walk on hardware would move a real stage.
@@ -1037,10 +1049,7 @@ class LumaViewProApp(TooltipMixin, App):
                 warn_pre_release=False,
                 engineering_mode=ENGINEERING_MODE,
                 no_engineering=no_engineering,
-                sim_camera_stall=sim_camera_stall,
-                sim_file_stall=sim_file_stall,
-                sim_focal_spread_um=sim_focal_spread_um,
-                sim_refused_camera_writes=sim_refused_camera_writes,
+                simulated=simulated_scope,
                 outcome_listener=notification_popup_bridge,
                 settings_file=ScopeSession.user_settings_file(source_path),
             )

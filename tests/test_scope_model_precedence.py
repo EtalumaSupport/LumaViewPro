@@ -14,7 +14,7 @@ import logging
 
 import pytest
 
-from modules.lumascope_api.simulation import SimulatedModelAnswer
+from modules.lumascope_api.simulation import SimulatedModelAnswer, SimulatedScope
 from modules.scope_session import ScopeSession
 from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
@@ -79,8 +79,7 @@ class TestTheBringUpAdoptsTheReportedModel:
         return ScopeSession.create(
             complete_settings(live_folder=str(tmp_path), **settings_overrides),
             simulate=True,
-            sim_model=sim_model,
-            sim_model_answer=sim_model_answer,
+            simulated=SimulatedScope(model=sim_model, model_answer=sim_model_answer),
             warn_pre_release=False,
         )
 

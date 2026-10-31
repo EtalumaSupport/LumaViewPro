@@ -30,6 +30,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
 )
 from modules.lumascope_api.motion import AxisState
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
@@ -144,7 +145,7 @@ class TestTheRead:
         assert 'start the sweep' in str(refused.value)
 
     def test_an_axis_the_scope_has_no_motor_for_is_refused_not_answered_zero(self, tmp_path):
-        z_only = _session(tmp_path, sim_model='LS820')
+        z_only = _session(tmp_path, simulated=SimulatedScope(model='LS820'))
         try:
             motion = z_only.scope.motion
             assert 'X' not in z_only.scope.capabilities.axes
