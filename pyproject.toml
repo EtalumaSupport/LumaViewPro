@@ -5,7 +5,13 @@ repo = "lumaviewpro"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short -q --durations=50 --dist loadgroup"
+addopts = "--tb=short -q --durations=50 --dist loadgroup --max-worker-restart 0"
+# A dead xdist worker ends the run red. A replacement worker deadlocks the
+# loadgroup scheduler (pytest-xdist 3.8.0): the dead worker's whole workload
+# goes back on the queue, its completed units with it, and the replacement is
+# handed a unit with nothing left to run while the scheduler waits for a
+# completion that never comes; the run sat at 99% until CI's 90-minute bound.
+# Restarted, a worker was also handed the test that had killed its predecessor.
 # A test still running after this many seconds dumps every thread's Python stack
 # into the run's output ("Timeout (0:03:00)!"), naming a hung test and its frames
 # without a rerun, a profiler or sudo; the test itself goes on. The longest

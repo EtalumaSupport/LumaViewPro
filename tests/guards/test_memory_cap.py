@@ -22,17 +22,18 @@ from tests.ast_seams import REPO_ROOT
 pytestmark = pytest.mark.xdist_group('memcap_reports')
 
 VICTIM = 'tests/guards/memcap_victim.py'
+BYSTANDER = 'tests/guards/memcap_bystander.py'
 SMALL_CAP = 256 * 1024 * 1024
 
 
 def _run_victim(*extra):
+    # Under the suite's own addopts, so the victim runs on the scheduler and
+    # worker policy every suite run has.
     return subprocess.run(
         [
             sys.executable,
             '-m',
             'pytest',
-            '-o',
-            'addopts=',
             '-p',
             'no:cacheprovider',
             VICTIM,
@@ -70,8 +71,14 @@ def test_serial_process_over_the_cap_exits_with_the_banner(clean_reports):
     assert 'Thread' in text and 'test_allocates_and_holds' in text
 
 
-def test_xdist_worker_over_the_cap_fails_the_run_and_the_summary_names_it(clean_reports):
-    done = _run_victim('-n', '1', '--memory-cap-bytes', str(SMALL_CAP))
+def test_xdist_worker_over_the_cap_ends_the_run_red_and_the_summary_names_it(clean_reports):
+    """The worker completes the bystander's unit, then dies in the victim.
+
+    A replacement worker was handed the dead worker's completed unit and the
+    run never ended (subprocess.TimeoutExpired here); a dead worker now ends
+    the run, the test it died in failed and named.
+    """
+    done = _run_victim(BYSTANDER, '-n', '1', '--memory-cap-bytes', str(SMALL_CAP))
     assert done.returncode != 0, done.stdout + done.stderr
     assert conftest.MEMORY_CAP_BANNER in done.stdout
     assert 'memcap_victim.py::test_allocates_and_holds' in done.stdout
