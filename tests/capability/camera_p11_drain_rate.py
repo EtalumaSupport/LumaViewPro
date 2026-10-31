@@ -53,8 +53,11 @@ fractions of the maximum with the same repeats.
 
 The drain, the dump and the sweep reach the driver directly, as the unpack
 benchmark does: they are a bench instrument, not API members. While a drain
-runs the live view stores no frame, so the stream check may report one
-stall; that report is expected. The stream's transfer settings are restored
+runs the live view stores no frame, so each drain that outlasts the stream
+check's stall bound (about 5 s; a 300-frame drain at 2x2 takes about 6)
+reports one "Camera stream stalled" notice, and a run of many drains shows
+one per drain; they are expected, the drain's own doing, not a camera
+fault. The stream's transfer settings are restored
 at the end. The simulated camera has no drain, so the simulator run is a
 void. The checks, the figures and the dumps are in the run's verdict file
 (the harness's THE RECORD).
