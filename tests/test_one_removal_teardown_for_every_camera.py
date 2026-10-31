@@ -16,7 +16,7 @@ import time
 from unittest.mock import MagicMock
 
 from tests.camera_fakes import bare_ids_camera
-from tests.log_capture import capture_module_log
+from tests.log_capture import records_of
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -38,19 +38,22 @@ def test_only_the_base_camera_defines_the_removal_teardown():
     assert definers == ['drivers/camera.py']
 
 
-def test_a_teardown_that_fails_is_logged_as_a_warning(monkeypatch):
+def test_a_teardown_that_fails_is_logged_as_a_warning(caplog):
     import drivers.camera as camera_module
 
     # The camera log, which reaches camera.log and the errors log.
-    records = capture_module_log(monkeypatch, camera_module)
-    monkeypatch.setattr(camera_module, '_cam_log', camera_module.logger)
+    caplog.set_level(logging.DEBUG)
+
+    def warnings():
+        return [r for r in records_of(caplog, camera_module) if r.levelno == logging.WARNING]
+
     cam = bare_ids_camera()
     cam.disconnect = MagicMock(side_effect=RuntimeError('the handle is already gone'))
 
     cam._schedule_async_teardown()
 
-    assert _wait_until(lambda: any(r.levelno == logging.WARNING for r in records))
-    warning = next(r for r in records if r.levelno == logging.WARNING)
+    assert _wait_until(warnings)
+    warning = warnings()[0]
     assert 'the handle is already gone' in warning.getMessage()
 
 

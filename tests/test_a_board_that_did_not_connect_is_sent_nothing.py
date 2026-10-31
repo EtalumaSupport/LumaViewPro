@@ -26,23 +26,23 @@ from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.registry import led_registry, motor_registry
 from drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
-from tests.log_capture import capture_module_log
+from tests.log_capture import records_of
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 @pytest.fixture
-def driver_log(monkeypatch):
-    """Every record the two board drivers and their base class log."""
-    return [
-        capture_module_log(monkeypatch, module)
-        for module in (serialboard_mod, ledboard_mod, motorboard_mod)
+def driver_log(caplog):
+    """Every record the two board drivers and their base class have logged so far."""
+    caplog.set_level(logging.DEBUG)
+    return lambda: [
+        records_of(caplog, module) for module in (serialboard_mod, ledboard_mod, motorboard_mod)
     ]
 
 
 def _loud(driver_log):
     return [
         f'{r.levelname} {r.getMessage()}'
-        for records in driver_log
+        for records in driver_log()
         for r in records
         if r.levelno >= logging.WARNING
     ]

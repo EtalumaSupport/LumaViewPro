@@ -31,8 +31,8 @@ SUCCESSFUL channel, and the per-channel detail lives in the record and
 the log rather than in the outcome the caller waits on.
 """
 
-import contextlib
 import csv
+import logging
 import pathlib
 
 import pytest
@@ -61,28 +61,6 @@ _COERCION_LOG_FRAGMENT = 'cannot be merged; this run saves'
 # fails only LED0 always has a successful step before it -- which is what
 # makes the strike counter's reset, not just its increment, observable.
 _FAILING = LED0
-
-
-@contextlib.contextmanager
-def _info_lines():
-    """Collect what production logs at INFO while the block runs.
-
-    ``caplog`` cannot see this: the suite replaces the whole ``lvp_logger``
-    module with a MagicMock in ``conftest.install_mock_deps``, so
-    ``logger.info`` never reaches the logging machinery pytest attaches
-    to. Wrapping the one call the assertion is about is observation only
-    -- nothing about the run changes -- and it is the same instrument
-    ``test_composite_run_config`` already uses for this exact line.
-    """
-    import lvp_logger
-
-    lines = []
-    original = lvp_logger.logger.info
-    lvp_logger.logger.info = lambda msg, *a, **kw: lines.append(str(msg))
-    try:
-        yield lines
-    finally:
-        lvp_logger.logger.info = original
 
 
 def _fail_these_channels(camera, step_colors, failing):
@@ -376,7 +354,7 @@ class TestTheThreeStrikeFatalAbort:
 class TestTheFormatTheCompositeFollows:
     """The composite follows the SEQUENCED preference, or says why not."""
 
-    def test_a_live_jpg_preference_does_not_change_the_composite(self, tmp_path):
+    def test_a_live_jpg_preference_does_not_change_the_composite(self, tmp_path, caplog):
         # The live format is what the retired GUI worker read, and reading
         # it is what made a user's composite silently change format when
         # they picked JPG for the live view. The run kind reads the
@@ -389,7 +367,7 @@ class TestTheFormatTheCompositeFollows:
             live_format=OutputFormat.JPG,
         )
         with open_composite_session(settings) as (_session, runner):
-            with _info_lines() as logged:
+            with caplog.at_level(logging.INFO):
                 artifact = pathlib.Path(
                     runner.run_composite(
                         sequence_name='live_jpg', parent_dir=str(tmp_path)
@@ -407,19 +385,19 @@ class TestTheFormatTheCompositeFollows:
             assert artifact.name.endswith('.tiff') and not artifact.name.endswith('.ome.tiff'), (
                 f'a TIFF-preference run produced {artifact.name}'
             )
-            assert not [line for line in logged if _COERCION_LOG_FRAGMENT in line], (
+            assert not [line for line in caplog.messages if _COERCION_LOG_FRAGMENT in line], (
                 f'a run whose format was NOT substituted logged an override, '
-                f'so the line no longer distinguishes the two cases: {logged}'
+                f'so the line no longer distinguishes the two cases: {caplog.messages}'
             )
 
-    def test_an_unmergeable_sequenced_preference_coerces_and_says_so(self, tmp_path):
+    def test_an_unmergeable_sequenced_preference_coerces_and_says_so(self, tmp_path, caplog):
         # JPG cannot be read back by the merge, so the run has to save
         # something else. Substituting silently leaves a user staring at
         # OME-TIFFs they never asked for with nothing to explain it, so
         # the log line is part of the behaviour, not a debugging aid.
         settings = headless_settings(tmp_path, sequenced_format=OutputFormat.JPG)
         with open_composite_session(settings) as (_session, runner):
-            with _info_lines() as logged:
+            with caplog.at_level(logging.INFO):
                 artifact = pathlib.Path(
                     runner.run_composite(
                         sequence_name='coerced', parent_dir=str(tmp_path)
@@ -432,8 +410,8 @@ class TestTheFormatTheCompositeFollows:
             )
             assert [
                 line
-                for line in logged
+                for line in caplog.messages
                 if _COERCION_LOG_FRAGMENT in line and OutputFormat.JPG in line
             ], (
-                f'the format was substituted with no override naming the rejected preference: {logged}'
+                f'the format was substituted with no override naming the rejected preference: {caplog.messages}'
             )

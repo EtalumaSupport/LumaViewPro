@@ -22,7 +22,6 @@ import pytest
 from modules import scope_session, settings_init
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
-from tests.log_capture import capture_module_log, messages
 
 _REPO_TEMPLATE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'settings.json'
@@ -94,7 +93,16 @@ def test_a_folder_that_cannot_be_created_stays_the_persons(tmp_path, caplog):
     assert not [r for r in caplog.records if str(unreachable) in r.getMessage()]
 
 
-def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_path, monkeypatch):
+def _warnings_naming(caplog, folder):
+    """The warnings logged in the test that name *folder*."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and str(folder) in r.getMessage()
+    ]
+
+
+def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_path, caplog):
     # Every host hands create the dict it loaded, so create's door is the
     # load path too: an unplugged drive is the person's folder, not a refusal,
     # and it is warned about once across the two preparations.
@@ -103,7 +111,7 @@ def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_pa
     unreachable = blocker / 'capture'
     directory = _data_dir(tmp_path, live_folder=str(unreachable))
     copy_installation_files(directory / 'data')
-    records = capture_module_log(monkeypatch, scope_session)
+    caplog.set_level(logging.DEBUG)
     settings, _ = settings_init.prepare_settings(
         scope_session.logger, str(directory), fall_back_to_template=False
     )
@@ -113,10 +121,10 @@ def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_pa
         assert session.get_setting('live_folder') == str(unreachable)
     finally:
         session.shutdown()
-    assert len([m for m in messages(records) if str(unreachable) in m]) == 1
+    assert len(_warnings_naming(caplog, unreachable)) == 1
 
 
-def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_path, monkeypatch):
+def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_path, caplog):
     # A pin, not a red-first test: a dict a script builds and hands to create
     # passes no load, so a warning said only at the load would never reach it.
     blocker = tmp_path / 'a_file'
@@ -124,7 +132,7 @@ def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_pa
     unreachable = blocker / 'capture'
     directory = _data_dir(tmp_path)
     copy_installation_files(directory / 'data')
-    records = capture_module_log(monkeypatch, scope_session)
+    caplog.set_level(logging.DEBUG)
 
     session = ScopeSession.create(
         {'live_folder': str(unreachable)}, source_path=str(directory), simulate=True
@@ -133,7 +141,7 @@ def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_pa
         assert session.get_setting('live_folder') == str(unreachable)
     finally:
         session.shutdown()
-    assert len([m for m in messages(records) if str(unreachable) in m]) == 1
+    assert len(_warnings_naming(caplog, unreachable)) == 1
 
 
 def test_the_late_fall_back_to_the_template_brings_the_folder_up_too(tmp_path):

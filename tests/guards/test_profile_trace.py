@@ -3,6 +3,7 @@
 
 import ast
 import csv
+import logging
 import threading
 import time
 from pathlib import Path
@@ -476,23 +477,13 @@ class TestTimedLockLogsNothing:
     """A TimedLock is instrumentation only: whatever its hold, it logs
     nothing. What may run under a lock is read at build time (for the
     axis-state lock, tests/guards/test_the_axis_state_lock_holds_only_state_work.py),
-    because a wall-clock hold measures the scheduler as much as the body.
-    The LVP logger has propagate=False in production so caplog can't
-    observe it directly; the test mocks the logger.warning call instead."""
+    because a wall-clock hold measures the scheduler as much as the body."""
 
-    def test_a_long_hold_logs_no_warning(self, monkeypatch):
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
+    def test_a_long_hold_logs_nothing(self, caplog):
         lock = profile_trace.TimedLock(threading.Lock(), name='long_hold')
-        with lock:
+        with caplog.at_level(logging.DEBUG), lock:
             time.sleep(0.01)
-        assert not any('long_hold' in m for m in warnings_captured)
+        assert not [m for m in caplog.messages if 'long_hold' in m]
 
 
 class TestSettingsActivation:

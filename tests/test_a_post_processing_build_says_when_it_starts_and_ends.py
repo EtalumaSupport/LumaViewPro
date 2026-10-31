@@ -12,12 +12,14 @@ type, so the failure is not told twice.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from modules.cell_count_method import CellCountMethod
 import modules.post_processing_api as post_processing_api
 from modules.exceptions import PostProcessingRefusedError
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
 
 
 @pytest.fixture
@@ -30,7 +32,7 @@ def session(tmp_path):
     session.shutdown()
 
 
-def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path):
+def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path, caplog):
     from modules.post_processing import PostProcessing
 
     monkeypatch.setattr(
@@ -42,10 +44,11 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path):
             'counted': 3,
         },
     )
-    records = capture_module_log(monkeypatch, post_processing_api)
+    caplog.set_level(logging.DEBUG)
 
     session.post_processing.count_cells(tmp_path, method=CellCountMethod())
 
+    records = records_of(caplog, post_processing_api)
     lines = messages(records)
     assert any('count_cells' in m and 'started' in m and str(tmp_path) in m for m in lines), lines
     ended = [m for m in lines if 'count_cells' in m and 'ended' in m]
@@ -54,12 +57,13 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path):
     assert ' s' in ended[0]
 
 
-def test_a_refused_build_logs_its_end_by_the_outcomes_type_only(session, monkeypatch, tmp_path):
-    records = capture_module_log(monkeypatch, post_processing_api)
+def test_a_refused_build_logs_its_end_by_the_outcomes_type_only(session, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG)
 
     with pytest.raises(PostProcessingRefusedError) as raised:
         session.post_processing.stitch(tmp_path)
 
+    records = records_of(caplog, post_processing_api)
     lines = messages(records)
     assert any('stitch' in m and 'started' in m and str(tmp_path) in m for m in lines), lines
     ended = [m for m in lines if 'stitch' in m and 'ended' in m]

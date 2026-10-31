@@ -9,6 +9,7 @@ camera lock released, where a concurrent gain or exposure write can proceed.
 Moved from tests/test_audit_fixes.py (AOC-1, AOC-2) onto the simulated scope.
 """
 
+import logging
 import threading
 
 import numpy as np
@@ -88,19 +89,17 @@ def test_a_failed_retry_grab_keeps_the_first_frame(sim_scope, monkeypatch):
     assert np.array_equal(out, blown), 'a failed retry grab must fall back to the original frame'
 
 
-def test_a_kept_blown_frame_is_on_its_record_and_not_told(sim_scope, monkeypatch):
+def test_a_kept_blown_frame_is_on_its_record_and_not_told(sim_scope, monkeypatch, caplog):
     """The capture records a blown frame and leaves the telling to whoever
     took it: a run once per step, a still once."""
-    import lvp_logger
-
     blown = np.full((4, 4), 255, dtype=np.uint8)
     frames_carrying(monkeypatch, sim_scope._camera_driver, lambda: blown)
-    told = []
-    monkeypatch.setattr(lvp_logger.logger, 'warning', lambda msg, *a, **kw: told.append(msg))
 
-    record = sim_scope.imaging.capture_still(all_ones_check=True).record
+    with caplog.at_level(logging.WARNING):
+        record = sim_scope.imaging.capture_still(all_ones_check=True).record
     assert (record.saturated_fraction, record.blown) == (1.0, True)
-    assert [line for line in told if 'saturated' in line] == [], told
+    told = [line for line in caplog.messages if 'saturated' in line]
+    assert told == [], told
 
 
 def test_a_capture_that_does_not_ask_records_no_saturation(sim_scope, monkeypatch):

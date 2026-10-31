@@ -12,6 +12,7 @@ get.
 """
 
 import atexit
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -22,7 +23,7 @@ import modules.scope_session as scope_session_module
 from modules.exceptions import ScopeDisconnectError
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
 from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
@@ -69,8 +70,10 @@ def _drain_before_lane_shutdown(events):
 
 
 @pytest.fixture
-def session_log(monkeypatch):
-    return capture_module_log(monkeypatch, scope_session_module)
+def session_log(caplog):
+    """What the session module has logged so far in the test."""
+    caplog.set_level(logging.DEBUG)
+    return lambda: records_of(caplog, scope_session_module)
 
 
 class TestAFactoryBuiltScopeIsTornDown:
@@ -110,7 +113,9 @@ class TestAFactoryBuiltScopeIsTornDown:
         monkeypatch.setattr(session.io_executor, 'put', lambda *a, **k: None)
         try:
             session.shutdown()
-            assert any('io lane refused the shutdown leds_off' in m for m in messages(session_log))
+            assert any(
+                'io lane refused the shutdown leds_off' in m for m in messages(session_log())
+            )
             assert scope.motor_connected is False
         finally:
             scope.disconnect()
@@ -128,7 +133,7 @@ class TestAFactoryBuiltScopeIsTornDown:
             session.shutdown()
             assert session._shut_down is True
             assert scope.motor_connected is False
-            assert not any('called again' in m for m in messages(session_log))
+            assert not any('called again' in m for m in messages(session_log()))
         finally:
             scope.disconnect()
 
@@ -154,7 +159,7 @@ class TestASecondShutdown:
         session.executor_bundle.shutdown = MagicMock()
         session.shutdown()
         session.executor_bundle.shutdown.assert_not_called()
-        assert any('shutdown() called again' in m for m in messages(session_log)), (
+        assert any('shutdown() called again' in m for m in messages(session_log())), (
             'the second shutdown() must log its no-op'
         )
 

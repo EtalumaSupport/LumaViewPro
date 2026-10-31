@@ -10,7 +10,6 @@ step, counting the rest on its outcome (``captures.saturated``,
 Driven on the simulated scope; only the frames' pixels are replaced.
 """
 
-import contextlib
 import dataclasses
 import datetime
 import logging
@@ -54,28 +53,6 @@ def _dark(frame):
     return np.zeros_like(frame.image)
 
 
-@contextlib.contextmanager
-def _warnings():
-    """What the run's two loggers say at WARNING while the block runs.
-
-    ``caplog`` cannot see them: the suite replaces ``lvp_logger`` with a
-    stand-in (``conftest.install_mock_deps``). Wrapping the one call is
-    observation only; the log line is the product here.
-    """
-    import lvp_logger
-
-    lines = []
-    loggers = (lvp_logger.logger, lvp_logger.protocol_logger)
-    originals = [log.warning for log in loggers]
-    for log in loggers:
-        log.warning = lambda msg, *a, **kw: lines.append(str(msg))
-    try:
-        yield lines
-    finally:
-        for log, original in zip(loggers, originals, strict=True):
-            log.warning = original
-
-
 def _protocol(steps, scans):
     period = datetime.timedelta(seconds=1.0)
     return Protocol(
@@ -92,9 +69,10 @@ def _protocol(steps, scans):
     )
 
 
-def _run(tmp_path, monkeypatch, steps, scans, pixels_of):
+def _run(tmp_path, monkeypatch, caplog, steps, scans, pixels_of):
+    """Run the protocol; return its outcome and what the run said at WARNING."""
     with (
-        _warnings() as told,
+        caplog.at_level(logging.WARNING),
         open_composite_session(headless_settings(tmp_path)) as (session, runner),
     ):
         _frames_made(monkeypatch, session.scope._camera_driver, pixels_of)
@@ -103,13 +81,13 @@ def _run(tmp_path, monkeypatch, steps, scans, pixels_of):
         )
         outcome = pending.result(timeout=WAIT_S)
         assert pending.files.result(timeout=WAIT_S) is not None, 'the run never finished'
-    return outcome, told
+    return outcome, [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
 
 
-def test_a_runs_blown_frames_are_told_once_per_step_and_counted(tmp_path, monkeypatch):
+def test_a_runs_blown_frames_are_told_once_per_step_and_counted(tmp_path, monkeypatch, caplog):
     steps = [_step('C1', 0, x=20.0, gain=1.0), _step('C2', 1, x=30.0, gain=1.0)]
 
-    outcome, told = _run(tmp_path, monkeypatch, steps, scans=2, pixels_of=_blown)
+    outcome, told = _run(tmp_path, monkeypatch, caplog, steps, scans=2, pixels_of=_blown)
 
     captures = outcome.captures
     assert captures.captured == 4, outcome
@@ -127,11 +105,11 @@ def test_a_runs_blown_frames_are_told_once_per_step_and_counted(tmp_path, monkey
     assert ends == ['[PROTOCOL] The run kept frames that were 4 saturated (steps: C1, C2)'], told
 
 
-def test_a_runs_dark_frames_are_told_once_per_step_and_counted(tmp_path, monkeypatch):
+def test_a_runs_dark_frames_are_told_once_per_step_and_counted(tmp_path, monkeypatch, caplog):
     # The step's light is on, so a frame with no lit pixel is judged dark.
     steps = [_step('C1', 0, x=20.0, gain=1.0)]
 
-    outcome, told = _run(tmp_path, monkeypatch, steps, scans=2, pixels_of=_dark)
+    outcome, told = _run(tmp_path, monkeypatch, caplog, steps, scans=2, pixels_of=_dark)
 
     captures = outcome.captures
     assert [(c.scan_index, c.step_name) for c in captures.dark] == [(0, 'C1'), (1, 'C1')], captures

@@ -32,7 +32,7 @@ from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbse
 from drivers.ledboard import LEDBoard
 from drivers.serialboard import SerialBoard
 from drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scripted_port import LED_PID, LED_VID, ScriptedBackend, ScriptedLink
 from tests.wire_boards import led_on_the_wire, motor_on_the_wire
@@ -576,10 +576,8 @@ class TestAPortThatFails:
                 board.connect()
         assert len(_lines(caplog, '-> EXCEPTION')) == 1
 
-    def test_a_fast_write_failing_again_inside_the_log_window_is_not_logged_again(
-        self, monkeypatch
-    ):
-        records = capture_module_log(monkeypatch, serialboard)
+    def test_a_fast_write_failing_again_inside_the_log_window_is_not_logged_again(self, caplog):
+        caplog.set_level(logging.DEBUG)
         link = ScriptedLink(_ANSWERING)
         board = _connected(link, LEDBoard)
         for _ in range(2):
@@ -588,7 +586,11 @@ class TestAPortThatFails:
                 board.leds_off_fast()
             link.write_fault = None
             board.connect()
-        failed = [m for m in messages(records) if '_write_command_fast(LEDS_OFF) failed' in m]
+        failed = [
+            m
+            for m in messages(records_of(caplog, serialboard))
+            if '_write_command_fast(LEDS_OFF) failed' in m
+        ]
         assert len(failed) == 1
 
 

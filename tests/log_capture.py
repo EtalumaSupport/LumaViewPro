@@ -1,33 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Capture a production module's log records under the suite's mocked logger.
+"""Read one production module's lines out of ``caplog``.
 
-The suite replaces the LVP logger with a mock, so neither caplog nor a
-handler on the real logger sees a module's log lines. This swaps the
-module's ``logger`` for a private real logger with a capturing handler
-for the test's duration and hands back the records.
+The suite's loggers are real and propagate to the root, so ``caplog`` holds
+every line a test's code logged. A test about one module's lines reads them
+by the file that wrote them, whichever of the module's loggers it used.
 """
 
-import logging
 
-
-class _CaptureHandler(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.records = []
-
-    def emit(self, record):
-        self.records.append(record)
-
-
-def capture_module_log(monkeypatch, module) -> list:
-    """Records logged through ``module.logger`` until the test ends."""
-    private = logging.getLogger(f'test.capture.{module.__name__}')
-    private.propagate = False
-    private.setLevel(logging.DEBUG)
-    handler = _CaptureHandler()
-    private.addHandler(handler)
-    monkeypatch.setattr(module, 'logger', private)
-    return handler.records
+def records_of(caplog, module) -> list:
+    """The records ``caplog`` holds that *module*'s own code logged."""
+    return [r for r in caplog.records if r.pathname == module.__file__]
 
 
 def messages(records) -> list[str]:

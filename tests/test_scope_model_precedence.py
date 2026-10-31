@@ -10,11 +10,13 @@ configured for the wrong axes -- the GUI corrected that in its own copy of
 the bring-up, and a headless host never did.
 """
 
+import logging
+
 import pytest
 
 from modules.lumascope_api.simulation import SimulatedModelAnswer
 from modules.scope_session import ScopeSession
-from tests.log_capture import capture_module_log
+from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope
 
@@ -29,10 +31,12 @@ def _sim_scope(**kwargs):
 
 
 @pytest.fixture
-def session_log(monkeypatch):
+def session_log(caplog):
+    """What the session module has logged so far in the test."""
     import modules.scope_session as scope_session
 
-    return capture_module_log(monkeypatch, scope_session)
+    caplog.set_level(logging.DEBUG)
+    return lambda: records_of(caplog, scope_session)
 
 
 class TestASimulatedScopeReportsItsDeclaredModel:
@@ -102,7 +106,7 @@ class TestTheBringUpAdoptsTheReportedModel:
             # Derived from a slot no turret command has named yet, so
             # unknown -- never the stored turretless selection.
             assert session.scope.runtime_state.get_current_objective_id() is None
-            assert any('the hardware wins' in r.getMessage() for r in session_log)
+            assert any('the hardware wins' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
 
@@ -112,7 +116,7 @@ class TestTheBringUpAdoptsTheReportedModel:
         )
         try:
             assert session.settings['microscope'] == 'LS850T'
-            assert any('not in the catalogue' in r.getMessage() for r in session_log)
+            assert any('not in the catalogue' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
 
@@ -132,7 +136,7 @@ class TestTheBringUpAdoptsTheReportedModel:
         session = self._created(tmp_path, microscope='LS850T')
         try:
             assert session.settings['microscope'] == 'LS850T'
-            assert not any('scope reports model' in r.getMessage() for r in session_log)
+            assert not any('scope reports model' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
 

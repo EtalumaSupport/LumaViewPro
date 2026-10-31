@@ -44,7 +44,7 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _wait,
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )
-from tests.log_capture import capture_module_log, messages
+from tests.log_capture import messages, records_of
 from tests.scope_fakes import channel_reading, led_reading
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 from tests.stock_channels import LED0, LED1, LED2
@@ -310,11 +310,11 @@ def test_go_to_step_without_the_board_moves_only_when_its_preview_is_dark(
 
 
 def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
-    make_session, monkeypatch, tmp_path
+    make_session, monkeypatch, tmp_path, caplog
 ):
     import modules.sequenced_capture_runner as runner_module
 
-    runner_log = capture_module_log(monkeypatch, runner_module)
+    caplog.set_level(logging.DEBUG)
     session = make_session('LS850')
     scope = session.scope
     driver = scope._led_driver
@@ -339,5 +339,9 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
     assert _wait(run) == ('failed', 'hardware_disconnected')
     # The channel lit before the pull may still be lit on the board; the
     # cleanup says so rather than that it forced it dark.
-    cleanup = [m for m in messages(runner_log) if 'Cleanup: LED end-state undecided' in m]
+    cleanup = [
+        m
+        for m in messages(records_of(caplog, runner_module))
+        if 'Cleanup: LED end-state undecided' in m
+    ]
     assert cleanup and all('could be forced dark' in m for m in cleanup), cleanup

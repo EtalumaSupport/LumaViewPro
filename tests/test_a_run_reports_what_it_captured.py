@@ -9,6 +9,7 @@ where a test needs a capture to produce no frame.
 
 import contextlib
 import csv
+import logging
 import pathlib
 import threading
 import time
@@ -21,7 +22,6 @@ from modules.run_events import RunEvents
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from tests.test_composite_run_failures import _info_lines
 from tests.stock_channels import LED0, LED1
 
 WAIT_S = 60.0
@@ -45,12 +45,12 @@ def _two_steps():
 
 
 class TestANormalRunLogsNoCrash:
-    def test_a_normal_run_names_no_crash(self, tmp_path):
+    def test_a_normal_run_names_no_crash(self, tmp_path, caplog):
         # The run loop's one teardown carries a 'run_loop_crashed' fallback
         # it uses only when the loop body never said how the run ended; a
         # normal run must not log it.
         with (
-            _info_lines() as info,
+            caplog.at_level(logging.INFO),
             open_composite_session(headless_settings(tmp_path)) as (
                 _session,
                 runner,
@@ -58,7 +58,7 @@ class TestANormalRunLogsNoCrash:
         ):
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
         assert outcome.status == 'completed', outcome
-        crash_lines = [line for line in info if 'crash' in line.lower()]
+        crash_lines = [line for line in caplog.messages if 'crash' in line.lower()]
         assert crash_lines == [], crash_lines
 
 
@@ -271,12 +271,12 @@ def _files_written(seen):
 
 
 class TestTheFileCountCountsImages:
-    def test_a_capture_that_produced_nothing_is_not_a_file(self, tmp_path):
+    def test_a_capture_that_produced_nothing_is_not_a_file(self, tmp_path, caplog):
         # The bench line: "2 written, 0 not written" for a run with no image
         # on disk. A failed capture's record row is a write, not an image.
         files = []
         with (
-            _info_lines() as info,
+            caplog.at_level(logging.INFO),
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (session, runner),
         ):
@@ -289,8 +289,8 @@ class TestTheFileCountCountsImages:
             )
             _files_written(files)
         assert files == ['written'], files
-        assert any('0 written, 0 not written' in line for line in info), [
-            line for line in info if 'files are' in line
+        assert any('0 written, 0 not written' in line for line in caplog.messages), [
+            line for line in caplog.messages if 'files are' in line
         ]
         assert lost == [], 'no image was lost on the way to disk; none was captured'
 
@@ -434,26 +434,11 @@ class TestAVideoStepIsOneCapture:
         assert len(lost) == 1, lost
 
 
-@contextlib.contextmanager
-def _warning_lines():
-    """Collect what production logs at WARNING while the block runs (the
-    suite mocks ``lvp_logger``, so ``caplog`` cannot see it)."""
-    import lvp_logger
-
-    lines = []
-    original = lvp_logger.logger.warning
-    lvp_logger.logger.warning = lambda msg, *a, **kw: lines.append(str(msg))
-    try:
-        yield lines
-    finally:
-        lvp_logger.logger.warning = original
-
-
 class TestTheFilesLineAndItsReport:
-    def test_files_not_all_written_are_logged_as_a_warning(self, tmp_path, monkeypatch):
+    def test_files_not_all_written_are_logged_as_a_warning(self, tmp_path, monkeypatch, caplog):
         files = []
         with (
-            _warning_lines() as warnings,
+            caplog.at_level(logging.WARNING),
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
             import modules.protocol_run_loop  # noqa: F401
@@ -467,6 +452,7 @@ class TestTheFilesLineAndItsReport:
             )
             _files_written(files)
         assert files == ['incomplete'], files
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("The run's files are incomplete" in line for line in warnings), warnings
 
     def test_a_disk_check_that_raises_does_not_stop_the_save(self, tmp_path, monkeypatch):

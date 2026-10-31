@@ -17,6 +17,7 @@ Covered here:
    merge can read it back, else coerced with the override logged.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -269,19 +270,12 @@ class TestCompositeOutputFormat:
     def test_the_coercion_is_logged(self, user_format, caplog):
         # The user picked a format and silently got another one; the run
         # record is where they find out why their composite is not JPG.
-        import lvp_logger
-
-        logged = []
-        original = lvp_logger.logger.info
-        lvp_logger.logger.info = lambda msg, *a, **kw: logged.append(str(msg))
-        try:
+        with caplog.at_level(logging.INFO):
             config_helpers.get_composite_image_capture_config_from_settings(
                 _settings(acquiring=('BF', LED0), sequenced_format=user_format)
             )
-        finally:
-            lvp_logger.logger.info = original
-        assert any(user_format in line for line in logged), (
-            f'the format override must name the rejected preference; got {logged}'
+        assert any(user_format in line for line in caplog.messages), (
+            f'the format override must name the rejected preference; got {caplog.messages}'
         )
 
     def test_the_hyperstack_build_gate_stays_shut(self):
