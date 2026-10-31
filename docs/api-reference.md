@@ -2221,11 +2221,11 @@ Route: `GET /api/v1/protocol_size_advisory`.
 
 Ask a protocol whether it is large enough to warn the user about.
 
-The composer a client uses, rather than `Protocol.size_advisory`
-itself: the two settings the estimate needs (whether video is saved
-as frames, and the global FPS cap) are the session's, resolved the
-way the run path resolves them, so the advisory and the run it is
-advising about cannot be sized differently.
+The one size estimate a client asks for: the two settings the
+estimate needs (whether video is saved as frames, and the global FPS
+cap) are the session's, resolved the way the run path resolves them,
+so the advisory and the run it is advising about cannot be sized
+differently.
 
 **Args**
 
@@ -10928,58 +10928,6 @@ How long the protocol runs its scans, in seconds; 0 or None for one scan.
 
 Nothing.
 
-<a id="Protocol.estimate_write_mb"></a>
-### `Protocol.estimate_write_mb`
-
-```python
-def estimate_write_mb(
-    self,
-    *,
-    video_as_frames: bool = False,
-    global_max_fps: float,
-) -> float
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/estimate_write_mb`.
-
-Estimate the disk this whole protocol will write, in MB.
-
-One owner for "how big is this protocol", so the pre-run free-space
-guard and anything that wants to tell the user up front cannot drift
-apart. Lives on Protocol because the estimate has to know the steps
-frame schema, and Protocol is what guarantees that schema at any row
-count.
-
-Stateless by design -- no cached total. A cache here has to be
-invalidated by every mutator, and the in-place ones (modify_step
-flipping Acquire, delete_step dropping rows) do not go through the
-one place that would clear it; a stale total silently under-reserves
-disk for a run. Recomputing costs single-digit milliseconds on a
-protocol large enough to care about.
-
-Returns the estimate only, NOT floored at the run's minimum free-disk
-figure. That floor is the disk guard's refusal policy, not a property
-of the protocol -- folding it in would project gigabytes for a
-three-step protocol.
-
-Total by construction, like the per-step estimator it sums: it must
-not raise on any protocol, because the run loop calls it inside a
-broad except where a raise would silently disable the disk guard.
-
-**Args**
-
-- `video_as_frames`: Run-level flag -- video saved as individual frames rather than a compressed MP4.
-- `global_max_fps`: The run's snapshot of the global video FPS cap (0 = uncapped), so a video step is never sized at a rate the recording will not run at.
-
-**Returns**
-
-Estimated megabytes the whole protocol will write.
-
-**Raises**
-
-Nothing.
-
 <a id="Protocol.labware_id"></a>
 ### `Protocol.labware_id`
 
@@ -11044,39 +10992,6 @@ Marks: reads (changes nothing).
 Route: `GET /api/v1/handles/Protocol/{handle_id}/period_s`.
 
 How often the protocol scans, in seconds; 0 or None for one scan.
-
-**Raises**
-
-Nothing.
-
-<a id="Protocol.size_advisory"></a>
-### `Protocol.size_advisory`
-
-```python
-def size_advisory(
-    self,
-    *,
-    video_as_frames: bool = False,
-    global_max_fps: float,
-) -> ProtocolSizeAdvisory | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/size_advisory`.
-
-Describe this protocol if it is large enough to warn about, else None.
-
-The threshold and the sentence live here rather than in the GUI: a
-REST caller asking how big a protocol is should get the same answer,
-and the GUI's job is to render what comes back.
-
-Advisory only. Nothing here refuses anything -- a legitimate large
-protocol runs untouched, and the run-start disk guard is unchanged.
-
-**Args**
-
-- `video_as_frames`: True when the run saves a video step as individual frames rather than one compressed file, which writes more.
-- `global_max_fps`: The run's video frame-rate cap, 0 for none, so a video step is sized at the rate it will record at.
 
 **Raises**
 
@@ -11795,7 +11710,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 ## `ProtocolSizeAdvisory`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Protocol.size_advisory`](#Protocol.size_advisory), [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory).
+Returned by: [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory).
 
 A protocol big enough that the user should be told before running it.
 
@@ -17166,12 +17081,10 @@ reads what the person was shown.
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_root` | [`Protocol.capture_root`](#Protocol.capture_root) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/channel_settings` | [`Protocol.channel_settings`](#Protocol.channel_settings) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/duration_s` | [`Protocol.duration_s`](#Protocol.duration_s) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/estimate_write_mb` | [`Protocol.estimate_write_mb`](#Protocol.estimate_write_mb) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/labware_id` | [`Protocol.labware_id`](#Protocol.labware_id) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/num_scans` | [`Protocol.num_scans`](#Protocol.num_scans) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/num_steps` | [`Protocol.num_steps`](#Protocol.num_steps) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/period_s` | [`Protocol.period_s`](#Protocol.period_s) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/size_advisory` | [`Protocol.size_advisory`](#Protocol.size_advisory) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/step_list_revision` | [`Protocol.step_list_revision`](#Protocol.step_list_revision) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/step_records` | [`Protocol.step_records`](#Protocol.step_records) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/tiling` | [`Protocol.tiling`](#Protocol.tiling) |

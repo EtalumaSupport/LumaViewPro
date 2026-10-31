@@ -2157,7 +2157,6 @@ class Protocol:
         """
         return self._config['steps'].copy()
 
-    @api(reads=True)
     def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
         """Estimate the disk this whole protocol will write, in MB.
 
@@ -2221,15 +2220,15 @@ class Protocol:
             )
         return total
 
-    @api(reads=True)
     def size_advisory(
         self, *, video_as_frames: bool = False, global_max_fps: float
     ) -> ProtocolSizeAdvisory | None:
         """Describe this protocol if it is large enough to warn about, else None.
 
-        The threshold and the sentence live here rather than in the GUI: a
-        REST caller asking how big a protocol is should get the same answer,
-        and the GUI's job is to render what comes back.
+        The threshold and the sentence live here rather than in the GUI, and
+        a client asks through ``ScopeSession.protocol_size_advisory``, which
+        passes the two run settings this takes: the GUI and a REST caller
+        get the same answer, and the GUI's job is to render what comes back.
 
         Advisory only. Nothing here refuses anything -- a legitimate large
         protocol runs untouched, and the run-start disk guard is unchanged.

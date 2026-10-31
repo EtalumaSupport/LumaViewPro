@@ -4114,11 +4114,11 @@ class ScopeSession:
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
-        The composer a client uses, rather than ``Protocol.size_advisory``
-        itself: the two settings the estimate needs (whether video is saved
-        as frames, and the global FPS cap) are the session's, resolved the
-        way the run path resolves them, so the advisory and the run it is
-        advising about cannot be sized differently.
+        The one size estimate a client asks for: the two settings the
+        estimate needs (whether video is saved as frames, and the global FPS
+        cap) are the session's, resolved the way the run path resolves them,
+        so the advisory and the run it is advising about cannot be sized
+        differently.
 
         Args:
             protocol: The protocol sized, as a full run of it would be.

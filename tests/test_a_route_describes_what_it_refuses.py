@@ -118,6 +118,17 @@ def test_a_stage_position_is_read_over_the_wire_through_axis_positions_alone(des
     assert '/api/v1/scope/motion/get_actual_position' not in described['paths']
 
 
+def test_a_protocol_is_sized_over_the_wire_through_the_session_alone(described):
+    """``protocol_size_advisory`` sizes a protocol with the session's run settings;
+    the protocol's own two estimates take those settings as arguments and have no route."""
+    assert '/api/v1/protocol_size_advisory' in described['paths']
+    protocol_routes = {
+        '/api/v1/handles/Protocol/{handle_id}/estimate_write_mb',
+        '/api/v1/handles/Protocol/{handle_id}/size_advisory',
+    }
+    assert protocol_routes.isdisjoint(described['paths'])
+
+
 def test_a_build_on_the_post_processing_lane_names_no_door(described):
     """The post-processing lane asks no claim, so a build is open to anyone, held session or not."""
     refusals = _refusals(described, '/api/v1/post_processing/build')
