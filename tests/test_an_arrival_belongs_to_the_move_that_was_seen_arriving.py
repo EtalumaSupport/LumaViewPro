@@ -314,8 +314,9 @@ def test_a_driver_raise_leaves_the_axis_unknown_never_moving(session, monkeypatc
 def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session, monkeypatch):
     """The simulated board dies the instant the overshoot leg's target is
     written, so the leg never arrives and, on the simulator, its status
-    read never raises. The move fails 'driver_failed' at the leg's bound,
-    inside the lane's; with the board back, a home and a move run."""
+    read never raises. The move fails at the leg's bound, inside the
+    lane's, naming the lost board; with the board back, a home and a move
+    run."""
     motion = session.scope.motion
     driver = motion._driver
     monkeypatch.setattr(motion_module, 'OVERSHOOT_LEG_TIMEOUT_S', 0.5)
@@ -335,7 +336,7 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
         motion.move_z(3000.0, overshoot_enabled=True)
     failed_after = time.monotonic() - t0
 
-    assert exc.value.reason == 'driver_failed'
+    assert exc.value.reason == 'board_lost'
     assert failed_after < 2.0, failed_after
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 

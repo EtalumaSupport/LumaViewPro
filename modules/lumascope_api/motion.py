@@ -552,13 +552,19 @@ class MotionAPI:
         verdict can end it, and left there it would read as moving forever;
         a raise from the driver lands here, which makes it terminal.
 
+        A failure that lost the board is told as a lost board, the
+        monitor's own reason: the presence record is asked here, so the
+        exchange that finds the loss says what every later command says.
+
         Raises:
             MoveFaultError: the fault the move ended with --
-                ``'driver_failed'``, chained from the driver's error, unless
-                the monitor gave the axis up first (a lost board), whose
-                object it then is. The one object its caller reports.
+                ``'board_lost'`` when the motor board is no longer
+                connected, else ``'driver_failed'``, chained from the
+                driver's error; unless the monitor gave the axis up first
+                (a lost board), whose object it then is. The one object
+                its caller reports.
         """
-        failed = MoveFaultError(axis, 'driver_failed')
+        failed = MoveFaultError(axis, 'board_lost' if self._board_lost() else 'driver_failed')
         failed.__cause__ = cause
         self._set_axis_state(axis, AxisState.UNKNOWN, fault=failed)
         raise move.fault or failed
@@ -703,13 +709,15 @@ class MotionAPI:
         ``stops_asked`` is ``_stops_asked`` as the home read it when it was
         asked. A halt the scope sent itself -- a stall's, an interlock's --
         moves the stop generation but is no one's Stop, so a home it ended
-        ends in its fault. The caller chains it from what was raised.
+        ends in its fault: ``'board_lost'`` when the motor board is no
+        longer connected, so the home that finds the loss says so, else
+        ``'error'``. The caller chains it from what was raised.
         """
         with self._stop_lock:
             stopped = self._stops_asked != stops_asked
         if stopped:
             return HomingStoppedError(home, 'stopped', axes)
-        return HomingFaultError(home, 'error', axes)
+        return HomingFaultError(home, 'board_lost' if self._board_lost() else 'error', axes)
 
     @api(reads=True)
     def interlocks(self) -> frozenset[Interlock]:
@@ -799,8 +807,26 @@ class MotionAPI:
         if self._scope._io_executor.pending_shutdown:
             raise HardwareCommandRefusedError('scope_disconnected', member)
         if self._scope.motion_expected and not self._scope.motor_connected:
-            part = MissingPart.MOTOR_CONTROLLER
-            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+            raise self._controller_not_connected(member)
+
+    @staticmethod
+    def _controller_not_connected(member: str) -> HardwareCommandRefusedError:
+        """The refusal of ``member`` because the motor controller is not connected."""
+        part = MissingPart.MOTOR_CONTROLLER
+        return HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    def _position_unread(self, member: str) -> HardwareCommandRefusedError:
+        """The refusal of ``member`` when the board did not report the position it needs.
+
+        Asked of the presence record: a read that lost the board is the
+        controller not connected, so the command that finds the loss says
+        what every later command says; a board still connected that did
+        not answer is ``'position_unread'``, which a retry can clear. The
+        caller chains it from the driver's error.
+        """
+        if self._board_lost():
+            return self._controller_not_connected(member)
+        return HardwareCommandRefusedError('position_unread', member)
 
     def _has_position(self, axis: str) -> bool:
         """Whether a position read of ``axis`` has hardware behind it.
@@ -1070,7 +1096,8 @@ class MotionAPI:
                 interlock refused the home before anything moved. Nothing
                 was driven, and every axis keeps the state it had.
             HomingFaultError: the driver raised a hardware fault, or a homed
-                axis's position could not be read; ``'lid_open'``, the lid
+                axis's position could not be read; ``'board_lost'``, the
+                motor board is no longer connected; ``'lid_open'``, the lid
                 was opened while the home moved.
             HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
@@ -1225,7 +1252,8 @@ class MotionAPI:
                 ``refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
             HomingFaultError: the board's home raised a hardware fault, or
-                the turret's position could not be read.
+                the turret's position could not be read; ``'board_lost'``,
+                the motor board is no longer connected.
             HomingStoppedError: ``'stopped'``, a Stop landed before the
                 board began the home.
             HardwareCommandRefusedError: the Z park was refused before Z
@@ -1929,7 +1957,8 @@ class MotionAPI:
                 was driven, and Z keeps the state it had.
             HomingFaultError: the driver raised a hardware fault (no
                 response, a firmware error), or Z's position could not be
-                read; ``'lid_open'``, the lid was opened while the home
+                read; ``'board_lost'``, the motor board is no longer
+                connected; ``'lid_open'``, the lid was opened while the home
                 moved.
             HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
@@ -2394,7 +2423,8 @@ class MotionAPI:
                 with overshoot whose position the board did not report;
                 nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not
-                take the command.
+                take the command;
+                ``'board_lost'``, the board is no longer connected.
         """
         self._refuse_absolute('move_turret', axis, position, 'position', ignore_limits, force)
         return self._drive(
@@ -2484,7 +2514,8 @@ class MotionAPI:
                 the interlock's reason (``'lid_open_before_motion'``); ``'monitor_ended'``.
                 Nothing of this axis was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         leg = self._backlash_leg(axis, position, overshoot_enabled, member)
         stop_generation = self._generation_asked()
@@ -2562,7 +2593,7 @@ class MotionAPI:
         try:
             start_pos = self._driver.target_pos(axis)
         except HardwareError as e:
-            raise HardwareCommandRefusedError('position_unread', member) from e
+            raise self._position_unread(member) from e
         target_pos = start_pos + float(distance)
 
         # The same travel refusal as the absolute path, against the target
@@ -2742,7 +2773,8 @@ class MotionAPI:
             AxisStateUnknownError: An axis given does not know its position.
                 Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         if at.z_um is not None:
             raise ArgumentRefusedError(
@@ -2927,7 +2959,8 @@ class MotionAPI:
             AxisStateUnknownError: An axis given does not know its position.
                 Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         return self._dispatch_motion(
             self._move_xy_impl,
@@ -3006,7 +3039,8 @@ class MotionAPI:
             AxisStateUnknownError: An axis given does not know its position.
                 Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         return self._dispatch_motion(
             self._move_xy_by_impl,
@@ -3108,7 +3142,8 @@ class MotionAPI:
             AxisStateUnknownError: Z does not know its position. Nothing
                 was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         return self._dispatch_motion(
             self._move_z_impl,
@@ -3193,7 +3228,8 @@ class MotionAPI:
             AxisStateUnknownError: Z does not know its position. Nothing
                 was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         return self._dispatch_motion(
             self._move_z_by_impl,
@@ -3269,8 +3305,11 @@ class MotionAPI:
                 a run, a diagnostic or a recording holds the scope; or
                 ``'lid_open_before_motion'``, the stage's lid is open, and nothing moves.
             HomingFaultError: the home was driven and did not establish
-                a reference: the driver raised, or a homed axis's position
-                could not be read. The axes it names are UNKNOWN.
+                a reference: ``'error'``, the driver raised;
+                ``'board_lost'``, the motor board is no longer connected;
+                ``'unread'``, a homed axis's position could not be read;
+                ``'lid_open'`` or ``'stage_unpowered'``, an interlock opened
+                while the home moved. The axes it names are UNKNOWN.
             HomingStoppedError: a Stop ended the home. The axes it names
                 are UNKNOWN; none, when the Stop landed before the home was
                 driven.
@@ -3697,7 +3736,7 @@ class MotionAPI:
         try:
             current = self._driver.current_pos('Z')
         except HardwareError as e:
-            raise HardwareCommandRefusedError('position_unread', member) from e
+            raise self._position_unread(member) from e
         backlash = self._driver.backlash_um()
         # A board with no backlash has no approach leg.
         if backlash > 0 and current > position and position > backlash + 50:

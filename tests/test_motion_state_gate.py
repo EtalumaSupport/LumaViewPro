@@ -277,8 +277,8 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
         'a move that failed at the driver must leave the axis UNKNOWN, not IDLE'
     )
     # The user is told through the one typed fault the move raises, which
-    # its caller shows; the move itself posts nothing.
-    assert failed.value.reason == 'driver_failed'
+    # its caller shows, naming the lost board; the move itself posts nothing.
+    assert failed.value.reason == 'board_lost'
     assert isinstance(failed.value.__cause__, HardwareError)
     assert _errors_posted(centre_posts) == []
 

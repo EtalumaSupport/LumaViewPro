@@ -103,13 +103,14 @@ def test_a_stop_the_board_does_not_answer_raises(scope):
 
 
 def test_an_unplugged_motor_board_refuses_a_z_move_then_reads_not_connected(scope):
-    """The pulled cable is found by the move's first read; after it the
-    board is not connected. What brings it back after ``replug`` is the
-    reconnect, which is not the simulator's."""
+    """The pulled cable is found by the move's first read, which refuses the
+    move as the board not connected; after it the board is not connected.
+    What brings it back after ``replug`` is the reconnect, which is not the
+    simulator's."""
     scope.simulation.unplug('motor')
     with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion.move_z(1000.0, overshoot_enabled=True)
-    assert refused.value.reason == 'position_unread'
+    assert refused.value.reason == 'not_connected'
     assert not scope.motor_connected
 
 

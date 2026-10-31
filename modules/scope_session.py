@@ -3197,7 +3197,8 @@ class ScopeSession:
             AxisStateUnknownError: An axis given does not know its
                 position. Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command.
+                command;
+                ``'board_lost'``, the board is no longer connected.
         """
         mark = self.bookmark
         motion = self.scope.motion

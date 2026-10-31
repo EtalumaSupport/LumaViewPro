@@ -20,7 +20,13 @@ import pytest
 import drivers.sim_wire.backend as sim_backend
 from fastapi.testclient import TestClient
 from lib.lumascope_error import RefusalCause
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError, MissingPart
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    HomingFaultError,
+    MissingPart,
+    MoveFaultError,
+)
 from modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
 from modules.lumascope_api.diagnostics import MotorBoardInfo
 from modules.notification_center import Severity
@@ -46,16 +52,41 @@ def scope():
 
 def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
     """Nothing reconnects a rebooted board during a session: the move that
-    meets the reboot is refused, every axis then reads unknown, and the next
-    move is refused for a restart."""
+    meets the reboot is refused for a restart, every axis then reads unknown,
+    and the next move is refused the same way."""
     scope.simulation.reboot('motor')
-    with pytest.raises(HardwareCommandRefusedError):
+    with pytest.raises(HardwareCommandRefusedError) as first:
         scope.motion.move_z(100.0)
+    assert (first.value.reason, first.value.cause) == ('not_connected', RefusalCause.RESTART)
 
     assert scope.motion.axes_without_position() == dict.fromkeys('XYZT', AxisState.UNKNOWN)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion.move_z(100.0)
     assert (refused.value.reason, refused.value.cause) == ('not_connected', RefusalCause.RESTART)
+
+
+# The first command on each motion path after a reboot, and how it ends: a
+# position read before anything drives is refused; a drive or a home that
+# meets the loss ends in its fault.
+_FIRST_AFTER_A_REBOOT = {
+    'move_z_by': (lambda m: m.move_z_by(10.0), HardwareCommandRefusedError, 'not_connected'),
+    'move_xy': (lambda m: m.move_xy(x_um=5000.0), MoveFaultError, 'board_lost'),
+    'move_turret': (lambda m: m.move_turret(2), HardwareCommandRefusedError, 'not_connected'),
+    'home': (lambda m: m.home(), HomingFaultError, 'board_lost'),
+}
+
+
+# parametrize-justified: a reboot is permanent for its scope
+@pytest.mark.parametrize('path', list(_FIRST_AFTER_A_REBOOT))
+def test_the_first_command_after_a_reboot_says_the_board_is_lost_and_to_restart(scope, path):
+    """The exchange that finds the board gone says so, whichever command
+    made it: never a retry, nor a home, that can only fail."""
+    command, raised, reason = _FIRST_AFTER_A_REBOOT[path]
+    scope.simulation.reboot('motor')
+    with pytest.raises(raised) as lost:
+        command(scope.motion)
+    assert lost.value.reason == reason
+    assert 'restart LumaViewPro' in str(lost.value)
 
 
 @pytest.mark.slow
@@ -201,8 +232,11 @@ def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
 
 _HOMING_FAULT = pytest.mark.xfail(
     strict=True,
-    reason='the first home after a pull meets the dead port as a failed command and raises '
-    'HomingFailedError, a homing fault. Only the next call knows the motor is disconnected',
+    raises=HomingFaultError,
+    reason='the first home after a pull meets the dead port as a failed command: it says the '
+    "board is not connected, as the homing fault 'board_lost', not as a refusal. A command "
+    'the port never sent is refused only once the serial exchange tells a command not sent '
+    'from one not answered',
 )
 
 

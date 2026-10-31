@@ -4560,7 +4560,8 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             changing short of its target, and the stage was halted.
             ``'monitor_ended_mid_move'`` -- the motion monitor ended while the
             axis moved, so nothing could judge the move. ``'board_lost'`` -- the
-            monitor lost the motor board while the axis moved.
+            motor board was lost while the axis moved: found by the drive's
+            own command or by the motion monitor.
             ``'faulted'`` -- something else set the axis UNKNOWN during
             the move, carrying no fault of its own, with no stop before it.
             ``'position_unread_after_move'`` -- the board did not report
@@ -4588,7 +4589,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
         ),
         'board_lost': (
             'the motor board was lost while it moved, so the move was aborted. '
-            'Reconnect the board and retry.'
+            'Check the USB cable, then restart LumaViewPro.'
         ),
         'faulted': (
             'it stalled or the board was lost during the move. The {axis} position '
@@ -4817,17 +4818,18 @@ class HomingFaultError(Fault, HomingFailedError):
     driver's exception when there is one.
 
     Attributes:
-        reason: ``'error'`` -- the home raised; ``'unread'`` -- homed, but
-            ``axes`` could not be read; ``'lid_open'`` -- the lid was
-            opened while the home was moving.
+        reason: ``'error'`` -- the home raised; ``'board_lost'`` -- the
+            home raised and the motor board is no longer connected;
+            ``'unread'`` -- homed, but ``axes`` could not be read;
+            ``'lid_open'`` -- the lid was opened while the home was moving.
     """
 
     words_for_person = True
     title = 'Homing Failed'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('error', 'unread', *INTERLOCK_TITLES)
+        ('error', 'board_lost', 'unread', *INTERLOCK_TITLES)
     )
-    same_fact_as = (MotionInterlockError,)
+    same_fact_as = (MotionInterlockError, MoveFaultError)
 
     def _sentence(self, subject: str) -> str:
         if self.reason == 'unread':
@@ -4837,6 +4839,11 @@ class HomingFaultError(Fault, HomingFailedError):
             )
         if self.reason == 'lid_open':
             return f"{subject} stopped: the microscope's lid was opened. Position is unknown."
+        if self.reason == 'board_lost':
+            return (
+                f'{subject} stopped: the motor board is not connected. '
+                'Check the USB cable, then restart LumaViewPro. Position is unknown.'
+            )
         return f'{subject} encountered an error. Position is unknown.'
 
 
