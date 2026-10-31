@@ -111,7 +111,7 @@ class TestTheLockRecord:
             len(re.findall(r'app\.lock\.(run_lockout|controls_locked)\b', text))
             for text in kv_sources.values()
         )
-        assert bound == 100, f'{bound} lock bindings; each greyed surface binds the record'
+        assert bound == 95, f'{bound} lock bindings; each greyed surface binds the record'
 
 
 class TestKvBindingTopology:

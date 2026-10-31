@@ -438,7 +438,7 @@ class MicroscopeSettings(BoxLayout):
             return
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.live', fmt),
-            None,
+            self.show_capture_settings,
             'LIVE_IMAGE_OUTPUT_FORMAT',
         )
         self._refresh_jpg_depth_hint()
@@ -448,11 +448,17 @@ class MicroscopeSettings(BoxLayout):
 
     def update_jpg_quality(self, value):
         quality = int(value)
-        # The slider set from the store fires this too; that is not a pick.
-        if quality != _app_ctx.ctx.settings['jpg_quality']:
-            _app_ctx.ctx.update_settings('jpg_quality', quality)
+        # The label follows the slider first, so a refused value's redraw
+        # puts both back to the stored quality.
         if 'jpg_quality_value_label' in self.ids:
             self.ids['jpg_quality_value_label'].text = str(quality)
+        # The slider set from the store fires this too; that is not a pick.
+        if quality != _app_ctx.ctx.settings['jpg_quality']:
+            run_reported(
+                lambda: _app_ctx.ctx.update_settings('jpg_quality', quality),
+                self.show_capture_settings,
+                'JPG_QUALITY',
+            )
 
     def record_jpg_quality(self, value):
         """Record the quality a person set, on the slider's release.
@@ -471,7 +477,7 @@ class MicroscopeSettings(BoxLayout):
             return
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.sequenced', fmt),
-            None,
+            self.show_capture_settings,
             'SEQUENCED_IMAGE_OUTPUT_FORMAT',
         )
         self._refresh_jpg_depth_hint()
@@ -481,13 +487,19 @@ class MicroscopeSettings(BoxLayout):
         # The spinner set from the store fires this too; that is not a pick.
         if as_frames == _app_ctx.ctx.settings['video_as_frames']:
             return
-        _app_ctx.ctx.update_settings('video_as_frames', as_frames)
+        run_reported(
+            lambda: _app_ctx.ctx.update_settings('video_as_frames', as_frames),
+            self.show_capture_settings,
+            'VIDEO_RECORDING_FORMAT',
+        )
 
     def update_scale_bar_state(self):
         enabled = self.ids['enable_scale_bar_btn'].state == 'down'
         gui_logger.toggle('SCALE_BAR', enabled)
         session = _app_ctx.ctx.session
-        run_reported(lambda: session.set_scale_bar(enabled), None, 'SCALE_BAR')
+        run_reported(
+            lambda: session.set_scale_bar(enabled), self.show_capture_settings, 'SCALE_BAR'
+        )
 
     def update_crosshairs_state(self):
         enabled = self.ids['enable_crosshairs_btn'].state == 'down'

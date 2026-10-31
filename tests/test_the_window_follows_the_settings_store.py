@@ -118,6 +118,64 @@ def test_each_widget_a_redraw_sets_to_the_stored_value_writes_nothing(session, h
     assert [p.title for p in held.posts] == []
 
 
+def _capture_settings_panel(settings):
+    """A stand-in shaped like the panel's capture-settings rows, shown from the store."""
+    panel = SimpleNamespace(
+        ids={
+            'live_image_output_format_spinner': _box(''),
+            'sequenced_image_output_format_spinner': _box(''),
+            'jpg_quality_slider': SimpleNamespace(value=None),
+            'jpg_quality_value_label': _box(''),
+            'video_recording_format_spinner': _box(''),
+            'enable_scale_bar_btn': SimpleNamespace(state=''),
+            'show_tooltips_btn': SimpleNamespace(state=''),
+        },
+        _refresh_jpg_depth_hint=lambda: None,
+    )
+    panel.show_capture_settings = lambda: MicroscopeSettings.show_capture_settings(panel)
+    panel.show_capture_settings()
+    return panel
+
+
+def test_a_refused_capture_setting_pick_shows_the_stored_value_again(session, held):
+    """Each capture-settings control a client's control session refuses goes back to the store."""
+    settings = session.settings
+    panel = _capture_settings_panel(settings)
+    shown = {
+        name: (getattr(widget, 'state', None), getattr(widget, 'text', None))
+        for name, widget in panel.ids.items()
+    }
+    shown_quality = panel.ids['jpg_quality_slider'].value
+    ids = panel.ids
+
+    ids['live_image_output_format_spinner'].text = next(
+        label
+        for fmt, label in microscope_settings.OUTPUT_FORMAT_LABELS.items()
+        if fmt in microscope_settings.LIVE_OUTPUT_FORMATS
+        and fmt != settings['image_output_format']['live']
+    )
+    MicroscopeSettings.select_live_image_output_format(panel)
+    ids['sequenced_image_output_format_spinner'].text = next(
+        label
+        for fmt, label in microscope_settings.OUTPUT_FORMAT_LABELS.items()
+        if fmt != settings['image_output_format']['sequenced']
+    )
+    MicroscopeSettings.select_sequenced_image_output_format(panel)
+    MicroscopeSettings.update_jpg_quality(panel, settings['jpg_quality'] - 5)
+    ids['video_recording_format_spinner'].text = 'mp4' if settings['video_as_frames'] else 'Frames'
+    MicroscopeSettings.select_video_recording_format(panel)
+    ids['enable_scale_bar_btn'].state = 'normal' if settings['scale_bar']['enabled'] else 'down'
+    MicroscopeSettings.update_scale_bar_state(panel)
+
+    assert held.stored == []
+    assert len(held.posts) == 5, [p.title for p in held.posts]
+    assert {
+        name: (getattr(widget, 'state', None), getattr(widget, 'text', None))
+        for name, widget in panel.ids.items()
+    } == shown
+    assert panel.ids['jpg_quality_slider'].value == shown_quality
+
+
 class _Frame:
     """The UI thread's next frame, run when the test says: what was scheduled meanwhile."""
 

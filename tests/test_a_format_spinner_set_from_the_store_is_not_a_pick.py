@@ -60,9 +60,12 @@ def test_a_picked_format_is_written_and_left_to_the_spinner_to_record(
 ):
     from ui.microscope_settings import MicroscopeSettings
 
-    # A pick also refreshes the JPG depth hint, which this test does not observe.
+    # A pick also refreshes the JPG depth hint and hands the panel's redraw to
+    # the reporter, neither of which this test observes.
     panel = SimpleNamespace(
-        ids={spinner: SimpleNamespace(text='JPG')}, _refresh_jpg_depth_hint=lambda: None
+        ids={spinner: SimpleNamespace(text='JPG')},
+        _refresh_jpg_depth_hint=lambda: None,
+        show_capture_settings=lambda: None,
     )
     getattr(MicroscopeSettings, handler)(panel)
 
@@ -76,6 +79,7 @@ def _hyperstack_panel():
     return SimpleNamespace(
         ids={'sequenced_image_output_format_spinner': SimpleNamespace(text='Hyperstack')},
         _refresh_jpg_depth_hint=lambda: None,
+        show_capture_settings=lambda: None,
     )
 
 

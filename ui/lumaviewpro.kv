@@ -2453,7 +2453,6 @@
 					font_size: '12sp'
 				PickSpinner:
 					id: live_image_output_format_spinner
-					disabled: app.lock.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
@@ -2475,7 +2474,6 @@
 					font_size: '12sp'
 				PickSpinner:
 					id: sequenced_image_output_format_spinner
-					disabled: app.lock.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
@@ -2506,7 +2504,6 @@
 					size_hint_x: 0.5
 				ModSlider:
 					id: jpg_quality_slider
-					disabled: app.lock.run_lockout
 					min: 0
 					max: 100
 					step: 5
@@ -2538,7 +2535,6 @@
 					font_size: '12sp'
 				PickSpinner:
 					id: video_recording_format_spinner
-					disabled: app.lock.run_lockout
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
@@ -2651,7 +2647,6 @@
 					text_size: self.size
 				ToggleButton:
 					id: enable_scale_bar_btn
-					disabled: app.lock.run_lockout
 					tooltip_text: 'Show scale bar in lower right corner of image'
 					size_hint: None, None
 					size: '45dp', '30dp'

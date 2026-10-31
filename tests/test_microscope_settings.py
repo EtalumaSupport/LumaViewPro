@@ -801,6 +801,7 @@ class TestTheImageModeSelectorRendersTheApi:
             SimpleNamespace(
                 ids={spinner: SimpleNamespace(text='JPG')},
                 _refresh_jpg_depth_hint=lambda: refreshed.append(True),
+                show_capture_settings=lambda: None,
             )
         )
         assert refreshed == [True]
