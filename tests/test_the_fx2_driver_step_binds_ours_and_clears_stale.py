@@ -17,6 +17,7 @@ import dataclasses
 import datetime
 import importlib.util
 import pathlib
+import re
 import shutil
 import sys
 
@@ -293,6 +294,8 @@ def test_the_step_logs_to_its_install_folder_and_exits_1_when_incomplete(tmp_pat
 
     assert code == 1
     assert text.rstrip().endswith('install incomplete: see the errors above')
+    # Every record starts with the full date and time LumaViewPro's logs share.
+    assert re.match(r'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} INFO LumaViewPro 4\.0\.0-beta38 ', text)
 
 
 def test_an_unexpected_error_is_logged_with_its_traceback_and_exits_1(tmp_path, monkeypatch):

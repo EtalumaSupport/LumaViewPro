@@ -978,6 +978,8 @@ def _enable_driver_logging(config):
     """
     import time
 
+    from modules.log_stamp import make_formatter
+
     real = logging.getLogger('lvp_driver_test')
     real.setLevel(logging.DEBUG)
     real.propagate = False
@@ -987,7 +989,7 @@ def _enable_driver_logging(config):
     # support zip carries the driver's narrative with the run it explains.
     log_path = str(bench_results_dir() / f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
     file_handler = logging.FileHandler(log_path, mode='w')
-    file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    file_handler.setFormatter(make_formatter('%(levelname)s %(message)s'))
     real.addHandler(file_handler)
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(logging.Formatter('[driver] %(message)s'))

@@ -53,6 +53,7 @@ from drivers.usb_driver_binding import (
     store_packages,
 )
 from modules.exceptions import CameraDriverRepairFailedError
+from modules.log_stamp import make_formatter
 from modules.path_utils import AppRuntime, app_runtime, launch_root, read_version
 
 log = logging.getLogger('LVP.fx2_driver_step')
@@ -418,7 +419,7 @@ def main(argv: list[str]) -> int:
     handler = logging.FileHandler(
         logs / f'driver_{argv[0]}_{version}_{stamp}.log', encoding='utf-8'
     )
-    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    handler.setFormatter(make_formatter('%(levelname)s %(message)s'))
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     try:

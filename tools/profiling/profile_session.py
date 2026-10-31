@@ -31,6 +31,7 @@ from pathlib import Path
 
 import psutil
 
+from modules.log_stamp import LOG_DATEFMT
 from tools.profiling.aggregate import compute_absolute_cpu, parse_folded
 
 # The samplers are sampling profilers: a low rate is cheap but coarse, a long window
@@ -47,10 +48,19 @@ def _repo_root() -> Path:
 # The launch banner's lines (lvp_logger.log_environment_banner), by label. The
 # banner opens with Version and closes with Git. The round-trip test writes a
 # banner with the real function and reads it back here, so a relabelled banner
-# fails a test rather than every artifact.
-_BANNER_LINE = re.compile(
-    r'^\[\w+\] \[[^\]]*\] (\d\d/\d\d/\d{4} \d\d:\d\d:\d\d\.\d{3}) - lvp_logger\.py - '
-    r'\[LVP Main  \] (\w+):\s+(.*)$'
+# fails a test rather than every artifact. One log file holds launches of
+# every version it has seen, so a line in the layout LVP wrote before the
+# stamp moved to the front of the line is read too, with its own date format.
+_BANNER_TAIL = r' - lvp_logger\.py - \[LVP Main  \] (\w+):\s+(.*)$'
+_BANNER_LINES = (
+    (
+        re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) \[\w+\] \[[^\]]*\]' + _BANNER_TAIL),
+        LOG_DATEFMT,
+    ),
+    (
+        re.compile(r'^\[\w+\] \[[^\]]*\] (\d\d/\d\d/\d{4} \d\d:\d\d:\d\d\.\d{3})' + _BANNER_TAIL),
+        '%m/%d/%Y %H:%M:%S',
+    ),
 )
 _BANNER_FIELDS = {
     'Version': 'version',
@@ -74,13 +84,16 @@ def _banners(path: Path) -> list[tuple[float, dict]]:
     current: dict | None = None
     started = 0.0
     for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
-        match = _BANNER_LINE.match(line)
+        match, datefmt = next(
+            ((m, fmt) for pattern, fmt in _BANNER_LINES if (m := pattern.match(line))),
+            (None, None),
+        )
         if not match or match.group(2) not in _BANNER_FIELDS:
             continue
         stamp, label, value = match.groups()
         if label == 'Version':
             current = {}
-            started = time.mktime(time.strptime(stamp[:-4], '%m/%d/%Y %H:%M:%S'))
+            started = time.mktime(time.strptime(stamp[:-4], datefmt))
             started += int(stamp[-3:]) / 1000
         if current is None:
             continue

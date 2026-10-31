@@ -3037,11 +3037,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
-    )
-
     logger.info('')
     logger.info('=' * 56)
     logger.info('  Etaluma Diagnostics -- Tech Support Report Generator')

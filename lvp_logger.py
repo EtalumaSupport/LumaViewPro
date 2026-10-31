@@ -44,6 +44,8 @@ from modules.path_utils import (
     read_version,
 )
 
+from modules.log_stamp import MAIN_LAYOUT, TRACE_LAYOUT, make_formatter
+
 version, build_timestamp = read_version()
 
 # The logs live in the data root, which an installed build keeps in
@@ -96,23 +98,6 @@ LOG_CAPS = {
 LOG_BUDGET_BYTES = 140 * _MB
 
 
-# CustomFormatter class enables change in log format depending on log level
-class CustomFormatter(logging.Formatter):
-    # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
-    def __init__(
-        self,
-        fmt='[%(levelname)s] [%(threadName)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s',
-        datefmt='%m/%d/%Y %H:%M:%S',
-    ):
-        logging.Formatter.__init__(self, fmt, datefmt)
-
-    def format(self, record):
-        # if record.levelno == logging.INFO:
-        #     # if INFO level, only log the message
-        #     return record.getMessage()
-        return logging.Formatter.format(self, record)
-
-
 def minimize_logger_window() -> None:
     if sys.platform == 'win32':
         try:
@@ -151,8 +136,8 @@ class ThreadPauseFilter(logging.Filter):
 
 
 # Log traceback if we have a crash to tell us more info on what happened.
-# The tuple form `exc_info=(type, value, tb)` does not render through
-# CustomFormatter, which silently dropped tracebacks in the field. Embed
+# The tuple form `exc_info=(type, value, tb)` did not render through the
+# log formatter, which silently dropped tracebacks in the field. Embed
 # the formatted traceback directly in the message string so it renders
 # regardless of stdlib exc_info handling.
 import traceback as _traceback
@@ -220,8 +205,9 @@ def _remove_backups_past(path: str, backups: int) -> None:
                 pass
 
 
-def _rotating_handler(path: str, *, delay: bool, encoding: str | None = None):
-    """The one maker of a rotating log handler: its cap from LOG_CAPS."""
+def _rotating_handler(path: str, *, layout: str, delay: bool, encoding: str | None = None):
+    """The one maker of a rotating log handler: its cap from LOG_CAPS, its
+    every line starting with the one stamp."""
     max_bytes, backups = LOG_CAPS[os.path.basename(path)]
     _remove_backups_past(path, backups)
     handler = RotatingFileHandler(
@@ -233,18 +219,17 @@ def _rotating_handler(path: str, *, delay: bool, encoding: str | None = None):
         delay=delay,
     )
     handler.namer = rotated_log_name
+    handler.setFormatter(make_formatter(layout))
     return handler
 
 
 # obtains name of the module (file) importing lvp_logger
 filename = f'{__file__}'
-file_handler = _rotating_handler(LOG_FILE, delay=False)
-file_handler.setFormatter(CustomFormatter())
+file_handler = _rotating_handler(LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 file_handler.addFilter(ThreadPauseFilter())
 
 # Additional rotating file handler for errors and critical logs only
-error_file_handler = _rotating_handler(ERRORS_LOG_FILE, delay=False)
-error_file_handler.setFormatter(CustomFormatter())
+error_file_handler = _rotating_handler(ERRORS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 error_file_handler.addFilter(ThreadPauseFilter())
 
 # Accept all levels on the handler but filter to ERROR+ or forced records
@@ -272,8 +257,7 @@ error_file_handler.addFilter(ErrorOrForcedFilter())
 
 # REST API log handler -- captures records marked with extra={'api_request': True}
 # Don't create the file until the first REST API log message.
-rest_api_handler = _rotating_handler(REST_API_LOG_FILE, delay=True)
-rest_api_handler.setFormatter(CustomFormatter())
+rest_api_handler = _rotating_handler(REST_API_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
 rest_api_handler.addFilter(ThreadPauseFilter())
 
 
@@ -293,23 +277,11 @@ serial_logger = logging.getLogger('LVP.serial')
 serial_logger.setLevel(logging.INFO)
 serial_logger.propagate = False  # Keep serial traffic out of the main log
 
-
-class SerialFormatter(logging.Formatter):
-    """Compact format for serial log: timestamp [thread] board command -> response (timing)."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
 # Firehose trace logs (serial, camera, protocol, api) stay fully verbose
 # through the beta, their footprint held by LOG_CAPS so a long-soak support
 # bundle stays small. Revisit the verbosity itself (demote routine
 # per-command traffic to DEBUG) at the 4.0.0 GA release.
-serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, delay=False)
-serial_file_handler.setFormatter(SerialFormatter())
+serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
 # Also send serial errors/warnings to the errors log
@@ -332,19 +304,7 @@ camera_logger = logging.getLogger('LVP.camera')
 camera_logger.setLevel(logging.DEBUG)
 camera_logger.propagate = False  # Keep camera traffic out of the main log
 
-
-class CameraFormatter(logging.Formatter):
-    """Compact format for camera log: timestamp [thread] message."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
-camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, delay=False)
-camera_file_handler.setFormatter(CameraFormatter())
+camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 camera_file_handler.addFilter(ThreadPauseFilter())
 camera_logger.addHandler(camera_file_handler)
 # Also send camera errors/warnings to the errors log
@@ -360,14 +320,12 @@ from lib.log_helpers import log_to  # noqa: F401  intentional re-export so calle
 # Metrics log -- dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval
 # percentiles). Routed here instead of errors.log so errors.log stays
-# signal-only. Uses standard CustomFormatter so existing log-parsing
-# scripts continue to work against this file.
+# signal-only. Written in the main log's layout.
 metrics_logger = logging.getLogger('LVP.metrics')
 metrics_logger.setLevel(logging.INFO)
 metrics_logger.propagate = False  # Keep metrics out of the main log
 
-metrics_file_handler = _rotating_handler(METRICS_LOG_FILE, delay=False)
-metrics_file_handler.setFormatter(CustomFormatter())
+metrics_file_handler = _rotating_handler(METRICS_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 metrics_file_handler.addFilter(ThreadPauseFilter())
 metrics_logger.addHandler(metrics_file_handler)
 # Metrics errors/warnings still hit the errors log
@@ -387,8 +345,7 @@ protocol_logger.setLevel(logging.INFO)
 protocol_logger.propagate = False  # Keep protocol detail out of the main log
 
 # Don't create the file until the first write -- absence means no stills protocol ran.
-protocol_file_handler = _rotating_handler(PROTOCOL_LOG_FILE, delay=True)
-protocol_file_handler.setFormatter(CustomFormatter())
+protocol_file_handler = _rotating_handler(PROTOCOL_LOG_FILE, layout=MAIN_LAYOUT, delay=True)
 protocol_file_handler.addFilter(ThreadPauseFilter())
 protocol_logger.addHandler(protocol_file_handler)
 # Protocol errors/warnings still hit the errors log
@@ -402,20 +359,8 @@ af_logger.propagate = False  # Keep AF data out of the main log
 # Always send AF errors to the errors log
 af_logger.addHandler(error_file_handler)
 
-
-class AFFormatter(logging.Formatter):
-    """Compact format for autofocus log."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
 # Don't create the file until the first write.
-_af_file_handler = _rotating_handler(AUTOFOCUS_LOG_FILE, delay=True)
-_af_file_handler.setFormatter(AFFormatter())
+_af_file_handler = _rotating_handler(AUTOFOCUS_LOG_FILE, layout='%(message)s', delay=True)
 _af_file_handler.addFilter(ThreadPauseFilter())
 af_logger.addHandler(_af_file_handler)
 
@@ -428,20 +373,8 @@ api_logger.propagate = False  # Keep API traffic out of the main log
 # Always send API errors to the errors log
 api_logger.addHandler(error_file_handler)
 
-
-class APIFormatter(logging.Formatter):
-    """Compact format for API log: timestamp [thread] message."""
-
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-
 # Don't create the file until the first write.
-_api_file_handler = _rotating_handler(API_LOG_FILE, delay=True)
-_api_file_handler.setFormatter(APIFormatter())
+_api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
 _api_file_handler.addFilter(ThreadPauseFilter())
 api_logger.addHandler(_api_file_handler)
 
@@ -452,8 +385,7 @@ logger.addHandler(rest_api_handler)
 
 # GUI interaction log -- every user action for crash forensics
 # WORKAROUND: INFO level during beta. Move to DEBUG once stable.
-gui_handler = _rotating_handler(GUI_LOG_FILE, delay=False, encoding='utf-8')
-gui_handler.setFormatter(CustomFormatter())
+gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False, encoding='utf-8')
 gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
 gui_logger.addHandler(gui_handler)
@@ -537,7 +469,7 @@ logger.setLevel(_log_level)
 if debug and sys.__stderr__ is not None:
     _root_console = logging.StreamHandler(sys.__stderr__)
     _root_console.addFilter(_MainLogFloor())
-    _root_console.setFormatter(CustomFormatter())
+    _root_console.setFormatter(make_formatter(MAIN_LAYOUT))
     _root_logger.addHandler(_root_console)
 
 # Every process that imports this module shares the log, so each one's first

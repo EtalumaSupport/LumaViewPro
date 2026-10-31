@@ -6,6 +6,8 @@ import time
 import threading
 from datetime import datetime
 
+from modules.log_stamp import now_stamp
+
 
 class MemoryLeakProfiler:
     # 1. Configuration
@@ -39,7 +41,7 @@ class MemoryLeakProfiler:
             cls.take_report()
 
     @classmethod
-    def take_report(cls):
+    def take_report(cls) -> None:
         # Force GC to ensure we only see 'true' leaks, not pending cleanup
         gc.collect()
 
@@ -63,7 +65,7 @@ class MemoryLeakProfiler:
         current, peak = tracemalloc.get_traced_memory()
         with open(os.path.join(cls.LOG_DIR, 'summary.log'), 'a') as f:
             f.write(
-                f'[{timestamp}] Current: {current / 1024 / 1024:.2f}MB, Peak: {peak / 1024 / 1024:.2f}MB\n'
+                f'{now_stamp()} Current: {current / 1024 / 1024:.2f}MB, Peak: {peak / 1024 / 1024:.2f}MB\n'
             )
 
     @classmethod
