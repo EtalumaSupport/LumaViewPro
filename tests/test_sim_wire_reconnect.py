@@ -10,15 +10,9 @@ lost while every axis is idle reads as lost from the exchange that finds it.
 After a reboot the firmware has lost its reference, and the API must stop
 answering that it knows where the stage is, or a run is admitted at
 positions that are not true.
-
-The reboot case is marked failing: it was written when the driver's next
-command reopened the port, and that reopen kept the API's axis states and
-the driver's homing latch. ``strict=True`` turns it red once it passes, so
-the marker is removed then.
 """
 
 import functools
-import re
 import time
 
 import pytest
@@ -50,25 +44,18 @@ def scope():
         session.shutdown()
 
 
-def _silent_reconnect(scope) -> dict[str, bool]:
-    """The driver meets the dropped link on its next command, closes, and
-    reconnects on the one after. Returns what the firmware says is homed."""
-    driver = scope._motion_driver
-    assert driver.exchange_command('INFO') is None
-    fullinfo = driver.exchange_command('FULLINFO')
-    return {axis: value == 'True' for axis, value in re.findall(r'(\w) homed: (\w+)', fullinfo)}
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason='the silent auto-reconnect keeps the axis states and the homing latch '
-    'across a board reboot; the triage track holds the fix',
-)
 def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
+    """Nothing reconnects a rebooted board during a session: the move that
+    meets the reboot is refused, every axis then reads unknown, and the next
+    move is refused for a restart."""
     scope.simulation.reboot('motor')
-    assert _silent_reconnect(scope) == {'X': False, 'Y': False, 'Z': False, 'T': False}
-    assert set(scope.motion.axes_without_position()) == {'X', 'Y', 'Z', 'T'}
-    assert scope.motion.axes_without_position().keys() - {'T'}
+    with pytest.raises(HardwareCommandRefusedError):
+        scope.motion.move_z(100.0)
+
+    assert scope.motion.axes_without_position() == dict.fromkeys('XYZT', AxisState.UNKNOWN)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.motion.move_z(100.0)
+    assert (refused.value.reason, refused.value.cause) == ('not_connected', RefusalCause.RESTART)
 
 
 @pytest.mark.slow
