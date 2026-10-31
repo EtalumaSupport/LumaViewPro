@@ -19,6 +19,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 
 import faulthandler
 import functools
+import gc
 import json
 import logging
 import os
@@ -33,6 +34,8 @@ from unittest.mock import MagicMock, patch
 
 import psutil
 import pytest
+
+from drivers import host_clock
 
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
 # sets these in lumaviewpro.py + lvp_logger.py, but pytest may import Kivy
@@ -415,15 +418,48 @@ def _serial_failure(item, call) -> str | None:
     )
 
 
+# The full (generation-2) collections run since the current test started,
+# each (start, end) on the scope's steady clock, the clock a capture's
+# give-up line states its wait on: a failed test's report lists them, so a
+# red that waited on the simulator shows whether a collection paused the
+# feed inside its wait. Cleared at each test's start.
+GC_SECTION = 'full garbage collections'
+_gen2_collections: list[tuple[int, int]] = []
+_gen2_started = {'at_ns': None}
+
+
+def _record_gen2(phase, info):
+    if info['generation'] != 2:
+        return
+    if phase == 'start':
+        _gen2_started['at_ns'] = host_clock.steady_ns()
+    elif _gen2_started['at_ns'] is not None:
+        _gen2_collections.append((_gen2_started['at_ns'], host_clock.steady_ns()))
+        _gen2_started['at_ns'] = None
+
+
+gc.callbacks.append(_record_gen2)
+
+
+def _gen2_section() -> str:
+    if not _gen2_collections:
+        return 'none during this test'
+    return '\n'.join(
+        f'at steady {start / 1e9:.3f}s, {(end - start) / 1e6:.1f} ms'
+        for start, end in _gen2_collections
+    )
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
-    failures = [f for f in (_serial_failure(item, call), _shipped_lock_failure(item, call)) if f]
-    if not failures:
-        return
     report = outcome.get_result()
-    report.outcome = 'failed'
-    report.longrepr = '\n\n'.join(failures)
+    failures = [f for f in (_serial_failure(item, call), _shipped_lock_failure(item, call)) if f]
+    if failures:
+        report.outcome = 'failed'
+        report.longrepr = '\n\n'.join(failures)
+    if report.failed:
+        report.sections.append((GC_SECTION, _gen2_section()))
 
 
 @pytest.fixture(autouse=True)
@@ -796,6 +832,7 @@ def _memcap_reports_since(report_dir, started):
 def pytest_runtest_logstart(nodeid, location):
     _memcap_running['nodeid'] = nodeid
     _serial_touches.clear()
+    _gen2_collections.clear()
 
 
 def pytest_runtest_logfinish(nodeid, location):
