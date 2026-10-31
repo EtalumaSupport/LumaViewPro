@@ -17,7 +17,6 @@ from modules.exceptions import ConfigError
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.stock_channels import LED2
 
 
 @pytest.fixture
@@ -70,17 +69,6 @@ class TestAWriteIsWhatTheScopeActsOn:
         for enabled in (True, False):
             session.set_scale_bar(enabled)
             assert session.scale_bar_enabled is enabled
-
-
-def test_the_live_views_colour_write_never_changes_whether_the_bar_is_drawn(session):
-    # The live view sets the colour on every frame; a toggle between two of
-    # those writes used to be undone in the overlay and not in the settings.
-    session.set_scale_bar(True)
-    session.scope.imaging.set_scale_bar_color(LED2)
-    session.set_scale_bar(False)
-    session.scope.imaging.set_scale_bar_color('BF')
-    assert (session.scale_bar_enabled, session.scope.imaging.scale_bar_color) == (False, 'BF')
-    assert session.settings['scale_bar']['enabled'] is False
 
 
 def test_changing_what_a_getter_returned_changes_no_setting(session):

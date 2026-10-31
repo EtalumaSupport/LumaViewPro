@@ -42,7 +42,6 @@ class _FakeWidget:
     def _render_one_frame(
         self,
         *,
-        active_layer,
         open_layer,
         dispatch_time,
         generation,
@@ -50,7 +49,6 @@ class _FakeWidget:
     ):
         self.calls.append(
             {
-                'active_layer': active_layer,
                 'open_layer': open_layer,
                 'dispatch_time': dispatch_time,
                 'generation': generation,
@@ -161,13 +159,12 @@ def test_set_fps_changes_cadence():
 
 def test_update_layer_config_publishes_to_loop():
     t, widget = _make_thread()
-    t.update_layer_config('BF', 'BF')
+    t.update_layer_config('BF')
     t.start(widget, fps=60)
     time.sleep(0.1)
     t.stop()
-    seen = [c for c in widget.calls if c['active_layer'] == 'BF']
+    seen = [c for c in widget.calls if c['open_layer'] == 'BF']
     assert seen, 'thread did not pick up the published layer config'
-    assert seen[-1]['open_layer'] == 'BF'
 
 
 def test_bump_protocol_hold_pauses_rendering():
@@ -245,10 +242,13 @@ def test_layer_config_thread_safe_under_high_publish_rate():
     t.start(widget, fps=30)
     stop = threading.Event()
 
+    published = []
+
     def publisher():
         i = 0
         while not stop.is_set():
-            t.update_layer_config(f'L{i}', {'i': i}, f'L{i}')
+            t.update_layer_config(f'L{i}')
+            published.append(i)
             i += 1
 
     th = threading.Thread(target=publisher, daemon=True)
@@ -257,9 +257,11 @@ def test_layer_config_thread_safe_under_high_publish_rate():
     stop.set()
     th.join(timeout=1.0)
     t.stop()
-    # Just verify no exceptions / torn reads -- presence of any call
-    # means the lock didn't deadlock.
+    # The publisher ran and the loop kept rendering under it: the lock
+    # neither deadlocked nor tore a published value.
+    assert published, 'the publisher never published'
     assert widget.calls, 'thread ran zero iterations under load'
+    assert all(c['open_layer'] is None or c['open_layer'].startswith('L') for c in widget.calls)
 
 
 def test_add_frame_listener_called_per_frame():

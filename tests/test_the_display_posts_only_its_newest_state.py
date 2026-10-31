@@ -103,7 +103,7 @@ def _shown_frames(gui_ctx, display, count):
         if len(rendered) >= count:
             enough.set()
 
-    thread.update_layer_config(active_layer='BF', open_layer='BF')
+    thread.update_layer_config(open_layer='BF')
     thread.add_frame_listener(on_frame)
     thread.start(display, fps=0)
     try:
@@ -124,7 +124,7 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
 
     gui_ctx.scope.simulation.remove_camera()
     for _ in range(100):
-        display._render_one_frame(active_layer='BF', open_layer='BF')
+        display._render_one_frame(open_layer='BF')
     assert (ui_backlog(), len(held.queue)) == (4, 1), 'after the camera left'
 
     held.run()
@@ -136,7 +136,7 @@ def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
 
 def test_a_display_started_with_no_camera_shows_the_indicator(gui_ctx, display, held):
     gui_ctx.scope.simulation.remove_camera()
-    display._render_one_frame(active_layer='BF', open_layer=None)
+    display._render_one_frame(open_layer=None)
     held.run()
     assert display.source == './data/icons/camera_to_USB.png'
 
@@ -150,17 +150,17 @@ def test_a_camera_that_returns_restores_the_live_view_once(
     present = [True]
     monkeypatch.setattr(Lumascope, 'camera_connected', property(lambda self: present[0]))
 
-    display._render_one_frame(active_layer='BF', open_layer=None)
+    display._render_one_frame(open_layer=None)
     held.run()
     assert display.source == ''
     assert not [line for line in display_log if 'restored' in line], display_log
 
     present[0] = False
-    display._render_one_frame(active_layer='BF', open_layer=None)
+    display._render_one_frame(open_layer=None)
     held.run()
     present[0] = True
     for _ in range(20):
-        display._render_one_frame(active_layer='BF', open_layer=None)
+        display._render_one_frame(open_layer=None)
     held.run()
     assert display.source == ''
     restored = [line for line in display_log if 'live view restored' in line]

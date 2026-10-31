@@ -682,7 +682,6 @@ class ScopeDisplay(Image):
     def _render_one_frame(
         self,
         *,
-        active_layer,
         open_layer,
         dispatch_time=0,
         generation=0,
@@ -747,10 +746,6 @@ class ScopeDisplay(Image):
                 )
         if not camera_present:
             return STATUS_NOT_READY
-
-        # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
-        if active_layer is not None:
-            ctx.scope.imaging.set_scale_bar_color(active_layer)
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()

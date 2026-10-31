@@ -6945,46 +6945,6 @@ No-op when the listener was never registered.
 
 Nothing.
 
-<a id="ImagingAPI.scale_bar_color"></a>
-### `ImagingAPI.scale_bar_color`
-
-```python
-scale_bar_color: str | None  # property
-```
-
-Route: `GET /api/v1/scope/imaging/scale_bar_color`.
-
-The colour the scale bar is drawn in on captured images, as `set_scale_bar_color` set it; None until it is set.
-
-Whether it is drawn at all is `ScopeSession.scale_bar_enabled`.
-
-**Raises**
-
-Nothing.
-
-<a id="ImagingAPI.set_scale_bar_color"></a>
-### `ImagingAPI.set_scale_bar_color`
-
-```python
-def set_scale_bar_color(self, color: str) -> None
-```
-
-Marks: sets [`scale_bar_color`](#ImagingAPI.scale_bar_color).  
-Route: `PUT /api/v1/scope/imaging/scale_bar_color`.
-
-The colour the scale bar is drawn in on captured images.
-
-Whether it is drawn at all is the session's setting
-(`ScopeSession.set_scale_bar`), which this never changes.
-
-**Args**
-
-- `color`: Scale bar colour, e.g. a layer name ("BF", "Ex589").
-
-**Raises**
-
-Nothing.
-
 <a id="ImagingAPI.significant_bits"></a>
 ### `ImagingAPI.significant_bits`
 
@@ -17173,8 +17133,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/imaging/frames_until_valid` | [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid) |
 | `GET` | `/api/v1/scope/imaging/get_delivered_rate` | [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate) |
 | `GET` | `/api/v1/scope/imaging/is_streaming` | [`ImagingAPI.is_streaming`](#ImagingAPI.is_streaming) |
-| `GET` | `/api/v1/scope/imaging/scale_bar_color` | [`ImagingAPI.scale_bar_color`](#ImagingAPI.scale_bar_color) |
-| `PUT` | `/api/v1/scope/imaging/scale_bar_color` | [`ImagingAPI.set_scale_bar_color`](#ImagingAPI.set_scale_bar_color) |
 | `GET` | `/api/v1/scope/imaging/significant_bits` | [`ImagingAPI.significant_bits`](#ImagingAPI.significant_bits) |
 | `GET` | `/api/v1/scope/labware` | [`Lumascope.labware`](#Lumascope.labware) |
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |

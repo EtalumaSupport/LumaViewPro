@@ -1,9 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
-ImagingAPI owns the capture: _last_capture_info, _scale_bar_color,
-_focusing_event, the frame listeners, the stream check and
-_camera_temp_event. The camera's settings and state are CameraAPI's
+ImagingAPI owns the capture: _last_capture_info, _focusing_event, the frame
+listeners, the stream check and _camera_temp_event. The camera's settings and state are CameraAPI's
 (``modules/lumascope_api/camera.py``), which it holds and calls.
 """
 
@@ -392,8 +391,7 @@ class ImagingAPI:
         # hold and auto-gain lock run inside a capture's own lane task.
         self._camera = camera
 
-        # _state_lock guards _scale_bar_color, _last_capture_info and
-        # _last_frame_summing.
+        # _state_lock guards _last_capture_info and _last_frame_summing.
         self._state_lock = threading.Lock()
 
         # Once-per-episode latch for the enabled-but-no-objective scale-bar
@@ -451,14 +449,6 @@ class ImagingAPI:
         # Camera temp logging scheduler handle.
         self._camera_temp_event = None
         self._camera_temp_unschedule_fn = None
-
-        # The scale bar's colour, set per frame by the live view from the
-        # active layer; whether the bar is drawn is the session's setting
-        # (``scale_bar.enabled``), read at each capture and held nowhere
-        # here. Written from the GUI thread and read from the capture and
-        # live-view threads, so every access outside this constructor goes
-        # through self._state_lock. None draws the default colour.
-        self._scale_bar_color: str | None = None
 
     @property
     def _driver(self) -> Camera | None:
@@ -1961,11 +1951,10 @@ class ImagingAPI:
 
             image = np.minimum(combined, container_max).astype(np.uint16)
 
-        # One snapshot for the whole overlay decision: enabled and color must
-        # come from the same configuration even if the GUI toggles mid-frame.
-        scale_bar_enabled, scale_bar_color = self._scale_bar()
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(scale_bar_enabled, objective)
+        use_scale_bar = self._resolve_use_scale_bar(
+            self._scope.read_setting('scale_bar.enabled'), objective
+        )
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
 
@@ -1975,15 +1964,13 @@ class ImagingAPI:
         # rendering scales a single frame against it and a sum against one
         # frame's white -- a sum is rendered brighter, which is what summing
         # is for.
-        significant_bits = image_utils.summed_significant_bits(sum_count, frame_bits)
-
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
                 objective=objective,
                 binning_size=self._camera.binning,
-                color=scale_bar_color,
-                significant_bits=significant_bits,
+                frames_summed=sum_count,
+                frame_bits=frame_bits,
                 capabilities=self._scope.capabilities,
             )
 
@@ -2239,18 +2226,18 @@ class ImagingAPI:
         self.frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
         tmp = frame.image
 
-        # Snapshot both fields together; see get_image for why.
-        scale_bar_enabled, scale_bar_color = self._scale_bar()
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(scale_bar_enabled, objective)
+        use_scale_bar = self._resolve_use_scale_bar(
+            self._scope.read_setting('scale_bar.enabled'), objective
+        )
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=objective,
                 binning_size=self._camera.binning,
-                color=scale_bar_color,
-                significant_bits=frame.significant_bits,
+                frames_summed=1,
+                frame_bits=frame.significant_bits,
                 capabilities=self._scope.capabilities,
             )
 
@@ -2493,51 +2480,6 @@ class ImagingAPI:
                 'light path is unknown; skipping the bar until it is known.'
             )
         return False
-
-    def _scale_bar(self) -> tuple[bool, str | None]:
-        """Whether the scale bar is drawn on captured images, and in what colour, in one read.
-
-        Taken once per capture so the overlay decision uses one answer:
-        whether it is drawn is the session's ``scale_bar.enabled`` setting
-        (``ScopeSession.set_scale_bar`` changes it), and the colour is the
-        last ``set_scale_bar_color``'s.
-
-        Raises:
-            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
-                this scope.
-        """
-        enabled = self._scope.read_setting('scale_bar.enabled')
-        with self._state_lock:
-            return enabled, self._scale_bar_color
-
-    @api
-    @property
-    def scale_bar_color(self) -> str | None:
-        """The colour the scale bar is drawn in on captured images, as ``set_scale_bar_color`` set it; None until it is set.
-
-        Whether it is drawn at all is ``ScopeSession.scale_bar_enabled``.
-
-        Raises:
-            Nothing.
-        """
-        with self._state_lock:
-            return self._scale_bar_color
-
-    @api(sets='scale_bar_color')
-    def set_scale_bar_color(self, color: str) -> None:
-        """The colour the scale bar is drawn in on captured images.
-
-        Whether it is drawn at all is the session's setting
-        (``ScopeSession.set_scale_bar``), which this never changes.
-
-        Args:
-            color: Scale bar colour, e.g. a layer name ("BF", "Ex589").
-
-        Raises:
-            Nothing.
-        """
-        with self._state_lock:
-            self._scale_bar_color = color
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
     def _log_camera_temps(self) -> None:

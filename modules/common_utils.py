@@ -495,17 +495,6 @@ def get_fluorescence_layers() -> list[str]:
     return _layers_of_modality(Modality.FLUORESCENCE)
 
 
-def get_bright_background_layers() -> list[str]:
-    """Layers whose field of view is bright, so overlays drawn on them
-    (scale bar, annotation text) must be dark to stay visible. The
-    catalogue record's background, not its modality: darkfield is
-    transmitted light that shows bright subjects on a dark field.
-    """
-    from modules.layer_record import Background, release_layers
-
-    return [layer.key for layer in release_layers() if layer.background == Background.BRIGHT]
-
-
 def get_luminescence_layers() -> list[str]:
     from modules.layer_record import Modality
 

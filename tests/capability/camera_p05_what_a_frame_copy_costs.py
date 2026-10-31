@@ -108,7 +108,8 @@ def _measure(session):
             image=image,
             objective=objective,
             binning_size=binning,
-            significant_bits=frames[0].significant_bits,
+            frames_summed=1,
+            frame_bits=frames[0].significant_bits,
             capabilities=scope.capabilities,
         )
 

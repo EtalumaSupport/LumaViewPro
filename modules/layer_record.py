@@ -108,8 +108,9 @@ def format_display_color(color: Color) -> str:
 class CatalogueLayer:
     """What a layer of one key is in this release, on every unit that has it.
 
-    `background` is what the scale bar and annotation text are drawn
-    against.
+    `background` is whether the layer's field of view is bright or dark,
+    which its modality does not say: darkfield is transmitted light that
+    shows bright subjects on a dark field.
     `manual_max_exposure_ms` is the exposure slider's ceiling, None where the
     layer has none (luminescence integrates as long as the sensor allows).
     `manual_max_illumination_ma` is the illumination slider's ceiling, None

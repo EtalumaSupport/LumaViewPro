@@ -1,12 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI state guarded by ``_state_lock`` must never be touched without it.
 
-``_scale_bar`` was written by the GUI thread from ``set_scale_bar`` and read by
-the capture and live-view threads inside ``get_image`` /
-``get_image_from_buffer``, with none of those four sites holding the lock that
-the three public accessors take. Worse than a plain race: each reader pulled
-``enabled`` and ``color`` in two separate unlocked reads, so a toggle landing
-between them drew the bar in the previous colour.
+The scale bar's settings were once written by the GUI thread and read by the
+capture and live-view threads inside ``get_image`` / ``get_image_from_buffer``,
+with none of those sites holding the lock that the public accessors took, so
+a toggle landing between two unlocked reads drew a bar from two
+configurations. The capture's record (``_last_capture_info``) and its summing
+(``_last_frame_summing``) are written and read across the same threads.
 
 The check is structural rather than behavioural on purpose. A timing test for a
 data race is flaky by nature and only exercises the sites it happens to call;
@@ -109,33 +109,7 @@ def test_state_lock_attributes_are_never_touched_unguarded():
         + LOCK
         + ' is accessed without it:\n  '
         + '\n  '.join(sorted(set(violations)))
-        + '\n\nRead it through the locked accessor (e.g. _scale_bar) or '
+        + '\n\nRead it through the locked accessor (e.g. last_capture_info) or '
         'wrap the access, and take ONE snapshot rather than reading related '
         'fields one at a time.'
     )
-
-
-def test_scale_bar_readers_use_a_single_snapshot():
-    """The capture paths must not re-read the config for each field."""
-    cls = _imaging_class()
-    # The capture body is _get_image_impl (public get_image is a thin
-    # ungated forwarder with no config reads of its own).
-    for method_name in ('_get_image_impl', 'get_image_from_buffer'):
-        method = next(
-            (
-                n
-                for n in ast.walk(cls)
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == method_name
-            ),
-            None,
-        )
-        assert method is not None, f'{method_name} not found on ImagingAPI'
-
-        snapshots = [
-            n for n in ast.walk(method) if isinstance(n, ast.Attribute) and n.attr == '_scale_bar'
-        ]
-        assert len(snapshots) == 1, (
-            f'{method_name}() reads _scale_bar {len(snapshots)} times; '
-            f'it must take exactly one snapshot so that enabled and color come '
-            f'from the same configuration even if the GUI toggles mid-frame'
-        )

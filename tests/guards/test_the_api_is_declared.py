@@ -764,8 +764,6 @@ OPEN_STRINGS: dict[str, str] = {
     'IlluminationAPI.remove_led_listener parameter listener': _CHANNEL,
     'IlluminationAPI.save_led_state parameter tag': _TAG,
     'ImagingAPI.add_frame_listener parameter name': _LISTENER,
-    'ImagingAPI.scale_bar_color return': _COLOUR,
-    'ImagingAPI.set_scale_bar_color parameter color': _COLOUR,
     'InjectedFault.arguments field': _MEMBER,
     'InjectedFault.member field': _MEMBER,
     'Labware.name field': _CATALOGUE_TEXT,

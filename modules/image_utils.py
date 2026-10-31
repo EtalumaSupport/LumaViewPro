@@ -2963,9 +2963,14 @@ _scale_bar_cache = {}
 
 
 def _compute_scale_bar_overlay(
-    height, width, dtype, is_color, objective, binning_size, color, significant_bits, pixel_size_um
+    height, width, dtype, is_color, objective, binning_size, significant_bits, pixel_size_um
 ):
-    """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
+    """The scale bar's geometry for one frame shape: its mask and the box that bounds it.
+
+    Returns:
+        ``(mask, box)``: the bar's and its text's pixels, and the row and column
+        slices of their bounding box, the region the bar's colour is chosen from.
+    """
     # Scale bar should be 1/8 to 1/4 the image length
     min_px = int(width / 8)
     max_px = int(width / 4)
@@ -3021,20 +3026,6 @@ def _compute_scale_bar_overlay(
     scale_bar_bottom_offset = int(height / 40)
     scale_bar_right_offset = int(width / 40)
 
-    # Bright-background modes (BF, PC) need a black bar to stay visible.
-    # Darkfield is transmitted-light but shows bright subjects on a dark
-    # field, so it takes a white bar like the fluorescence channels.
-    if color in common_utils.get_bright_background_layers():
-        scale_bar_value = 0
-    elif dtype == np.uint8:
-        scale_bar_value = 255
-    else:
-        # White bar = the payload max for this frame's depth, so it downconverts
-        # to full 8-bit white. A sum is tagged with the bits it can reach (four
-        # 12-bit frames: 14 -> 16383); a single 12-bit frame is 4095. A fixed
-        # 4095 would render a summed-frame bar gray in its full-depth file.
-        scale_bar_value = (1 << significant_bits) - 1
-
     x_end = width - scale_bar_right_offset
     x_start = x_end - scale_bar_length_pixels
     y_start = scale_bar_bottom_offset
@@ -3043,9 +3034,8 @@ def _compute_scale_bar_overlay(
     # Render the bar+text geometry with a NONZERO sentinel, not the bar's real
     # value. The mask below is built from nonzero canvas pixels; a black bar
     # (value 0) drawn onto a zeroed canvas would leave the mask empty, so
-    # nothing would be written and the BF/PC bar would never appear. The real
-    # value (scale_bar_value, 0 for black) is applied at the masked pixels in
-    # add_scale_bar.
+    # nothing would be written and a black bar would never appear. The real
+    # value (0 for black) is applied at the masked pixels in add_scale_bar.
     sentinel = 255 if dtype == np.uint8 else (1 << significant_bits) - 1
 
     if is_color:
@@ -3090,23 +3080,42 @@ def _compute_scale_bar_overlay(
     else:
         mask = canvas != 0
 
-    return canvas, mask, scale_bar_value
+    rows = np.flatnonzero(mask.any(axis=1))
+    cols = np.flatnonzero(mask.any(axis=0))
+    box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
+
+    return mask, box
 
 
 def add_scale_bar(
     image: np.ndarray,
     objective: 'Objective',
     binning_size: int,
-    color: str | None = None,
     *,
-    significant_bits: int,
+    frames_summed: int,
+    frame_bits: int,
     capabilities: 'ScopeCapabilities',
 ) -> np.ndarray:
     """``image`` with the scale bar drawn, on a copy; ``image`` is never written.
 
+    The bar is black where the frame inside the bar's box is bright and
+    white where it is dark, so it shows on whatever it is drawn over,
+    whoever captured the frame. Bright is a mean at or above half the white
+    the frame is shown at: one frame's white, for a sum too, since a sum is
+    rendered and recorded against one frame's white (``convert_sum_to_8bit``),
+    so a dim field summed past that white shows white and takes a black bar.
+
     The image is often a camera's delivered frame, which every consumer
     shares and the camera marks read-only. Returned unchanged when no bar
     can be drawn (an image too narrow, or no known pixel size).
+
+    Args:
+        image: The frame, at its stored depth.
+        objective: The objective in the light path, for the bar's length.
+        binning_size: The camera's binning, for the pixel size.
+        frames_summed: How many frames ``image`` holds; 1 for a single frame.
+        frame_bits: The depth of each frame, as delivered.
+        capabilities: The scope's, for the pixel size.
     """
     global _scale_bar_cache
 
@@ -3128,6 +3137,7 @@ def add_scale_bar(
 
     dtype = image.dtype
     is_color = is_color_image(image=image)
+    significant_bits = summed_significant_bits(frames_summed, frame_bits)
 
     cache_key = (
         height,
@@ -3137,35 +3147,45 @@ def add_scale_bar(
         objective.focal_length_mm,
         objective.magnification,
         binning_size,
-        color,
-        # The white bar's value is the payload max for this depth, so two frames
-        # of the same dtype but different significant bits (12-bit single vs
-        # 16-bit summed) must not share a cached overlay.
+        # The mask is drawn with this depth's full scale, and the text's
+        # antialiased edge enters it by that value, so two frames of the same
+        # dtype but different significant bits (12-bit single vs 16-bit
+        # summed) must not share a cached mask.
         significant_bits,
     )
 
     if _scale_bar_cache.get('key') != cache_key:
-        overlay, mask, value = _compute_scale_bar_overlay(
+        mask, box = _compute_scale_bar_overlay(
             height,
             width,
             dtype,
             is_color,
             objective,
             binning_size,
-            color,
             significant_bits,
             pixel_size_um,
         )
-        _scale_bar_cache = {'key': cache_key, 'overlay': overlay, 'mask': mask, 'value': value}
+        _scale_bar_cache = {'key': cache_key, 'mask': mask, 'box': box}
 
     cached = _scale_bar_cache
     mask = cached['mask']
 
+    if float(image[cached['box']].mean()) >= ((1 << frame_bits) - 1) / 2:
+        value = 0
+    elif dtype == np.uint8:
+        value = 255
+    else:
+        # White bar = the payload max for this frame's depth, so it downconverts
+        # to full 8-bit white. A sum is tagged with the bits it can reach (four
+        # 12-bit frames: 14 -> 16383); a single 12-bit frame is 4095. A fixed
+        # 4095 would render a summed-frame bar gray in its full-depth file.
+        value = (1 << significant_bits) - 1
+
     # Write the bar's pixel value at the masked geometry. Works for black
-    # (value 0, BF/PC) and white (the payload max) alike -- the mask carries
-    # the location, so the value can be 0 without erasing the bar.
+    # (value 0) and white (the payload max) alike -- the mask carries the
+    # location, so the value can be 0 without erasing the bar.
     drawn = image.copy()
-    drawn[mask] = cached['value']
+    drawn[mask] = value
 
     return drawn
 

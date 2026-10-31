@@ -106,17 +106,11 @@ try:
     s.update_settings('video_as_frames', False)
 
     # --- scale bar: the Session's setting, which the imaging API reads ----
-    im = s.scope.imaging
     s.set_scale_bar(True)
     print('scale_bar_enabled     :', s.scale_bar_enabled)
     _common.ok('scale bar on through API', s.scale_bar_enabled is True)
     s.set_scale_bar(False)
     _common.ok('scale bar off through API', s.scale_bar_enabled is False)
-    try:
-        im.set_scale_bar_color('chartreuse-ish')
-        print('scale bar bogus colour ->', im.scale_bar_color)
-    except Exception as e:
-        print('scale bar bogus colour raised', type(e).__name__, e)
 
     # --- crosshairs / bullseye / live histogram equalization --------------
     for attr in ('use_crosshairs', 'use_bullseye', 'use_live_image_histogram_equalization'):

@@ -27,7 +27,6 @@ def _significant_bits_param(func):
 
 
 SEAM_FUNCS = [
-    image_utils.add_scale_bar,
     image_utils._compute_scale_bar_overlay,
     PostProcessing.preview_cell_count,
     CellCount.process_image,
@@ -50,6 +49,16 @@ def test_default_significant_bits_helper_is_gone():
         'a save must not re-derive depth from live camera state; the caller '
         'hands down the depth captured with the frame'
     )
+
+
+def test_the_scale_bar_requires_the_frames_depth_and_sum_count():
+    # The bar's white and the white its colour is judged against both come
+    # from the pair, so neither can be defaulted or handed down apart.
+    params = inspect.signature(image_utils.add_scale_bar).parameters
+    for name in ('frames_summed', 'frame_bits'):
+        assert params[name].default is inspect.Parameter.empty, (
+            f'add_scale_bar must require {name}, not default it'
+        )
 
 
 def test_add_scale_bar_rejects_missing_depth():

@@ -640,19 +640,16 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
 
-        # Publish the shown channel to scope_display_thread at 30Hz, for
-        # the preview's false-colour tint and, in engineering mode, the
-        # image stats. The Session's shown channel follows a run's steps as
-        # they light, so the tint matches the firing LED. The thread reads it
-        # under _config_lock at each frame start; staleness is bounded by
-        # 33ms (one tick).
+        # Publish the shown channel to scope_display_thread at 30Hz, in
+        # engineering mode, for the image stats. The Session's shown channel
+        # follows a run's steps as they light, so the stats follow the firing
+        # LED. The thread reads it under _config_lock at each frame start;
+        # staleness is bounded by 33ms (one tick).
         def _publish_layer_config(dt):
             if ctx is None or ctx.scope_display_thread is None:
                 return
-            layer = ctx.session.shown_channel.channel
             ctx.scope_display_thread.update_layer_config(
-                layer,
-                layer if ctx.session.engineering_mode else None,
+                ctx.session.shown_channel.channel if ctx.session.engineering_mode else None,
             )
 
         Clock.schedule_interval(_publish_layer_config, 1.0 / 30)

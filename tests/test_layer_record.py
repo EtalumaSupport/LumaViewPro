@@ -173,7 +173,6 @@ class TestCatalogue:
         assert common_utils.get_transmitted_layers() == ['BF', 'PC', 'DF']
         assert common_utils.get_fluorescence_layers() == fluorescence
         assert common_utils.get_luminescence_layers() == ['Lumi']
-        assert common_utils.get_bright_background_layers() == ['BF', 'PC']
         assert common_utils.get_image_layers() == [*fluorescence, 'Lumi']
         assert common_utils.get_layers_with_led() == ['BF', 'PC', 'DF', *fluorescence]
 
