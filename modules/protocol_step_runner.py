@@ -374,12 +374,16 @@ class ProtocolStepRunner:
         if lost_axes:
             raise AxisStateUnknownError(lost_axes)
 
-        # Update Z position with autofocus results
+        # A found focus is written into the run's own copy of the protocol,
+        # whatever the run, so the step's next interval starts its sweep from
+        # it, as a z-stack group's placement above does. The caller's
+        # protocol is not this copy: only a completed Autofocus All Steps
+        # scan writes into it, at the run's end.
         if wants_af:
             new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
-            elif zstack_focus_anchor is None and p._write_focus_to is not None:
+            elif zstack_focus_anchor is None:
                 p._protocol.modify_step_z_height(step_index=p._curr_step, z=new_z_pos)
 
         if wants_af:
