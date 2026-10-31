@@ -3464,10 +3464,13 @@ class ScopeSession:
                 ``objective_id`` now.
 
         Raises:
+            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
+                turret, said before ``slot`` is judged. Nothing is changed.
             ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``
                 does not hold ``objective_id`` now (``offered``: the slots
                 that do). Nothing is changed.
         """
+        self._refuse_without_a_turret('point_steps_at_turret_slot')
         return self.scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)
 
     @api(reads=True)

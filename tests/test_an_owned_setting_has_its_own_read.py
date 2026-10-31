@@ -136,6 +136,43 @@ def test_a_turret_slot_is_refused_on_a_scope_with_no_turret(session):
     assert refused.value.reason == 'axis_absent'
 
 
+def test_the_turret_map_answers_what_each_slot_reads_in_process_and_on_the_wire(tmp_path):
+    turreted = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+    )
+    try:
+        turreted.assign_turret_objective(2, '10x Oly')
+        expected = {slot: turreted.turret_objective(slot) for slot in range(1, 5)}
+        assert turreted.scope.runtime_state.get_turret_config() == expected
+        with TestClient(build_app(turreted)) as client:
+            answer = client.get('/api/v1/scope/runtime_state/get_turret_config')
+        # The slot keys cross as JSON object keys, strings.
+        assert (answer.status_code, answer.json()) == (
+            200,
+            {str(slot): objective for slot, objective in expected.items()},
+        )
+    finally:
+        _shutdown(turreted)
+
+
+def test_the_turret_map_is_empty_on_a_scope_with_no_turret_and_the_stored_slots_are_kept(
+    tmp_path,
+):
+    # Assignments stored under a turreted model are no turret's on this one,
+    # as turret_objective refuses every slot here; the setting is untouched.
+    settings = complete_settings(live_folder=str(tmp_path), microscope='LS850')
+    settings['turret_objectives'] = dict.fromkeys(range(1, 5), '10x Oly')
+    turretless = ScopeSession.create(settings, simulate=True)
+    try:
+        assert turretless.scope.runtime_state.get_turret_config() == {}
+        with TestClient(build_app(turretless)) as client:
+            answer = client.get('/api/v1/scope/runtime_state/get_turret_config')
+        assert (answer.status_code, answer.json()) == (200, {})
+        assert turretless.settings['turret_objectives'] == dict.fromkeys(range(1, 5), '10x Oly')
+    finally:
+        _shutdown(turretless)
+
+
 def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
     # The table's paths, a layer's for '*': each owned setting with a read
     # is refused, naming it; an action's setting and a host's are answered.

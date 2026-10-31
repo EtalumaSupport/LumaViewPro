@@ -71,13 +71,21 @@ class TestAWriteIsWhatTheScopeActsOn:
             assert session.scale_bar_enabled is enabled
 
 
-def test_changing_what_a_getter_returned_changes_no_setting(session):
-    state = session.scope.runtime_state
-    state.get_turret_config()[1] = 'NOT_IN_CATALOGUE'
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        state.get_stage_offset().x_um = 0.0
-    assert session.settings['turret_objectives'][1] != 'NOT_IN_CATALOGUE'
-    assert session.settings['stage_offset']['x'] != 0.0
+def test_changing_what_a_getter_returned_changes_no_setting(tmp_path):
+    # A turreted scope: with no turret the map read answers an empty map,
+    # which no write to could reach the stored slots.
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+    )
+    try:
+        state = session.scope.runtime_state
+        state.get_turret_config()[1] = 'NOT_IN_CATALOGUE'
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            state.get_stage_offset().x_um = 0.0
+        assert session.settings['turret_objectives'][1] != 'NOT_IN_CATALOGUE'
+        assert session.settings['stage_offset']['x'] != 0.0
+    finally:
+        session.shutdown()
 
 
 def test_a_bound_plate_transform_keeps_its_frame(session):

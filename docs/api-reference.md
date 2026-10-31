@@ -2169,12 +2169,13 @@ the indexes of the steps pointed, which are empty when no question names it.
 
 **Raises**
 
+- `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` is judged. Nothing is changed.
 - `ArgumentRefusedError`: `'slot_not_holding_objective'`, `slot` does not hold `objective_id` now (`offered`: the slots that do). Nothing is changed.
 
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_not_holding_objective`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`; [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_not_holding_objective`
 
 <a id="ScopeSession.protocol_files_stalled"></a>
 ### `ScopeSession.protocol_files_stalled`
@@ -8111,21 +8112,26 @@ Where the plate is mounted on the stage, in um.
 def get_turret_config(self) -> dict[int, str | None]
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/get_turret_config`.
 
 The turret's objective assignments, from the settings.
 
+The map `ScopeSession.turret_objective` reads one slot of: on a
+scope with no turret (`capabilities.has_turret`) it is empty, as
+that read refuses every slot there.
+
 **Returns**
 
-Turret position (1-4) to objective ID, None for an unassigned slot. A copy: changing it changes no assignment (`ScopeSession.assign_turret_objective` does).
+Turret position (1-4) to objective ID, None for an unassigned slot; empty on a scope with no turret. A copy: changing it changes no assignment (`ScopeSession.assign_turret_objective` does).
 
 **Raises**
 
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
-**Refusals**
+**Refusals by REST status**
 
-- [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="RuntimeState.get_well_label"></a>
 ### `RuntimeState.get_well_label`
@@ -17243,6 +17249,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/runtime_state/get_field_of_view` | [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view) |
 | `GET` | `/api/v1/scope/runtime_state/get_pixel_size_um` | [`RuntimeState.get_pixel_size_um`](#RuntimeState.get_pixel_size_um) |
 | `GET` | `/api/v1/scope/runtime_state/get_stage_offset` | [`RuntimeState.get_stage_offset`](#RuntimeState.get_stage_offset) |
+| `GET` | `/api/v1/scope/runtime_state/get_turret_config` | [`RuntimeState.get_turret_config`](#RuntimeState.get_turret_config) |
 | `GET` | `/api/v1/scope/runtime_state/get_well_label` | [`RuntimeState.get_well_label`](#RuntimeState.get_well_label) |
 | `GET` | `/api/v1/scope/runtime_state/plate_to_stage` | [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage) |
 | `GET` | `/api/v1/scope/runtime_state/resolve_current_objective` | [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective) |

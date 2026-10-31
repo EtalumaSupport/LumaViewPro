@@ -215,20 +215,32 @@ class RuntimeState:
             return None
         return FieldOfView(width_um=extent['width'], height_um=extent['height'])
 
-    @api(in_process=True, reads=True)
+    @api(reads=True)
     def get_turret_config(self) -> dict[int, str | None]:
         """The turret's objective assignments, from the settings.
 
+        The map ``ScopeSession.turret_objective`` reads one slot of: on a
+        scope with no turret (``capabilities.has_turret``) it is empty, as
+        that read refuses every slot there.
+
         Returns:
             Turret position (1-4) to objective ID, None for an
-                unassigned slot. A copy: changing it changes no assignment
+                unassigned slot; empty on a scope with no turret. A copy:
+                changing it changes no assignment
                 (``ScopeSession.assign_turret_objective`` does).
 
         Raises:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
-        return self._scope.read_setting('turret_objectives')
+        # Read before the scope fact is asked, so a scope no session has
+        # bound refuses this read as it does every other.
+        assignments = self._scope.read_setting('turret_objectives')
+        if not self._scope.capabilities.has_turret:
+            # The stored slots are a turret's assignments only on a scope
+            # that has one; elsewhere they are kept for a change of model.
+            return {}
+        return assignments
 
     @api(reads=True)
     def get_stage_offset(self) -> coord_transformations.StageOffset:

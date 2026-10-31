@@ -19,7 +19,11 @@ import logging
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    HardwareCommandRefusedError,
+    ProtocolRunRefusedError,
+)
 from modules.image_mode import ImageCaptureConfig
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.scope_session import ScopeSession
@@ -260,3 +264,25 @@ class TestAReassignedSlot:
         session.point_steps_at_turret_slot(loaded, DOUBLED, 1)
 
         assert _targets(session, loaded) == [1, 1]
+
+
+def test_pointing_steps_at_a_slot_is_refused_on_a_scope_with_no_turret(tmp_path):
+    # Stored slots that hold the objective, kept from a turreted model: the
+    # scope fact is said before the slot is judged against them.
+    settings = complete_settings(microscope='LS850', live_folder=str(tmp_path))
+    settings['turret_objectives'] = dict(TURRET)
+    turretless = ScopeSession.create(settings, simulate=True)
+    try:
+        protocol = turretless.create_empty_protocol()
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            turretless.point_steps_at_turret_slot(protocol, DOUBLED, 1)
+
+        assert refused.value.reason == 'axis_absent'
+    finally:
+        try:
+            turretless.shutdown()
+        except Exception:
+            logging.getLogger(__name__).debug(
+                'teardown noise is not the measurement', exc_info=True
+            )
