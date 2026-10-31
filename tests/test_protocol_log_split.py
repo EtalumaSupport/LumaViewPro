@@ -64,7 +64,7 @@ def test_protocol_log_file_created_lazily():
     # pin-justified: handler construction; conftest mocks lvp_logger
     # wholesale, so the real handler never instantiates in pytest.
     src = _src('lvp_logger.py')
-    idx = src.find('protocol_file_handler = RotatingFileHandler')
+    idx = src.find('protocol_file_handler = _rotating_handler')
     assert idx != -1, 'lvp_logger must construct protocol_file_handler'
     window = src[idx : idx + 300]
     assert 'delay=True' in window, (

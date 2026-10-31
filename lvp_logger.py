@@ -70,6 +70,31 @@ GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
 PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
 
+_MB = 1024 * 1024
+
+# Each log's cap -- its file size and how many backups it keeps -- has this
+# one row, and every rotating handler is made from it by _rotating_handler.
+# A support bundle carries the whole log folder and must stay small enough
+# to email, under 25 MB zipped. Measured over 34 field bundles, these logs
+# zip between 5:1 (autofocus) and 37:1 (errors), so the table at every cap
+# is about 13 MB zipped, leaving room for three installs' installer logs.
+LOG_CAPS = {
+    'lumaviewpro.log': (10 * _MB, 3),
+    'serial.log': (5 * _MB, 2),
+    'camera.log': (5 * _MB, 2),
+    'api.log': (5 * _MB, 2),
+    'lumaviewpro_errors.log': (5 * _MB, 2),
+    'lumaviewpro_rest_api.log': (5 * _MB, 1),
+    'protocol.log': (5 * _MB, 1),
+    'autofocus.log': (5 * _MB, 1),
+    'gui_interactions.log': (2 * _MB, 2),
+    'metrics.log': (2 * _MB, 1),
+}
+
+# The table's sum, every log at its cap with all its backups. A cap raised
+# past it fails the budget test, so the bundle's size is revisited with it.
+LOG_BUDGET_BYTES = 140 * _MB
+
 
 # CustomFormatter class enables change in log format depending on log level
 class CustomFormatter(logging.Formatter):
@@ -172,31 +197,53 @@ def rotated_log_name(name: str) -> str:
     return os.path.join(folder, f'{stem}.{index}.log')
 
 
+def _remove_backups_past(path: str, backups: int) -> None:
+    """Remove ``<stem>.<n>.log`` for every n above ``backups``.
+
+    Rotation only ever renames up to the handler's backup count, so a
+    backup left from a larger count is never touched again: without this,
+    lowering a cap shrinks nothing in a folder that already holds logs.
+    A backup already gone is the state this wants -- another LVP process
+    sharing the folder may rotate it away between the listing and the
+    removal -- and any other failure is raised.
+    """
+    folder, file_name = os.path.split(path)
+    prefix = file_name.removesuffix('.log') + '.'
+    for name in os.listdir(folder):
+        index = name.removeprefix(prefix).removesuffix('.log')
+        if not (name.startswith(prefix) and name.endswith('.log') and index.isdigit()):
+            continue
+        if int(index) > backups:
+            try:
+                os.remove(os.path.join(folder, name))
+            except FileNotFoundError:
+                pass
+
+
+def _rotating_handler(path: str, *, delay: bool, encoding: str | None = None):
+    """The one maker of a rotating log handler: its cap from LOG_CAPS."""
+    max_bytes, backups = LOG_CAPS[os.path.basename(path)]
+    _remove_backups_past(path, backups)
+    handler = RotatingFileHandler(
+        path,
+        mode='a',
+        maxBytes=max_bytes,
+        backupCount=backups,
+        encoding=encoding,
+        delay=delay,
+    )
+    handler.namer = rotated_log_name
+    return handler
+
+
 # obtains name of the module (file) importing lvp_logger
 filename = f'{__file__}'
-file_handler = RotatingFileHandler(
-    LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=False,
-)
-file_handler.namer = rotated_log_name
+file_handler = _rotating_handler(LOG_FILE, delay=False)
 file_handler.setFormatter(CustomFormatter())
 file_handler.addFilter(ThreadPauseFilter())
 
 # Additional rotating file handler for errors and critical logs only
-error_file_handler = RotatingFileHandler(
-    ERRORS_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=False,
-)
-# keep the same filename pattern for rotations
-error_file_handler.namer = rotated_log_name
+error_file_handler = _rotating_handler(ERRORS_LOG_FILE, delay=False)
 error_file_handler.setFormatter(CustomFormatter())
 error_file_handler.addFilter(ThreadPauseFilter())
 
@@ -224,15 +271,8 @@ class ErrorOrForcedFilter(logging.Filter):
 error_file_handler.addFilter(ErrorOrForcedFilter())
 
 # REST API log handler -- captures records marked with extra={'api_request': True}
-rest_api_handler = RotatingFileHandler(
-    REST_API_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=True,  # Don't create file until first REST API log message
-)
-rest_api_handler.namer = rotated_log_name
+# Don't create the file until the first REST API log message.
+rest_api_handler = _rotating_handler(REST_API_LOG_FILE, delay=True)
 rest_api_handler.setFormatter(CustomFormatter())
 rest_api_handler.addFilter(ThreadPauseFilter())
 
@@ -265,18 +305,10 @@ class SerialFormatter(logging.Formatter):
 
 
 # Firehose trace logs (serial, camera, protocol, api) stay fully verbose
-# through the beta, but their rotation footprint is capped at 5MB x 3 files
-# so a long-soak support bundle stays small. Revisit the verbosity itself
-# (demote routine per-command traffic to DEBUG) at the 4.0.0 GA release.
-serial_file_handler = RotatingFileHandler(
-    SERIAL_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=False,
-)
-serial_file_handler.namer = rotated_log_name
+# through the beta, their footprint held by LOG_CAPS so a long-soak support
+# bundle stays small. Revisit the verbosity itself (demote routine
+# per-command traffic to DEBUG) at the 4.0.0 GA release.
+serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, delay=False)
 serial_file_handler.setFormatter(SerialFormatter())
 serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
@@ -311,15 +343,7 @@ class CameraFormatter(logging.Formatter):
         )
 
 
-camera_file_handler = RotatingFileHandler(
-    CAMERA_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=False,
-)
-camera_file_handler.namer = rotated_log_name
+camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, delay=False)
 camera_file_handler.setFormatter(CameraFormatter())
 camera_file_handler.addFilter(ThreadPauseFilter())
 camera_logger.addHandler(camera_file_handler)
@@ -342,15 +366,7 @@ metrics_logger = logging.getLogger('LVP.metrics')
 metrics_logger.setLevel(logging.INFO)
 metrics_logger.propagate = False  # Keep metrics out of the main log
 
-metrics_file_handler = RotatingFileHandler(
-    METRICS_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
-    encoding=None,
-    delay=False,
-)
-metrics_file_handler.namer = rotated_log_name
+metrics_file_handler = _rotating_handler(METRICS_LOG_FILE, delay=False)
 metrics_file_handler.setFormatter(CustomFormatter())
 metrics_file_handler.addFilter(ThreadPauseFilter())
 metrics_logger.addHandler(metrics_file_handler)
@@ -370,15 +386,8 @@ protocol_logger = logging.getLogger('LVP.protocol')
 protocol_logger.setLevel(logging.INFO)
 protocol_logger.propagate = False  # Keep protocol detail out of the main log
 
-protocol_file_handler = RotatingFileHandler(
-    PROTOCOL_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=True,  # Don't create file until first write -- absence means no stills protocol ran
-)
-protocol_file_handler.namer = rotated_log_name
+# Don't create the file until the first write -- absence means no stills protocol ran.
+protocol_file_handler = _rotating_handler(PROTOCOL_LOG_FILE, delay=True)
 protocol_file_handler.setFormatter(CustomFormatter())
 protocol_file_handler.addFilter(ThreadPauseFilter())
 protocol_logger.addHandler(protocol_file_handler)
@@ -404,15 +413,8 @@ class AFFormatter(logging.Formatter):
         )
 
 
-_af_file_handler = RotatingFileHandler(
-    AUTOFOCUS_LOG_FILE,
-    mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=1,  # always-on, so one rotation: 40 MB at most, about 11,000 sweeps a file
-    encoding=None,
-    delay=True,  # Don't create file until first write
-)
-_af_file_handler.namer = rotated_log_name
+# Don't create the file until the first write.
+_af_file_handler = _rotating_handler(AUTOFOCUS_LOG_FILE, delay=True)
 _af_file_handler.setFormatter(AFFormatter())
 _af_file_handler.addFilter(ThreadPauseFilter())
 af_logger.addHandler(_af_file_handler)
@@ -437,15 +439,8 @@ class APIFormatter(logging.Formatter):
         )
 
 
-_api_file_handler = RotatingFileHandler(
-    API_LOG_FILE,
-    mode='a',
-    maxBytes=5 * 1024 * 1024,
-    backupCount=2,
-    encoding=None,
-    delay=True,  # Don't create file until first write
-)
-_api_file_handler.namer = rotated_log_name
+# Don't create the file until the first write.
+_api_file_handler = _rotating_handler(API_LOG_FILE, delay=True)
 _api_file_handler.setFormatter(APIFormatter())
 _api_file_handler.addFilter(ThreadPauseFilter())
 api_logger.addHandler(_api_file_handler)
@@ -457,10 +452,7 @@ logger.addHandler(rest_api_handler)
 
 # GUI interaction log -- every user action for crash forensics
 # WORKAROUND: INFO level during beta. Move to DEBUG once stable.
-gui_handler = RotatingFileHandler(
-    GUI_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
-)
-gui_handler.namer = rotated_log_name
+gui_handler = _rotating_handler(GUI_LOG_FILE, delay=False, encoding='utf-8')
 gui_handler.setFormatter(CustomFormatter())
 gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
