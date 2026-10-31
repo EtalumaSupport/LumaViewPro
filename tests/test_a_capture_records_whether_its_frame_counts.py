@@ -269,7 +269,12 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     line name the grab as what counted them."""
     imaging = sim_scope.imaging
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
-    for _ in range(imaging.frame_validity.changes()['gain'].skip):
+    # A frame already on its way when the gain was written can be the one a
+    # grab takes, and it does not count, so the grabs go on until the count
+    # is met; a few spare grabs end the loop if grabs stop counting.
+    for _ in range(imaging.frame_validity.changes()['gain'].skip + 3):
+        if imaging.frame_validity.changes()['gain'].remaining == 0:
+            break
         imaging.get_image(force_new_capture=True)
 
     with caplog.at_level(logging.INFO, logger='LVP.api'):
