@@ -97,8 +97,8 @@ def _build_of(pid: int) -> dict:
     The profiled process's log is the one it holds open, so the profiler never
     guesses a data folder. Its banner is the newest one naming its PID and
     written after it started: a recycled PID's banner in an old backup is not
-    it, and a process that wrote no banner (any LumaViewPro host but the GUI
-    today) has none.
+    it, and a process that wrote no banner (one that has not yet built a
+    session, which is where every host writes it) has none.
     """
     try:
         proc = psutil.Process(pid)

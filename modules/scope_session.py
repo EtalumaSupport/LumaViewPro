@@ -1598,8 +1598,18 @@ class ScopeSession:
                 server or script drives the microscope, or while another
                 real scope in this process is open. Nothing was opened.
         """
+        from lvp_logger import log_environment_banner, version
+        from modules.app_environment import camera_sdk_probe
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
-        from modules.path_utils import get_source_root
+        from modules.path_utils import get_script_root, get_source_root
+
+        # Every host builds its session here, so the process's environment
+        # is logged here, once, before anything below can refuse: a log from
+        # the REST server, a script or a probe names its host, build and
+        # camera SDKs as the GUI's does, a bring-up that fails included. The
+        # build's own files (version.txt, build_id.txt) ship in the script
+        # root, never in the data folder ``source_path`` names.
+        log_environment_banner(str(get_script_root()), version, camera_sdk_probe())
 
         if not simulate:
             for argument, value in (

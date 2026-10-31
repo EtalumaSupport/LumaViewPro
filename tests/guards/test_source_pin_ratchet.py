@@ -121,7 +121,10 @@ def _fragile_pin_counts():
 _FRAGILE_PIN = {
     'tests/test_audit_fixes.py': 55,
     'tests/test_camera_log_routing.py': 1,
-    'tests/test_camera_sdk_probe_observability.py': 2,
+    # 2 -> 1: the read of lumaviewpro.py's banner call went with the call;
+    # the session's bring-up writing the banner is driven in a real process
+    # by tests/test_every_session_host_logs_its_environment_once.py.
+    'tests/test_camera_sdk_probe_observability.py': 1,
     # 4 -> 3: test_reconnect_regates_the_ui was deleted with the dead
     # MicroscopeSettings.reconnect handler it pinned, and its assertion
     # read ui/microscope_settings.py as source text. Nothing replaced it;

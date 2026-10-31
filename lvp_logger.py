@@ -548,7 +548,8 @@ if debug and sys.__stderr__ is not None:
 
 # Every process that imports this module shares the log, so each one's first
 # record says what it is: the GUI, the REST server, a headless script and a
-# test runner alike. Only the GUI writes the banner.
+# test runner alike. A process that brings up a scope then writes the banner
+# (log_environment_banner), from its first session's creation.
 logger.info(
     f'[Process   ] LumaViewPro {version or "(no version.txt)"}, {app_runtime()}, '
     f'from {launch_root()}, data in {lvp_appdata}, PID {os.getpid()}'
@@ -638,6 +639,13 @@ def git_revision() -> str | None:
     return _git_hash
 
 
+# Whether this process has written its banner: a process may build many
+# sessions (a script that reconnects, the test suite) and the banner costs a
+# git call and a package scan each time.
+_banner_written = False
+_banner_lock = threading.Lock()
+
+
 def log_environment_banner(
     install_path: str, version_str: str, camera_sdk_lines: list[str]
 ) -> None:
@@ -660,10 +668,19 @@ def log_environment_banner(
     its process: every process that imports this module writes to the same
     log, and the CPU profiler finds the build it profiles by it.
 
-    Only the GUI writes it (``LumaViewProApp.build``); every process that
-    imports this module, the GUI included, first writes its one ``[Process]``
-    line: version, runtime, launch folder, data root and PID.
+    Written once per process, by ``ScopeSession.create``, the one bring-up
+    every host makes, so a log from the REST server, a script or a probe
+    names its environment as the GUI's does; a later call writes nothing,
+    because the banner describes the process, not a session. Every process
+    that imports this module first writes its one ``[Process]`` line:
+    version, runtime, launch folder, data root and PID.
     """
+    global _banner_written
+    with _banner_lock:
+        if _banner_written:
+            return
+        _banner_written = True
+
     import sys as _sys
 
     logger.info('[LVP Main  ] -----------------------------------------')
@@ -743,11 +760,16 @@ def log_environment_banner(
     # support bundle alone answers "was debug on, and where is it set?" --
     # the live value is read from current.json once that exists, so editing
     # settings.json has no effect on an established install.
+    # This is the level the log started at, read from the installation's
+    # file when this module was imported; a session then puts its own
+    # settings' level on the log, which a host that hands in its settings
+    # can set otherwise, and states it in its "[Session  ] Log level" line.
     from modules import settings_init as _si
 
     logger.info(
-        f'[LVP Main  ] Debug:     debug_mode={debug} '
-        f'(from {_si.debug_setting_source or "default -- settings file unread"})'
+        f"[LVP Main  ] Debug:     debug_mode={debug} at the log's start "
+        f'(from {_si.debug_setting_source or "default -- settings file unread"}); '
+        f'each session states its own level'
     )
 
     # Host + OS + Python + key library versions.
@@ -760,12 +782,14 @@ def log_environment_banner(
     except Exception as e:
         logger.info(f'[LVP Main  ] OS: unavailable ({e})')
     logger.info(f'[LVP Main  ] Python: {_sys.version.split()[0]} ({_sys.executable})')
-    try:
-        import kivy as _kivy
-
-        logger.info(f'[LVP Main  ] Kivy: {_kivy.__version__}')
-    except Exception as e:
-        logger.info(f'[LVP Main  ] Kivy: unavailable ({e})')
+    # Kivy's version is read from a Kivy this process already runs, never
+    # imported for the line: every host writes this banner, and a REST
+    # server, a script or a probe drives the scope without the UI.
+    _kivy = _sys.modules.get('kivy')
+    if _kivy is None:
+        logger.info('[LVP Main  ] Kivy: not loaded by this process')
+    else:
+        logger.info(f'[LVP Main  ] Kivy: {getattr(_kivy, "__version__", "unknown")}')
 
     # Camera SDKs -- log both the Python binding version AND the
     # underlying SDK runtime. Binding/SDK mismatch has bitten us before.
