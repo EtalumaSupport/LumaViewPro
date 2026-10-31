@@ -923,7 +923,10 @@ always ends with a `RunOutcome` -- it does not raise -- whose `status` is one of
 `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`, with a
 `reason` and the words a person reads.
 
-**An Operation** is the handle every `start_` member returns. `result()` waits
+**An Operation** is the handle every `start_` member returns, typed by what its
+`result()` answers: `Operation[RunOutcome]` for a run, `Operation[None]` for a
+move or a home, `Operation[tuple[SavedStill, ...]]` for a still and
+`Operation[str]`, its end reason, for a recording. `result()` waits
 for the run to let go of the scope and answers its outcome; `done()` says
 whether it has; `progress()` answers where it has got; `stop()` asks it to stop
 and returns at once -- the run unwinds, puts the scope back, and ends

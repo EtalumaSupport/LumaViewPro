@@ -119,6 +119,25 @@ def test_a_timedelta_is_refused_in_either_walk_naming_where_it_is(tmp_path):
         wire_encoding.plain(value)
 
 
+@dataclasses.dataclass(frozen=True)
+class _Unpublished:
+    count: int
+
+
+def test_a_record_that_publishes_no_field_is_refused_in_either_walk_naming_where_it_is(tmp_path):
+    # It would cross as {}, a plausible empty answer where its data was meant.
+    value = _Scan(windows=({'tally': _Unpublished(count=3)},))
+
+    def no_handle(obj):
+        raise AssertionError(obj)
+
+    where = r"_Scan\.windows\[0\]\['tally'\]: .*_Unpublished publishes no field"
+    with pytest.raises(wire_encoding.NoWireFormError, match=where):
+        wire_encoding.encode(value, live_folder=tmp_path, handle=no_handle, job=no_handle)
+    with pytest.raises(wire_encoding.NoWireFormError, match=where):
+        value.to_dict()
+
+
 def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):
     real = tmp_path / 'real_live'
     (real / 'ProtocolData').mkdir(parents=True)

@@ -44,7 +44,7 @@ from modules.exceptions import BlockingCallRefusedError, OperationSettleRefusedE
 from modules.finite_number import refuse_unless_wait_s
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunProgress
+    from modules.sequenced_capture_runner import RunFiles, RunProgress
 
 
 class _CallbackThread:
@@ -136,8 +136,12 @@ def refuse_waiting_on_ui_thread(member: str) -> None:
 
 
 @api_fields('files')
-class Operation(concurrent.futures.Future):
+class Operation[T](concurrent.futures.Future[T]):
     """One operation in flight: its outcome, its done-callbacks, its stop and its progress.
+
+    ``T`` is what ``result()`` returns once it is done: each member that
+    starts one says it (``Operation[RunOutcome]`` for a run,
+    ``Operation[None]`` for a move).
 
     Attributes:
         files: A run's files, as their own operation: done once the run's
@@ -146,14 +150,14 @@ class Operation(concurrent.futures.Future):
             with the run's ``RunFiles``. None on every other operation.
     """
 
-    files: 'Operation | None'
+    files: 'Operation[RunFiles] | None'
 
     def __init__(
         self,
         *,
         stop: Callable[[], object] | None = None,
         progress: 'Callable[[], RunProgress] | None' = None,
-        files: 'Operation | None' = None,
+        files: 'Operation[RunFiles] | None' = None,
     ) -> None:
         super().__init__()
         self.set_running_or_notify_cancel()
@@ -195,13 +199,13 @@ class Operation(concurrent.futures.Future):
         return None if self._progress is None else self._progress()
 
     @classmethod
-    def following(
+    def following[R](
         cls,
-        waiter: concurrent.futures.Future,
+        waiter: 'concurrent.futures.Future[R]',
         *,
         stop: Callable[[], object] | None = None,
         first: Callable[[], object] | None = None,
-    ) -> 'Operation':
+    ) -> 'Operation[R]':
         """The operation a lane task's *waiter* settles: done with its outcome, once *first()* has run.
 
         For a producer whose task holds something it releases when the task
@@ -227,10 +231,11 @@ class Operation(concurrent.futures.Future):
         return op
 
     @classmethod
-    def all_of(cls, operations: 'tuple[Operation, ...]') -> 'Operation':
+    def all_of(cls, operations: 'tuple[Operation, ...]') -> 'Operation[None]':
         """One operation for several started together: done once every one is, raising the first one's raise.
 
-        ``stop()`` stops each one still under way. With none, it is done at once.
+        Its ``result()`` is None. ``stop()`` stops each one still under way.
+        With none, it is done at once.
         """
 
         def stop() -> None:
@@ -278,17 +283,51 @@ class Operation(concurrent.futures.Future):
         """
         raise OperationSettleRefusedError('Operation.set_exception')
 
+    @api(in_process=True)
     def add_done_callback(self, fn: Callable[['Operation'], object]) -> None:
-        """Run ``fn(self)`` on the callback thread once this operation is done."""
+        """Run ``fn(self)`` on the callback thread once this operation is done.
+
+        Every operation's callbacks run on that one thread, one at a time in
+        the order their operations settled; a callback's raise is reported,
+        not raised to anyone.
+
+        Args:
+            fn: Called with this operation once it is done.
+
+        Raises:
+            Nothing.
+        """
         super().add_done_callback(lambda op: _callbacks.hand(fn, op))
 
+    @api(in_process=True)
     def done(self) -> bool:
+        """Whether this operation is done: its outcome is set and every observer may read it.
+
+        Raises:
+            Nothing.
+        """
         if self._delivering_here() is not None:
             return True
         return super().done()
 
-    def result(self, timeout: float | None = None) -> object:
-        """The Future's ``result``; a ``timeout`` that is not a wait from 0 to 30 days is refused (``ArgumentRefusedError``)."""
+    @api(in_process=True)
+    def result(self, timeout: float | None = None) -> T:
+        """What the operation ended with, waiting up to ``timeout`` for it; the Future's ``result``.
+
+        An operation that ended in a raise raises it here: what its starting
+        member's ``Returns:`` names.
+
+        Args:
+            timeout: The longest wait for the operation to end, in seconds,
+                0 to 30 days; None waits for as long as it takes. A wait
+                that runs out raises the Future's ``TimeoutError``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout`` is not a wait from 0 to 30 days.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, this is the UI
+                thread and the operation is not done.
+        """
         own = self._delivering_here()
         if own is not None:
             result, exception = own
@@ -300,8 +339,21 @@ class Operation(concurrent.futures.Future):
             refuse_unless_wait_s(timeout, 'timeout')
         return super().result(timeout)
 
+    @api(in_process=True)
     def exception(self, timeout: float | None = None) -> BaseException | None:
-        """The Future's ``exception``; a ``timeout`` that is not a wait from 0 to 30 days is refused (``ArgumentRefusedError``)."""
+        """What the operation raised, waiting up to ``timeout`` for it; None when it ended with a result.
+
+        Args:
+            timeout: The longest wait for the operation to end, in seconds,
+                0 to 30 days; None waits for as long as it takes. A wait
+                that runs out raises the Future's ``TimeoutError``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout`` is not a wait from 0 to 30 days.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, this is the UI
+                thread and the operation is not done.
+        """
         own = self._delivering_here()
         if own is not None:
             return own[1]

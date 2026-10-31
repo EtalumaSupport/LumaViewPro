@@ -294,7 +294,7 @@ class ManualRecordingController:
     # ------------------------------------------------------------------
 
     @api(stop='Operation.stop')
-    def start(self, *, false_color_on: bool = False) -> Operation:
+    def start(self, *, false_color_on: bool = False) -> 'Operation[str]':
         """Snapshot configuration and open a recording; returns its operation.
 
         Channel IDENTITY (what was imaged) and false-color RENDERING (how

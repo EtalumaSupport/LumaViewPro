@@ -161,7 +161,7 @@ class ManualCaptureController:
         false_color_on: bool,
         bullseye: bool = False,
         crosshairs: bool = False,
-    ) -> Operation:
+    ) -> 'Operation[tuple[SavedStill, ...]]':
         """Capture one still and save it; returns at once.
 
         Args:

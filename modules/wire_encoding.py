@@ -560,7 +560,8 @@ def encode(
         NoWireFormError: *value*, or something in it, has no wire form --
             a NaN or an infinity among them: JSON has none, and the answer
             is refused here, where the call ends, rather than when it is
-            rendered, after a job may already hold it.
+            rendered, after a job may already hold it; or a record that
+            publishes no field, which would cross as ``{}``.
     """
     return _walk(value, wire=True, live_folder=live_folder, handle=handle, job=job)
 
@@ -577,8 +578,9 @@ def plain(value: object) -> object:
     key keeps its type.
 
     Raises:
-        NoWireFormError: something in *value* is a ``timedelta``, which has
-            no form in either walk.
+        NoWireFormError: something in *value* is a ``timedelta``, or a
+            record that publishes no field; neither has a form in either
+            walk.
     """
     return _walk(value, wire=False, live_folder=None, handle=None, job=None)
 
@@ -650,6 +652,13 @@ def _walk(
         cls = type(v)
         if is_record(cls):
             names = _fields(cls) + tuple(_wire_properties(cls))
+            if not names:
+                # Refused in both walks: an unpublished record would cross
+                # as {}, a plausible empty answer where its data was meant.
+                raise NoWireFormError(
+                    f'{cls.__module__}.{cls.__qualname__} publishes no field '
+                    '(@api_fields), so it has no form'
+                )
             return {n: at(f'.{n}', getattr(v, n)) for n in names}
         if cls.__module__ == 'numpy' and getattr(v, 'shape', None) == ():
             # A numpy scalar where the annotation says int or float.

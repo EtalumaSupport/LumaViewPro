@@ -182,6 +182,7 @@ if TYPE_CHECKING:
     from modules.protocol_image_writer import RunWriteBatch
     from modules.lumascope_api.protocols import StepTargets, TurretSlotQuestion
     from modules.protocol_runner import ProtocolRunner
+    from modules.run_outcome import RunOutcome
     from modules.sequential_io_executor import SequentialIOExecutor
     from modules.plugins import PluginHealth
     from modules.post_processing_api import PostProcessingAPI
@@ -1031,7 +1032,7 @@ class ScopeSession:
         return self.sequenced_capture_runner.held_by_other(run)
 
     @api
-    def last_run(self) -> 'Operation | None':
+    def last_run(self) -> 'Operation[RunOutcome] | None':
         """The last run's operation, live or ended, whoever started it; None before any run.
 
         Every ``ProtocolRunner`` start is a run: a scan, a protocol, a
@@ -3170,7 +3171,7 @@ class ScopeSession:
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
-    def start_go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> Operation:
+    def start_go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> 'Operation[None]':
         """Start ``axes`` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
 
         Reads ``bookmark`` for the axes given, as ``save_bookmark`` wrote
@@ -3605,7 +3606,7 @@ class ScopeSession:
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
-    def start_go_to_step(self, protocol: 'Protocol', step_index: int) -> Operation:
+    def start_go_to_step(self, protocol: 'Protocol', step_index: int) -> 'Operation[None]':
         """Start going to step ``step_index`` of ``protocol``, as a click on a step does.
 
         One task on the scope's IO lane: the axes are asked once whether
@@ -6258,7 +6259,7 @@ class ScopeSession:
         disable_homing: bool = False,
         home_fn: Callable[[HomeTarget], object] | None = None,
         turret_fn: Callable[[int], object] | None = None,
-    ) -> Operation:
+    ) -> 'Operation[None]':
         """Start the standard startup motion without waiting for it; returns its ``Operation``.
 
         The one implementation of the startup motion for every host:

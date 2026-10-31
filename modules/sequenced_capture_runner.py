@@ -76,6 +76,7 @@ from modules.run_outcome import (
     FilesOutcome,
     PendingRunOutcome,
     RunEnding,
+    RunOutcome,
     RunStatus,
     hardware_disconnected_at_start_ending,
 )
@@ -235,7 +236,7 @@ class EngineRun:
         self.operation.add_done_callback(lambda _op: self._files_event_done())
 
     @property
-    def files(self) -> Operation:
+    def files(self) -> 'Operation[RunFiles]':
         return self.operation.files
 
     def _files_event_done(self) -> None:
@@ -1537,7 +1538,7 @@ class SequencedCaptureRunner:
         self._take_auto_gain_arm_for_run()
         return None
 
-    def start(self, plan: RunPlan) -> Operation:
+    def start(self, plan: RunPlan) -> 'Operation[RunOutcome]':
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
@@ -2264,7 +2265,7 @@ class SequencedCaptureRunner:
         """The live or last run, or None when no run has started."""
         return getattr(self, '_run_handle', None)
 
-    def last_run_operation(self) -> Operation | None:
+    def last_run_operation(self) -> 'Operation[RunOutcome] | None':
         """The live or last run's operation, whoever started it; None when no run has started."""
         run = self._last_run()
         return None if run is None else run.operation

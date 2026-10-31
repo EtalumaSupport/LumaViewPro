@@ -87,7 +87,7 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         return_to_position: PlateLocation | None = None,
-    ) -> Operation:
+    ) -> 'Operation[RunOutcome]':
         """Run a single scan through the protocol steps.
 
         Args:
@@ -133,7 +133,7 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-    ) -> Operation:
+    ) -> 'Operation[RunOutcome]':
         """Run a full protocol (multiple scans over time).
 
         Args:
@@ -172,7 +172,7 @@ class ProtocolRunner:
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
-    ) -> Operation:
+    ) -> 'Operation[RunOutcome]':
         """Assemble a composite run and launch it, returning once committed.
 
         Split out of run_composite so a caller that must not block -- a GUI
@@ -238,7 +238,7 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
-    ) -> Operation:
+    ) -> 'Operation[RunOutcome]':
         """Autofocus once on *channel*, at the current stage position.
 
         The headless twin of the standalone autofocus button: a
@@ -353,7 +353,7 @@ class ProtocolRunner:
         protocol: Protocol,
         *,
         events: RunEvents | None = None,
-    ) -> Operation:
+    ) -> 'Operation[RunOutcome]':
         """Autofocus at every step of *protocol*, and write the focus into it.
 
         One scan that visits each step with autofocus on, whatever each
@@ -408,7 +408,7 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         return_to_start: bool = True,
         enable_image_saving: bool = True,
-    ) -> Operation:
+    ) -> 'Operation[RunOutcome]':
         """Capture a z-stack on *channel*, around the current stage position.
 
         The one implementation of a z-stack run, for a script and for the

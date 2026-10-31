@@ -2740,7 +2740,7 @@ class MotionAPI:
         )
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
-    def start_move_to_plate(self, at: PlateLocation) -> Operation:
+    def start_move_to_plate(self, at: PlateLocation) -> Operation[None]:
         """Start X and Y moving to ``at`` on the selected plate; return the started moves.
 
         ``at`` is in mm from the plate's top-left, at the live stage
@@ -2823,7 +2823,7 @@ class MotionAPI:
         self.start_move_to_plate(at).result()
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
-    def start_move_to_well(self, well: str) -> Operation:
+    def start_move_to_well(self, well: str) -> Operation[None]:
         """Start X and Y moving to the centre of ``well`` on the selected plate; return the started moves.
 
         ``well`` is the label the plate gives it (``'A1'``, ``'H12'``),
@@ -2925,7 +2925,7 @@ class MotionAPI:
         x_um: float | None = None,
         y_um: float | None = None,
         ignore_limits: bool = False,
-    ) -> Operation:
+    ) -> Operation[None]:
         """Start X and Y moving to a place, in um, each that is given; return the started moves.
 
         One request: every axis given is refused before either drives, so
@@ -3017,7 +3017,9 @@ class MotionAPI:
         ).result()
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
-    def start_move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> Operation:
+    def start_move_xy_by(
+        self, dx_um: float | None = None, dy_um: float | None = None
+    ) -> Operation[None]:
         """Start X and Y moving by a distance, in um, each that is given; return the started moves.
 
         As ``start_move_xy``. Each distance is added to the axis's board
@@ -3100,7 +3102,7 @@ class MotionAPI:
         z_um: float,
         overshoot_enabled: bool | None = None,
         ignore_limits: bool = False,
-    ) -> Operation:
+    ) -> Operation[None]:
         """Start Z moving to a place, in um; return the started move.
 
         A move of Z to a place approaches it from below, so the backlash
@@ -3201,7 +3203,9 @@ class MotionAPI:
         ).result()
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
-    def start_move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> Operation:
+    def start_move_z_by(
+        self, dz_um: float, overshoot_enabled: bool | None = None
+    ) -> Operation[None]:
         """Start Z moving by a distance, in um; return the started move.
 
         The distance is added to Z's board target, so a move still under
@@ -3349,7 +3353,7 @@ class MotionAPI:
             raise
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_SUBMIT,))
-    def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation:
+    def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation[None]:
         """Start the home ``home`` runs, without waiting for it; returns its ``Operation``.
 
         For a caller that must not block for the length of a home -- a

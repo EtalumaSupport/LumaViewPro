@@ -436,6 +436,34 @@ def test_the_api_is_typed_and_closed(
     )
 
 
+def _bare_operations(text: str) -> bool:
+    """Whether an annotation names ``Operation`` without saying what its ``result()`` returns."""
+    tree = ast.parse(text, mode='eval')
+    said = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Subscript)}
+    return any(
+        (isinstance(node, ast.Name) and node.id == 'Operation')
+        or (isinstance(node, ast.Attribute) and node.attr == 'Operation')
+        for node in ast.walk(tree)
+        if id(node) not in said
+    )
+
+
+def test_every_operation_handed_out_names_its_result(marked: dict[str, Marked]) -> None:
+    # An Operation's result is a record only through its T: unsaid, the
+    # closure above never reaches what a still or a run's files hand back.
+    bare, said = [], {}
+    for name in sorted(marked):
+        for edge, text in _edges(marked[name].owner, marked[name].member):
+            if text is None or edge.startswith('parameter'):
+                continue
+            said[f'{name} {edge}'] = _named(text)[1]
+            if _bare_operations(text):
+                bare.append(f'{name} {edge}: {text}')
+    assert not bare, f'an Operation handed out says no result type (Operation[T]): {bare}'
+    assert 'SavedStill' in said['ManualCaptureController.capture return']
+    assert 'RunFiles' in said['Operation.files field']
+
+
 def test_no_function_is_marked_for_the_wire(marked: dict[str, Marked]) -> None:
     wire = sorted(name for name, m in marked.items() if m.at_top_level and m.tag == API)
     assert not wire, (
@@ -567,6 +595,9 @@ UNIT_SUFFIXES = Words(
 # read one by one, none admitted by pattern, and each must still be a hit,
 # so a rename that gives it a unit deletes it here.
 UNITLESS: dict[str, str] = {
+    # concurrent.futures.Future's name, kept so an Operation is waited on as any Future is.
+    'Operation.exception parameter timeout': "the Future's name for a wait in seconds",
+    'Operation.result parameter timeout': "the Future's name for a wait in seconds",
     'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
     'CameraSettingOutOfRangeError.limits field': "the camera's bounds, in the setting's unit",
     'PositionOutOfRangeError.limits field': "the bound's ends, in the refused quantity's unit",
@@ -781,6 +812,7 @@ OPEN_STRINGS: dict[str, str] = {
     'Lumascope.objectives return': _OBJECTIVE,
     'Lumascope.scope_models return': _MODEL,
     'ManualRecordingController.end_reason return': _REASON,
+    'ManualRecordingController.start return': _REASON,
     'MotionAPI.move_to_well parameter well': _WELL,
     'MotionAPI.start_move_to_well parameter well': _WELL,
     'MotorBoardInfo.firmware_date field': _BOARD,

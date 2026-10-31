@@ -1577,7 +1577,7 @@ Nothing.
 ### `ScopeSession.last_run`
 
 ```python
-def last_run(self) -> Operation | None
+def last_run(self) -> Operation[RunOutcome] | None
 ```
 
 Route: `POST /api/v1/last_run`.
@@ -3292,7 +3292,7 @@ def start_application_session(
     disable_homing: bool = False,
     home_fn: Callable[[HomeTarget], object] | None = None,
     turret_fn: Callable[[int], object] | None = None,
-) -> Operation
+) -> Operation[None]
 ```
 
 Marks: in-process; stopped by [`Operation.stop`](#Operation.stop).
@@ -3364,7 +3364,7 @@ returns an operation already done.
 ### `ScopeSession.start_go_to_bookmark`
 
 ```python
-def start_go_to_bookmark(self, axes: Iterable[StageAxis]) -> Operation
+def start_go_to_bookmark(self, axes: Iterable[StageAxis]) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -3403,7 +3403,7 @@ One `Operation` for the moves started, done once every one is (`Operation.all_of
 ### `ScopeSession.start_go_to_step`
 
 ```python
-def start_go_to_step(self, protocol: Protocol, step_index: int) -> Operation
+def start_go_to_step(self, protocol: Protocol, step_index: int) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `guarded_write`.  
@@ -3822,7 +3822,7 @@ def capture(
     false_color_on: bool,
     bullseye: bool = False,
     crosshairs: bool = False,
-) -> Operation
+) -> Operation[tuple[SavedStill, ...]]
 ```
 
 Route: `POST /api/v1/manual_capture/capture`.
@@ -4028,7 +4028,7 @@ Nothing.
 ### `ManualRecordingController.start`
 
 ```python
-def start(self, *, false_color_on: bool = False) -> Operation
+def start(self, *, false_color_on: bool = False) -> Operation[str]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop).  
@@ -7626,7 +7626,7 @@ matters more than final position accuracy.
 ### `MotionAPI.start_home`
 
 ```python
-def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation
+def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
@@ -7662,7 +7662,7 @@ a home, and nothing once the home has ended.
 ### `MotionAPI.start_move_to_plate`
 
 ```python
-def start_move_to_plate(self, at: PlateLocation) -> Operation
+def start_move_to_plate(self, at: PlateLocation) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -7706,7 +7706,7 @@ One `Operation` for the moves started, done once every one is (`Operation.all_of
 ### `MotionAPI.start_move_to_well`
 
 ```python
-def start_move_to_well(self, well: str) -> Operation
+def start_move_to_well(self, well: str) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -7747,7 +7747,7 @@ def start_move_xy(
     x_um: float | None = None,
     y_um: float | None = None,
     ignore_limits: bool = False,
-) -> Operation
+) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); in-process arguments: `ignore_limits`; enters: `lane_call`.  
@@ -7793,7 +7793,7 @@ def start_move_xy_by(
     self,
     dx_um: float | None = None,
     dy_um: float | None = None,
-) -> Operation
+) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -7834,7 +7834,7 @@ def start_move_z(
     z_um: float,
     overshoot_enabled: bool | None = None,
     ignore_limits: bool = False,
-) -> Operation
+) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); in-process arguments: `ignore_limits`; enters: `lane_call`.  
@@ -7878,7 +7878,7 @@ def start_move_z_by(
     self,
     dz_um: float,
     overshoot_enabled: bool | None = None,
-) -> Operation
+) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -10482,9 +10482,76 @@ Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
 
+`T` is what `result()` returns once it is done: each member that
+starts one says it (`Operation[RunOutcome]` for a run,
+`Operation[None]` for a move).
+
 **Fields**
 
-- <a id="Operation.files"></a>`files`: `Operation | None` -- A run's files, as their own operation: done once the run's images are on disk or given up on, its hyperstack build (when it has one) has ended and its `files_written` has been delivered, with the run's `RunFiles`. None on every other operation.
+- <a id="Operation.files"></a>`files`: `Operation[RunFiles] | None` -- A run's files, as their own operation: done once the run's images are on disk or given up on, its hyperstack build (when it has one) has ended and its `files_written` has been delivered, with the run's `RunFiles`. None on every other operation.
+
+<a id="Operation.add_done_callback"></a>
+### `Operation.add_done_callback`
+
+```python
+def add_done_callback(self, fn: Callable[[Operation], object]) -> None
+```
+
+Marks: in-process.
+
+Run `fn(self)` on the callback thread once this operation is done.
+
+Every operation's callbacks run on that one thread, one at a time in
+the order their operations settled; a callback's raise is reported,
+not raised to anyone.
+
+**Args**
+
+- `fn`: Called with this operation once it is done.
+
+**Raises**
+
+Nothing.
+
+<a id="Operation.done"></a>
+### `Operation.done`
+
+```python
+def done(self) -> bool
+```
+
+Marks: in-process.
+
+Whether this operation is done: its outcome is set and every observer may read it.
+
+**Raises**
+
+Nothing.
+
+<a id="Operation.exception"></a>
+### `Operation.exception`
+
+```python
+def exception(self, timeout: float | None = None) -> BaseException | None
+```
+
+Marks: in-process.
+
+What the operation raised, waiting up to `timeout` for it; None when it ended with a result.
+
+**Args**
+
+- `timeout`: The longest wait for the operation to end, in seconds, 0 to 30 days; None waits for as long as it takes. A wait that runs out raises the Future's `TimeoutError`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout` is not a wait from 0 to 30 days.
+- `BlockingCallRefusedError`: `'wait_on_ui_thread'`, this is the UI thread and the operation is not done.
+
+**Refusals**
+
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 
 <a id="Operation.progress"></a>
 ### `Operation.progress`
@@ -10500,6 +10567,34 @@ Where this operation has got, read now; None for one that keeps no progress reco
 **Raises**
 
 Nothing.
+
+<a id="Operation.result"></a>
+### `Operation.result`
+
+```python
+def result(self, timeout: float | None = None) -> T
+```
+
+Marks: in-process.
+
+What the operation ended with, waiting up to `timeout` for it; the Future's `result`.
+
+An operation that ended in a raise raises it here: what its starting
+member's `Returns:` names.
+
+**Args**
+
+- `timeout`: The longest wait for the operation to end, in seconds, 0 to 30 days; None waits for as long as it takes. A wait that runs out raises the Future's `TimeoutError`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout` is not a wait from 0 to 30 days.
+- `BlockingCallRefusedError`: `'wait_on_ui_thread'`, this is the UI thread and the operation is not done.
+
+**Refusals**
+
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 
 <a id="Operation.stop"></a>
 ### `Operation.stop`
@@ -11405,7 +11500,7 @@ def start_autofocus(
     parent_dir: FilePath | None = None,
     events: RunEvents | None = None,
     claim: HeldClaim | None = None,
-) -> Operation
+) -> Operation[RunOutcome]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -11466,7 +11561,7 @@ def start_autofocus_all_steps(
     protocol: Protocol,
     *,
     events: RunEvents | None = None,
-) -> Operation
+) -> Operation[RunOutcome]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -11518,7 +11613,7 @@ def start_composite(
     sequence_name: str = 'composite',
     parent_dir: FilePath | None = None,
     events: RunEvents | None = None,
-) -> Operation
+) -> Operation[RunOutcome]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -11566,7 +11661,7 @@ def start_protocol(
     parent_dir: FilePath | None = None,
     enable_image_saving: bool = True,
     events: RunEvents | None = None,
-) -> Operation
+) -> Operation[RunOutcome]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -11610,7 +11705,7 @@ def start_single_scan(
     enable_image_saving: bool = True,
     events: RunEvents | None = None,
     return_to_position: PlateLocation | None = None,
-) -> Operation
+) -> Operation[RunOutcome]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -11655,7 +11750,7 @@ def start_zstack(
     events: RunEvents | None = None,
     return_to_start: bool = True,
     enable_image_saving: bool = True,
-) -> Operation
+) -> Operation[RunOutcome]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
@@ -11846,7 +11941,8 @@ event elsewhere builds the record from them.
 <a id="RunFiles"></a>
 ## `RunFiles`
 
-A record: it crosses the wire as its data.
+A record: it crosses the wire as its data.  
+Held in: [`Operation.files`](#Operation.files).
 
 What became of one run's images, once its writes are done.
 
@@ -11865,7 +11961,7 @@ and when it is `INCOMPLETE`, how many images are not on disk and why
 ## `RunOutcome`
 
 A record: it crosses the wire as its data.  
-Returned by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack).  
+Returned by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run).  
 Held in: [`RunEnded.outcome`](#RunEnded.outcome), [`RunEvents.run_ended`](#RunEvents.run_ended).
 
 How a run ended, and what its merge produced.
@@ -11933,7 +12029,8 @@ What `ScopeSession.save_focus` wrote.
 <a id="SavedStill"></a>
 ## `SavedStill`
 
-A record: it crosses the wire as its data.
+A record: it crosses the wire as its data.  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture).
 
 One file a still wrote, with the instrument's record of it.
 
