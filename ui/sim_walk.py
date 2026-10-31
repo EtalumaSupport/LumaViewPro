@@ -400,9 +400,12 @@ class SimWalk:
             yield _POLL_S
         # The accordion lays out on the frame after its last animation tick.
         yield _POLL_S
+        # A person scrolls only to reach what they cannot see, so the walk
+        # does too: Kivy's scroll_to moves content shorter than its view to
+        # the view's bottom even when the target is already in it.
         scrolled = False
         for parent in _ancestors(target):
-            if isinstance(parent, ScrollView):
+            if isinstance(parent, ScrollView) and not _wholly_in_view(parent, target):
                 parent.scroll_to(target, padding=10, animate=False)
                 scrolled = True
         if scrolled:
@@ -507,6 +510,17 @@ def _moving_drawers(widget) -> list:
                 if isinstance(item, AccordionItem) and item.collapse_alpha != float(item.collapse)
             )
     return moving
+
+
+def _wholly_in_view(view: ScrollView, widget) -> bool:
+    """Whether ``widget`` lies wholly inside the scroll view's visible area.
+
+    Measured in the view's parent's coordinates, as Kivy's ``scroll_to``
+    measures the same question.
+    """
+    left, bottom = view.parent.to_widget(*widget.to_window(*widget.pos))
+    right, top = view.parent.to_widget(*widget.to_window(widget.right, widget.top))
+    return view.x <= left and right <= view.right and view.y <= bottom and top <= view.top
 
 
 def _ancestors(widget):

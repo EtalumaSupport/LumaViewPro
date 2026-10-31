@@ -142,6 +142,18 @@ Builder.load_string('''
                 text: 'deep'
                 size_hint_y: None
                 height: 40
+    ScrollView:
+        id: short
+        size_hint: None, None
+        size: 200, 100
+        pos: 300, 520
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_y: None
+            height: 40
+            Button:
+                id: shallow
+                text: 'shallow'
     RelativeLayout:
         size_hint: None, None
         size: 200, 100
@@ -226,6 +238,7 @@ def on(name):
 ids = panel.ids
 ids.btn.bind(on_release=on('btn'))
 ids.deep.bind(on_release=on('deep'))
+ids.shallow.bind(on_release=on('shallow'))
 ids.relbtn.bind(on_release=on('rel'))
 layers.ids.a.ids.go.bind(on_release=on('a'))
 layers.ids.b.ids.go.bind(on_release=on('b'))
@@ -421,6 +434,25 @@ def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
         {'step': 13, 'path': 'Panel/field', 'text': '12.5', 'disabled': False}
     ]
     assert len(result['shots']) == 1 and pathlib.Path(result['shots'][0]).is_file()
+
+
+def test_a_press_inside_a_view_it_is_already_in_scrolls_nothing(tmp_path):
+    """A person clicks what they can see without scrolling, so a walk's press does too.
+
+    Kivy's ``scroll_to`` moves content shorter than its view to the view's
+    bottom even when the target is already in view, so a press that always
+    scrolled showed a walk's shot a layout no person sees.
+    """
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/shallow'},
+            {'do': 'read', 'path': 'Panel/short', 'props': ['scroll_y']},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['shallow'], result
+    assert result['reads'] == [{'step': 2, 'path': 'Panel/short', 'scroll_y': 1.0}], result
 
 
 def test_an_uncommitted_entry_commits_in_the_frame_of_the_next_press(tmp_path):
