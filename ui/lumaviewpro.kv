@@ -2,6 +2,8 @@
 #:import live_work modules.live_work
 # The share of its row that a button or box alone in that row takes, centred.
 #:set NARROW_WIDTH 0.6
+# The label column of a layer slider row (illumination, stimulation, camera, video).
+#:set SLIDER_LABEL_WIDTH '70dp'
 
 #-------------------------------------------------------------------------------
 # MIT License
@@ -2876,13 +2878,13 @@
 				visible: True if root.illumination_support and root.led_controller_support else False
 
 				Label:
-					text: 'Illumination (mA)'
+					text: 'LED (mA)'
 					halign: 'left'
 					tooltip_text: 'Adjust LED brightness'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: ill_slider
@@ -2985,12 +2987,13 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Brightness (mA)'
+					text: 'Stim (mA)'
+					tooltip_text: 'Stimulation brightness (mA)'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_ill_slider
@@ -3030,12 +3033,13 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Frequency (Hz)'
+					text: 'Freq (Hz)'
+					tooltip_text: 'Frequency (Hz)'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_freq_slider
@@ -3075,12 +3079,13 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Pulse Width (ms)'
+					text: 'Width (ms)'
+					tooltip_text: 'Pulse width (ms)'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_pulse_width_slider
@@ -3121,12 +3126,13 @@
 				visible: True if root.show_stim_controls else False
 
 				Label:
-					text: 'Pulse Count'
+					text: 'Pulses'
+					tooltip_text: 'Pulse count'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: stim_pulse_count_slider
@@ -3221,7 +3227,7 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: gain_slider # 0 to 48, default 0, based on camera limits
@@ -3260,13 +3266,13 @@
 				visible: True if root.show_camera_controls else False
 
 				Label:
-					text: 'Exposure (ms)'
+					text: 'Exp (ms)'
 					tooltip_text: 'Adjust camera exposure setting'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: exp_slider
@@ -3316,7 +3322,7 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '80dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: sum_slider
@@ -3497,7 +3503,7 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '95dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 				ModSlider:
 					id: video_duration_slider
@@ -3625,7 +3631,7 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '50dp'
+					width: SLIDER_LABEL_WIDTH
 					text_size: self.size
 					tooltip_text: 'Minimum Composite Brightness Threshold for Composite acquisition'
 				ModSlider:
