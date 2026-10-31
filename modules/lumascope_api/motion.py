@@ -1461,15 +1461,18 @@ class MotionAPI:
             return objective.jog_z_coarse_um if coarse else objective.jog_z_fine_um
         return objective.jog_xy_coarse_um if coarse else objective.jog_xy_fine_um
 
-    @api(reads=True)
+    @api(in_process=True, reads=True, engineering=True)
     def get_actual_position(self, axis: StageAxis) -> float | None:
-        """Query a stage axis's actual hardware position via serial (not cached), in um.
+        """The motor controller's own answer for a stage axis's position, in um: the bench's read, not a client's.
 
-        Unlike get_current_position(), which serves the in-memory cache,
-        this asks the motor controller directly. Use during continuous
-        motion sweeps where the stage is moving and the cache doesn't
-        reflect the true position. The commanded target is a third thing
-        again -- get_target_positions() answers that.
+        A caller reads ``axis_positions``, which pairs each position with
+        its axis's state. This one asks the board directly, past the cache
+        those reads serve, so a bench probe can hold the cache against the
+        board: ``tests/capability/motion_p13_arrival.py`` checks that a move
+        arrived where the board says it is, and
+        ``tests/capability/serial_p01_cable_pull.py`` watches the read meet
+        a pulled cable. The commanded target is a third thing again --
+        ``get_target_positions`` answers that.
 
         Costs one serial round-trip (~5ms).
 

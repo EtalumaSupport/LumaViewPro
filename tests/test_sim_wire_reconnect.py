@@ -197,7 +197,9 @@ def test_over_the_wire_a_lost_board_is_a_restart_refusal():
         with pytest.raises(HardwareCommandRefusedError):
             session.scope.motion.move_z(100.0)  # the exchange that finds the board gone
         with TestClient(build_app(session)) as client:
-            answer = client.get('/api/v1/scope/motion/get_actual_position', params={'axis': 'Z'})
+            answer = client.get(
+                '/api/v1/scope/motion/get_limit_switch_status', params={'axis': 'Z'}
+            )
         assert (answer.status_code, answer.json()['reason']) == (503, 'not_connected')
     finally:
         session.shutdown()

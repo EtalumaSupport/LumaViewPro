@@ -7018,49 +7018,6 @@ dict[StageAxis, AxisPosition]: Stage axis to (state, position), in the scope's a
 
 Nothing.
 
-<a id="MotionAPI.get_actual_position"></a>
-### `MotionAPI.get_actual_position`
-
-```python
-def get_actual_position(self, axis: StageAxis) -> float | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/get_actual_position`.
-
-Query a stage axis's actual hardware position via serial (not cached), in um.
-
-Unlike get_current_position(), which serves the in-memory cache,
-this asks the motor controller directly. Use during continuous
-motion sweeps where the stage is moving and the cache doesn't
-reflect the true position. The commanded target is a third thing
-again -- get_target_positions() answers that.
-
-Costs one serial round-trip (~5ms).
-
-**Args**
-
-- `axis`: Axis name ("X", "Y", "Z"). The turret has a slot, not a position: `turret_status`.
-
-**Returns**
-
-float | None: Current position in um; None with the null board installed or for an axis this scope does not have.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_offered'`, `axis` is not 'X', 'Y' or 'Z'.
-- `HardwareCommandRefusedError`: `'not_connected'`, the installed motor controller is not connected (its cable pulled).
-- `BoardNoReplyError`: `'board_no_reply'`, the controller did not answer the read.
-- `BoardReplyUnreadableError`: `'board_reply_unreadable'`, the controller's answer is not a position.
-- `BoardPortFailedError`: `'board_port_failed'`, the port to the controller failed or is not open.
-- `BoardReportedError`: `'board_reported_error'`, the controller refused the read.
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardReplyUnreadableError`](#BoardReplyUnreadableError): `board_reply_unreadable`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`BoardReportedError`](#BoardReportedError): `board_reported_error`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
 <a id="MotionAPI.get_axis_limits"></a>
 ### `MotionAPI.get_axis_limits`
 
@@ -13508,7 +13465,7 @@ strings cannot be written.
 
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep).  
 Held in: [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
-Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.get_actual_position`](#MotionAPI.get_actual_position), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
+Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
 
 A stage axis, X, Y or Z: an axis with a position in um.
 
@@ -17342,7 +17299,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/labware` | [`Lumascope.labware`](#Lumascope.labware) |
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
-| `GET` | `/api/v1/scope/motion/get_actual_position` | [`MotionAPI.get_actual_position`](#MotionAPI.get_actual_position) |
 | `GET` | `/api/v1/scope/motion/get_axis_limits` | [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits) |
 | `GET` | `/api/v1/scope/motion/get_limit_switch_status` | [`MotionAPI.get_limit_switch_status`](#MotionAPI.get_limit_switch_status) |
 | `GET` | `/api/v1/scope/motion/get_target_positions` | [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions) |

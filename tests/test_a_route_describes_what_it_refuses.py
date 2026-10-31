@@ -111,6 +111,13 @@ def test_the_remedy_door_is_the_one_route_to_a_remedy_and_names_the_held_session
     assert remedy_routes.isdisjoint(described['paths'])
 
 
+def test_a_stage_position_is_read_over_the_wire_through_axis_positions_alone(described):
+    """``axis_positions`` is the position read a client has; the board's own read,
+    ``get_actual_position``, is the bench's and has no route."""
+    assert '/api/v1/scope/motion/axis_positions' in described['paths']
+    assert '/api/v1/scope/motion/get_actual_position' not in described['paths']
+
+
 def test_a_build_on_the_post_processing_lane_names_no_door(described):
     """The post-processing lane asks no claim, so a build is open to anyone, held session or not."""
     refusals = _refusals(described, '/api/v1/post_processing/build')
