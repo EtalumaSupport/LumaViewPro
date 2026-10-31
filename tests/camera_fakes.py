@@ -353,6 +353,11 @@ def bare_ids_camera():
     cam.data_stream.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
     cam._pixel_format_cache = None
+    # The DeviceLost registration __init__ starts empty, which disconnect's
+    # unregister reads first.
+    cam.device_manager = None
+    cam._device_lost_callback = None
+    cam._device_lost_callback_handle = None
     # Capability values __init__ resolves from the nodemap at connect: the
     # analog gain selector entry and the max binning factor. Seeded so gain() /
     # set_binning_size run against real state on a __new__-built fake.

@@ -1,31 +1,49 @@
-"""A bare Pylon stand-in runs the real ``disconnect()`` to its end.
+"""A bare camera stand-in runs the real ``disconnect()`` to its end.
 
 The contract is ``tests/camera_fakes.py``'s: its fakes are REAL driver
 objects, so production methods run on them. ``Camera.__del__`` runs
 ``disconnect()`` on any fake still active when it is collected, which can be
 inside a later test; a fake missing base state raises there and logs the
-error on whatever ``pyloncamera._cam_log`` that test has patched (a failed
-slow-stop test once failed the fast-stop test beside it this way).
+error on the camera log inside whatever test is running (a failed slow-stop
+test once failed the fast-stop test beside it this way).
 
-A stand-in by design: the subject is the fake itself; the camera log is a
-MagicMock patched over ``pyloncamera._cam_log`` (the suite mocks
-``lvp_logger``, so ``caplog`` would see nothing).
+A stand-in by design: the subject is the fake itself; the camera log is
+read from ``caplog``, the driver's own ``LVP.camera`` lines.
 """
 
-from unittest import mock
+import logging
 
-from tests.camera_fakes import bare_pylon_camera
+from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
+from tests.log_capture import records_of
 
 
-def test_a_bare_pylon_camera_disconnects_without_an_error():
+def test_a_bare_pylon_camera_disconnects_without_an_error(caplog):
     from drivers import pyloncamera
 
     cam = bare_pylon_camera()
-    log = mock.MagicMock()
 
-    with mock.patch.object(pyloncamera, '_cam_log', log):
-        assert cam.disconnect() is True
+    assert cam.disconnect() is True
 
     assert cam.active is None
-    assert not log.exception.called, log.exception.call_args_list
-    assert not log.warning.called, log.warning.call_args_list
+    told = [
+        (r.levelname, r.getMessage())
+        for r in records_of(caplog, pyloncamera)
+        if r.name == 'LVP.camera' and r.levelno >= logging.WARNING
+    ]
+    assert told == [], told
+
+
+def test_a_bare_ids_camera_disconnects_without_an_error(caplog):
+    from drivers import idscamera
+
+    cam = bare_ids_camera()
+
+    assert cam.disconnect() is True
+
+    assert cam.active is None
+    told = [
+        (r.levelname, r.getMessage())
+        for r in records_of(caplog, idscamera)
+        if r.levelno >= logging.WARNING
+    ]
+    assert told == [], told
