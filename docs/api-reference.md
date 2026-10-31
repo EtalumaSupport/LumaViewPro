@@ -499,38 +499,39 @@ Returns how many steps took it.
 def apply_remedy(self, remedy: Remedy) -> int | tuple[UsbIdentityBindings, ...]
 ```
 
+Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/apply_remedy`.
 
 Take the action a refusal named as its remedy, and return its answer.
 
-The one place a remedy's name becomes an action: the GUI's offer and
-a REST caller answer a refusal through this, never by resolving the
-name themselves. A name arrives as data -- from a refusal another
-layer built, or from a caller sending it back -- and a `Remedy`
-holds only a `RemedyName`, so only the members listed here are
-reachable through it. The member still decides whether the remedy
-applies now, and refuses if not.
+The one place a remedy's name becomes an action, and the one door to
+each remedy: the GUI's offer and a REST caller answer a refusal
+through this. A name arrives as data -- from a refusal another layer
+built, or from a caller sending it back -- and a `Remedy` holds
+only a `RemedyName`, so only the remedies listed here are reachable
+through it. The remedy still decides whether it applies now, and
+refuses if not.
 
 **Args**
 
-- `remedy`: The remedy the refusal carried; its `member` names the member taken: `recover_file_writer` or `repair_camera_driver`.
+- `remedy`: The remedy the refusal carried; its `member` names the remedy taken: `recover_file_writer` gives up on a finished run's unwritten images and unlocks its stuck file writer; `repair_camera_driver` installs LumaViewPro's driver for a Lumascope Classic and binds its USB identities to it, on the scope PC's desktop, where Windows asks for an administrator's approval.
 
 **Returns**
 
-The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the bindings after the repair.
+The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the bindings read after the repair, as `scope.diagnostics.get_camera_usb_bindings`.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, as `recover_file_writer`.
-- `FileWriterNotStuckError`: as `recover_file_writer`.
-- `CameraDriverRepairRefusedError`: `'repair_needs_windows'` and the other reasons `repair_camera_driver` names.
-- `CameraDriverRepairFailedError`: as `repair_camera_driver`.
-- `CameraUsbLookupFailedError`: as `repair_camera_driver`.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the file writer's recovery while a run, a diagnostic or a home holds the scope: the writer is recovered only while the scope is held by nothing, so no live run's captures are given up on.
+- `FileWriterNotStuckError`: the file writer's recovery when no write has stopped making progress; the writer will finish on its own, and recovering would lose images for nothing.
+- `CameraDriverRepairRefusedError`: the repair's `'repair_needs_windows'`, `'repair_needs_installed_build'`, `'repair_needs_driver_package'` (built without the Classic driver), `'no_classic_bindings'`, `'driver_already_usable'` (a camera is up, or every present device is on a driver LumaViewPro can use), `'repair_declined'` when the administrator's approval was not given, or `'driver_not_accepted'` when Windows did not take the package (declined at its question, or refused).
+- `CameraDriverRepairFailedError`: The repair's step could not start, did not finish, ended unsuccessfully, or left a present device on a driver LumaViewPro cannot use; the words name its log.
+- `CameraUsbLookupFailedError`: The bindings could not be read.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`FileWriterNotStuckError`](#FileWriterNotStuckError): `file_writer_not_stuck`
-- 422: [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_needs_windows`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`FileWriterNotStuckError`](#FileWriterNotStuckError): `file_writer_not_stuck`; [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_declined`, `driver_not_accepted`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_needs_windows`, `repair_needs_installed_build`, `repair_needs_driver_package`, `no_classic_bindings`, `driver_already_usable`
 - 500: [`CameraDriverRepairFailedError`](#CameraDriverRepairFailedError): `camera_driver_repair_failed`; [`CameraUsbLookupFailedError`](#CameraUsbLookupFailedError): `camera_usb_lookup_failed`
 
 <a id="ScopeSession.apply_tiling"></a>
@@ -2268,42 +2269,6 @@ The file written.
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `capture_location_unusable`, `outside_live_folder`, `file_exists`, `not_a_folder`
 - [`LiveFolderFileNotWrittenError`](#LiveFolderFileNotWrittenError): `live_folder_file_not_written`
 
-<a id="ScopeSession.recover_file_writer"></a>
-### `ScopeSession.recover_file_writer`
-
-```python
-def recover_file_writer(self) -> int
-```
-
-Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/recover_file_writer`.
-
-Give up on a finished run's unwritten images and unlock a stuck writer.
-
-When a protocol run's file writer stops making progress, the run
-engine reports the stall once (`FileWriterStalledError`) and
-every subsequent run is refused with the `files_writing_stalled`
-reason until the writer is recovered or the app restarts; both
-carry this method as their remedy, and any caller may call it by
-name. The run's outstanding images are given up on and counted,
-and the worker stuck mid-write is abandoned and replaced. Nothing
-else queued on the lane is discarded.
-
-**Returns**
-
-How many of the run's images were given up on.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: a run, a diagnostic or a home holds the scope: the writer is recovered only while the scope is held by nothing, so no live run's captures are given up on.
-- `FileWriterNotStuckError`: no write has stopped making progress; the writer will finish on its own, and recovering would lose images for nothing.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`; [`FileWriterNotStuckError`](#FileWriterNotStuckError): `file_writer_not_stuck`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `not_on_this_scope`, `activity_ended`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`, `monitor_ended`, `not_connected`
-
 <a id="ScopeSession.remove_outcome_listener"></a>
 ### `ScopeSession.remove_outcome_listener`
 
@@ -2407,46 +2372,6 @@ Give step `step_index` of `protocol` the label `name`; returns its new name.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
-
-<a id="ScopeSession.repair_camera_driver"></a>
-### `ScopeSession.repair_camera_driver`
-
-```python
-def repair_camera_driver(self) -> tuple[UsbIdentityBindings, ...]
-```
-
-Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/repair_camera_driver`.
-
-Install LumaViewPro's driver for a Lumascope Classic and bind its USB identities to it.
-
-Offered as the remedy of the bring-up's `camera_driver_unusable`
-on an installed Windows build that carries the Classic driver, and
-callable by name from any client. It runs the installed driver step
-as an administrator, on the scope PC's desktop: Windows asks there
-for an administrator's approval, then whether to install software
-from Etaluma (unless the person chose to always trust it), so someone
-at the scope answers whoever asked. The step logs every action to the
-install folder's `logs`. A camera that is up is never touched:
-Repair runs only while no camera is connected and a present device is
-on a driver LumaViewPro cannot use, and the camera connects on its new
-driver at the next start, which the notice it reports says.
-
-**Returns**
-
-tuple[UsbIdentityBindings, ...]: The bindings read after the step, as `scope.diagnostics.get_camera_usb_bindings`.
-
-**Raises**
-
-- `CameraDriverRepairRefusedError`: `'repair_needs_windows'`, `'repair_needs_installed_build'`, `'repair_needs_driver_package'` (built without the Classic driver), `'no_classic_bindings'`, `'driver_already_usable'` (a camera is up, or every present device is on a driver LumaViewPro can use), `'repair_declined'` when the administrator's approval was not given, or `'driver_not_accepted'` when Windows did not take the package (declined at its question, or refused).
-- `CameraDriverRepairFailedError`: The step could not start, did not finish, ended unsuccessfully, or left a present device on a driver LumaViewPro cannot use; the words name its log.
-- `CameraUsbLookupFailedError`: The bindings could not be read.
-
-**Refusals by REST status**
-
-- 409: [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_declined`, `driver_not_accepted`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_needs_windows`, `repair_needs_installed_build`, `repair_needs_driver_package`, `no_classic_bindings`, `driver_already_usable`
-- 500: [`CameraDriverRepairFailedError`](#CameraDriverRepairFailedError): `camera_driver_repair_failed`; [`CameraUsbLookupFailedError`](#CameraUsbLookupFailedError): `camera_usb_lookup_failed`
 
 <a id="ScopeSession.retire_rejected_settings"></a>
 ### `ScopeSession.retire_rejected_settings`
@@ -11989,7 +11914,7 @@ place.
 
 - <a id="Remedy.cancel_text"></a>`cancel_text`: `str` -- The words that decline it and leave things as they are.
 - <a id="Remedy.confirm_text"></a>`confirm_text`: `str` -- The words that take the remedy, naming what it costs.
-- <a id="Remedy.member"></a>`member`: `RemedyName` -- The Session member that answers the refusal.
+- <a id="Remedy.member"></a>`member`: `RemedyName` -- The remedy that answers the refusal, which the Session applies.
 
 <a id="RunEnded"></a>
 ## `RunEnded`
@@ -12820,7 +12745,7 @@ One device of a USB identity and the driver Windows has bound to it.
 ## `UsbIdentityBindings`
 
 A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings), [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy), [`ScopeSession.repair_camera_driver`](#ScopeSession.repair_camera_driver).
+Returned by: [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings), [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 A USB identity of a Lumascope Classic and each of its devices' drivers.
 
@@ -13503,7 +13428,7 @@ itself.
 
 Held in: [`Remedy.member`](#Remedy.member).
 
-The Session members a refusal can name as its remedy (`ScopeSession.apply_remedy`).
+The remedies a refusal can name, each one the Session applies (`ScopeSession.apply_remedy`).
 
 - `recover_file_writer`
 - `repair_camera_driver`
@@ -17344,9 +17269,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/protocol_files_stalled` | [`ScopeSession.protocol_files_stalled`](#ScopeSession.protocol_files_stalled) |
 | `GET` | `/api/v1/protocol_files_stuck_write` | [`ScopeSession.protocol_files_stuck_write`](#ScopeSession.protocol_files_stuck_write) |
 | `GET` | `/api/v1/protocol_size_advisory` | [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory) |
-| `POST` | `/api/v1/recover_file_writer` | [`ScopeSession.recover_file_writer`](#ScopeSession.recover_file_writer) |
 | `POST` | `/api/v1/rename_step` | [`ScopeSession.rename_step`](#ScopeSession.rename_step) |
-| `POST` | `/api/v1/repair_camera_driver` | [`ScopeSession.repair_camera_driver`](#ScopeSession.repair_camera_driver) |
 | `POST` | `/api/v1/retire_rejected_settings` | [`ScopeSession.retire_rejected_settings`](#ScopeSession.retire_rejected_settings) |
 | `POST` | `/api/v1/save_all_bookmarks` | [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks) |
 | `POST` | `/api/v1/save_bookmark` | [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark) |

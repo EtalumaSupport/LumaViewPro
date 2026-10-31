@@ -95,7 +95,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ProtocolRunner.start_composite', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_tiling', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_zstacking', 'ProtocolRunRefusedError'),
-        ('ScopeSession.recover_file_writer', 'HardwareCommandRefusedError'),
         ('ScopeSession.run_application_session', 'HardwareCommandRefusedError'),
         ('ScopeSession.start_go_to_step', 'ProtocolRunRefusedError'),
     }

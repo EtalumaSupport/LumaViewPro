@@ -101,6 +101,16 @@ def test_a_guarded_write_names_the_held_session_beside_its_own_refusals(describe
     }
 
 
+def test_the_remedy_door_is_the_one_route_to_a_remedy_and_names_the_held_session(described):
+    """Each remedy is a guarded write reached only through ``apply_remedy``, so its
+    route says a held control session refuses it, and no remedy has a route of its own."""
+    refusals = _refusals(described, '/api/v1/apply_remedy')
+
+    assert refusals['409']['ControlSessionRefusedError'] == ['control_session_held']
+    remedy_routes = {'/api/v1/recover_file_writer', '/api/v1/repair_camera_driver'}
+    assert remedy_routes.isdisjoint(described['paths'])
+
+
 def test_a_build_on_the_post_processing_lane_names_no_door(described):
     """The post-processing lane asks no claim, so a build is open to anyone, held session or not."""
     refusals = _refusals(described, '/api/v1/post_processing/build')

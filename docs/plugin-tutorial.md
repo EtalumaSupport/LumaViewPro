@@ -492,6 +492,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 58 | `ScopeSession.set_scale_bar` raises `HardwareCommandRefusedError('exclusive_activity_running')` while a run, a diagnostic, a home or a recording holds the scope and the value is a change; the value already set is admitted. |
 | level 59 | The plugin contract is declared: `session.plugins` is a read, and the namespaces' members this tutorial teaches are API. `PluginSpec.subscribes_to` and `ProcessorResult.metadata` are gone, and a record built with either raises `TypeError`. The mount point is a `UIMountPoint`: another name is refused `ArgumentRefusedError` (`not_offered`) where `ui.register` refused `PluginRegistrationError` (`unknown_mount_point`), and `UI_MOUNT_POINTS` is gone. A processor that is not callable is refused at `post_processing.register`, `ArgumentTypeRefusedError` (`wrong_argument_type`). |
 | level 60 | One capture: `ImagingAPI.capture_and_wait` is gone. A caller below the Session takes `imaging.capture_still(...).image`, the same capture with the same arguments, its record beside the pixels (`CapturedStill.record`); `ScopeSession.capture_still` stays the Session's door. The capture's log lines say `capture_still:`. |
+| level 61 | One remedy door: `ScopeSession.recover_file_writer` and `repair_camera_driver` are gone, with their routes. A remedy is taken through `session.apply_remedy(Remedy(...))`, which answers and refuses as each did, a held control session included. |
 
 ---
 

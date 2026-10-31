@@ -15,7 +15,12 @@ import threading
 import pytest
 
 from modules.activity_claim import ActivityClaim, acting, current_taking
-from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError, Refusal
+from modules.exceptions import (
+    BlockingCallRefusedError,
+    FileWriterStalledError,
+    HardwareCommandRefusedError,
+    Refusal,
+)
 from modules.run_events import RunEvents
 from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
@@ -346,8 +351,12 @@ class TestTheSession:
         assert paths
 
     def test_the_file_writer_is_not_recovered_under_a_hold(self, sim_session):
-        with sim_session.diagnostic_claim(), pytest.raises(HardwareCommandRefusedError):
-            sim_session.recover_file_writer()
+        with sim_session.diagnostic_claim(), pytest.raises(HardwareCommandRefusedError) as refused:
+            sim_session.apply_remedy(FileWriterStalledError.recovery(1))
+        assert (refused.value.reason, refused.value.holder) == (
+            'exclusive_activity_running',
+            'diagnostic',
+        )
 
     def test_a_grab_and_the_bandwidth_test_are_refused_a_bystander(self, sim_session):
         """Both reach the camera only through its lane, so a diagnostic's hold

@@ -289,9 +289,10 @@ scope.motion.get_axis_limits('W')           # no axis W: offered X, Y, Z
 ```
 
 **Remedies.** A refusal that one action answers carries it as `remedy`: the
-member to call and the words of the offer. Take it through
-`session.apply_remedy(refusal.remedy)`, the one place a remedy's name becomes
-an action; the member still decides whether it applies now.
+remedy's name and the words of the offer. Take it through
+`session.apply_remedy(refusal.remedy)`, the one door to every remedy and the
+one place its name becomes an action; the remedy still decides whether it
+applies now.
 
 ### Hearing outcomes
 

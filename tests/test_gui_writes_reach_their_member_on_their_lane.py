@@ -59,7 +59,6 @@ def ctx(monkeypatch):
         settings={LED1: {'illumination_ma': 120.0, 'focus': 4321.0}},
         session=SimpleNamespace(
             controls_locked=False,
-            recover_file_writer=MagicMock(),
             light_shown_channel=MagicMock(),
             show_channel=MagicMock(),
         ),

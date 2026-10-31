@@ -1922,30 +1922,20 @@ class ScopeSession:
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------
 
-    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def recover_file_writer(self) -> int:
+    def _recover_file_writer(self) -> int:
         """Give up on a finished run's unwritten images and unlock a stuck writer.
 
         When a protocol run's file writer stops making progress, the run
         engine reports the stall once (``FileWriterStalledError``) and
         every subsequent run is refused with the ``files_writing_stalled``
         reason until the writer is recovered or the app restarts; both
-        carry this method as their remedy, and any caller may call it by
-        name. The run's outstanding images are given up on and counted,
-        and the worker stuck mid-write is abandoned and replaced. Nothing
-        else queued on the lane is discarded.
-
-        Returns:
-            How many of the run's images were given up on.
-
-        Raises:
-            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
-                scope: the writer is recovered only while the scope is
-                held by nothing, so no live run's captures are given up on.
-            FileWriterNotStuckError: no write has stopped making progress;
-                the writer will finish on its own, and recovering would
-                lose images for nothing.
+        carry this remedy, which a caller takes through ``apply_remedy``,
+        and the close applies itself. The run's outstanding images are
+        given up on and counted, and the worker stuck mid-write is
+        abandoned and replaced. Nothing else queued on the lane is
+        discarded. Its answer and its refusals are stated on
+        ``apply_remedy``.
         """
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
@@ -1963,41 +1953,22 @@ class ScopeSession:
         self.file_io_executor.replace_stuck_worker()
         return abandoned
 
-    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def repair_camera_driver(self) -> 'tuple[UsbIdentityBindings, ...]':
+    def _repair_camera_driver(self) -> 'tuple[UsbIdentityBindings, ...]':
         """Install LumaViewPro's driver for a Lumascope Classic and bind its USB identities to it.
 
         Offered as the remedy of the bring-up's ``camera_driver_unusable``
         on an installed Windows build that carries the Classic driver, and
-        callable by name from any client. It runs the installed driver step
-        as an administrator, on the scope PC's desktop: Windows asks there
-        for an administrator's approval, then whether to install software
-        from Etaluma (unless the person chose to always trust it), so someone
-        at the scope answers whoever asked. The step logs every action to the
-        install folder's ``logs``. A camera that is up is never touched:
-        Repair runs only while no camera is connected and a present device is
-        on a driver LumaViewPro cannot use, and the camera connects on its new
-        driver at the next start, which the notice it reports says.
-
-        Returns:
-            tuple[UsbIdentityBindings, ...]: The bindings read after the
-                step, as ``scope.diagnostics.get_camera_usb_bindings``.
-
-        Raises:
-            CameraDriverRepairRefusedError: ``'repair_needs_windows'``,
-                ``'repair_needs_installed_build'``,
-                ``'repair_needs_driver_package'`` (built without the Classic
-                driver), ``'no_classic_bindings'``, ``'driver_already_usable'``
-                (a camera is up, or every present device is on a driver
-                LumaViewPro can use), ``'repair_declined'`` when the
-                administrator's approval was not given, or
-                ``'driver_not_accepted'`` when Windows did not take the
-                package (declined at its question, or refused).
-            CameraDriverRepairFailedError: The step could not start, did not
-                finish, ended unsuccessfully, or left a present device on a
-                driver LumaViewPro cannot use; the words name its log.
-            CameraUsbLookupFailedError: The bindings could not be read.
+        taken through ``apply_remedy`` by any client. It runs the installed
+        driver step as an administrator, on the scope PC's desktop: Windows
+        asks there for an administrator's approval, then whether to install
+        software from Etaluma (unless the person chose to always trust it), so
+        someone at the scope answers whoever asked. The step logs every action
+        to the install folder's ``logs``. A camera that is up is never
+        touched: Repair runs only while no camera is connected and a present
+        device is on a driver LumaViewPro cannot use, and the camera connects
+        on its new driver at the next start, which the notice it reports says.
+        Its answer and its refusals are stated on ``apply_remedy``.
         """
         from modules import fx2_driver_step
         from modules.notification_center import notifications
@@ -2039,40 +2010,58 @@ class ScopeSession:
         )
         return after
 
-    @api
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
     def apply_remedy(self, remedy: Remedy) -> 'int | tuple[UsbIdentityBindings, ...]':
         """Take the action a refusal named as its remedy, and return its answer.
 
-        The one place a remedy's name becomes an action: the GUI's offer and
-        a REST caller answer a refusal through this, never by resolving the
-        name themselves. A name arrives as data -- from a refusal another
-        layer built, or from a caller sending it back -- and a ``Remedy``
-        holds only a ``RemedyName``, so only the members listed here are
-        reachable through it. The member still decides whether the remedy
-        applies now, and refuses if not.
+        The one place a remedy's name becomes an action, and the one door to
+        each remedy: the GUI's offer and a REST caller answer a refusal
+        through this. A name arrives as data -- from a refusal another layer
+        built, or from a caller sending it back -- and a ``Remedy`` holds
+        only a ``RemedyName``, so only the remedies listed here are reachable
+        through it. The remedy still decides whether it applies now, and
+        refuses if not.
 
         Args:
             remedy: The remedy the refusal carried; its ``member`` names the
-                member taken: ``recover_file_writer`` or
-                ``repair_camera_driver``.
+                remedy taken: ``recover_file_writer`` gives up on a finished
+                run's unwritten images and unlocks its stuck file writer;
+                ``repair_camera_driver`` installs LumaViewPro's driver for a
+                Lumascope Classic and binds its USB identities to it, on the
+                scope PC's desktop, where Windows asks for an administrator's
+                approval.
 
         Returns:
             The remedy's own answer: ``recover_file_writer`` answers how many
             of the run's images it gave up on, ``repair_camera_driver`` the
-            bindings after the repair.
+            bindings read after the repair, as
+            ``scope.diagnostics.get_camera_usb_bindings``.
 
         Raises:
-            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                as ``recover_file_writer``.
-            FileWriterNotStuckError: as ``recover_file_writer``.
-            CameraDriverRepairRefusedError: ``'repair_needs_windows'`` and the
-                other reasons ``repair_camera_driver`` names.
-            CameraDriverRepairFailedError: as ``repair_camera_driver``.
-            CameraUsbLookupFailedError: as ``repair_camera_driver``.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``, the
+                file writer's recovery while a run, a diagnostic or a home
+                holds the scope: the writer is recovered only while the scope
+                is held by nothing, so no live run's captures are given up on.
+            FileWriterNotStuckError: the file writer's recovery when no write
+                has stopped making progress; the writer will finish on its
+                own, and recovering would lose images for nothing.
+            CameraDriverRepairRefusedError: the repair's
+                ``'repair_needs_windows'``, ``'repair_needs_installed_build'``,
+                ``'repair_needs_driver_package'`` (built without the Classic
+                driver), ``'no_classic_bindings'``, ``'driver_already_usable'``
+                (a camera is up, or every present device is on a driver
+                LumaViewPro can use), ``'repair_declined'`` when the
+                administrator's approval was not given, or
+                ``'driver_not_accepted'`` when Windows did not take the
+                package (declined at its question, or refused).
+            CameraDriverRepairFailedError: The repair's step could not start,
+                did not finish, ended unsuccessfully, or left a present device
+                on a driver LumaViewPro cannot use; the words name its log.
+            CameraUsbLookupFailedError: The bindings could not be read.
         """
         remedies: dict[RemedyName, Callable[[], int | tuple[UsbIdentityBindings, ...]]] = {
-            RemedyName.RECOVER_FILE_WRITER: self.recover_file_writer,
-            RemedyName.REPAIR_CAMERA_DRIVER: self.repair_camera_driver,
+            RemedyName.RECOVER_FILE_WRITER: self._recover_file_writer,
+            RemedyName.REPAIR_CAMERA_DRIVER: self._repair_camera_driver,
         }
         return remedies[remedy.member]()
 
@@ -6147,7 +6136,7 @@ class ScopeSession:
                 break
             if self.activity_claim.owner not in SCOPE_HOLDING_KINDS and self.protocol_files_stalled:
                 try:
-                    given_up = self.recover_file_writer()
+                    given_up = self._recover_file_writer()
                 except FileWriterNotStuckError:
                     # It moved again between the two reads: still writing,
                     # so the close keeps waiting for it.

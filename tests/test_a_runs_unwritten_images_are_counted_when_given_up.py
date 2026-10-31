@@ -22,7 +22,12 @@ import pytest
 
 from modules import live_work
 import modules.protocol_image_writer as protocol_image_writer
-from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
+from modules.exceptions import (
+    FileWriterNotStuckError,
+    FileWriterStalledError,
+    Notice,
+    RunFilesNotWrittenError,
+)
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
 from tests.af_drives import af_runner_on, sweep
@@ -77,7 +82,7 @@ class TestRecoveringAStuckWriter:
             time.sleep(0.5)
             assert session.protocol_files_stalled
 
-            abandoned = session.recover_file_writer()
+            abandoned = session.apply_remedy(FileWriterStalledError.recovery(1))
 
             assert abandoned == 1
             assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
@@ -105,7 +110,7 @@ class TestRecoveringAStuckWriter:
             assert started.acquire(timeout=WAIT_S)
 
             with pytest.raises(FileWriterNotStuckError) as refused:
-                session.recover_file_writer()
+                session.apply_remedy(FileWriterStalledError.recovery(1))
 
             assert refused.value.reason == 'file_writer_not_stuck'
             assert refused.value.pending == 1

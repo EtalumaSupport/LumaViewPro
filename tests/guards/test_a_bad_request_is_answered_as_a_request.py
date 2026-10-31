@@ -37,11 +37,9 @@ from tests.settings_fixtures import complete_settings
 # whose bad arguments are refused by the same checks a walked route reaches
 # (the path checks, the request reads), so posting it adds minutes and no
 # member: the support report and the logs zip (a whole bundle), the camera
-# bandwidth test, the file writer's recovery and the close's drain (each a
-# step of a session ending), and the engineering members (raw board commands).
-_NOT_WALKED = re.compile(
-    r'discard_close_drain|recover_file_writer|bandwidth|support_report|logs_zip|engineering'
-)
+# bandwidth test, the close's drain (a step of a session ending), and the
+# engineering members (raw board commands).
+_NOT_WALKED = re.compile(r'discard_close_drain|bandwidth|support_report|logs_zip|engineering')
 
 _FAULTS = '/api/v1/scope/simulation/'
 

@@ -3,10 +3,11 @@
 
 A Classic Windows has on a driver LumaViewPro cannot use is reported at
 bring-up with ``repair_camera_driver`` as its remedy, on an installed Windows
-build. ``ScopeSession.repair_camera_driver`` runs the installed driver step as
-an administrator, refuses where it cannot run or is not needed, tells a
-declined approval and a step that did not bind apart, and on success returns
-the new bindings and reports that a restart connects the camera.
+build. The remedy, taken through ``ScopeSession.apply_remedy``, runs the
+installed driver step as an administrator, refuses where it cannot run or is
+not needed, tells a declined approval and a step that did not bind apart, and
+on success returns the new bindings and reports that a restart connects the
+camera.
 
 The simulated FX2 is the bus, its binding the simulation's fault door. This
 host is a Mac, so Windows' approval prompt and the installed build are stood
@@ -90,7 +91,7 @@ def test_a_declined_approval_is_refused_as_declined(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', lambda *a: None)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.repair_camera_driver()
+        fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert refused.value.reason == 'repair_declined'
 
@@ -106,7 +107,7 @@ def test_a_package_windows_did_not_take_is_refused_as_not_accepted(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.repair_camera_driver()
+        fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert refused.value.reason == 'driver_not_accepted'
 
@@ -117,7 +118,7 @@ def test_a_scope_with_no_classic_device_is_refused_not_crashed(on_installed_wind
     )
     try:
         with pytest.raises(CameraDriverRepairRefusedError) as refused:
-            session.repair_camera_driver()
+            session.apply_remedy(CameraNotAvailableError.repair())
     finally:
         session.shutdown()
 
@@ -132,7 +133,7 @@ def test_a_usable_binding_is_not_repaired(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.repair_camera_driver()
+        fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert refused.value.reason == 'driver_already_usable'
     assert runs == []
@@ -148,7 +149,7 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.repair_camera_driver()
+        fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert refused.value.reason == 'driver_already_usable'
     assert runs == []
@@ -167,7 +168,7 @@ def test_a_step_that_did_not_bind_is_a_fault_naming_its_log(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairFailedError) as failed:
-        fx2_session.repair_camera_driver()
+        fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert said in str(failed.value)
     assert str(launch_root() / 'logs') in str(failed.value)
@@ -177,7 +178,7 @@ def test_off_windows_repair_is_refused_before_anything_runs(fx2_session):
     fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.repair_camera_driver()
+        fx2_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert refused.value.reason == 'repair_needs_windows'
 

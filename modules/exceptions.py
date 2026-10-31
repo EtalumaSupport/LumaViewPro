@@ -66,7 +66,7 @@ def _holder(kind: str | None) -> Holder | None:
 
 
 class RemedyName(StrEnum):
-    """The Session members a refusal can name as its remedy (``ScopeSession.apply_remedy``)."""
+    """The remedies a refusal can name, each one the Session applies (``ScopeSession.apply_remedy``)."""
 
     RECOVER_FILE_WRITER = 'recover_file_writer'
     REPAIR_CAMERA_DRIVER = 'repair_camera_driver'
@@ -85,7 +85,7 @@ class Remedy:
     place.
 
     Attributes:
-        member: The Session member that answers the refusal.
+        member: The remedy that answers the refusal, which the Session applies.
         confirm_text: The words that take the remedy, naming what it costs.
         cancel_text: The words that decline it and leave things as they are.
     """

@@ -85,7 +85,7 @@ class PathAnswer(pydantic.BaseModel):
 
 
 class RemedyAnswer(pydantic.BaseModel):
-    """The one action that answers a refusal: the Session member to call, and the words that offer it."""
+    """The one action that answers a refusal: the remedy to send back to ``apply_remedy``, and the words that offer it."""
 
     model_config = ANSWER_CONFIG
     member: RemedyName

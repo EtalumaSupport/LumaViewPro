@@ -1,7 +1,7 @@
 """A run refused because the last run's file writer stalled names its own remedy.
 
-The remedy is data the refusal carries -- the Session member that answers it
-and the words of the offer -- so the one reporter can show the refusal as a
+The remedy is data the refusal carries -- the remedy that answers it and the
+words of the offer -- so the one reporter can show the refusal as a
 confirmation and a REST or SDK caller receives the same remedy by name. The
 Session is the one place a name becomes an action. Before this, the offer
 lived in the GUI's press gates: delete them and a person who declined the
@@ -12,7 +12,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, Remedy, RemedyName
+from modules.caller import Caller, calling
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ControlSessionRefusedError,
+    ProtocolRunRefusedError,
+    Refusal,
+    Remedy,
+    RemedyName,
+)
 from modules.image_mode import ImageCaptureConfig
 from modules.notification_center import NotificationCenter, Severity
 from modules.protocol_image_writer import RunWriteBatch
@@ -20,6 +28,7 @@ from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
 from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
@@ -106,9 +115,6 @@ class TestTheSessionAppliesARemedyByName:
         """Each ``RemedyName`` is one ``apply_remedy`` acts on: on an idle
         simulated scope its member refuses (nothing is stuck; the repair needs
         a Classic on Windows), never a lookup failing on a name it lacks."""
-        from modules.exceptions import Refusal
-        from tests.settings_fixtures import complete_settings
-
         idle = ScopeSession.create(complete_settings(), simulate=True)
         try:
             for name in RemedyName:
@@ -116,6 +122,24 @@ class TestTheSessionAppliesARemedyByName:
                     idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
         finally:
             idle.shutdown()
+
+    def test_every_remedy_is_refused_to_another_caller_while_a_control_session_is_held(self):
+        """Each remedy writes -- a run's images given up, a camera driver
+        installed -- so while a client holds the control session, any other
+        caller's remedy is refused before it acts."""
+        idle = ScopeSession.create(complete_settings(), simulate=True)
+        try:
+            with calling(Caller.REST):
+                idle.take_control('plate reader')
+            refused = {}
+            for name in RemedyName:
+                with pytest.raises(ControlSessionRefusedError) as raised:
+                    idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
+                refused[name] = raised.value.reason
+        finally:
+            idle.shutdown()
+
+        assert refused == dict.fromkeys(RemedyName, 'control_session_held')
 
 
 class TestTheReporterCarriesTheRemedyToItsListeners:
