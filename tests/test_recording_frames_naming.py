@@ -16,6 +16,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from modules import recording_frames
+from modules.image_mode import OutputFormat
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.video_builder import VideoBuilder
 from modules.layer_record import release_colors
@@ -24,11 +25,13 @@ from tests.stock_channels import LED1
 
 class TestFrameNameShapes:
     def test_protocol_template_renders_the_shipped_shape(self):
-        template = recording_frames.protocol_frame_filename_template('A1_BF_0003_video')
+        template = recording_frames.protocol_frame_filename_template(
+            'A1_BF_0003_video', OutputFormat.TIFF
+        )
         assert template.format(n=7) == 'A1_BF_0003_video_Frame_0007.tiff'
 
     def test_manual_template_renders_the_shipped_shape(self):
-        template = recording_frames.manual_frame_filename_template()
+        template = recording_frames.manual_frame_filename_template(OutputFormat.TIFF)
         name = template.format(n=7, ts='2026-08-09_12-00-00-000')
         assert name == 'ManualVideo_Frame_0007_2026-08-09_12-00-00-000.tiff'
 
@@ -86,7 +89,10 @@ class TestVideoDirPathClassification:
         step = 'A1_BF_0003_video'
         folder = tmp_path / step
         folder.mkdir()
-        (folder / recording_frames.protocol_frame_filename_template(step).format(n=0)).touch()
+        (
+            folder
+            / recording_frames.protocol_frame_filename_template(step, OutputFormat.TIFF).format(n=0)
+        ).touch()
         assert recording_frames.is_video_recording_dir(folder)
 
     def test_a_run_folder_renamed_to_end_in_video_is_scanned_as_a_run(self, tmp_path):

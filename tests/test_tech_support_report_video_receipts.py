@@ -14,6 +14,7 @@ import json
 import time
 
 from modules import recording_frames, tech_support_report
+from modules.image_mode import OutputFormat
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.tech_support_report import (
     TechSupportReport,
@@ -31,7 +32,7 @@ def _make_protocol_recording(
     step_name = f'{well}_{color}_{scan:04}_video'
     rec = run_root / color / step_name
     rec.mkdir(parents=True)
-    template = recording_frames.protocol_frame_filename_template(step_name)
+    template = recording_frames.protocol_frame_filename_template(step_name, OutputFormat.TIFF)
     for n in frame_numbers:
         (rec / template.format(n=n)).write_bytes(b'x' * 10)
     if manifest:
@@ -42,7 +43,7 @@ def _make_protocol_recording(
 def _make_manual_recording(manual_root, ts='20260810_120000', frames=3):
     rec = manual_root / f'Video_{ts}'
     rec.mkdir(parents=True)
-    template = recording_frames.manual_frame_filename_template()
+    template = recording_frames.manual_frame_filename_template(OutputFormat.TIFF)
     for n in range(frames):
         (rec / template.format(n=n, ts=ts)).write_bytes(b'x' * 10)
     (rec / MANIFEST_FILENAME).write_text('{}')

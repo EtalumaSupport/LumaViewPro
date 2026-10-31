@@ -320,7 +320,9 @@ class ProtocolVideoStep:
             height=frame_size.height,
             bit_depth=self._capture_config.capture_depth,
             output_dir=self._output_dir,
-            filename_template=protocol_frame_filename_template(self._name),
+            filename_template=protocol_frame_filename_template(
+                self._name, self._capture_config.output_format_sequenced
+            ),
             timestamp_overlay=self._timestamp_overlay,
             manifest_extra={
                 'step_name': self._name,

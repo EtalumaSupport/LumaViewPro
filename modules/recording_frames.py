@@ -33,6 +33,7 @@ from modules.lumascope_api.frame_record import (
 if TYPE_CHECKING:
     from drivers.camera import Frame
     from modules.coord_transformations import PlatePosition
+    from modules.image_mode import OutputFormat
     from modules.labware import Labware
     from modules.layer_record import ChannelColors
     from modules.lumascope_api import Lumascope
@@ -46,11 +47,15 @@ if TYPE_CHECKING:
 # forever. Changing a token means changing every consumer below plus a
 # two-generation reader for old folders -- never change one in isolation.
 #
-# Protocol video steps write   <step_name>_Frame_<NNNN>.tiff   into a
+# Protocol video steps write   <step_name>_Frame_<NNNN><suffix>   into a
 # per-recording folder named <step_name>, where <step_name> ends with the
 # 'video' post suffix (common_utils.build_step_name) -- so protocol frame
 # names carry '_video_Frame_'. Manual "Frames" recordings write
-# ManualVideo_Frame_<NNNN>_<ts>.tiff. The two vocabularies differ by case
+# ManualVideo_Frame_<NNNN>_<ts><suffix>. The suffix is the recording's
+# format's (image_utils.derived_file_suffix): .ome.tiff for an OME-TIFF
+# recording, .tiff for every other, and the writer takes its container from
+# it. Readers find a frame by its token and a TIFF last suffix, which both
+# satisfy. The two vocabularies differ by case
 # ('Video_Frame' vs 'video_Frame'), so the predicates below are disjoint;
 # consumers must never re-derive them with ad-hoc substring checks.
 
@@ -75,14 +80,14 @@ _FRAME_NUM_RE = re.compile(rf'{_FRAME_TOKEN}(\d+)')
 _MANUAL_FRAME_RE = re.compile(rf'{re.escape(_MANUAL_FRAME_PREFIX)}\d')
 
 
-def protocol_frame_filename_template(step_name: str) -> str:
-    """Frame-file template for a protocol video step's recording."""
-    return f'{step_name}{_FRAME_TOKEN}{{n:04d}}.tiff'
+def protocol_frame_filename_template(step_name: str, output_format: 'OutputFormat') -> str:
+    """Frame-file template for a protocol video step's recording in *output_format*, the run's."""
+    return f'{step_name}{_FRAME_TOKEN}{{n:04d}}{image_utils.derived_file_suffix(output_format)}'
 
 
-def manual_frame_filename_template() -> str:
-    """Frame-file template for a manual "Frames" recording."""
-    return f'{_MANUAL_FRAME_PREFIX}{{n:04d}}_{{ts}}.tiff'
+def manual_frame_filename_template(output_format: 'OutputFormat') -> str:
+    """Frame-file template for a manual "Frames" recording in *output_format*, the Live one."""
+    return f'{_MANUAL_FRAME_PREFIX}{{n:04d}}_{{ts}}{image_utils.derived_file_suffix(output_format)}'
 
 
 def frame_number(filename: str | pathlib.Path) -> int:
@@ -380,7 +385,8 @@ def write_frame(
     Args:
         scope: The scope the recording runs against.
         image: The frame, oriented and fitted (``orient_and_fit``).
-        file_loc: Output .tiff path.
+        file_loc: Output path, from the recording's template: its suffix
+            names the container.
         arrived: What the frame states, read as it arrived (``arrival``).
         frame_number: Its ordinal within the recording.
         objective_id: The objective the recording started with.

@@ -67,19 +67,22 @@ def write_recorded_frame(
     channel_colors: layer_record.ChannelColors,
     save_encoding: str,
 ) -> None:
-    """Save one recorded frame to TIFF with the still's builder and writer.
+    """Save one recorded frame with the still's builder and writer, in the container its name states.
 
     The file states what a still's states, from the frame's own record
     (``generate_image_metadata``), and two facts only a recorded frame has:
     its number in the recording and whether the stage was moving when it
-    arrived. It is written as a still is (``image_utils.write_tiff``): a
-    12-bit frame in the ImageJ container, an 8-bit fluorescence frame with
-    its colour as a palette, never baked into its pixels.
+    arrived. It is written as a still is (``image_utils.write_tiff``): as
+    OME-TIFF when its name is one (``image_utils.is_ome_tiff``), else as
+    plain TIFF, a 12-bit frame in the ImageJ container; an 8-bit
+    fluorescence frame carries its colour as a palette, never baked into
+    its pixels.
 
     Args:
         scope: As for ``generate_image_metadata``.
         frame: The frame, oriented and fitted: mono uint8 or uint16.
-        file_loc: Output .tiff path.
+        file_loc: Output path, ``.ome.tiff`` or ``.tiff``
+            (``image_utils.derived_file_suffix``): the name is the container.
         channel: The channel the frame is named for: the LED that lit it,
             read as it arrived.
         plate_x_mm: Plate X in mm where it arrived, or None.
@@ -125,7 +128,7 @@ def write_recorded_frame(
         data=frame,
         file_loc=file_loc,
         metadata=metadata,
-        ome=False,
+        ome=image_utils.is_ome_tiff(file_loc),
         # Rendering only: grey whenever false colour is off. The channel above
         # is what the frame is.
         color=layer_record.shown_color(channel, false_color_on, channel_colors),

@@ -12,6 +12,7 @@ fields, and the plate transform a recording binds at start.
 
 import copy
 import datetime
+import pathlib
 from types import SimpleNamespace
 
 import numpy as np
@@ -474,3 +475,148 @@ class TestARecordingOnTheSimulator:
         # The stage stood still, so every plane states the one position.
         stack = read_file_record(folder / MANUAL_HYPERSTACK_FILENAME)
         assert stack['plate_pos_mm'] == written['plate_pos_mm'], "the stack states the frame's"
+
+
+# --- A recording's frames take their capture's container -----------------
+
+
+def _video_step(name):
+    from tests.test_a_late_write_records_its_frame import _step
+
+    return {
+        **_step(name, 0, x=20.0, gain=1.0),
+        'Acquire': 'video',
+        'Video Config': {'duration': 0.5, 'fps': 5},
+    }
+
+
+def _record_a_video_step(tmp_path, *, sequenced_format, image_mode='8bit'):
+    """Run one frames-leg video step headless on the simulator; its frames' paths, sorted."""
+    from modules.recording_frames import frame_number
+    from tests.test_a_late_write_records_its_frame import _protocol
+    from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+    settings = headless_settings(tmp_path, sequenced_format=sequenced_format)
+    settings['video_as_frames'] = True
+    settings['image_mode'] = image_mode
+    with open_composite_session(settings) as (_session, runner):
+        run = runner.start_single_scan(
+            protocol=_protocol([_video_step('V1')]), parent_dir=str(tmp_path / 'runs')
+        )
+        assert run.result(timeout=60) is not None
+        assert run.files.result(timeout=60) is not None
+    return sorted((tmp_path / 'runs').rglob('*_video_Frame_*'), key=lambda p: frame_number(p.name))
+
+
+def _record_manually(tmp_path, *, live_format, sequenced_format):
+    """A manual "Frames" recording on the simulator; the frames' paths."""
+    import threading
+
+    from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+    settings = headless_settings(
+        tmp_path, sequenced_format=sequenced_format, live_format=live_format
+    )
+    settings['video_as_frames'] = True
+    delivered = threading.Event()
+    count = {'n': 0}
+
+    def _count(_frame):
+        count['n'] += 1
+        if count['n'] >= 3:
+            delivered.set()
+
+    with open_composite_session(settings) as (session, _runner):
+        session.show_channel(LED1)
+        session.scope.illumination.led_on(LED1, 100.0)
+        operation = session.manual_recording.start()
+        session.scope.imaging.add_frame_listener(_count, name='test_count')
+        try:
+            assert delivered.wait(timeout=20), 'the simulated camera delivered no frames'
+        finally:
+            session.scope.imaging.remove_frame_listener(_count)
+        operation.stop()
+        operation.result(timeout=60)
+    folder = next((tmp_path / 'Manual').glob('Video_*'))
+    return [p for p in folder.iterdir() if p.name.startswith('ManualVideo_Frame_0')]
+
+
+def _container(path):
+    import tifffile
+
+    with tifffile.TiffFile(path) as tif:
+        return 'ome' if tif.is_ome else 'imagej' if tif.is_imagej else 'plain'
+
+
+class TestARecordingTakesItsCapturesContainer:
+    """A recording saved as frames is written in its capture's container: a
+    protocol video step in the run's format, a manual recording in the Live
+    format, as a manual still is. OME-TIFF writes OME frames named
+    ``.ome.tiff``; every other format plain TIFF, so a JPG run's recording
+    is never lossy and keeps its depth (a 12-bit frame in the ImageJ
+    container, an 8-bit one plain). The frame states what it states in
+    either container."""
+
+    def test_an_ome_tiff_runs_frames_are_ome_and_state_what_an_imagej_frame_states(
+        self, tmp_path, monkeypatch
+    ):
+        import modules.image_save as image_save
+        import tifffile
+
+        twins = tmp_path / 'twins'
+        twins.mkdir()
+        real_write = image_save.write_recorded_frame
+
+        def _write_with_an_imagej_twin(scope, frame, file_loc, **kwargs):
+            # The same frame and arguments through the same writer, named
+            # .tiff: the ImageJ frame the parent wrote.
+            real_write(scope, frame, file_loc, **kwargs)
+            real_write(
+                scope, frame, twins / pathlib.Path(file_loc).name.replace('.ome', ''), **kwargs
+            )
+
+        monkeypatch.setattr(image_save, 'write_recorded_frame', _write_with_an_imagej_twin)
+        frames = _record_a_video_step(
+            tmp_path, sequenced_format='OME-TIFF', image_mode='12bit_scientific'
+        )
+
+        assert frames, 'the video step wrote no frames'
+        assert all(p.name.endswith('.ome.tiff') for p in frames), [p.name for p in frames]
+        assert {_container(p) for p in frames} == {'ome'}
+        twin = twins / frames[0].name.replace('.ome', '')
+        assert _container(twin) == 'imagej'
+        assert read_file_record(frames[0]) == read_file_record(twin)
+        np.testing.assert_array_equal(tifffile.imread(frames[0]), tifffile.imread(twin))
+
+    def test_a_jpg_runs_frames_are_twelve_bit_imagej_tiffs(self, tmp_path):
+        import modules.image_utils as image_utils
+        import tifffile
+
+        frames = _record_a_video_step(
+            tmp_path, sequenced_format='JPG', image_mode='12bit_scientific'
+        )
+
+        assert frames, 'the video step wrote no frames'
+        assert all(p.suffixes == ['.tiff'] for p in frames), [p.name for p in frames]
+        assert _container(frames[0]) == 'imagej'
+        assert image_utils.read_tiff_significant_bits(frames[0]) == 12
+        assert tifffile.imread(frames[0]).dtype == np.uint16
+
+    @pytest.mark.parametrize(
+        ('live_format', 'sequenced_format', 'suffixes', 'container'),
+        [
+            ('OME-TIFF', 'TIFF', ['.ome', '.tiff'], 'ome'),
+            # The Sequenced format is a protocol's; a manual recording ignores it.
+            ('TIFF', 'OME-TIFF', ['.tiff'], 'plain'),
+        ],
+    )
+    def test_a_manual_recording_takes_the_live_format(
+        self, tmp_path, live_format, sequenced_format, suffixes, container
+    ):
+        frames = _record_manually(
+            tmp_path, live_format=live_format, sequenced_format=sequenced_format
+        )
+
+        assert frames, 'the manual recording wrote no frames'
+        assert {tuple(p.suffixes[-len(suffixes) :]) for p in frames} == {tuple(suffixes)}
+        assert {_container(p) for p in frames} == {container}

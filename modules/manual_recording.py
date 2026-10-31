@@ -504,7 +504,7 @@ class ManualRecordingController:
                 height=frame_size.height,
                 bit_depth=capture_config.capture_depth,
                 output_dir=save_folder,
-                filename_template=manual_frame_filename_template(),
+                filename_template=manual_frame_filename_template(capture_config.output_format_live),
                 timestamp_overlay=video_settings['timestamp_overlay'],
                 manifest_extra=manifest_extra,
                 # The MP4 leg's artifacts share the flat Manual folder, so its
