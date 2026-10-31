@@ -21,16 +21,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.exceptions import PluginNotLoadedError, RefusalCause
+from modules.api_surface import IN_PROCESS, mark_of
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ArgumentTypeRefusedError,
+    PluginNotLoadedError,
+    RefusalCause,
+)
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.plugins import (
     PluginRegistrationError,
     PluginRegistry,
     PluginSpec,
     ProcessorResult,
-    UI_MOUNT_POINTS,
+    UIMountPoint,
     is_version_compatible,
 )
+from modules.plugins import (
+    LiveProcessingRegistry,
+    PostProcessingRegistry,
+    RESTRegistry,
+    UIRegistry,
+)
+from modules.scope_session import ScopeSession
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
 
@@ -64,7 +77,6 @@ def test_plugin_spec_defaults():
         description='d',
     )
     assert spec.capabilities == ()
-    assert spec.subscribes_to == ()
     assert spec.author == ''
     assert spec.url == ''
     assert spec.auto_run_on_protocol_complete is False
@@ -79,6 +91,41 @@ def test_plugin_spec_auto_run_opt_in():
         auto_run_on_protocol_complete=True,
     )
     assert spec.auto_run_on_protocol_complete is True
+
+
+def test_the_retired_record_fields_are_refused_where_the_record_is_built():
+    """``PluginSpec.subscribes_to`` and ``ProcessorResult.metadata`` are gone
+    (plugin API level 59): a plugin still passing either fails where it builds
+    the record, not later in the host."""
+    with pytest.raises(TypeError, match='subscribes_to'):
+        PluginSpec(
+            name='x',
+            version='0.1.0',
+            requires_lvp_version='>=4.0.0',
+            description='d',
+            subscribes_to=(),
+        )
+    with pytest.raises(TypeError, match='metadata'):
+        ProcessorResult(success=True, metadata={})
+
+
+def test_the_plugin_contract_is_declared():
+    """What the tutorial teaches is API, in process: the session's ``plugins``
+    and each namespace's registration members; ``rest.register``, which takes
+    a framework router, is outside the contract."""
+    taught = {
+        'ScopeSession.plugins': ScopeSession.__dict__['plugins'].fget,
+        'UIRegistry.register': UIRegistry.register,
+        'PostProcessingRegistry.register': PostProcessingRegistry.register,
+        'PostProcessingRegistry.names': PostProcessingRegistry.names,
+        'PostProcessingRegistry.get': PostProcessingRegistry.get,
+        'LiveProcessingRegistry.register': LiveProcessingRegistry.register,
+        'LiveProcessingRegistry.unregister': LiveProcessingRegistry.unregister,
+        'RESTRegistry.enable_stub_mode': RESTRegistry.enable_stub_mode,
+    }
+    unmarked = sorted(name for name, member in taught.items() if mark_of(member) != IN_PROCESS)
+    assert unmarked == [], unmarked
+    assert mark_of(RESTRegistry.register) is None
 
 
 # ---------------------------------------------------------------------------
@@ -98,24 +145,13 @@ def test_ui_register_known_mount(harness_ctx):
     assert b is builder
 
 
-def test_ui_register_unknown_mount_raises(harness_ctx):
+def test_ui_register_unknown_mount_is_refused_before_anything_registers(harness_ctx):
     spec = _make_spec(name='ui_demo')
-    with pytest.raises(PluginRegistrationError) as exc:
-        harness_ctx.plugins.ui.register(
-            spec,
-            'nonexistent.mount',
-            lambda: None,
-        )
-    assert 'nonexistent.mount' in str(exc.value)
-    assert 'left_sidebar.accordion' in str(exc.value)
-    # The plugin asked for something this LumaViewPro does not have; asking
-    # again unchanged cannot succeed.
-    outcome = outcome_of(exc.value)
-    assert (outcome.kind, outcome.cause, outcome.reason) == (
-        OutcomeKind.REFUSAL,
-        RefusalCause.REQUEST,
-        'unknown_mount_point',
-    )
+    with pytest.raises(ArgumentRefusedError) as exc:
+        harness_ctx.plugins.ui.register(spec, 'nonexistent.mount', lambda: None)
+    assert exc.value.reason == 'not_offered'
+    assert exc.value.offered == ('left_sidebar.accordion',)
+    assert harness_ctx.plugins.ui.mounts() == ()
 
 
 def test_ui_register_duplicate_name_raises(harness_ctx):
@@ -143,9 +179,8 @@ def test_ui_health_after_register(harness_ctx):
     assert harness_ctx.plugins.not_loaded() == ()
 
 
-def test_ui_mount_points_constant_is_frozen():
-    assert isinstance(UI_MOUNT_POINTS, frozenset)
-    assert 'left_sidebar.accordion' in UI_MOUNT_POINTS
+def test_the_mount_points_are_the_ones_the_host_attaches():
+    assert [m.value for m in UIMountPoint] == ['left_sidebar.accordion']
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +205,14 @@ def test_post_processing_duplicate_name_raises(harness_ctx):
     harness_ctx.plugins.post_processing.register(spec, _trivial_processor)
     with pytest.raises(PluginRegistrationError):
         harness_ctx.plugins.post_processing.register(spec, _trivial_processor)
+
+
+def test_a_processor_that_cannot_be_called_is_refused_at_register(harness_ctx):
+    spec = _make_spec(name='not_callable')
+    with pytest.raises(ArgumentTypeRefusedError) as exc:
+        harness_ctx.plugins.post_processing.register(spec, 'not a function')
+    assert exc.value.reason == 'wrong_argument_type'
+    assert harness_ctx.plugins.post_processing.names() == ()
 
 
 def test_post_processing_get_missing_returns_none(harness_ctx):
@@ -233,6 +276,35 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
 
     assert len(calls) == 1
     assert calls[0] == ('opted_in', '/in', {'k': 'v'}, '/out')
+
+
+def test_an_auto_run_success_is_logged_with_what_it_made(harness_ctx, caplog, tmp_path):
+    """The log names how many files the processor made and the folder they
+    share, not each file: a plate's stitch makes thousands."""
+    made = tuple(str(tmp_path / 'stitched' / f'tile_{i}.tiff') for i in range(3))
+
+    def stitches(input_dir, manifest, output_dir):
+        return ProcessorResult(success=True, outputs=made, message='Stitched 3 tiles.')
+
+    spec = PluginSpec(
+        name='stitches',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description='d',
+        auto_run_on_protocol_complete=True,
+    )
+    harness_ctx.plugins.post_processing.register(spec, stitches)
+    harness_ctx.plugins._track('stitches', types.ModuleType('stitches'))
+
+    with caplog.at_level('INFO', logger='lvp_logger'):
+        harness_ctx.plugins.run_protocol_complete_processors(
+            input_dir='/in', manifest={}, output_dir='/out', files='written'
+        )
+
+    succeeded = [r.getMessage() for r in caplog.records if 'auto-run succeeded' in r.getMessage()]
+    assert succeeded == [
+        f'[Plugins ] stitches auto-run succeeded: Stitched 3 tiles. (3 file(s) in {tmp_path / "stitched"})'
+    ]
 
 
 def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):

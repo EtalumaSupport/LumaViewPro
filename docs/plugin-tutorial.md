@@ -3,14 +3,16 @@
 ## PRE-RELEASE API
 
 The plugin platform documented in this file is the 4.x plugin
-contract, before 4.x freezes. The `ctx.plugins.post_processing` namespace shape is
-stable. `ctx.plugins.ui` is registerable now but the only mount point
-is `left_sidebar.accordion`. `ctx.plugins.live_processing` is
-registerable now: a per-frame listener on the live camera stream.
-`ctx.plugins.rest` is name-reserved and raises on registration --
-read **Lifecycle and namespaces** below before designing around it.
+contract: what this tutorial teaches freezes with the API when `4.0.0`
+ships, and may change without a deprecation cycle until then.
+`ctx.plugins.post_processing` operates on saved files. `ctx.plugins.ui`
+has one mount point, `left_sidebar.accordion`.
+`ctx.plugins.live_processing` is a per-frame listener on the live camera
+stream. `ctx.plugins.rest` is name-reserved and raises on registration;
+`ctx.plugins.rest.register` is outside the freeze -- read **Lifecycle
+and namespaces** below before designing around it.
 
-If you are shipping a plugin against this contract before 4.x freezes,
+If you are shipping a plugin against this contract before `4.0.0`,
 contact Etaluma support so we can consult you before structural
 changes.
 
@@ -122,7 +124,6 @@ def _process(input_dir: str, manifest: dict, output_dir: str) -> ProcessorResult
         success=True,
         outputs=(summary_path,),
         message=f"Tagged {len(tiffs)} TIFF(s).",
-        metadata={"tiff_count": len(tiffs)},
     )
 
 
@@ -150,7 +151,6 @@ def unregister(ctx: Any) -> None:
 | `requires_lvp_version` | yes | PEP-440-ish requirement (`>=4.0.0`, `==4.0.0`, `~=4.0.0`). Host strips pre-release suffixes (`-beta8`) before comparing. |
 | `description` | yes | One sentence saying what the plugin does. |
 | `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `modules.image_save`). A declaration only: not read, and not sandbox-enforced, in 4.x. |
-| `subscribes_to` | no | Retired at plugin API level 9: leave it out. An empty tuple is accepted; a spec naming keys is not loaded, since no plugin is told of a settings change. |
 | `author` | no | Free-form. |
 | `url` | no | Free-form. |
 | `auto_run_on_protocol_complete` | no | `post_processing` only. `True` hands your processor the folder of every Full Protocol run; see **After a protocol**. Defaults to `False`. |
@@ -167,9 +167,8 @@ errors a loaded plugin raised while the host called it.
 | Field | Meaning |
 |---|---|
 | `success` | True if the processor completed. When the host ran it (**After a protocol**), False is reported to the person as your plugin's failure, with your `message`. |
-| `outputs` | Tuple of absolute paths of the files the processor wrote. |
+| `outputs` | Tuple of absolute paths of the files the processor wrote. When the host ran it, its log says how many and the folder they share. |
 | `message` | One-line summary for the person using the microscope; no internal IDs or exception class names. Logged when the host's run succeeds, shown when it fails. |
-| `metadata` | Free-form dict for your own callers; the host does not read it. |
 
 `ProcessorResult` is also a frozen dataclass.
 
@@ -264,7 +263,7 @@ def test_processor_writes_summary(harness_ctx, tmp_path):
     result = processor(str(input_dir), {}, str(output_dir))
 
     assert result.success is True
-    assert result.metadata["tiff_count"] == 2
+    assert result.outputs == (str(output_dir / "summary.txt"),)
     summary = (output_dir / "summary.txt").read_text(encoding="utf-8")
     assert "tiff_count: 2" in summary
 
@@ -300,9 +299,8 @@ built-in:
 
 1. Import the module. Import failure -> not loaded.
 2. Read module-level `spec`. Missing or not a `PluginSpec` -> not loaded.
-3. Check the spec: a `subscribes_to` naming keys, or a
-   `requires_lvp_version` the running LVP version does not meet ->
-   not loaded.
+3. Check the spec: a `requires_lvp_version` the running LVP version
+   does not meet -> not loaded.
 4. Call `register(ctx)` with the session. Exception -> remove whatever
    it registered before the exception (a widget, a processor, a frame
    listener), then call `unregister(ctx)`, if the plugin has one, for
@@ -339,8 +337,9 @@ and depends on resources A exposes -- B comes down first.
 No plugin is told of a settings change (plugin API level 9): the session
 saves every accepted write itself, and `on_settings_changed` is not
 called. A plugin that needs a setting reads it when it needs it
-(`ctx.get_setting('video.max_fps')`). A spec that still names
-`subscribes_to` keys is not loaded, and its reason says so.
+(`ctx.get_setting('video.max_fps')`). `PluginSpec.subscribes_to` is gone
+(plugin API level 59): a spec that passes it raises `TypeError` where it
+is built.
 
 ### After a protocol (optional)
 
@@ -356,8 +355,10 @@ or file member raises.
 ### UI mounts
 
 `ctx.plugins.ui.register(spec, mount_point, builder)` adds a widget at
-a named mount point. The one mount point is `left_sidebar.accordion`;
-another name raises `PluginRegistrationError` (`unknown_mount_point`).
+a named mount point. `mount_point` is a `UIMountPoint`, or its plain
+string; the one mount point is `left_sidebar.accordion`
+(`UIMountPoint.LEFT_SIDEBAR_ACCORDION`), and another name is refused
+`ArgumentRefusedError` (`not_offered`) before anything registers.
 `builder` takes no arguments and returns a Kivy `AccordionItem`. The
 host calls it once the window's widget tree exists, not at
 registration, and adds what it returns to the accordion; a builder
@@ -405,7 +406,9 @@ camera connected, registration raises and nothing is registered.
 `ctx.plugins.rest` is reserved, and a plugin cannot add REST routes in
 this release, so a shipped plugin registers none:
 `ctx.plugins.rest.register(...)` raises `PluginRegistrationError`
-(`rest_namespace_reserved`). Don't catch and ignore the raise; let your
+(`rest_namespace_reserved`), and is outside the 4.0 freeze: it takes a
+framework router, which has no published type, and what a plugin route
+looks like is not settled. Don't catch and ignore the raise; let your
 plugin fail to load, and serve what it needs through `post_processing`,
 `live_processing` or `ui`. While a plugin is being developed,
 `ctx.plugins.rest.enable_stub_mode()` records a registration and serves
@@ -487,6 +490,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 56 | `autofocus_functions.autofocus_score(image)` is the score autofocus judges a frame by, its centre quarter's focus score, and autofocus scores through it. `focus_function` raises `ValueError` for a frame that is not 8-bit, since its saturation mask takes 255 as full scale; a frame from `capture_and_wait` or `get_image` with `force_to_8bit=True` is 8-bit. |
 | level 57 | The scale bar's colour is the frame's: black where the frame inside the bar's box is bright, white where it is dark, for every capture whoever makes it. `ImagingAPI.scale_bar_color` and `set_scale_bar_color` are gone, with their route; `common_utils.get_bright_background_layers` is gone. `image_utils.add_scale_bar` takes `frames_summed` and `frame_bits` in place of `color` and `significant_bits`. |
 | level 58 | `ScopeSession.set_scale_bar` raises `HardwareCommandRefusedError('exclusive_activity_running')` while a run, a diagnostic, a home or a recording holds the scope and the value is a change; the value already set is admitted. |
+| level 59 | The plugin contract is declared: `session.plugins` is a read, and the namespaces' members this tutorial teaches are API. `PluginSpec.subscribes_to` and `ProcessorResult.metadata` are gone, and a record built with either raises `TypeError`. The mount point is a `UIMountPoint`: another name is refused `ArgumentRefusedError` (`not_offered`) where `ui.register` refused `PluginRegistrationError` (`unknown_mount_point`), and `UI_MOUNT_POINTS` is gone. A processor that is not callable is refused at `post_processing.register`, `ArgumentTypeRefusedError` (`wrong_argument_type`). |
 
 ---
 
@@ -500,10 +504,10 @@ or ensure your `register(ctx)` runs exactly once. Names are unique
 **within a namespace**; the same name across `ui` and
 `post_processing` is allowed but not recommended for clarity.
 
-### `PluginRegistrationError: Unknown UI mount point 'X'. Known: [...]`
+### `ArgumentRefusedError` (`not_offered`) from `ctx.plugins.ui.register`
 
 The mount-point name you passed to `ctx.plugins.ui.register(spec, mount_point, builder)`
-is not in `UI_MOUNT_POINTS`. The error message lists the known names;
+is not a `UIMountPoint`. The refusal's `offered` lists the known names;
 in this release there is only `left_sidebar.accordion`. Mount points are
 added deliberately as the host learns how to attach them; pick from
 the listed set or ask for a new mount point with a widget-shape
@@ -538,21 +542,20 @@ hello-world example above.
 
 ### `ProcessorResult` constructor errors
 
-`ProcessorResult` is frozen and positional. The most common slip is
-passing a list where a tuple is required:
+`ProcessorResult` is a frozen dataclass. The most common slip is
+passing a list where a tuple is declared:
 
 ```python
-# Wrong -- list will not raise here, but the host treats outputs as
-# a sequence of strings, and downstream code may rely on tuple-shape
-# (e.g. hashability of the result for diagnostic dedup).
+# Wrong -- a list does not raise here, but the record declares a tuple,
+# and a frozen record holding a list is neither hashable nor frozen.
 ProcessorResult(success=True, outputs=[summary_path])
 
 # Right
 ProcessorResult(success=True, outputs=(summary_path,))
 ```
 
-Pass absolute paths in `outputs`; the host surfaces them in the
-run-complete dialog without normalization.
+Pass absolute paths in `outputs`; the host logs how many there are and
+the folder they share, without normalizing them.
 
 ---
 

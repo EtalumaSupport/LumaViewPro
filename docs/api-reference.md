@@ -79,6 +79,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`LedReading`](#LedReading)
 - [`LedSnapshot`](#LedSnapshot)
 - [`LiveFolderEntry`](#LiveFolderEntry)
+- [`LiveProcessingRegistry`](#LiveProcessingRegistry)
 - [`LiveWork`](#LiveWork)
 - [`MotorBoardInfo`](#MotorBoardInfo)
 - [`NamespaceHealth`](#NamespaceHealth)
@@ -92,12 +93,17 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`PlatePosition`](#PlatePosition)
 - [`PluginHealth`](#PluginHealth)
 - [`PluginNotLoaded`](#PluginNotLoaded)
+- [`PluginRegistry`](#PluginRegistry)
 - [`PluginRuntimeError`](#PluginRuntimeError)
+- [`PluginSpec`](#PluginSpec)
 - [`PluginStatus`](#PluginStatus)
 - [`PositionChanged`](#PositionChanged)
+- [`PostProcessingRegistry`](#PostProcessingRegistry)
+- [`ProcessorResult`](#ProcessorResult)
 - [`Protocol`](#Protocol)
 - [`ProtocolRunner`](#ProtocolRunner)
 - [`ProtocolSizeAdvisory`](#ProtocolSizeAdvisory)
+- [`RESTRegistry`](#RESTRegistry)
 - [`Remedy`](#Remedy)
 - [`RunEnded`](#RunEnded)
 - [`RunEvents`](#RunEvents)
@@ -133,6 +139,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`TurretChanged`](#TurretChanged)
 - [`TurretSlotQuestion`](#TurretSlotQuestion)
 - [`TurretStatus`](#TurretStatus)
+- [`UIRegistry`](#UIRegistry)
 - [`UiDispatcher`](#UiDispatcher)
 - [`UnfitArgument`](#UnfitArgument)
 - [`UsbDeviceBinding`](#UsbDeviceBinding)
@@ -2115,6 +2122,23 @@ to stop.
 
 Nothing.
 
+<a id="ScopeSession.plugins"></a>
+### `ScopeSession.plugins`
+
+```python
+plugins: PluginRegistry | None  # property
+```
+
+Marks: in-process.
+
+The plugin contract: the namespaces a plugin registers into, as `ctx.plugins`.
+
+None until the host asks for plugins (`load_plugins`).
+
+**Raises**
+
+Nothing.
+
 <a id="ScopeSession.point_steps_at_turret_slot"></a>
 ### `ScopeSession.point_steps_at_turret_slot`
 
@@ -2911,6 +2935,10 @@ Marks: sets [`channel_auto_gain`](#ScopeSession.channel_auto_gain); enters: `lan
 Route: `PUT /api/v1/channel_auto_gain`.
 
 Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
+
+This is the layer's stored setting, which a capture of that layer
+uses; `scope.camera.set_auto_gain` is a raw camera write, which the
+next layer the camera holds replaces.
 
 For the shown layer the camera follows when this returns: turning it
 on arms the camera's auto loop (`apply_layer_camera`); turning it
@@ -5696,7 +5724,9 @@ Enable or disable automatic gain adjustment, and wait for it.
 One command on the camera's lane, waited for. A write the camera
 does not apply raises and records no arm. With no camera connected,
 turning auto-gain off is satisfied: True, as a camera already in
-manual answers.
+manual answers. The write is a raw one, which the next channel the
+camera holds replaces; a channel's own auto-gain, which a capture of
+that channel uses, is `ScopeSession.set_channel_auto_gain`.
 
 **Args**
 
@@ -5819,7 +5849,9 @@ exposure in effect.
 
 One command on the camera's lane, waited for, as `set_gain_db`
 is; a write the camera does not apply raises. The write is a raw
-one: afterwards the camera holds no channel's stored settings.
+one: afterwards the camera holds no channel's stored settings. A
+channel's own exposure, which a capture of that channel uses, is its
+stored setting (`ScopeSession.update_settings('<channel>.exposure_ms', ...)`).
 
 **Args**
 
@@ -5901,7 +5933,9 @@ returned value is the success and a refusal cannot pass for one. The
 write is a raw one: afterwards the camera holds no channel's stored
 settings until a channel's are put on again, and a still taken
 meanwhile, one naming a channel included, keeps the raw values and
-records `held_channel` None.
+records `held_channel` None. A channel's own gain, which a capture
+of that channel uses, is its stored setting
+(`ScopeSession.update_settings('<channel>.gain_db', ...)`).
 
 **Args**
 
@@ -8466,6 +8500,10 @@ Holds the simulated boards the scope built, which are the drivers
 themselves on the fast tier, the boards behind the production drivers
 on the firmware tiers, and the devices behind them on a Classic model.
 
+The simulator's own surface, outside what 4.0 freezes: its members may
+change in any 4.x release, and it carries no version of its own, since
+it ships with the release.
+
 <a id="SimulationAPI.answer_model"></a>
 ### `SimulationAPI.answer_model`
 
@@ -9986,7 +10024,7 @@ One step whose autofocus did not focus; the run went on at its fallback Z.
 
 A record: it crosses the wire as its data.  
 Held in: [`FrameDelivered.frame`](#FrameDelivered.frame).  
-Taken by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame), [`ImagingAPI.remove_frame_listener`](#ImagingAPI.remove_frame_listener), [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
+Taken by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame), [`ImagingAPI.remove_frame_listener`](#ImagingAPI.remove_frame_listener), [`LiveProcessingRegistry.register`](#LiveProcessingRegistry.register), [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
 
 One delivered frame and the facts known when it was stored.
 
@@ -10390,6 +10428,75 @@ One file or folder in a live-folder listing.
 - <a id="LiveFolderEntry.name"></a>`name`: `str` -- Its full name under the live folder, `/`-separated on every host: what a path parameter, a download and a further listing take.
 - <a id="LiveFolderEntry.size_bytes"></a>`size_bytes`: `int` -- Its size in bytes, as the file system reports it.
 
+<a id="LiveProcessingRegistry"></a>
+## `LiveProcessingRegistry`
+
+Held in: [`PluginRegistry.live_processing`](#PluginRegistry.live_processing).
+
+Per-frame listener plugins. Thin proxy to scope.imaging.
+
+Registry forwards register / unregister to the canonical listener
+registry on ImagingAPI (one source of truth for the fan-out list).
+This class only keeps a name -> (spec, handler) lookup table so
+unregister-by-plugin-name can resolve to the original handler that
+ImagingAPI was given.
+
+Built with the session's Lumascope, so no plugin can register before
+there is a scope to forward to.
+
+Plugin authors call:
+    ctx.plugins.live_processing.register(spec, handler)
+    ctx.plugins.live_processing.unregister(spec.name)
+
+Handler signature is cb(frame), the camera's `Frame` record. It runs
+on the camera SDK thread; see the imaging.add_frame_listener docstring
+for the budget and the read-only frame contract.
+
+<a id="LiveProcessingRegistry.register"></a>
+### `LiveProcessingRegistry.register`
+
+```python
+def register(self, spec: PluginSpec, frame_handler: Callable[[Frame], None]) -> None
+```
+
+Marks: in-process.
+
+Add a listener on every frame the camera delivers.
+
+**Args**
+
+- `spec`: The plugin.
+- `frame_handler`: Called `frame_handler(frame)` with each `Frame`, on the camera's thread (`ImagingAPI.add_frame_listener`).
+
+**Raises**
+
+- `PluginRegistrationError`: `'name_taken'`, the namespace already holds a plugin of that name.
+- `HardwareCommandRefusedError`: `'not_connected'`, no camera is connected; nothing is registered.
+
+**Refusals**
+
+- [`PluginRegistrationError`](#PluginRegistrationError): `name_taken`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
+
+<a id="LiveProcessingRegistry.unregister"></a>
+### `LiveProcessingRegistry.unregister`
+
+```python
+def unregister(self, name: str) -> None
+```
+
+Marks: in-process.
+
+Remove the listener a plugin registered; nothing when it registered none.
+
+**Args**
+
+- `name`: The plugin's name.
+
+**Raises**
+
+Nothing.
+
 <a id="LiveWork"></a>
 ## `LiveWork`
 
@@ -10714,6 +10821,26 @@ which a plugin that never loaded did not do.
 - <a id="PluginNotLoaded.reason"></a>`reason`: `str` -- (no description)
 - <a id="PluginNotLoaded.version"></a>`version`: `str` -- (no description)
 
+<a id="PluginRegistry"></a>
+## `PluginRegistry`
+
+Returned by: [`ScopeSession.plugins`](#ScopeSession.plugins).
+
+Single ctx.plugins entry point exposing the four namespaces.
+
+Lifecycle:
+    - Built by the session when its host asks for plugins
+      (`ScopeSession.load_plugins`), which then calls load().
+    - Drained by unload(), in reverse order, when the host asks
+      (`ScopeSession.unload_plugins`) or the session shuts down.
+
+**Fields**
+
+- <a id="PluginRegistry.live_processing"></a>`live_processing`: `LiveProcessingRegistry` -- Listeners on every frame the camera delivers.
+- <a id="PluginRegistry.post_processing"></a>`post_processing`: `PostProcessingRegistry` -- Processors of saved files.
+- <a id="PluginRegistry.rest"></a>`rest`: `RESTRegistry` -- Reserved: a plugin cannot add REST routes in this release.
+- <a id="PluginRegistry.ui"></a>`ui`: `UIRegistry` -- Widgets at the window's mount points.
+
 <a id="PluginRuntimeError"></a>
 ## `PluginRuntimeError`
 
@@ -10735,6 +10862,25 @@ attribute fault to the right plugin.
 - <a id="PluginRuntimeError.message"></a>`message`: `str` -- (no description)
 - <a id="PluginRuntimeError.namespace"></a>`namespace`: `str` -- (no description)
 - <a id="PluginRuntimeError.plugin_name"></a>`plugin_name`: `str` -- (no description)
+
+<a id="PluginSpec"></a>
+## `PluginSpec`
+
+A record: it crosses the wire as its data.  
+Taken by: [`LiveProcessingRegistry.register`](#LiveProcessingRegistry.register), [`PostProcessingRegistry.register`](#PostProcessingRegistry.register), [`UIRegistry.register`](#UIRegistry.register).
+
+Declarative metadata a plugin presents at registration time.
+
+**Fields**
+
+- <a id="PluginSpec.author"></a>`author`: `str` -- Its author.
+- <a id="PluginSpec.auto_run_on_protocol_complete"></a>`auto_run_on_protocol_complete`: `bool` -- For a post-processing plugin, True hands its processor the folder of every Full Protocol run, whoever started it, once its files are on disk and its hyperstack build has ended (`PluginRegistry.run_protocol_complete_processors`).
+- <a id="PluginSpec.capabilities"></a>`capabilities`: `tuple[str, ...]` -- The API surfaces it uses, as dotted paths (`'scope.imaging'`). A declaration, not a sandbox: the tech-support report and diagnostic probes record it.
+- <a id="PluginSpec.description"></a>`description`: `str` -- One sentence saying what the plugin does.
+- <a id="PluginSpec.name"></a>`name`: `str` -- The plugin's name, unique within a namespace.
+- <a id="PluginSpec.requires_lvp_version"></a>`requires_lvp_version`: `str` -- The LumaViewPro versions it runs on, as a requirement (`'>=4.0.0'`); pre-release suffixes are stripped before comparing.
+- <a id="PluginSpec.url"></a>`url`: `str` -- Its web address.
+- <a id="PluginSpec.version"></a>`version`: `str` -- The plugin's version.
 
 <a id="PluginStatus"></a>
 ## `PluginStatus`
@@ -10762,6 +10908,105 @@ A position event: a stage axis, and its state and position as `axis_positions` a
 
 - <a id="PositionChanged.at"></a>`at`: `AxisPosition` -- (no description)
 - <a id="PositionChanged.axis"></a>`axis`: `StageAxis` -- (no description)
+
+<a id="PostProcessingRegistry"></a>
+## `PostProcessingRegistry`
+
+Held in: [`PluginRegistry.post_processing`](#PluginRegistry.post_processing).
+
+Operate on saved files. Intern's primary surface.
+
+register(spec, processor):
+    processor: callable
+        processor(input_dir, manifest, output_dir) -> ProcessorResult
+    Invoked from PluginRegistry.run_protocol_complete_processors() at
+    the end of every Full Protocol run when
+    spec.auto_run_on_protocol_complete=True.
+    Ad-hoc invocation: callers fetch via .get(name) and call directly.
+
+<a id="PostProcessingRegistry.get"></a>
+### `PostProcessingRegistry.get`
+
+```python
+def get(self, name: str) -> Callable[[str, dict, str], ProcessorResult] | None
+```
+
+Marks: in-process.
+
+The processor a plugin registered, to call it directly.
+
+**Args**
+
+- `name`: The plugin's name.
+
+**Returns**
+
+Callable | None: The processor, or None when no plugin of that name is registered here.
+
+**Raises**
+
+Nothing.
+
+<a id="PostProcessingRegistry.names"></a>
+### `PostProcessingRegistry.names`
+
+```python
+def names(self) -> tuple[str, ...]
+```
+
+Marks: in-process.
+
+The names of the plugins registered here.
+
+**Raises**
+
+Nothing.
+
+<a id="PostProcessingRegistry.register"></a>
+### `PostProcessingRegistry.register`
+
+```python
+def register(
+    self,
+    spec: PluginSpec,
+    processor: Callable[[str, dict, str], ProcessorResult],
+) -> None
+```
+
+Marks: in-process.
+
+Register a processor of saved files.
+
+**Args**
+
+- `spec`: The plugin.
+- `processor`: Called `processor(input_dir, manifest, output_dir)` with the folder to read, the run's manifest and the folder to write into; answers a `ProcessorResult`.
+
+**Raises**
+
+- `PluginRegistrationError`: `'name_taken'`, the namespace already holds a plugin of that name.
+
+**Refusals**
+
+- [`PluginRegistrationError`](#PluginRegistrationError): `name_taken`
+
+<a id="ProcessorResult"></a>
+## `ProcessorResult`
+
+A record: it crosses the wire as its data.  
+Returned by: [`PostProcessingRegistry.get`](#PostProcessingRegistry.get).  
+Taken by: [`PostProcessingRegistry.register`](#PostProcessingRegistry.register).
+
+What a post-processing processor answers to the host that called it.
+
+The host logs a success with its message and what it made, and reports
+a failure to the person with its message.
+
+**Fields**
+
+- <a id="ProcessorResult.message"></a>`message`: `str` -- A one-line summary for the person using the microscope.
+- <a id="ProcessorResult.outputs"></a>`outputs`: `tuple[FilePath, ...]` -- The absolute paths of the files it wrote.
+- <a id="ProcessorResult.success"></a>`success`: `bool` -- Whether the processor completed.
 
 <a id="Protocol"></a>
 ## `Protocol`
@@ -11743,6 +11988,48 @@ have to parse it back out.
 - <a id="ProtocolSizeAdvisory.num_steps"></a>`num_steps`: `int` -- (no description)
 - <a id="ProtocolSizeAdvisory.projected_mb"></a>`projected_mb`: `float` -- (no description)
 
+<a id="RESTRegistry"></a>
+## `RESTRegistry`
+
+Held in: [`PluginRegistry.rest`](#PluginRegistry.rest).
+
+REST endpoint plugins: the namespace is reserved, and takes no routes in this release.
+
+A plugin cannot add REST routes yet, so `register()` refuses, and a
+shipped plugin registers none.
+
+**Stub mode**: while a plugin is being developed, its author can opt
+into `enable_stub_mode()`. In stub mode, register() accepts the
+spec and records it for `health()` reporting (so
+`ctx.plugins.all_health()` reflects the registration) but serves
+nothing, so the rest of the plugin -- its load and unregister hooks
+-- can be tried. Stub mode is opt-in and not the default, so a
+shipped plugin's registration is refused, never quietly unserved.
+
+<a id="RESTRegistry.enable_stub_mode"></a>
+### `RESTRegistry.enable_stub_mode`
+
+```python
+def enable_stub_mode(self) -> None
+```
+
+Marks: in-process.
+
+Opt into accepting REST registrations as stubs.
+
+After enable_stub_mode(), register(spec, router) records the
+registration (visible via health()) and serves nothing, since a
+plugin cannot add REST routes in this release. A plugin author
+uses this while developing a plugin, to try the rest of its
+lifecycle.
+
+A shipped plugin does not call this: its registration is refused,
+so a route it expects to serve is never silently missing.
+
+**Raises**
+
+Nothing.
+
 <a id="Remedy"></a>
 ## `Remedy`
 
@@ -12502,6 +12789,43 @@ or unknown.
 
 - <a id="TurretStatus.slot"></a>`slot`: `int | None` -- (no description)
 - <a id="TurretStatus.state"></a>`state`: `AxisState` -- (no description)
+
+<a id="UIRegistry"></a>
+## `UIRegistry`
+
+Held in: [`PluginRegistry.ui`](#PluginRegistry.ui).
+
+UI-extending plugins. Adds widgets at named mount points.
+
+<a id="UIRegistry.register"></a>
+### `UIRegistry.register`
+
+```python
+def register(
+    self,
+    spec: PluginSpec,
+    mount_point: UIMountPoint,
+    builder: Callable[[], object],
+) -> None
+```
+
+Marks: in-process.
+
+Add a widget at a mount point.
+
+**Args**
+
+- `spec`: The plugin.
+- `mount_point`: Where the widget is attached.
+- `builder`: Takes no arguments and answers the widget. The host calls it at attach time, once the window's widget tree exists, not at registration.
+
+**Raises**
+
+- `PluginRegistrationError`: `'name_taken'`, the namespace already holds a plugin of that name.
+
+**Refusals**
+
+- [`PluginRegistrationError`](#PluginRegistrationError): `name_taken`
 
 <a id="UiDispatcher"></a>
 ## `UiDispatcher`
@@ -13408,6 +13732,22 @@ The kind of curve a graph's trendline is fitted as.
 - `Exponential` (`EXPONENTIAL`)
 - `Power` (`POWER`)
 - `Logarithmic` (`LOGARITHMIC`)
+
+<a id="UIMountPoint"></a>
+### `UIMountPoint`
+
+Taken by: [`UIRegistry.register`](#UIRegistry.register).
+
+Where the host attaches a plugin's widget: the mounts it knows how to attach.
+
+A mount is added when a real consumer needs one, with a widget-shape
+contract for that mount.
+
+**Attributes**
+
+- `LEFT_SIDEBAR_ACCORDION`: An item of the left sidebar's accordion; the builder answers a Kivy `AccordionItem`.
+
+- `left_sidebar.accordion` (`LEFT_SIDEBAR_ACCORDION`)
 
 <a id="VideoPhase"></a>
 ### `VideoPhase`
@@ -15708,13 +16048,12 @@ is the request.
 
 **Attributes**
 
-- `reason`: `'name_taken'` -- the namespace already holds a plugin of that name; `'unknown_mount_point'` -- no UI mount point has that name; `'rest_namespace_reserved'` -- a plugin cannot add REST routes in this release.
+- `reason`: `'name_taken'` -- the namespace already holds a plugin of that name; `'rest_namespace_reserved'` -- a plugin cannot add REST routes in this release.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `name_taken` | request | 422 |
 | `rest_namespace_reserved` | request | 422 |
-| `unknown_mount_point` | request | 422 |
 
 <a id="PositionOutOfRangeError"></a>
 ### `PositionOutOfRangeError`

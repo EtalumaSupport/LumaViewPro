@@ -25,11 +25,13 @@ entry_points group 'lvp.plugins'.
 
 from __future__ import annotations
 
+import enum
 import importlib.metadata
 import logging
+import os
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from collections.abc import Callable
 
@@ -40,8 +42,9 @@ from modules.exceptions import (
     Refusal,
     RefusalCause,
 )
+from drivers.camera import Frame
 from modules.notification_center import notifications
-from modules.api_surface import api_fields
+from modules.api_surface import FilePath, api, api_fields
 from modules.run_outcome import FilesOutcome
 
 logger = logging.getLogger('lvp_logger')
@@ -71,18 +74,21 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 58
+PLUGIN_API_LEVEL = 59
 
-# Mount points are locked to the set the host knows how to attach.
-# Additional names are added when a real consumer needs them, paired
-# with a widget-shape contract for that specific mount. Plugins that
-# pass an unknown name get a PluginRegistrationError, not a silent
-# attach to nothing.
-UI_MOUNT_POINTS = frozenset(
-    {
-        'left_sidebar.accordion',
-    }
-)
+
+class UIMountPoint(enum.StrEnum):
+    """Where the host attaches a plugin's widget: the mounts it knows how to attach.
+
+    A mount is added when a real consumer needs one, with a widget-shape
+    contract for that mount.
+
+    Attributes:
+        LEFT_SIDEBAR_ACCORDION: An item of the left sidebar's accordion; the
+            builder answers a Kivy ``AccordionItem``.
+    """
+
+    LEFT_SIDEBAR_ACCORDION = 'left_sidebar.accordion'
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +106,12 @@ class PluginRegistrationError(Refusal, Exception):
 
     Attributes:
         reason: ``'name_taken'`` -- the namespace already holds a plugin of
-            that name; ``'unknown_mount_point'`` -- no UI mount point has
             that name; ``'rest_namespace_reserved'`` -- a plugin cannot add
             REST routes in this release.
     """
 
     title = 'Plugin Not Registered'
-    causes = dict.fromkeys(
-        ('name_taken', 'rest_namespace_reserved', 'unknown_mount_point'), RefusalCause.REQUEST
-    )
+    causes = dict.fromkeys(('name_taken', 'rest_namespace_reserved'), RefusalCause.REQUEST)
 
     def __init__(self, reason: str, message: str):
         super().__init__(message)
@@ -120,28 +123,37 @@ class PluginRegistrationError(Refusal, Exception):
 # ---------------------------------------------------------------------------
 
 
+@api_fields(
+    'name',
+    'version',
+    'requires_lvp_version',
+    'description',
+    'capabilities',
+    'author',
+    'url',
+    'auto_run_on_protocol_complete',
+)
 @dataclass(frozen=True)
 class PluginSpec:
     """Declarative metadata a plugin presents at registration time.
 
-    capabilities lists the API surfaces the plugin uses (dotted paths,
-    e.g. 'scope.imaging', 'modules.image_save'). Not enforced as a
-    sandbox in 4.x; used by the tech-support report and diagnostic
-    probes to record which plugins were loaded when data was collected.
-
-    subscribes_to is retired: through plugin API level 8 it named the
-    settings keys whose save fired the plugin's on_settings_changed. The
-    session now saves every accepted write itself and tells no plugin, so
-    a spec that still names keys is refused at load, naming the level its
-    hook needs; the empty default is accepted, as specs copied from the
-    tutorial pass it.
-
-    auto_run_on_protocol_complete (post_processing namespace only):
-    when True, the session invokes the registered processor
-    automatically after every Full Protocol run, whoever started it,
-    once its files are on disk and its hyperstack build has ended.
-    Defaults to False so registration is metadata-only; plugins opt in
-    explicitly. See PluginRegistry.run_protocol_complete_processors().
+    Attributes:
+        name: The plugin's name, unique within a namespace.
+        version: The plugin's version.
+        requires_lvp_version: The LumaViewPro versions it runs on, as a
+            requirement (``'>=4.0.0'``); pre-release suffixes are stripped
+            before comparing.
+        description: One sentence saying what the plugin does.
+        capabilities: The API surfaces it uses, as dotted paths
+            (``'scope.imaging'``). A declaration, not a sandbox: the
+            tech-support report and diagnostic probes record it.
+        author: Its author.
+        url: Its web address.
+        auto_run_on_protocol_complete: For a post-processing plugin, True
+            hands its processor the folder of every Full Protocol run,
+            whoever started it, once its files are on disk and its
+            hyperstack build has ended
+            (``PluginRegistry.run_protocol_complete_processors``).
     """
 
     name: str
@@ -149,7 +161,6 @@ class PluginSpec:
     requires_lvp_version: str
     description: str
     capabilities: tuple[str, ...] = ()
-    subscribes_to: tuple[str, ...] = ()
     author: str = ''
     url: str = ''
     auto_run_on_protocol_complete: bool = False
@@ -217,16 +228,23 @@ class PluginHealth:
     not_loaded: tuple[PluginNotLoaded, ...]
 
 
-# Processor result for post_processing namespace.
-# Plugins return this from their processor callable so the host knows
-# what artifacts to surface in the run-complete dialog and where to
-# log success/failure.
+@api_fields('success', 'outputs', 'message')
 @dataclass(frozen=True)
 class ProcessorResult:
+    """What a post-processing processor answers to the host that called it.
+
+    The host logs a success with its message and what it made, and reports
+    a failure to the person with its message.
+
+    Attributes:
+        success: Whether the processor completed.
+        outputs: The absolute paths of the files it wrote.
+        message: A one-line summary for the person using the microscope.
+    """
+
     success: bool
-    outputs: tuple[str, ...] = ()  # absolute paths to produced files
-    message: str = ''  # one-line user-facing summary
-    metadata: dict = field(default_factory=dict)
+    outputs: tuple[FilePath, ...] = ()
+    message: str = ''
 
 
 # ---------------------------------------------------------------------------
@@ -289,29 +307,32 @@ class _BaseNamespace:
 
 
 class UIRegistry(_BaseNamespace):
-    """UI-extending plugins. Adds widgets at named mount points.
-
-    register(spec, mount_point, builder):
-        mount_point: a name from UI_MOUNT_POINTS
-        builder: callable returning a Kivy widget. Called by the host
-                 at attach time, not at registration time, so the host
-                 can defer instantiation until the mount-point widget
-                 exists in the tree.
-    """
+    """UI-extending plugins. Adds widgets at named mount points."""
 
     NAMESPACE = 'ui'
 
-    def register(self, spec: PluginSpec, mount_point: str, builder: Callable[[], Any]) -> None:
-        if mount_point not in UI_MOUNT_POINTS:
-            raise PluginRegistrationError(
-                'unknown_mount_point',
-                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}",
-            )
+    @api(in_process=True)
+    def register(
+        self, spec: PluginSpec, mount_point: UIMountPoint, builder: Callable[[], object]
+    ) -> None:
+        """Add a widget at a mount point.
+
+        Args:
+            spec: The plugin.
+            mount_point: Where the widget is attached.
+            builder: Takes no arguments and answers the widget. The host
+                calls it at attach time, once the window's widget tree
+                exists, not at registration.
+
+        Raises:
+            PluginRegistrationError: ``'name_taken'``, the namespace already
+                holds a plugin of that name.
+        """
         with self._lock:
             self._assert_unique(spec)
             self._entries[spec.name] = (spec, (mount_point, builder))
 
-    def mounts(self) -> tuple[tuple[str, str, Callable[[], Any]], ...]:
+    def mounts(self) -> tuple[tuple[str, UIMountPoint, Callable[[], object]], ...]:
         """Return (plugin_name, mount_point, builder) tuples for the host
         to attach during widget-tree construction. Returned list is a
         snapshot; subsequent registrations don't appear here."""
@@ -335,23 +356,55 @@ class PostProcessingRegistry(_BaseNamespace):
 
     NAMESPACE = 'post_processing'
 
+    @api(in_process=True)
     def register(
         self,
         spec: PluginSpec,
         processor: Callable[[str, dict, str], ProcessorResult],
     ) -> None:
+        """Register a processor of saved files.
+
+        Args:
+            spec: The plugin.
+            processor: Called ``processor(input_dir, manifest, output_dir)``
+                with the folder to read, the run's manifest and the folder to
+                write into; answers a ``ProcessorResult``.
+
+        Raises:
+            PluginRegistrationError: ``'name_taken'``, the namespace already
+                holds a plugin of that name.
+        """
         with self._lock:
             self._assert_unique(spec)
             # Store (spec, processor) so .handlers() can hand the spec
             # back to consumers that need its flags (e.g. auto-run gate).
             self._entries[spec.name] = (spec, processor)
 
-    def get(self, name: str) -> Callable | None:
+    @api(in_process=True)
+    def get(self, name: str) -> Callable[[str, dict, str], ProcessorResult] | None:
+        """The processor a plugin registered, to call it directly.
+
+        Args:
+            name: The plugin's name.
+
+        Returns:
+            Callable | None: The processor, or None when no plugin of that
+                name is registered here.
+
+        Raises:
+            Nothing.
+        """
         with self._lock:
             entry = self._entries.get(name)
             return entry[1] if entry is not None else None
 
+    @api(in_process=True)
     def names(self) -> tuple[str, ...]:
+        """The names of the plugins registered here.
+
+        Raises:
+            Nothing.
+        """
         with self._lock:
             return tuple(self._entries.keys())
 
@@ -396,7 +449,22 @@ class LiveProcessingRegistry(_BaseNamespace):
         # channel for unregister-by-name.
         self._scope = scope
 
-    def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
+    @api(in_process=True)
+    def register(self, spec: PluginSpec, frame_handler: Callable[[Frame], None]) -> None:
+        """Add a listener on every frame the camera delivers.
+
+        Args:
+            spec: The plugin.
+            frame_handler: Called ``frame_handler(frame)`` with each
+                ``Frame``, on the camera's thread
+                (``ImagingAPI.add_frame_listener``).
+
+        Raises:
+            PluginRegistrationError: ``'name_taken'``, the namespace already
+                holds a plugin of that name.
+            HardwareCommandRefusedError: ``'not_connected'``, no camera is
+                connected; nothing is registered.
+        """
         with self._lock:
             self._assert_unique(spec)
             # Forward to the canonical listener list on ImagingAPI before
@@ -408,8 +476,16 @@ class LiveProcessingRegistry(_BaseNamespace):
             self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
             self._entries[spec.name] = (spec, frame_handler)
 
+    @api(in_process=True)
     def unregister(self, name: str) -> None:
-        """Remove the listener registered by plugin `name`. No-op if not registered."""
+        """Remove the listener a plugin registered; nothing when it registered none.
+
+        Args:
+            name: The plugin's name.
+
+        Raises:
+            Nothing.
+        """
         with self._lock:
             entry = self._entries.pop(name, None)
         if entry is None:
@@ -448,6 +524,7 @@ class RESTRegistry(_BaseNamespace):
         super().__init__()
         self._stub_mode: bool = False
 
+    @api(in_process=True)
     def enable_stub_mode(self) -> None:
         """Opt into accepting REST registrations as stubs.
 
@@ -459,6 +536,9 @@ class RESTRegistry(_BaseNamespace):
 
         A shipped plugin does not call this: its registration is refused,
         so a route it expects to serve is never silently missing.
+
+        Raises:
+            Nothing.
         """
         with self._lock:
             self._stub_mode = True
@@ -495,8 +575,15 @@ class RESTRegistry(_BaseNamespace):
 # ---------------------------------------------------------------------------
 
 
+@api_fields('ui', 'post_processing', 'live_processing', 'rest')
 class PluginRegistry:
     """Single ctx.plugins entry point exposing the four namespaces.
+
+    Attributes:
+        ui: Widgets at the window's mount points.
+        post_processing: Processors of saved files.
+        live_processing: Listeners on every frame the camera delivers.
+        rest: Reserved: a plugin cannot add REST routes in this release.
 
     Lifecycle:
         - Built by the session when its host asks for plugins
@@ -504,6 +591,11 @@ class PluginRegistry:
         - Drained by unload(), in reverse order, when the host asks
           (``ScopeSession.unload_plugins``) or the session shuts down.
     """
+
+    ui: UIRegistry
+    post_processing: PostProcessingRegistry
+    live_processing: LiveProcessingRegistry
+    rest: RESTRegistry
 
     def __init__(self, scope: Any) -> None:
         self.ui = UIRegistry()
@@ -731,16 +823,6 @@ class PluginRegistry:
                 )
                 return 0
 
-        if spec.subscribes_to:
-            self.record_load_failure(
-                spec.name,
-                spec.version,
-                'it subscribes to settings changes (subscribes_to), which plugin API '
-                f'level 9 removed; it needs a LumaViewPro at level 8, and this is level '
-                f'{PLUGIN_API_LEVEL}',
-            )
-            return 0
-
         if not is_version_compatible(spec.requires_lvp_version, host_version):
             self.record_load_failure(
                 spec.name,
@@ -823,7 +905,8 @@ class PluginRegistry:
         turn; a processor that raises, returns something other than a
         ProcessorResult, or returns one that reports failure is recorded
         and reported, and does not block the others. A success is logged at
-        INFO. Never raises.
+        INFO with what it made: the count of its outputs and their common
+        folder, since a plate's stitch makes thousands of files. Never raises.
         """
         if files != FilesOutcome.WRITTEN:
             logger.warning(
@@ -860,7 +943,10 @@ class PluginRegistry:
                 )
                 continue
             if result.success:
-                logger.info(f'[Plugins ] {spec.name} auto-run succeeded: {result.message}')
+                logger.info(
+                    f'[Plugins ] {spec.name} auto-run succeeded: {result.message} '
+                    f'({_what_it_made(result.outputs)})'
+                )
             else:
                 self.record_runtime_error(
                     spec.name, 'auto_run_on_protocol_complete', detail=result.message
@@ -874,6 +960,19 @@ class PluginRegistry:
             if plugin_name in ns._entries:
                 return ns
         return None
+
+
+def _what_it_made(outputs: tuple[FilePath, ...]) -> str:
+    """A processor's outputs in a few words: how many, and the folder they share.
+
+    Read from the paths as text, so outputs on two drives, or a relative
+    path among them, cannot make the success log raise.
+    """
+    if not outputs:
+        return 'no files'
+    folders = [os.path.dirname(str(output)) + os.sep for output in outputs]
+    shared = os.path.commonprefix(folders).rpartition(os.sep)[0]
+    return f'{len(outputs)} file(s) in {shared or "more than one folder"}'
 
 
 # ---------------------------------------------------------------------------

@@ -147,7 +147,6 @@ def test_processor_returns_processor_result_on_missing_folder(
     assert result.success is False
     assert isinstance(result.message, str)
     assert result.message != ''
-    assert result.metadata['input_dir'] == str(empty_dir)
 
 
 def test_processor_catches_exceptions_and_returns_failure(harness_ctx):
@@ -242,7 +241,10 @@ def test_an_installed_plugin_with_its_name_keeps_it(harness_ctx):
     # the one reported as not loaded, and the app carries on.
     installed = types.ModuleType('installed_stitcher')
     installed.spec = stitcher_plugin.spec
-    installed_processor = object()
+
+    def installed_processor(input_dir, manifest, output_dir):
+        return ProcessorResult(success=True)
+
     installed.register = lambda ctx: ctx.plugins.post_processing.register(
         installed.spec, installed_processor
     )

@@ -703,6 +703,9 @@ _KEY = "an outcome's operation key, the caller's"
 _HEADER = "the protocol file format's header line"
 _PROTOCOL_COLUMN = "a column heading of the protocol file format's steps table"
 _READER = "the REST request reader's own word: where it found an argument, or its code for why"
+_CAPABILITY = 'an API surface a plugin declares it uses, as a dotted path the plugin writes'
+_REQUIREMENT = "a requirement on LumaViewPro's version, as the plugin writes it"
+_URL = 'a web address'
 
 OPEN_STRINGS: dict[str, str] = {
     'ArgumentRefusedError.argument field': _MEMBER,
@@ -773,6 +776,7 @@ OPEN_STRINGS: dict[str, str] = {
     'LedReading.name field': _CHANNEL,
     'LedSnapshot.tag field': _TAG,
     'LiveFolderEntry.name field': _PATH,
+    'LiveProcessingRegistry.unregister parameter name': _PLUGIN,
     'Lumascope.labware return': _LABWARE,
     'Lumascope.objectives return': _OBJECTIVE,
     'Lumascope.scope_models return': _MODEL,
@@ -804,6 +808,13 @@ OPEN_STRINGS: dict[str, str] = {
     'PluginNotLoaded.name field': _PLUGIN,
     'PluginNotLoaded.reason field': _REASON,
     'PluginNotLoaded.version field': _PLUGIN,
+    'PluginSpec.author field': _PROSE,
+    'PluginSpec.capabilities field': _CAPABILITY,
+    'PluginSpec.description field': _PROSE,
+    'PluginSpec.name field': _PLUGIN,
+    'PluginSpec.requires_lvp_version field': _REQUIREMENT,
+    'PluginSpec.url field': _URL,
+    'PluginSpec.version field': _PLUGIN,
     'PluginRuntimeError.exc_type field': _TYPE,
     'PluginRuntimeError.hook field': _PLUGIN,
     'PluginRuntimeError.message field': _PROSE,
@@ -812,6 +823,11 @@ OPEN_STRINGS: dict[str, str] = {
     'PluginStatus.name field': _PLUGIN,
     'PluginStatus.namespace field': _PLUGIN,
     'PluginStatus.version field': _PLUGIN,
+    'PostProcessingRegistry.get parameter name': _PLUGIN,
+    'PostProcessingRegistry.get return': _PATH,
+    'PostProcessingRegistry.names return': _PLUGIN,
+    'PostProcessingRegistry.register parameter processor': _PATH,
+    'ProcessorResult.message field': _PROSE,
     'PostProcessingAPI.draw_graph parameter x': _COLUMN,
     'PostProcessingAPI.draw_graph parameter y': _COLUMN,
     'PostProcessingAPI.draw_graph parameter x_label': _PROSE,

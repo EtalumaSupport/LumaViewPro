@@ -17,8 +17,6 @@ How the three args map onto the stitch:
                    nothing from it.
     output_dir  -- accepted for contract compliance; the stitch writes
                    inside input_dir and ignoring output_dir is intentional.
-                   Surfaced in ProcessorResult.metadata so the host knows
-                   where to look.
 
 Return shape:
     ProcessorResult.success is True when the stitch returned, False when it
@@ -88,10 +86,6 @@ def _stitcher_processor(
             message='Stitcher: input_dir not provided.',
         )
 
-    metadata = {
-        'input_dir': str(input_path),
-        'output_dir': str(output_dir) if output_dir else '',
-    }
     try:
         result = post_processing.stitch(input_path)
     except Exception as e:
@@ -109,14 +103,12 @@ def _stitcher_processor(
             success=False,
             outputs=tuple(getattr(e, 'produced_paths', ())),
             message=message,
-            metadata=metadata,
         )
 
     return ProcessorResult(
         success=True,
         outputs=tuple(str(path) for path in result.artifact_paths),
         message=result.message,
-        metadata=metadata,
     )
 
 

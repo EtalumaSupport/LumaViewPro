@@ -548,7 +548,7 @@ class ScopeSession:
         # them (load_plugins): a session nobody asked plugins for has none,
         # whatever is installed, so a script or a test is not changed by the
         # machine it runs on.
-        self.plugins: PluginRegistry | None = None
+        self._plugins: PluginRegistry | None = None
         self.scope = scope
         # One scheduler per session, owned here and shared by every
         # periodic consumer -- metrics, camera-temp logging, and the
@@ -2499,6 +2499,10 @@ class ScopeSession:
     @_guarded_write
     def set_channel_auto_gain(self, channel: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
+
+        This is the layer's stored setting, which a capture of that layer
+        uses; ``scope.camera.set_auto_gain`` is a raw camera write, which the
+        next layer the camera holds replaces.
 
         For the shown layer the camera follows when this returns: turning it
         on arms the camera's auto loop (``apply_layer_camera``); turning it
@@ -5151,7 +5155,19 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return None if self.plugins is None else self.plugins.health()
+        return None if self._plugins is None else self._plugins.health()
+
+    @api(in_process=True)
+    @property
+    def plugins(self) -> 'PluginRegistry | None':
+        """The plugin contract: the namespaces a plugin registers into, as ``ctx.plugins``.
+
+        None until the host asks for plugins (``load_plugins``).
+
+        Raises:
+            Nothing.
+        """
+        return self._plugins
 
     @api(in_process=True)
     def load_plugins(self) -> None:
@@ -5169,13 +5185,13 @@ class ScopeSession:
             AlreadyStartedError: ``'plugins_loaded'``, this session already
                 loaded its plugins. Still a ``RuntimeError``.
         """
-        if self.plugins is not None:
+        if self._plugins is not None:
             raise AlreadyStartedError(
                 'plugins_loaded', 'This session already loaded its plugins; it loads them once.'
             )
         version, _build_timestamp = path_utils.read_version()
-        self.plugins = PluginRegistry(self.scope)
-        self.plugins.load(self, version)
+        self._plugins = PluginRegistry(self.scope)
+        self._plugins.load(self, version)
 
     @api(in_process=True)
     def unload_plugins(self) -> None:
@@ -5190,8 +5206,8 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        if self.plugins is not None:
-            self.plugins.unload(self)
+        if self._plugins is not None:
+            self._plugins.unload(self)
 
     def _run_protocol_complete_processors(
         self,
@@ -5212,7 +5228,7 @@ class ScopeSession:
         with the files' outcome. Their task's outcome is answered here as it
         settles, so it is never left with nobody to read it.
         """
-        if self.plugins is None:
+        if self._plugins is None:
             return
         from modules.notification_center import notifications
 
@@ -5225,7 +5241,7 @@ class ScopeSession:
 
         def processors() -> None:
             write_batch.wait_complete(None)
-            self.plugins.run_protocol_complete_processors(
+            self._plugins.run_protocol_complete_processors(
                 run_dir_str, manifest, run_dir_str, write_batch.outcome
             )
 

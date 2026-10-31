@@ -130,18 +130,6 @@ def test_a_plugin_for_another_version_is_reported(harness_ctx, centre_posts, out
     assert 'too_new' in [s.name for s in harness_ctx.plugins.not_loaded()]
 
 
-def test_a_plugin_that_subscribes_to_settings_is_reported_with_the_level_it_needs(
-    harness_ctx, centre_posts, outcome_records
-):
-    mod = _module('listener', register=lambda ctx: None, subscribes_to=('video.max_fps',))
-    _load(harness_ctx, _EntryPoint('listener', mod))
-
-    _assert_one_report(centre_posts, outcome_records, PluginNotLoadedError, 'listener')
-    assert 'subscribes_to' in centre_posts[0].message
-    assert 'level 8' in centre_posts[0].message
-    assert 'listener' in [s.name for s in harness_ctx.plugins.not_loaded()]
-
-
 def test_a_plugin_with_no_register_is_reported(harness_ctx, centre_posts, outcome_records):
     _load(harness_ctx, _EntryPoint('no_register', _module('no_register')))
 

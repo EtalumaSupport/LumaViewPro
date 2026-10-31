@@ -179,6 +179,10 @@ class SimulationAPI:
     Holds the simulated boards the scope built, which are the drivers
     themselves on the fast tier, the boards behind the production drivers
     on the firmware tiers, and the devices behind them on a Classic model.
+
+    The simulator's own surface, outside what 4.0 freezes: its members may
+    change in any 4.x release, and it carries no version of its own, since
+    it ships with the release.
     """
 
     def __init__(

@@ -1387,7 +1387,9 @@ class CameraAPI:
         write is a raw one: afterwards the camera holds no channel's stored
         settings until a channel's are put on again, and a still taken
         meanwhile, one naming a channel included, keeps the raw values and
-        records ``held_channel`` None.
+        records ``held_channel`` None. A channel's own gain, which a capture
+        of that channel uses, is its stored setting
+        (``ScopeSession.update_settings('<channel>.gain_db', ...)``).
 
         Args:
             gain_db: The gain in dB, within the camera's declared range
@@ -1435,7 +1437,9 @@ class CameraAPI:
 
         One command on the camera's lane, waited for, as ``set_gain_db``
         is; a write the camera does not apply raises. The write is a raw
-        one: afterwards the camera holds no channel's stored settings.
+        one: afterwards the camera holds no channel's stored settings. A
+        channel's own exposure, which a capture of that channel uses, is its
+        stored setting (``ScopeSession.update_settings('<channel>.exposure_ms', ...)``).
 
         Args:
             exposure_ms: The exposure time in milliseconds, within the
@@ -1486,7 +1490,9 @@ class CameraAPI:
         One command on the camera's lane, waited for. A write the camera
         does not apply raises and records no arm. With no camera connected,
         turning auto-gain off is satisfied: True, as a camera already in
-        manual answers.
+        manual answers. The write is a raw one, which the next channel the
+        camera holds replaces; a channel's own auto-gain, which a capture of
+        that channel uses, is ``ScopeSession.set_channel_auto_gain``.
 
         Args:
             state: True to turn auto-gain on, False to turn it off.

@@ -21,7 +21,12 @@ can consult you before a structural change.
 
 When the first LumaViewPro release that is not a beta ships (`4.0.0`), the API
 freezes for the 4.x versions, and every change after it is recorded in the
-[Changelog](#changelog) at the end of this guide.
+[Changelog](#changelog) at the end of this guide. What freezes is what the
+[API reference](api-reference.md) lists, and the plugin contract
+([Plugins](#plugins)), with one exception: the simulator's surface,
+[`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
+release ([The simulator](#the-simulator)). Etaluma's bench and support members
+are not in the reference and are outside the freeze.
 
 ## What LumaViewPro is
 
@@ -656,6 +661,16 @@ to the camera, and is None whenever that is unknown. The fresh read, `read_*`
 print(scope.camera.gain_db, scope.camera.read_gain_db())
 ```
 
+**A raw write and a channel's settings.** The camera's setters are raw writes:
+`set_gain_db`, `set_exposure_ms` and `set_auto_gain` change the camera now, and
+the next channel the camera holds -- a still of a channel, a run's step --
+replaces them. A channel's own gain, exposure and auto-gain are its stored
+settings, which a capture of that channel uses:
+`session.update_settings('BF.gain_db', ...)`,
+`session.update_settings('BF.exposure_ms', ...)` and
+`session.set_channel_auto_gain('BF', ...)`. A script that images a channel
+sets the channel's settings; a raw write is for work on the camera itself.
+
 **Auto gain and exposure.** `set_auto_gain(state, settings)` turns the
 camera's auto-gain on or off with its target settings, and `lock_auto_gain()`
 fixes the gain and exposure it reached. `set_auto_exposure(mode)` takes a
@@ -1220,6 +1235,10 @@ member works on it as on the hardware: a change is proven there before it
 reaches a bench. The camera images a specimen fixed to the stage, so moving the
 stage moves the image.
 
+The simulator's own surface, `scope.simulation`, is outside what `4.0.0`
+freezes: it may change in any 4.x release. It carries no version of its own; it
+ships with the release.
+
 **Tiers.** `settings['simulator_tier']` in the settings handed to `create`
 chooses the fidelity:
 
@@ -1301,7 +1320,9 @@ A plugin extends LumaViewPro: a post-processor, a live frame processor, a
 panel in the window. It is a Python package loaded at startup, handed the
 session, and it uses the API this guide describes. How to write one, its
 lifecycle, and which plugin API level a host offers are in
-[`plugin-tutorial.md`](plugin-tutorial.md).
+[`plugin-tutorial.md`](plugin-tutorial.md). The plugin contract -- the session's
+`plugins` and the namespaces' members the tutorial teaches -- freezes with the
+API at `4.0.0`; registering REST routes (`plugins.rest.register`) is outside it.
 
 ## Changelog
 

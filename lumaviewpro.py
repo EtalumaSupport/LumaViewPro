@@ -1157,9 +1157,11 @@ class LumaViewProApp(TooltipMixin, App):
         # exists. Each registered (name, mount, builder) tuple is
         # invoked here; builder() returns the Kivy widget which is
         # added to the named mount point.
+        from modules.plugins import UIMountPoint
+
         motionsettings_accordion = ctx.motion_settings.ids['motionsettings_accordion_id']
         for plugin_name, mount_point, builder in ctx.session.plugins.ui.mounts():
-            if mount_point == 'left_sidebar.accordion':
+            if mount_point == UIMountPoint.LEFT_SIDEBAR_ACCORDION:
                 try:
                     plugin_item = builder()
                     # The item carries no exclusive-activity lock, as the
