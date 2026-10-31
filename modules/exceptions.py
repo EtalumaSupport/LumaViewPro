@@ -4431,20 +4431,19 @@ def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
 class AxisStateUnknownError(Refusal, Exception):
     """An axis whose position is not known was asked to move, or to be recorded.
 
-    Raised by the motion pre-drive gate when the target axis is UNKNOWN:
-    a home failed, the board vanished mid-move, or a move stalled out.
-    An absolute move against an unknown reference frame is never a valid
-    request -- there is no frame for it to be absolute in -- so refusing
-    it discards nothing legitimate and makes the failure loud instead of
-    letting the stage travel somewhere nobody asked for. Also raised when
+    Raised by the motion pre-drive gate while any axis of the scope is
+    UNKNOWN, whichever axis was asked to move: a home failed, the board
+    vanished mid-move, or a move stalled out. A move against a reference
+    frame the scope knows is partly gone is never a valid request, so
+    refusing it discards nothing legitimate and makes the failure loud
+    instead of letting the stage travel somewhere nobody asked for. Also raised when
     a position is about to be saved (a step, a focus, a bookmark) while
     an axis does not know where it is: the cached number is the last one
     the axis reported, real-looking and no longer true.
 
-    The recovery paths that must move a still-unknown axis (lowering Z
-    for turret safety, a deliberate re-home jog) pass ``force=True``
-    rather than pre-checking state, so the gate can never deadlock the
-    operation that would clear the state it guards.
+    Nothing moves past it: the operations that clear the state it guards,
+    the whole-scope home and the Z home, drive without passing the gate.
+    The turret home parks Z, which is a move, so it is refused too.
 
     The message is written for the person at the scope, because the
     GUI's background lane shows a typed error's message as the popup
@@ -4530,7 +4529,7 @@ class MoveNotCompletedError(_Umbrella, Exception):
     command ended it.
 
     Distinct from ``AxisStateUnknownError``, which refuses a move before
-    anything is driven and offers ``force=True`` -- advice that is wrong
+    anything is driven and says to home the scope -- advice that is wrong
     for a move that already happened.
 
     Attributes:

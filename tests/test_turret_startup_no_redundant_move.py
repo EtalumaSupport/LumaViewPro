@@ -30,6 +30,10 @@ def test_home_seeds_turret_position_one():
 def test_thome_seeds_turret_position_one():
     scope = build_scope(simulate=True)
     assert scope.capabilities.has_turret
+    # Homed and turned away from slot 1 first: a turret home is refused
+    # while any axis is unhomed, and a home leaves the turret at slot 1.
+    scope.motion.home()
+    scope.motion.move_turret(2)
     scope.motion.home(axis='T')
     assert scope.motion._last_turret_position == 1
 

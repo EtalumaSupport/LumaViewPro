@@ -61,6 +61,7 @@ from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
+    AxisStateUnknownError,
     ControlSessionRefusedError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
@@ -1570,9 +1571,10 @@ class FirmwareDiagnostics:
         def _home(axis):
             try:
                 motion.home(axis)
-            except (HomingFailedError, MoveNotCompletedError) as e:
+            except (HomingFailedError, MoveNotCompletedError, AxisStateUnknownError) as e:
                 # A move is the turret home's Z park or restore, whose outcome
-                # is the turret's result.
+                # is the turret's result; the turret home is refused while an
+                # axis the home before it left unknown has no position.
                 return f'Error: {e}'
             except HardwareCommandRefusedError as e:
                 if e.reason not in HARDWARE_STATE_REASONS:
@@ -1595,14 +1597,17 @@ class FirmwareDiagnostics:
         if caps.has_focus:
             _record('Z', _home('Z'))
 
-        if caps.has_turret:
-            _record('T', _home('T'))
-
         # Home XY (the firmware's full home, as the raw HOME was)
         if caps.has_xy_stage:
             home_resp = _home('ALL')
             for ax in 'XY':
                 _record(ax, home_resp)
+
+        # The turret's own home last: it parks Z, a move, so it runs only
+        # once every axis has a position, which only the full home gives a
+        # scope whose home had failed.
+        if caps.has_turret:
+            _record('T', _home('T'))
 
         # Check for errors in responses
         for _ax, data in results['axes'].items():

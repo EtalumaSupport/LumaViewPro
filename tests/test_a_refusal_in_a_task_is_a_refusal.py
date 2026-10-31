@@ -163,8 +163,9 @@ def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(
 def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(
     scope, monkeypatch, centre_posts
 ):
-    """The sim finding, end to end: a person's move on an axis that has not
-    homed reaches them as the same refusal every gesture gives."""
+    """The sim finding, end to end: a person's move on a scope that has not
+    homed reaches them as the same refusal every gesture gives, naming every
+    axis without a position, not only the one moved."""
     from ui import ui_helpers
 
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
@@ -178,4 +179,5 @@ def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(
     scope._io_executor.put(IOTask(action=lambda: None), return_future=True).result(timeout=5.0)
 
     assert [(n.severity, n.title) for n in centre_posts] == [(Severity.WARNING, 'Scope Not Homed')]
-    assert 'Y position is unknown' in centre_posts[0].message
+    assert centre_posts[0].reason == 'position_unknown'
+    assert centre_posts[0].message.startswith('The X, Y and Z positions are unknown.')

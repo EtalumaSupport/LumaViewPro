@@ -11,9 +11,10 @@ raising, so a move that never happened reports success to every layer
 above.
 
 This file pins the consumer. The invariant, in one sentence: no
-commanded move reaches the driver while its axis is UNKNOWN unless the
-caller passed ``force=True``, and a driver-side move failure lands the
-axis back in UNKNOWN rather than leaving a stale IDLE.
+commanded move reaches the driver while any axis of the scope is
+UNKNOWN, whichever axis it drives -- only the whole-scope home and the Z
+home run then -- and a driver-side move failure lands the axis back in
+UNKNOWN rather than leaving a stale IDLE.
 
 Every test runs the production motor driver against the real board
 firmware (the firmware simulator tier) and makes the hardware fail: a
@@ -31,14 +32,14 @@ from modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     HomingFailedError,
+    MoveFaultError,
     MoveNotCompletedError,
 )
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
-
-pytestmark = pytest.mark.firmware_tier
 
 
 def _errors_posted(centre_posts):
@@ -77,6 +78,23 @@ def scope(session):
     return session.scope
 
 
+@pytest.fixture
+def stage_scope(tmp_path):
+    """A homed simulated LS850T on the realistic-timing stage, where a move
+    can be held part of the way and stall: what loses one axis alone."""
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'),
+        simulate=True,
+        warn_pre_release=False,
+    )
+    try:
+        home_sim_scope(session.scope)
+        session.scope.motion._driver.set_timing_mode('realistic')
+        yield session.scope
+    finally:
+        session.shutdown()
+
+
 def _fail_home(scope):
     """Stall the X motor: the stage never reaches its home switch, and the
     firmware's home fails."""
@@ -101,6 +119,7 @@ def _home_and_fail(scope):
 
 
 @pytest.mark.slow
+@pytest.mark.firmware_tier
 def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
     _home_and_fail(scope)
     for axis in scope.capabilities.axes:
@@ -118,24 +137,29 @@ def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
 
 
 @pytest.mark.slow
+@pytest.mark.firmware_tier
 def test_absolute_move_refuses_on_unknown_axis(scope):
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_absolute_impl('Z', position=1000)
-    assert exc.value.axis == 'Z'
+    assert exc.value.reason == 'position_unknown'
+    assert set(exc.value.axes) == set(scope.capabilities.axes)
 
 
 @pytest.mark.slow
+@pytest.mark.firmware_tier
 def test_relative_move_refuses_on_unknown_axis(scope):
     """The relative path does not route through the absolute one, so it
     needs its own gate."""
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion.move_xy_by(dx_um=50)
-    assert exc.value.axis == 'X'
+    assert exc.value.reason == 'position_unknown'
+    assert set(exc.value.axes) == set(scope.capabilities.axes)
 
 
 @pytest.mark.slow
+@pytest.mark.firmware_tier
 def test_turret_move_refuses_before_lowering_z(scope):
     """The turret move must refuse BEFORE the safety Z-retract.
 
@@ -148,12 +172,14 @@ def test_turret_move_refuses_before_lowering_z(scope):
     z_before = scope._motion_driver.target_pos('Z')
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_turret_impl(slot=3)
-    assert exc.value.axis == 'T'
+    assert exc.value.reason == 'position_unknown'
+    assert 'T' in exc.value.axes
     assert scope._motion_driver.target_pos('Z') == z_before, (
         'Z must not be driven by a turret move that was refused'
     )
 
 
+@pytest.mark.firmware_tier
 def test_absolute_move_still_works_on_a_known_axis(scope):
     """The gate must refuse UNKNOWN only. A homed axis moves as before."""
     scope.motion._home_impl()
@@ -162,34 +188,151 @@ def test_absolute_move_still_works_on_a_known_axis(scope):
 
 
 # ---------------------------------------------------------------------------
-# B4: the recovery hatch. A gate with no hatch deadlocks its own recovery --
-# _safe_turret_move lowers Z through the gated path, and after a failed home
-# Z is exactly the axis that is UNKNOWN.
+# One answer for the whole scope: while any axis is UNKNOWN nothing moves --
+# no move, jog, turret change or turret home, on any axis -- and only the
+# whole-scope home and the Z home run. A turret change parks Z and restores
+# it; with a hatch past the gate for that park, a lost Z came out of a
+# turret home reading as known at a number nobody established.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.slow
-def test_forced_move_still_drives_on_unknown_axis(scope):
-    _home_and_fail(scope)
-    # A refusal raises here; a forced move drives, and its wait returns only
-    # once Z arrived.
-    scope.motion._move_absolute_impl('Z', position=0, force=True).result()
-    assert scope.motion._axis_state['Z'] == AxisState.IDLE
+_HOLD_WAIT_S = 5.0
+# Past the motion monitor's stall window, with room for a slowed host.
+_GIVE_UP_WAIT_S = 8.0
+
+
+def _stall(scope, axis, start):
+    """Hold ``axis`` part of the way so its move stalls: the monitor gives it
+    up, and the axis is UNKNOWN with every other axis as it was."""
+    held = scope.simulation.hold_axis(axis)
+    operation = start()
+    assert held.wait(_HOLD_WAIT_S), f'the {axis} move never got part of the way'
+    return operation
+
+
+def _lose_x(scope):
+    """On a homed scope, an X move that stalls: only X is UNKNOWN."""
+    moving = _stall(scope, 'X', lambda: scope.motion.start_move_xy(x_um=60000.0))
+    with pytest.raises(MoveFaultError) as failed:
+        moving.result(timeout=_GIVE_UP_WAIT_S)
+    assert failed.value.reason == 'stalled'
+    scope.simulation.clear()
+    states = {axis: scope.motion.get_axis_state(axis) for axis in scope.capabilities.axes}
+    assert states == {**dict.fromkeys(states, AxisState.IDLE), 'X': AxisState.UNKNOWN}, (
+        f'precondition: only X is lost, got {states}'
+    )
+
+
+def _board_targets(scope):
+    return {axis: scope._motion_driver.target_pos(axis) for axis in ('Y', 'Z', 'T')}
 
 
 @pytest.mark.slow
-def test_turret_home_recovers_from_unknown_z(scope):
-    """A turret home after a failed home must not deadlock.
+def test_one_lost_axis_refuses_every_move_on_every_axis(stage_scope):
+    """With only X lost, a Z move, a Z jog, a turret change and a turret home
+    are each refused naming X, and nothing is driven."""
+    _lose_x(stage_scope)
+    before = _board_targets(stage_scope)
 
-    ``_home_turret_impl`` lowers Z inside ``_safe_turret_move`` while Z is
-    UNKNOWN. Without the hatch the gate refuses its own recovery path
-    and the turret can never be re-homed without a restart.
-    """
+    for name, gesture in (
+        ('Z move', lambda: stage_scope.motion.move_z(z_um=1000.0)),
+        ('Z jog', lambda: stage_scope.motion.move_z_by(dz_um=10.0)),
+        ('turret change', lambda: stage_scope.motion.move_turret(slot=2)),
+        ('turret home', lambda: stage_scope.motion.home('T')),
+    ):
+        with pytest.raises(AxisStateUnknownError) as refused:
+            gesture()
+        assert refused.value.reason == 'position_unknown', name
+        assert list(refused.value.axes) == ['X'], f'the {name} must be refused for X'
+
+    assert _board_targets(stage_scope) == before, 'a refused gesture must drive nothing'
+
+
+@pytest.mark.slow
+def test_a_z_home_runs_while_an_axis_is_lost_and_motion_stays_refused(stage_scope):
+    _lose_x(stage_scope)
+
+    stage_scope.motion.home('Z')
+
+    assert stage_scope.motion.get_axis_state('Z') == AxisState.IDLE
+    with pytest.raises(AxisStateUnknownError) as refused:
+        stage_scope.motion.move_z(z_um=1000.0)
+    assert list(refused.value.axes) == ['X']
+
+
+@pytest.mark.slow
+def test_a_move_gesture_is_refused_for_an_axis_it_does_not_name(stage_scope):
+    """The consult seam answers as the gate does, so a gesture's pre-check
+    cannot pass a move the gate then refuses; a save still asks only about
+    the axes it records."""
+    _lose_x(stage_scope)
+
+    with pytest.raises(AxisStateUnknownError) as refused:
+        stage_scope.motion.refuse_unknown_positions(('Z',), recording=False, then='move it')
+    assert list(refused.value.axes) == ['X']
+
+    stage_scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the focus')
+
+
+@pytest.mark.slow
+@pytest.mark.firmware_tier
+def test_a_turret_home_after_a_failed_home_is_refused_and_home_all_recovers(scope):
+    """After a failed home, the turret home is refused before Z is parked,
+    so Z is not made known by anything but a home; Home All then recovers
+    every axis."""
     _home_and_fail(scope)
     scope.simulation.clear()
-    # Turret homing must survive an UNKNOWN Z -- it is the recovery path.
-    scope.motion._home_turret_impl()
-    assert scope.motion._axis_state['T'] == AxisState.IDLE
+    targets = {axis: scope._motion_driver.target_pos(axis) for axis in ('Z', 'T')}
+
+    with pytest.raises(AxisStateUnknownError) as refused:
+        scope.motion.home('T')
+    assert refused.value.reason == 'position_unknown'
+    assert set(refused.value.axes) == set(scope.capabilities.axes)
+    assert {axis: scope._motion_driver.target_pos(axis) for axis in ('Z', 'T')} == targets
+    assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
+
+    scope.motion.home()
+
+    for axis in scope.capabilities.axes:
+        assert scope.motion.get_axis_state(axis) == AxisState.IDLE, axis
+    scope.motion.move_z(z_um=1000.0)
+
+
+@pytest.mark.slow
+def test_a_turret_change_that_loses_the_turret_leaves_z_parked(stage_scope):
+    """The Z restore is a move, and with the turret lost nothing moves: Z
+    stays parked, and the turret's own failure is what the change raises,
+    not the gate's refusal of the restore.
+
+    The turret's target write goes unanswered, so the driver fails the move
+    and no stop is sent: a stall would halt the stage, which leaves Z parked
+    by the stop's own rule and never reaches this one.
+    """
+    stage_scope.motion.move_z(z_um=1000.0)
+    # Slot 2's target on the simulated board's wire.
+    stage_scope.simulation.drop_replies('motor', count=1, command='TARGET_WT80000')
+
+    with pytest.raises(MoveFaultError) as failed:
+        stage_scope.motion.move_turret(slot=2)
+
+    assert failed.value.axis == 'T'
+    assert failed.value.reason == 'driver_failed'
+    assert stage_scope.motion.get_axis_state('T') == AxisState.UNKNOWN
+    assert stage_scope._motion_driver.target_pos('Z') == 0, 'Z must stay parked'
+
+
+@pytest.mark.slow
+@pytest.mark.firmware_tier
+def test_a_turret_home_that_fails_leaves_z_parked(scope):
+    scope.motion._home_impl()
+    scope.motion.move_z(z_um=1000.0)
+    scope.simulation.fail_home('T', 'stall')
+
+    with pytest.raises(HomingFailedError):
+        scope.motion.home('T')
+
+    assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
+    assert scope._motion_driver.target_pos('Z') == 0, 'Z must stay parked'
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +343,7 @@ def test_turret_home_recovers_from_unknown_z(scope):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.firmware_tier
 def test_turret_fault_revokes_homed_state(scope):
     """A fault that makes T UNKNOWN must revoke the turret's known position.
 
@@ -222,6 +366,7 @@ def test_turret_fault_revokes_homed_state(scope):
         scope.motion._move_turret_impl(slot=2)
 
 
+@pytest.mark.firmware_tier
 def test_stage_fault_revokes_homed_state(scope):
     """Same defect on the stage half: axes_without_position() must follow the state."""
     scope.motion._home_impl()
@@ -244,6 +389,7 @@ def _pull_the_cable(scope):
     scope.simulation.unplug('motor')
 
 
+@pytest.mark.firmware_tier
 def test_driver_move_raises_when_target_write_is_unanswered(scope):
     """``move()`` warned and returned None -- a jog invisible to every
     layer above it (#709 Half B)."""
@@ -254,6 +400,7 @@ def test_driver_move_raises_when_target_write_is_unanswered(scope):
         scope._motion_driver.move('Z', 1000)
 
 
+@pytest.mark.firmware_tier
 def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts):
     """The API half: on a driver raise the axis must land in UNKNOWN.
 
@@ -283,6 +430,7 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
     assert _errors_posted(centre_posts) == []
 
 
+@pytest.mark.firmware_tier
 def test_a_defect_in_the_drive_leaves_as_itself_with_the_axis_unknown(
     scope, monkeypatch, centre_posts
 ):
@@ -302,6 +450,7 @@ def test_a_defect_in_the_drive_leaves_as_itself_with_the_axis_unknown(
     assert _errors_posted(centre_posts) == []
 
 
+@pytest.mark.firmware_tier
 def test_a_failed_move_then_refuses_the_next_one(scope):
     """The two halves compose: a dead-board move poisons the axis, and the
     follow-up is refused instead of driving blind again -- first for the

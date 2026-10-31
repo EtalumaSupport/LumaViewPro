@@ -5,7 +5,9 @@ The motion gate's refusal used to read "X position is unknown -- home the
 scope before moving it, or pass force=True to move anyway": written for a
 script, and shown word for word to a person, because the GUI's background
 lane uses a typed error's message as the popup body. It also named one
-axis, so a gesture refused on three axes read as a problem with one.
+axis, so a gesture refused on three axes read as a problem with one. A move
+is refused while any axis of the scope is lost, so the refusal names every
+lost axis, whichever was asked to move.
 
 Driven on a real simulated scope that has never been homed, which is
 exactly the state a failed home leaves every axis in.
@@ -33,10 +35,10 @@ def test_the_gate_refuses_in_words_a_user_acts_on(unhomed_scope):
         unhomed_scope.motion._move_absolute_impl('X', position=1000)
 
     message = str(excinfo.value)
-    assert message == 'The X position is unknown. Home the scope, then move it.'
+    assert message == 'The X, Y, Z and T positions are unknown. Home the scope, then move it.'
     assert 'force' not in message
     assert excinfo.value.axis == 'X'
-    assert excinfo.value.axes == {'X': AxisState.UNKNOWN}
+    assert excinfo.value.axes == dict.fromkeys(unhomed_scope.capabilities.axes, AxisState.UNKNOWN)
 
 
 def test_one_refusal_names_every_axis():
@@ -73,7 +75,8 @@ def _warnings(centre_posts):
 
 
 def test_a_gesture_is_refused_naming_every_unknown_axis(unhomed_scope, centre_posts):
-    """Raised naming every axis, and posting nothing: the gesture's boundary reports."""
+    """Raised naming every lost axis of the scope, the turret the gesture did
+    not name included, and posting nothing: the gesture's boundary reports."""
     with pytest.raises(AxisStateUnknownError) as excinfo:
         unhomed_scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=False, then='go to the step'
@@ -83,6 +86,7 @@ def test_a_gesture_is_refused_naming_every_unknown_axis(unhomed_scope, centre_po
         'X': AxisState.UNKNOWN,
         'Y': AxisState.UNKNOWN,
         'Z': AxisState.UNKNOWN,
+        'T': AxisState.UNKNOWN,
     }
     assert _warnings(centre_posts) == []
 
@@ -102,7 +106,7 @@ def test_a_person_is_shown_the_refusal_once_in_words_they_act_on(unhomed_scope, 
     assert _warnings(centre_posts) == [
         (
             'Scope Not Homed',
-            'The X, Y and Z positions are unknown. Home the scope, then go to the step.',
+            'The X, Y, Z and T positions are unknown. Home the scope, then go to the step.',
         )
     ]
 
@@ -117,7 +121,7 @@ def test_an_axis_the_scope_does_not_have_is_not_asked_about(tmp_path):
     finally:
         session.shutdown()
 
-    assert list(excinfo.value.axes) == ['X']
+    assert list(excinfo.value.axes) == ['X', 'Y', 'Z']
 
 
 def test_a_homed_scope_is_not_refused(unhomed_scope, centre_posts):

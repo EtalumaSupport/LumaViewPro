@@ -7142,7 +7142,7 @@ answering; either ends it in `HomingFaultError`.
 
 **Args**
 
-- `axis`: `'Z'` homes the Z axis only. `'T'` homes the turret (parks Z at 0, homes T, restores Z). `'ALL'` (default) homes every axis the board has; the firmware routine homes Z, then T, then X/Y.
+- `axis`: `'Z'` homes the Z axis only. `'T'` homes the turret (parks Z at 0, homes T, restores Z), and is refused while any axis has no known position, since its park is a move. `'ALL'` (default) homes every axis the board has; the firmware routine homes Z, then T, then X/Y. `'ALL'` and `'Z'` run whatever the axes' state.
 
 **Raises**
 
@@ -7151,6 +7151,7 @@ answering; either ends it in `HomingFaultError`.
 - `HardwareCommandRefusedError`: `'home_in_flight'`, while a home asked earlier, by any caller, has not ended.
 - `HomingFaultError`: the home was driven and did not establish a reference: `'error'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'unread'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
+- `AxisStateUnknownError`: for `'T'`, an axis of the scope has no known position; nothing was driven. `'ALL'` recovers it.
 - `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'position_unread'`, `'monitor_ended'`, or an interlock reason), the turret as it was.
 - `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`.
 
@@ -7162,7 +7163,7 @@ as that activity's work and takes no claim of its own.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `lid_open_before_motion`, `home_in_flight`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `lid_open_before_motion`, `home_in_flight`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
 - 500: [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `position_unread`, `monitor_ended`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
@@ -13980,20 +13981,19 @@ A refusal; bases `Refusal`, `Exception`.
 
 An axis whose position is not known was asked to move, or to be recorded.
 
-Raised by the motion pre-drive gate when the target axis is UNKNOWN:
-a home failed, the board vanished mid-move, or a move stalled out.
-An absolute move against an unknown reference frame is never a valid
-request -- there is no frame for it to be absolute in -- so refusing
-it discards nothing legitimate and makes the failure loud instead of
-letting the stage travel somewhere nobody asked for. Also raised when
+Raised by the motion pre-drive gate while any axis of the scope is
+UNKNOWN, whichever axis was asked to move: a home failed, the board
+vanished mid-move, or a move stalled out. A move against a reference
+frame the scope knows is partly gone is never a valid request, so
+refusing it discards nothing legitimate and makes the failure loud
+instead of letting the stage travel somewhere nobody asked for. Also raised when
 a position is about to be saved (a step, a focus, a bookmark) while
 an axis does not know where it is: the cached number is the last one
 the axis reported, real-looking and no longer true.
 
-The recovery paths that must move a still-unknown axis (lowering Z
-for turret safety, a deliberate re-home jog) pass `force=True`
-rather than pre-checking state, so the gate can never deadlock the
-operation that would clear the state it guards.
+Nothing moves past it: the operations that clear the state it guards,
+the whole-scope home and the Z home, drive without passing the gate.
+The turret home parks Z, which is a move, so it is refused too.
 
 The message is written for the person at the scope, because the
 GUI's background lane shows a typed error's message as the popup
@@ -15581,7 +15581,7 @@ when the move failed, `MoveStoppedError` when a stop or a later
 command ended it.
 
 Distinct from `AxisStateUnknownError`, which refuses a move before
-anything is driven and offers `force=True` -- advice that is wrong
+anything is driven and says to home the scope -- advice that is wrong
 for a move that already happened.
 
 **Attributes**

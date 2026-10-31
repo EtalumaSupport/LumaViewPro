@@ -43,6 +43,9 @@ def test_a_failed_z_home_is_recorded_in_its_own_words(session, monkeypatch):
     assert result['axes']['Z']['home_response'] == (
         'Error: Z axis homing encountered an error. Position is unknown.'
     )
+    # The full home after it gave every axis a position, so the turret's own
+    # home, refused while Z had none, runs and is judged on its own.
+    assert result['axes']['T']['status'] == 'OK'
 
 
 @pytest.mark.slow

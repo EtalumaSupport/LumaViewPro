@@ -272,10 +272,12 @@ class TestWaitingForMotionTheCallerDidNotStart:
             motion._set_axis_state('Z', AxisState.IDLE)
 
     def test_axes_never_homed_do_not_fail_a_wait_on_the_one_moving(self, session):
+        """Axes lost while Z moves leave the wait on Z to Z: nothing starts
+        while an axis is lost, so they are lost after the move began."""
         motion = session.scope.motion
+        motion.start_move_z(_z_target(motion))
         motion._set_axis_state('X', AxisState.UNKNOWN)
         motion._set_axis_state('Y', AxisState.UNKNOWN)
-        motion.start_move_z(_z_target(motion))
 
         motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
 

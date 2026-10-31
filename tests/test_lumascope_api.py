@@ -41,7 +41,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
-from tests.scope_fakes import bind_settings_like_a_session, build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -331,6 +331,8 @@ class TestFrameValidityDuringHoming:
         # `home(axis='T')` correctly no-ops there.
         scope = build_scope(simulate=True, sim_model='LS850T')
         assert 'T' in scope._motion_driver.detect_present_axes()
+        # Homed first: a turret home is refused while any axis is unhomed.
+        home_sim_scope(scope)
 
         captured = {}
         original_thome = scope._motion_driver.thome
@@ -351,6 +353,7 @@ class TestFrameValidityDuringHoming:
             'goes red while the turret is rotating (#609)'
         )
         assert captured['is_valid'] is False
+        assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
 
 class TestProtocolConformance:

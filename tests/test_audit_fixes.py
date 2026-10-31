@@ -45,7 +45,6 @@ from modules.exceptions import (
 from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import EngineRun
-from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.protocol_drives import run_identity
 from tests.protocol_fixtures import protocol_from_file
 
@@ -797,34 +796,6 @@ class TestAxisState:
         sim_scope.motion.home()
         for ax in sim_scope.capabilities.axes:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
-
-    def test_axis_state_homing_thome(self):
-        """After home(axis='T') on a turret-equipped scope, T axis should be IDLE.
-
-        Uses an LS850T sim explicitly instead of the default LS850
-        sim_scope fixture (which has no turret) -- pre-B4 the test passed
-        on LS850 only because `_axis_state['T']` was a phantom key from
-        the hardcoded VALID_AXES tuple. Post-B4, T is correctly absent
-        on no-turret scopes and `home(axis='T')` is a silent no-op there.
-        """
-        from modules.lumascope_api import AxisState
-        from drivers.simulated_motorboard import SimulatedMotorBoard
-
-        scope = build_scope(simulate=True, sim_model='LS850T')
-        bind_settings_like_a_session(scope)
-        scope._motion_driver = SimulatedMotorBoard(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
-        )
-        present = scope._motion_driver.detect_present_axes()
-        assert 'T' in present, 'LS850T sim must report T present'
-        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
-        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
-        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope.motion._arrival_events.values():
-            ev.set()
-
-        scope.motion.home(axis='T')
-        assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
     def test_thome_on_no_turret_scope_is_refused(self):
         """Audit B4: home(axis='T') on a scope without a turret is refused

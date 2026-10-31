@@ -840,16 +840,30 @@ class MotionAPI:
             not isinstance(self._driver, NullMotionBoard) and axis in self._scope.capabilities.axes
         )
 
-    def _pre_drive(self, axis: str, force: bool = False) -> None:
-        """Refuse to drive an axis whose position is not known.
+    def _pre_drive(self, member: str) -> None:
+        """Refuse to drive anything while the monitor has ended, or any axis of the scope has no known position.
 
         Every commanded move passes through here before it reaches the
         driver, so the refusal cannot be reintroduced by a new move
         caller that forgets to check -- there is no per-call-site check
         to forget.
 
-        Only UNKNOWN refuses. HOMING is not a refusal: the home itself
-        has to be able to drive the axis it is establishing.
+        The scope's motion is one answer, whichever axis is asked to move:
+        an unhomed X refuses a Z move, a jog, an objective change and a
+        turret home alike. A move on a known axis while another is lost
+        drives against a frame the scope already knows is partly gone, and
+        a turret change parks Z and restores it, so a lost Z would come
+        out of it reading as known at a number nobody established. Only a
+        home (the whole-scope home, the Z home) runs then, and neither
+        passes here.
+
+        Only UNKNOWN refuses. HOMING is not a refusal: a move asked while a
+        home runs waits behind the home on the motion lane, and this is
+        read when it drives, so a home that fails first is seen.
+
+        An ended motion monitor answers first: it gives up the axes it was
+        watching, so they are UNKNOWN too, and a home cannot bring it back;
+        told to home, the person would home and then be told to restart.
 
         This raises without notifying. The failure that made the axis
         UNKNOWN already notified when it happened (a failed home pops
@@ -859,27 +873,42 @@ class MotionAPI:
         double the popup on the startup path.
 
         Args:
-            axis: Axis the caller is about to drive.
-            force: Skip the check. The recovery paths pass True: the
-                turret-safety Z-retract and a deliberate re-home jog
-                must move an axis that is legitimately still unknown,
-                and a gate that blocked them would deadlock the only
-                operations that can clear the state it guards.
+            member: The API member asked, named in a ``'monitor_ended'``
+                refusal.
 
         Raises:
-            AxisStateUnknownError: The axis position is unknown and the
-                caller did not pass ``force=True``.
+            HardwareCommandRefusedError: ``'monitor_ended'``; see
+                ``_refuse_if_monitor_ended``.
+            AxisStateUnknownError: Naming every axis of the scope whose
+                position is unknown.
         """
-        if force:
-            return
+        self._refuse_if_monitor_ended(member)
+        refused = self._axes_refusing_motion()
+        if refused:
+            raise AxisStateUnknownError(refused)
+
+    def _refuse_if_monitor_ended(self, member: str) -> None:
+        """Refuse ``member`` once the motion monitor has ended: nothing would judge a move.
+
+        Asked by the pre-drive gate, so it answers before an axis the monitor
+        gave up does, and again as each drive is sent, since the monitor
+        ends on its own thread and can end between the two.
+
+        Raises:
+            HardwareCommandRefusedError: ``'monitor_ended'``; nothing was sent.
+        """
+        if self._monitor_ended:
+            raise HardwareCommandRefusedError('monitor_ended', member)
+
+    def _axes_refusing_motion(self) -> dict[str, str]:
+        """Every axis of the scope whose state refuses motion, to its state, in the scope's axis order."""
         with self._axis_state_lock:
-            state = self._axis_state.get(axis)
-        if self._drive_refused(state):
-            raise AxisStateUnknownError({axis: state})
+            states = dict(self._axis_state)
+        return {axis: s for axis, s in states.items() if self._drive_refused(s)}
 
     @staticmethod
     def _drive_refused(state: str | None) -> bool:
-        """Whether the pre-drive gate refuses to drive an axis in ``state``.
+        """Whether an axis in ``state`` makes the pre-drive gate refuse the scope's motion.
 
         Only UNKNOWN: a HOMING axis must drive for its home to finish, and a
         move asked for while it homes waits behind the home on the motion
@@ -901,10 +930,13 @@ class MotionAPI:
         submitted or written, names every axis in one sentence, and tells
         the user once.
 
-        Two questions, because moving and recording differ over an axis
-        that is still homing: its move queues behind the home and lands,
-        so moving refuses only what the pre-drive gate refuses; its
-        position is not yet one to save, so recording refuses it too.
+        Two questions. Moving asks what the pre-drive gate asks, of the
+        whole scope: an ended motion monitor, then any axis with no known
+        position, refuses the gesture whichever axes it needs, so this
+        answer cannot pass a gesture the gate then refuses; an axis still
+        homing does not, since its move queues behind the home and lands.
+        Recording asks only about the axes it saves, and refuses a homing
+        one too: its position is not yet one to save.
 
         A consult seam for the GUI's gestures, not part of the L2 API
         surface: an L2 caller's move meets the pre-drive gate, and the
@@ -913,7 +945,8 @@ class MotionAPI:
 
         Args:
             axes: The axes the gesture needs. An axis this scope does not
-                have is not asked about.
+                have is not asked about. A move is refused for any axis
+                of the scope, named or not.
             recording: True when the gesture saves the position, False
                 when it moves.
             then: What the user does once the scope knows its position,
@@ -923,17 +956,22 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'not_offered'``, a name in *axes* is
                 no axis name.
+            HardwareCommandRefusedError: ``'monitor_ended'``, for a move,
+                as the pre-drive gate refuses one; raised, not reported.
             AxisStateUnknownError: Naming every refused axis. Raised, not
                 reported: the gesture's boundary reports it.
         """
         wanted = {refuse_unless_offered(Axis, axis, 'axes') for axis in axes}
-        with self._axis_state_lock:
-            states = {axis: s for axis, s in self._axis_state.items() if axis in wanted}
-        refused = {
-            axis: s
-            for axis, s in states.items()
-            if (not self._position_known(s) if recording else self._drive_refused(s))
-        }
+        if recording:
+            with self._axis_state_lock:
+                refused = {
+                    axis: s
+                    for axis, s in self._axis_state.items()
+                    if axis in wanted and not self._position_known(s)
+                }
+        else:
+            self._refuse_if_monitor_ended('refuse_unknown_positions')
+            refused = self._axes_refusing_motion()
         if not refused:
             return
         raise AxisStateUnknownError(refused, then=then)
@@ -1186,7 +1224,14 @@ class MotionAPI:
         (``_command``), so no capture returns a frame with Z parked or at
         the old slot, and restores the original Z position even if the body
         raises -- unless a stop landed since Z was parked: the person
-        stopped the scope, so Z stays parked.
+        stopped the scope, so Z stays parked; or an axis lost its position
+        during the change (a turret move or home that failed leaves T
+        unknown): nothing moves then, so Z stays parked and the change's
+        own failure is what leaves, not the gate's refusal of the restore.
+
+        The park and the restore pass the pre-drive gate as any move does.
+        Every caller refuses an unhomed scope before entering, so the park
+        drives a scope whose every axis is known.
 
         Args:
             restore_z: When True (default), restore the original Z
@@ -1207,13 +1252,7 @@ class MotionAPI:
         # still closes it, and a capture cannot land between the park and
         # the turret's move.
         with self._command():
-            # force: this retract is the turret-safety move, and it is also
-            # the first motion of the turret-home recovery -- the case where
-            # Z is legitimately still unknown because the home that would
-            # have established it is the operation being recovered. Refusing
-            # here would mean an UNKNOWN Z could never be re-homed without
-            # restarting the application.
-            self._move_absolute_impl('Z', position=0, force=True).result()
+            self._move_absolute_impl('Z', position=0).result()
             try:
                 yield stop_generation
             finally:
@@ -1225,14 +1264,17 @@ class MotionAPI:
                         '[SCOPE API ] Leaving Z parked -- a stop landed during the turret change',
                         extra={'force_error': True},
                     )
+                elif restore_z and (lost := self._axes_refusing_motion()):
+                    logger.info(
+                        f'[SCOPE API ] Leaving Z parked -- {", ".join(lost)} lost its '
+                        'position during the turret change',
+                        extra={'force_error': True},
+                    )
                 elif restore_z:
                     logger.info(
                         f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True}
                     )
-                    # force for the same reason as the retract: this is the
-                    # other half of one recovery, and refusing it would park
-                    # the stage at Z=0 with no way back.
-                    self._move_absolute_impl('Z', position=initial_z, force=True).result()
+                    self._move_absolute_impl('Z', position=initial_z).result()
                 else:
                     logger.info(
                         '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
@@ -1251,9 +1293,12 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no turret (see
                 ``refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
+            AxisStateUnknownError: an axis of the scope has no known
+                position; refused before Z is parked, and nothing was
+                driven or recorded. The whole-scope home recovers it.
             HomingFaultError: the board's home raised a hardware fault, or
                 the turret's position could not be read; ``'board_lost'``,
-                the motor board is no longer connected.
+                the motor board is no longer connected. Z stays parked.
             HomingStoppedError: ``'stopped'``, a Stop landed before the
                 board began the home.
             HardwareCommandRefusedError: the Z park was refused before Z
@@ -1270,6 +1315,10 @@ class MotionAPI:
         # have, and one with no controller fail in the driver as a home
         # would.
         self.refuse_absent('home', 'T')
+        # Refused before the park as the turret change is: the park is a Z
+        # move, and with an axis lost nothing moves but a whole-scope or a
+        # Z home.
+        self._pre_drive('home')
 
         # T goes HOMING once Z is parked, not before: until then nothing
         # is turning it.
@@ -1349,11 +1398,13 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no turret (see
                 ``refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
-            AxisStateUnknownError: The turret position is unknown.
+            AxisStateUnknownError: An axis of the scope has no known
+                position; refused before Z is parked.
             PositionOutOfRangeError: The slot is not a whole number 1-4.
             MoveNotCompletedError: The Z park, the turret move or the Z
                 restore did not arrive, or was stopped. The slot is unknown
-                afterwards, whichever of the three it was.
+                afterwards, whichever of the three it was; after a turret
+                move that failed, Z stays parked.
         """
         self.refuse_absent('move_turret', 'T')
         # Refused here as well as in the move's own refusals below, and both are
@@ -1364,14 +1415,14 @@ class MotionAPI:
 
         # Refuse BEFORE the safety Z-retract below, not inside it. The
         # retract is real motion; gating only the inner turret move would
-        # drop Z to 0 against an unknown reference and refuse afterwards.
+        # drop Z to 0 and refuse afterwards.
         #
         # This also precedes the same-position short-circuit: once the
         # turret reference is gone, the cache saying "already at 3" is a
         # claim about a physical position nothing can still vouch for,
         # and honoring it would report success for a turret that may be
         # anywhere.
-        self._pre_drive('T')
+        self._pre_drive('move_turret')
 
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # A request for the slot the last successful turret command left the
@@ -2393,7 +2444,6 @@ class MotionAPI:
         position: float,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
-        force: bool = False,
     ) -> Operation:
         """Start an axis moving to an absolute position; return the started move.
 
@@ -2406,8 +2456,6 @@ class MotionAPI:
             position (float): Target position -- um for X/Y/Z; turret slot (1-4) for T.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             ignore_limits: If True, skip software limit checks.
-            force: Drive even when the axis position is unknown. For the
-                recovery paths only -- see ``_pre_drive``.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the position is not a
@@ -2420,8 +2468,8 @@ class MotionAPI:
             PositionOutOfRangeError: The target is outside the axis's
                 configured travel and ``ignore_limits`` is False. A
                 ValueError subclass.
-            AxisStateUnknownError: The axis position is unknown and
-                ``force`` is False.
+            AxisStateUnknownError: An axis of the scope has no known
+                position (see ``_pre_drive``); nothing was driven.
             HardwareCommandRefusedError: ``'position_unread'``, a Z move
                 with overshoot whose position the board did not report;
                 nothing was driven.
@@ -2429,7 +2477,7 @@ class MotionAPI:
                 take the command;
                 ``'board_lost'``, the board is no longer connected.
         """
-        self._refuse_absolute('move_turret', axis, position, 'position', ignore_limits, force)
+        self._refuse_absolute('move_turret', axis, position, 'position', ignore_limits)
         return self._drive(
             'move_turret', axis, position, overshoot_enabled, f'move_abs {axis}={position:.1f}um'
         )
@@ -2441,7 +2489,6 @@ class MotionAPI:
         position: float,
         argument: str,
         ignore_limits: bool,
-        force: bool = False,
     ) -> None:
         """Every refusal of a move of ``axis`` to ``position``, in order; nothing is driven.
 
@@ -2501,7 +2548,7 @@ class MotionAPI:
                 bound='safety limit',
             )
 
-        self._pre_drive(axis, force=force)
+        self._pre_drive(member)
 
     def _drive(
         self, member: str, axis: str, position: float, overshoot_enabled: bool, said: str
@@ -2585,7 +2632,7 @@ class MotionAPI:
 
         # This path does NOT route through the absolute one, so it needs
         # the gate of its own.
-        self._pre_drive(axis)
+        self._pre_drive(member)
 
         # The offset is added to the board's own target: a move still in
         # flight on this axis is added to, so chained jogs accumulate, and
@@ -3296,9 +3343,11 @@ class MotionAPI:
 
         Args:
             axis: ``'Z'`` homes the Z axis only. ``'T'`` homes the turret
-                (parks Z at 0, homes T, restores Z). ``'ALL'`` (default)
-                homes every axis the board has; the firmware routine homes
-                Z, then T, then X/Y.
+                (parks Z at 0, homes T, restores Z), and is refused while
+                any axis has no known position, since its park is a move.
+                ``'ALL'`` (default) homes every axis the board has; the
+                firmware routine homes Z, then T, then X/Y. ``'ALL'`` and
+                ``'Z'`` run whatever the axes' state.
 
         Raises:
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
@@ -3322,6 +3371,8 @@ class MotionAPI:
                 driven.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier, by any caller, has not ended.
+            AxisStateUnknownError: for ``'T'``, an axis of the scope has no
+                known position; nothing was driven. ``'ALL'`` recovers it.
             MoveFaultError: for ``'T'``, the Z park before the turret's home
                 or the Z restore after it failed; the turret keeps its state
                 and slot when it was never driven, else it is UNKNOWN. A
@@ -3856,8 +3907,7 @@ class MotionAPI:
                 ``_fail_drive``. Our own defect leaves as itself, the axis
                 UNKNOWN all the same.
         """
-        if self._monitor_ended:
-            raise HardwareCommandRefusedError('monitor_ended', member)
+        self._refuse_if_monitor_ended(member)
         state_before = self._axis_states((axis,))[axis]
         move = self._begin_move(axis, stop_generation)
         try:

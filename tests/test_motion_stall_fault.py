@@ -188,7 +188,14 @@ def test_a_monitor_that_ends_gives_every_moving_axis_up_and_refuses_later_drives
     assert broke.is_set()
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
     setattr(driver, read, real)
+    # Refused for the dead monitor, which a home cannot bring back, before
+    # the axis it gave up: told to home, the person would home and then be
+    # told to restart. The axis given up and one it never watched alike.
+    for move in (lambda: motion.start_move_xy(y_um=1000.0), lambda: motion.start_move_xy(x_um=0.0)):
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            move()
+        assert refused.value.reason == 'monitor_ended'
+        assert not isinstance(refused.value, HardwareError)
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        motion.start_move_xy(y_um=1000.0)
+        motion.refuse_unknown_positions(('Y',), recording=False, then='move it')
     assert refused.value.reason == 'monitor_ended'
-    assert not isinstance(refused.value, HardwareError)

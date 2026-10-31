@@ -105,13 +105,15 @@ class TestAnAxisNotAskedForIsLeftAsItIs:
         y.result()
         assert _targets(scope) == {'X': _START['X'] - 500.0, 'Y': _START['Y'] + 2_000.0}
 
-    def test_an_x_move_moves_x_while_y_does_not_know_its_position(self, scope, monkeypatch):
+    def test_an_x_move_is_refused_while_y_does_not_know_its_position(self, scope, monkeypatch):
+        """Nothing moves while any axis is lost, X not asked about Y included."""
         _lose_y(scope, monkeypatch)
 
-        scope.motion.move_xy(x_um=_START['X'] - 500.0)
+        with pytest.raises(AxisStateUnknownError) as refused:
+            scope.motion.move_xy(x_um=_START['X'] - 500.0)
 
-        assert scope.motion.get_target_positions()['X'] == _START['X'] - 500.0
-        assert scope.motion.get_axis_state('Y') == AxisState.UNKNOWN
+        assert list(refused.value.axes) == ['Y']
+        assert scope.motion.get_target_positions()['X'] == _START['X']
 
     def test_a_distance_for_y_alone_leaves_x(self, scope):
         scope.motion.move_xy_by(dy_um=-200.0)

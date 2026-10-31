@@ -289,7 +289,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
 
 def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
     motion = sim_scope.motion
-    motion.home('Z')
+    motion.home()
     motion.move_z(motion.get_current_position('Z') + 100.0)
 
     record_change = sim_scope.imaging.frame_validity.changes()['z_move']
