@@ -351,7 +351,7 @@ class TestTheSession:
 
     def test_a_grab_and_the_bandwidth_test_are_refused_a_bystander(self, sim_session):
         """Both reach the camera only through its lane, so a diagnostic's hold
-        refuses them as it refuses ``capture_and_wait``: the bandwidth test's
+        refuses them as it refuses ``capture_still``: the bandwidth test's
         first frame raises the refusal, never counted as a failed frame."""
         scope = sim_session.scope
         calls = {

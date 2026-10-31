@@ -77,7 +77,7 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     # The capture a caller makes after an LED change: frame validity drains
     # the frames already in the pipeline, however many there are.
     scope.illumination.leds_off()
-    dark = scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0)
+    dark = scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).image
     # The saved 1900 x 1900 frame, refitted to 1700 on the LS560 (its lens).
     side = {'LS620': 1900, 'LS560': 1700}[scope.channel_identity.model]
     assert dark is not None and dark.shape == (side, side)
@@ -89,7 +89,7 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     scope.camera.set_exposure_ms(FX2Camera.DEFAULT_EXPOSURE_MS)
     scope.illumination.led_on('BF', 100)
     try:
-        lit = scope.imaging.capture_and_wait(timeout_s=2.0)
+        lit = scope.imaging.capture_still(timeout_s=2.0).image
     finally:
         scope.illumination.leds_off()
     assert lit.mean() > 20
@@ -110,7 +110,7 @@ def test_a_delivered_frame_carries_the_specimen_the_way_up_it_was_rendered(sessi
     # grab loop runs behind: the first frame that is not black is the first
     # rendered after it.
     scope.illumination.leds_off()
-    assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0).max() == 0
+    assert scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).image.max() == 0
     monkeypatch.setattr(device, '_pixels', numbered_rows)
     for _ in range(10):
         frame = scope.imaging.get_image(force_new_capture=True)

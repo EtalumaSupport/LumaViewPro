@@ -60,7 +60,7 @@ from modules.api_surface import Admission, api, api_fields
 class _NoFrame:
     """A grab that ended without a frame, handed back for its caller to raise.
 
-    The grab raises nothing itself: ``capture_and_wait`` first asks whether
+    The grab raises nothing itself: ``_capture_still_impl`` first asks whether
     its window was dirtied (a re-grab, not a failure) and runs its own
     cleanup, then raises. ``reason`` is a ``CaptureFailedError`` reason, or
     ``'removed'`` for a camera found gone, which is refused as every camera
@@ -175,7 +175,7 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
     frame = grabbed.earliest
     frame_id = (frame.chunks or {}).get('FrameID')
     parts = [
-        f'capture_and_wait: frame seq={frame.seq} id={frame_id if frame_id is not None else "na"}'
+        f'capture_still: frame seq={frame.seq} id={frame_id if frame_id is not None else "na"}'
     ]
     if grabbed.frame is not frame:
         parts[0] += f' (sum to seq={grabbed.frame.seq})'
@@ -751,7 +751,7 @@ class ImagingAPI:
         """Set the Pylon GrabStrategy used by the next start_grabbing().
 
         Production default is LatestImageOnly (the contract for
-        frame_validity, capture_and_wait, and the auto-discard
+        frame_validity, capture_still, and the auto-discard
         skip_frames floor). OneByOne delivers every frame for
         apples-to-apples bench comparisons against Pylon Viewer.
 
@@ -834,11 +834,6 @@ class ImagingAPI:
         return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
 
     # --- Capture ---
-    def _capture_and_wait_impl(self, force_to_8bit: bool = True, **capture) -> np.ndarray:
-        """``_capture_still_impl``'s image alone, for the array-only grab
-        (``capture_and_wait``). ``capture`` is its keyword arguments."""
-        return self._capture_still_impl(force_to_8bit, member='capture_and_wait', **capture).image
-
     def _capture_still_impl(
         self,
         force_to_8bit: bool = True,
@@ -944,7 +939,7 @@ class ImagingAPI:
         # misread as a grab timeout.
         if not self._driver.is_grabbing():
             logger.warning(
-                '[SCOPE API ] capture_and_wait: no active grab (streaming not '
+                '[SCOPE API ] capture_still: no active grab (streaming not '
                 'started or stopped) -- refused until the feed is running.'
             )
             raise HardwareCommandRefusedError('camera_not_streaming', member)
@@ -1003,7 +998,7 @@ class ImagingAPI:
             if lock is not None:
                 self._camera._resume_auto_gain_impl(lock)
             logger.warning(
-                f'[SCOPE API ] capture_and_wait: capture DEADLINE EXPIRED '
+                f'[SCOPE API ] capture_still: capture DEADLINE EXPIRED '
                 f'({where}) -- active={_clock["active"]:.3f}s > '
                 f'deadline_s={deadline_s:.3f}s (n_entry={n_entry}, '
                 f'rechecks={recheck_cycles}, '
@@ -1089,7 +1084,7 @@ class ImagingAPI:
                     # ``active`` is released later, off-thread.
                     removed = self._camera.camera_removed or not self._driver.active
                     logger.warning(
-                        f'[SCOPE API ] capture_and_wait: frame drain failed -- '
+                        f'[SCOPE API ] capture_still: frame drain failed -- '
                         f'grab_new_capture returned status=False after '
                         f'{grab_timeout_s:.1f}s timeout '
                         f'(drained={drain_iterations}, frames_until_valid={remaining}, '
@@ -1173,7 +1168,7 @@ class ImagingAPI:
         failed = grabbed if isinstance(grabbed, _NoFrame) else None
         if failed is not None:
             logger.warning(
-                f'[SCOPE API ] capture_and_wait: nothing captured -- {failed.reason} at the '
+                f'[SCOPE API ] capture_still: nothing captured -- {failed.reason} at the '
                 f'{failed.leg} (drained={drain_iterations}, rechecks={recheck_cycles})'
             )
         # A camera found gone is refused, and its refusal is the report: a
@@ -1206,7 +1201,7 @@ class ImagingAPI:
                     _record_capture_info()
                     if not self._camera.camera_removed:
                         logger.warning(
-                            f'[SCOPE API ] capture_and_wait: record read failed -- {unread}'
+                            f'[SCOPE API ] capture_still: record read failed -- {unread}'
                         )
                         raise CaptureFailedError('record_read_failed') from unread
                     removed = True
@@ -1343,11 +1338,11 @@ class ImagingAPI:
         """
         return self._camera.read_black_level()
 
-    @api(in_process=True)
-    def capture_and_wait(
+    def capture_still(
         self,
-        force_to_8bit: bool = True,
+        hold: LayerHold | None = None,
         *,
+        force_to_8bit: bool = True,
         accept_dark: bool = False,
         exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
@@ -1355,8 +1350,8 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
-    ) -> np.ndarray:
-        """Capture a frame-valid image on the camera worker, and wait for it.
+    ) -> CapturedStill:
+        """Capture a frame-valid image on the camera worker, and hand it back with its record.
 
         A frame guaranteed to reflect the hardware as it is now: the capture
         passes over stale frames until every change since the last one (an
@@ -1367,10 +1362,20 @@ class ImagingAPI:
         the capture runs is seen, and the capture starts its wait again,
         within a deadline; the deadline stands still while a commanded move
         is settling. The capture is one command on the camera's lane, and
-        this returns once it has run. ``ScopeSession.capture_still`` is the
-        same capture, returning the frame's record with it.
+        this returns once it has run, with the frame's record beside the
+        image (``CapturedStill``), so the record is the frame's and no later
+        capture's; a caller that needs only the pixels reads ``.image``.
+
+        Given ``hold``, the camera holds that layer's stored settings for the
+        grab (``CameraAPI.hold_layer``), in the same camera-lane task; given
+        None, it captures with the camera as set. In-process only, as
+        ``hold_layer`` is: the Session reads the layer's store and hands it
+        in (``ScopeSession.capture_still``), so a still is held at no
+        settings but its layer's.
 
         Args:
+            hold: The layer whose stored settings the camera holds for the
+                grab, or None for the camera as set.
             force_to_8bit: True for an 8-bit image; False for the camera's
                 own depth, in a uint16 array for a 12- or 16-bit camera.
             accept_dark: While a channel is lit (at a current above 0 mA), a
@@ -1394,7 +1399,8 @@ class ImagingAPI:
                 camera's lane.
 
         Returns:
-            The image: (H, W) for a mono camera, (H, W, 3) for a color one.
+            The frame's ``CapturedStill``: its image, (H, W) for a mono
+            camera and (H, W, 3) for a color one, and its record.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
@@ -1410,59 +1416,12 @@ class ImagingAPI:
                 frame came but the camera did not answer a read of the gain,
                 exposure or black level its record needs, so it was not kept,
                 chained from the ``CameraReadFailedError``.
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, absent at the call or removed during the capture;
-                ``'camera_not_streaming'``, connected but not grabbing.
-        """
-        wait_s = self._capture_wait_s(exclude_sources, timeout_s, sum_count, sum_delay_s)
-        return self._camera._dispatch_camera(
-            self._capture_and_wait_impl,
-            'capture_and_wait',
-            kwargs={
-                'force_to_8bit': force_to_8bit,
-                'accept_dark': accept_dark,
-                'exclude_sources': exclude_sources,
-                'all_ones_check': all_ones_check,
-                'timeout_s': timeout_s,
-                'sum_count': sum_count,
-                'sum_delay_s': sum_delay_s,
-                'sum_iteration_callback': sum_iteration_callback,
-            },
-            timeout_s=wait_s,
-        )
-
-    def capture_still(
-        self,
-        hold: LayerHold | None = None,
-        *,
-        force_to_8bit: bool = True,
-        accept_dark: bool = False,
-        exclude_sources: tuple[FrameValiditySource, ...] = (),
-        all_ones_check: bool = False,
-        timeout_s: float = 0.0,
-        sum_count: int = 1,
-        sum_delay_s: float = 0.0,
-        sum_iteration_callback: Callable[[], None] | None = None,
-    ) -> CapturedStill:
-        """Capture a frame-valid image on the camera worker, and hand it back with its record.
-
-        ``capture_and_wait``'s capture, returning the frame's record with it
-        (``CapturedStill``) in place of the array alone, so the record is the
-        frame's and no later capture's. Given ``hold``, the camera holds that
-        layer's stored settings for the grab (``CameraAPI.hold_layer``), in
-        the same camera-lane task; given None, it captures with the camera as
-        set. The capture's other arguments are ``_capture_still_impl``'s.
-        In-process only, as ``hold_layer`` is: the Session reads the layer's
-        store and hands it in (``ScopeSession.capture_still``), so a still is
-        held at no settings but its layer's.
-
-        Raises:
-            ArgumentRefusedError: as ``capture_and_wait`` says.
-            CaptureFailedError: as ``capture_and_wait`` says.
             HardwareCommandRefusedError: ``'not_connected'``, naming this
-                member, with no camera; ``'camera_not_streaming'``; or, given
-                ``hold``, a run, a diagnostic or a home holds the scope, or
-                ``'other_led_lit'``, an LED other than its layer's is lit.
+                member, with no camera at the call or removed during the
+                capture; ``'camera_not_streaming'``, connected but not
+                grabbing; or, given ``hold``, a run, a diagnostic or a home
+                holds the scope, or ``'other_led_lit'``, an LED other than its
+                layer's is lit.
             CameraSettingRejected: given ``hold``, the camera refused one of
                 its settings; nothing was captured.
         """
@@ -1506,7 +1465,7 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, as
-                ``capture_and_wait`` says.
+                ``capture_still`` says.
         """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
@@ -1622,7 +1581,7 @@ class ImagingAPI:
         This is the ungated primitive: it does NOT wait for frame validity,
         so the returned frame may not reflect a just-changed gain, exposure,
         LED, or stage position. For any frame you will SAVE or MEASURE as
-        truth, call capture_and_wait, which drains the camera pipeline until
+        truth, call capture_still, which drains the camera pipeline until
         the validity marker is GREEN before grabbing.
 
         Args:
@@ -1634,7 +1593,7 @@ class ImagingAPI:
                 above the dark floor until a lit frame arrives, and when
                 timeout_s expires keep the dark one (``_Grabbed.dark``).
                 Internal transport of the value
-                capture_and_wait derives from commanded LED state; the
+                capture_still derives from commanded LED state; the
                 public get_image never sets it (probes and diagnostics
                 must see what the camera sees, dark or not).
             sum_count: Number of frames to sum for noise reduction.
@@ -2093,7 +2052,7 @@ class ImagingAPI:
 
         Never dark-rejects: liveness probes and diagnostics must see what
         the camera sees, dark or not. For any frame you will SAVE or
-        MEASURE as truth, call capture_and_wait, which drains the camera
+        MEASURE as truth, call capture_still, which drains the camera
         pipeline until the validity marker is GREEN and derives the
         dark-floor expectation from commanded LED state.
 
@@ -2322,7 +2281,7 @@ class ImagingAPI:
     def disable_streaming(self) -> None:
         """Stop camera streaming, and wait.
 
-        After this, ``capture_and_wait()`` fails until streaming resumes;
+        After this, ``capture_still()`` fails until streaming resumes;
         ``get_image()`` still returns the last frame the camera delivered.
         Satisfied with no camera connected: nothing is streaming. Dispatched
         as ``enable_streaming`` is.

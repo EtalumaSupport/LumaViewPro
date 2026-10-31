@@ -148,13 +148,12 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
 _CAMERA_DEPTH = 11
 
 
-def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
+def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH):
     from types import SimpleNamespace
 
     imaging = SimpleNamespace(
         significant_bits=significant_bits,
         binning=1,
-        _capture_and_wait_impl=lambda **kwargs: frame,
         _state_lock=threading.Lock(),
         _last_frame_summing=None,
     )

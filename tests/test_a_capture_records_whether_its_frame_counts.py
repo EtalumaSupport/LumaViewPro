@@ -242,7 +242,7 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     assert gain.counts
     assert gain.change.credits[0].by is Counter.PREVIEW
     assert gain.change.written_ns == change.written_ns
-    line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
+    line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
     assert f'gain counts +{gain.frames_after}fr' in line
     assert f'{gain.change.credits[0].seq}:preview' in line
 
@@ -259,7 +259,7 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
     gain = _judgment(record, 'gain')
     assert gain.counts
     assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.skip
-    line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
+    line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
     assert ','.join(f'{c.seq}:drain' for c in gain.change.credits) in line
 
 
@@ -283,7 +283,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     gain = _judgment(record, 'gain')
     assert gain.counts
     assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.skip
-    line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
+    line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
     assert ','.join(f'{c.seq}:grab' for c in gain.change.credits) in line
 
 

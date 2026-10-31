@@ -1,7 +1,7 @@
 """Motion P12: a capture asked as a stage move starts waits the move out, and how long a full-travel move would make it wait.
 
 A move leaves frame validity pending until the stage settles, so a
-`capture_and_wait` asked as a move starts drains frames for the whole move.
+`capture_still` asked as a move starts drains frames for the whole move.
 The capture's wait on the camera lane is a wall-time bound (at least
 `_CAPTURE_WAIT_TIMEOUT_S`, 30 s), so a move longer than that bound would
 end the capture `call_overran` rather than with a frame (W2d plan E4,

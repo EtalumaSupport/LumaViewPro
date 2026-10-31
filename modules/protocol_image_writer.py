@@ -1335,12 +1335,12 @@ class ProtocolImageWriter:
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
-                # restarting AG mid-grab. The capture_and_wait drain below waits
+                # restarting AG mid-grab. The capture_still drain below waits
                 # the auto_gain settle frames before grabbing.
                 logger.debug(
                     f'[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate '
                     f'with target gain={step["Gain"]}dB exp={step["Exposure"]}ms; '
-                    f'settle drained in capture_and_wait'
+                    f'settle drained in capture_still'
                 )
                 if arm_refused is not None:
                     not_applied.append(arm_refused)

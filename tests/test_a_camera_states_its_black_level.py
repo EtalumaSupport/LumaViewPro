@@ -48,10 +48,10 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
     # wait out the frame being made when it changed, so the capture's frame
     # is a white one.
     grab_a_frame_made_after_now(sim_scope._camera_driver)
-    full_scale = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
+    full_scale = imaging.capture_still(force_to_8bit=False, timeout_s=2.0).image
 
     sim_scope.camera.set_black_level(4.0)
-    image = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
+    image = imaging.capture_still(force_to_8bit=False, timeout_s=2.0).image
 
     assert full_scale is not None and image is not None
     assert np.array_equal(image, full_scale)

@@ -295,7 +295,7 @@ def _shown(scope, layer: str, ma: float, exposure_ms: float, gain_db: float) -> 
     scope.illumination.led_on(layer, ma)
     scope.camera.set_exposure_ms(exposure_ms)
     scope.camera.set_gain_db(gain_db)
-    return scope.imaging.capture_and_wait(accept_dark=True)
+    return scope.imaging.capture_still(accept_dark=True).image
 
 
 # Each layer's shipped (mA, ms, dB): what makes it look right on a scope.

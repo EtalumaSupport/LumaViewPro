@@ -16,8 +16,8 @@ try:
     scope.imaging.enable_streaming()
 
     # --- Stage A: the API delivers a frame ---
-    arr = scope.imaging.capture_and_wait(force_to_8bit=False, timeout_s=5.0)
-    print('A: capture_and_wait ->', type(arr).__name__, getattr(arr, 'shape', None))
+    arr = scope.imaging.capture_still(force_to_8bit=False, timeout_s=5.0).image
+    print('A: capture_still ->', type(arr).__name__, getattr(arr, 'shape', None))
     harness.check('a script can get one frame from the API', arr is not None)
 
     # --- Stage B: the Session member captures and saves one still ---

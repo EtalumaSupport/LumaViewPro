@@ -742,7 +742,7 @@ CapturedStill: The image and the instrument's record of its frame.
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a layer; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown layer, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
 - `ConfigurationDefectError`: `'layers_unresolved'`, this scope's layers could not be resolved. Nothing is captured.
-- `CaptureFailedError`: no frame passed, with the capture's own reason (`scope.imaging.capture_and_wait`).
+- `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept.
 - `CameraSettingRejected`: given `channel`, the camera refused one of its settings; nothing was captured.
 
 **Refusals**
@@ -750,7 +750,7 @@ CapturedStill: The image and the instrument's record of its frame.
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `channel_not_shown`, `other_led_lit`, `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `layers_unresolved`
-- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `chunk_rejected`, `no_fresh_frame`, `record_read_failed`, `unknown_save_encoding`
+- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`
 
 <a id="ScopeSession.channel_acquire"></a>
@@ -3918,7 +3918,7 @@ the turret slot.
 
 **Returns**
 
-An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`capture_and_wait`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown layer's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged); `CancelledError` when the lane dropped it unrun (the scope disconnected); `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given: the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
+An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`ImagingAPI.capture_still`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown layer's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged); `CancelledError` when the lane dropped it unrun (the scope disconnected); `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given: the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
 
 **Raises**
 
@@ -6557,67 +6557,6 @@ name are kept).
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
-<a id="ImagingAPI.capture_and_wait"></a>
-### `ImagingAPI.capture_and_wait`
-
-```python
-def capture_and_wait(
-    self,
-    force_to_8bit: bool = True,
-    *,
-    accept_dark: bool = False,
-    exclude_sources: tuple[FrameValiditySource, ...] = (),
-    all_ones_check: bool = False,
-    timeout_s: float = 0.0,
-    sum_count: int = 1,
-    sum_delay_s: float = 0.0,
-    sum_iteration_callback: Callable[[], None] | None = None,
-) -> np.ndarray
-```
-
-Marks: in-process.
-
-Capture a frame-valid image on the camera worker, and wait for it.
-
-A frame guaranteed to reflect the hardware as it is now: the capture
-passes over stale frames until every change since the last one (an
-LED, the gain, the exposure, a move) is met by its source's rule
-(`ScopeCapabilities.frame_rules`) -- a frame count, time on the
-camera's clock, an axis settling -- and keeps only a frame that
-counts for every change it does not exclude. A change landing while
-the capture runs is seen, and the capture starts its wait again,
-within a deadline; the deadline stands still while a commanded move
-is settling. The capture is one command on the camera's lane, and
-this returns once it has run. `ScopeSession.capture_still` is the
-same capture, returning the frame's record with it.
-
-**Args**
-
-- `force_to_8bit`: True for an 8-bit image; False for the camera's own depth, in a uint16 array for a 12- or 16-bit camera.
-- `accept_dark`: While a channel is lit (at a current above 0 mA), a frame with essentially no lit pixel is taken again until `timeout_s` passes, then kept and recorded dark. True skips that judgment, for a caller whose dark frames are legitimate while lit, such as an autofocus sweep.
-- `exclude_sources`: Changes not to wait for, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame can then predate such a change, so a frame that is measured or saved never excludes one.
-- `all_ones_check`: Measure the frame's saturation: a blown frame is grabbed again once and, blown again, kept.
-- `timeout_s`: Seconds the grab, and each summed frame, keeps taking frames for one that passes its checks, once the stale ones are passed over; 0, the default, gives each one try.
-- `sum_count`: Frames summed into the image, for noise reduction; a sum's array is uint16.
-- `sum_delay_s`: Seconds between summed frames.
-- `sum_iteration_callback`: Called after each summed frame, on the camera's lane.
-
-**Returns**
-
-The image: (H, W) for a mono camera, (H, W, 3) for a color one.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing reached the camera.
-- `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept, chained from the `CameraReadFailedError`.
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, absent at the call or removed during the capture; `'camera_not_streaming'`, connected but not grabbing.
-
-**Refusals**
-
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `not_connected`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
-- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
-
 <a id="ImagingAPI.disable_streaming"></a>
 ### `ImagingAPI.disable_streaming`
 
@@ -6630,7 +6569,7 @@ Route: `POST /api/v1/scope/imaging/disable_streaming`.
 
 Stop camera streaming, and wait.
 
-After this, `capture_and_wait()` fails until streaming resumes;
+After this, `capture_still()` fails until streaming resumes;
 `get_image()` still returns the last frame the camera delivered.
 Satisfied with no camera connected: nothing is streaming. Dispatched
 as `enable_streaming` is.
@@ -6761,7 +6700,7 @@ Grab and return an image from the camera -- the UNGATED primitive.
 
 Never dark-rejects: liveness probes and diagnostics must see what
 the camera sees, dark or not. For any frame you will SAVE or
-MEASURE as truth, call capture_and_wait, which drains the camera
+MEASURE as truth, call capture_still, which drains the camera
 pipeline until the validity marker is GREEN and derives the
 dark-floor expectation from commanded LED state.
 
@@ -13281,7 +13220,7 @@ given up on by a writer recovery or a shutdown.
 
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
 Held in: [`CaptureFailedError.source`](#CaptureFailedError.source), [`Change.source`](#Change.source), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).  
-Taken by: [`ImagingAPI.capture_and_wait`](#ImagingAPI.capture_and_wait), [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
+Taken by: [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
 What changed, for a capture to wait out: each a key of `FrameValidity.SKIP_FRAMES`.
 
@@ -14661,8 +14600,8 @@ A fault; bases `Fault`, `CaptureError`.
 
 A capture or a recording was attempted and produced nothing.
 
-Raised by `capture_and_wait` and `get_image` for a capture that got
-no frame, and by `capture_and_wait` for one whose frame's record could
+Raised by `capture_still` and `get_image` for a capture that got
+no frame, and by `capture_still` for one whose frame's record could
 not be read; a camera that is not there is refused instead
 (`HardwareCommandRefusedError`, `'not_connected'`).
 

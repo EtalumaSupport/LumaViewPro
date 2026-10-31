@@ -298,7 +298,7 @@ class TestTheCallersThatGoOn:
         sim_scope.camera.set_auto_gain(True, _AUTO_GAIN)
         sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
-        frame = sim_scope.imaging.capture_and_wait(timeout_s=5.0)
+        frame = sim_scope.imaging.capture_still(timeout_s=5.0).image
 
         assert frame is not None
         assert [(n.title, n.category) for n in _errors(centre_posts)] == [
@@ -366,7 +366,7 @@ class TestTheRestTheApiCarriesOnFrom:
         # writes: each is refused once.
         sim_scope.simulation.refuse_camera_write('auto_gain', 'raise', count=2)
 
-        frame = sim_scope.imaging.capture_and_wait(timeout_s=5.0)
+        frame = sim_scope.imaging.capture_still(timeout_s=5.0).image
 
         assert frame is not None
         assert [n.title for n in _errors(centre_posts)] == ['Camera Setting Not Applied'] * 2

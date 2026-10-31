@@ -2200,12 +2200,6 @@ class TestLumascapeAPICamera:
         scope.camera.set_exposure_ms(25.0)
         assert scope.camera.read_exposure_ms() == pytest.approx(25.0, abs=0.1)
 
-    def test_capture_and_wait(self, scope):
-        import numpy as np
-
-        result = scope.imaging.capture_and_wait()
-        assert isinstance(result, np.ndarray), f'capture_and_wait returned {type(result)}'
-
 
 # ===========================================================================
 # REGRESSION: per-row config parsing (ported from archive/2.3.2-OG)

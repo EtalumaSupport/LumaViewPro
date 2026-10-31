@@ -48,7 +48,7 @@ def _stall_the_sweeps_z(monkeypatch, session):
     # a stand-in by design: the simulator holds an axis's next move, and only
     # the sweep knows when its next move is; its third frame arms the hold.
     imaging_type = type(session.scope.imaging)
-    real = imaging_type.capture_and_wait
+    real = imaging_type.capture_still
     frames = []
 
     def arming(imaging, *args, **kwargs):
@@ -58,7 +58,7 @@ def _stall_the_sweeps_z(monkeypatch, session):
                 session.scope.simulation.hold_axis('Z', 0.5)
         return real(imaging, *args, **kwargs)
 
-    monkeypatch.setattr(imaging_type, 'capture_and_wait', arming)
+    monkeypatch.setattr(imaging_type, 'capture_still', arming)
     return frames
 
 

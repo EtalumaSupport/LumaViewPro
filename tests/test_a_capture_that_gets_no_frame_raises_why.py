@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A capture returns a frame or raises why it got none.
 
-``capture_and_wait`` and ``get_image`` once answered every failure with
+The capture and ``get_image`` once answered every failure with
 None and kept the reason in a side record, whose ladder ended in "camera
 inactive or not grabbing" -- the wrong cause for the commonest fault, a
 stalled stream on a grabbing camera. Now a capture that got no frame raises
@@ -76,7 +76,7 @@ class TestAStalledStream:
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
         with pytest.raises(CaptureFailedError) as failed:
-            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+            sim_scope.imaging.capture_still(timeout_s=1.0)
 
         assert failed.value.reason == 'no_frame'
         assert str(failed.value) == str(CaptureFailedError('no_frame'))
@@ -102,14 +102,14 @@ class TestAGiveUpStatesItsWait:
     def test_a_held_feed_names_the_wait_no_frame_in_it_and_the_last_frames_age(
         self, sim_scope, caplog, pending
     ):
-        sim_scope.imaging.capture_and_wait(timeout_s=1.0)  # a frame stored before the hold
+        sim_scope.imaging.capture_still(timeout_s=1.0)  # a frame stored before the hold
         if pending:
             sim_scope.imaging.frame_validity.invalidate('exposure', began_ns=None)
         sim_scope.simulation.stall_stream(0.0, 30.0)
         caplog.clear()
 
         with pytest.raises(CaptureFailedError):
-            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+            sim_scope.imaging.capture_still(timeout_s=1.0)
 
         lines = _give_up_lines(caplog)
         assert len(lines) == 1, f'one give-up line, stating its wait; got {lines}'
@@ -127,7 +127,7 @@ class TestAGiveUpStatesItsWait:
     ):
         sim_scope.simulation.stall_stream(0.0, 0.3)
 
-        sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+        sim_scope.imaging.capture_still(timeout_s=1.0)
 
         assert _give_up_lines(caplog) == []
 
@@ -139,7 +139,7 @@ class TestARemovedCamera:
         # The camera leaves between the two frames of a sum: past the lane's
         # presence question, inside the grab.
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_scope.imaging.capture_and_wait(
+            sim_scope.imaging.capture_still(
                 sum_count=2,
                 sum_iteration_callback=sim_scope.simulation.remove_camera,
                 timeout_s=0.5,
@@ -155,7 +155,7 @@ class TestARemovedCamera:
         posted.clear()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_scope.imaging.capture_and_wait(
+            sim_scope.imaging.capture_still(
                 sum_count=2,
                 sum_iteration_callback=sim_scope.simulation.remove_camera,
                 timeout_s=0.5,
@@ -182,7 +182,7 @@ class TestARecordReadTheCameraDoesNotAnswer:
         sim_scope.simulation.refuse_camera_read('black_level', 'failed')
 
         with pytest.raises(CaptureFailedError) as failed:
-            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+            sim_scope.imaging.capture_still(timeout_s=1.0)
 
         assert failed.value.reason == 'record_read_failed'
         assert isinstance(failed.value.__cause__, CameraReadFailedError)
@@ -191,7 +191,7 @@ class TestARecordReadTheCameraDoesNotAnswer:
         sim_scope.simulation.refuse_camera_read('black_level', 'removed')
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+            sim_scope.imaging.capture_still(timeout_s=1.0)
 
         assert refused.value.reason == 'not_connected'
 
@@ -200,7 +200,7 @@ def test_a_camera_that_is_not_streaming_is_refused_as_that(sim_scope):
     sim_scope.imaging.disable_streaming()
 
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+        sim_scope.imaging.capture_still(timeout_s=1.0)
 
     assert refused.value.reason == 'camera_not_streaming'
     assert refused.value.title == 'Camera Not Streaming'
@@ -215,7 +215,7 @@ def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
     with pytest.raises(CaptureFailedError):
-        sim_scope.imaging.capture_and_wait(sum_count=2, sum_iteration_callback=stall, timeout_s=0.5)
+        sim_scope.imaging.capture_still(sum_count=2, sum_iteration_callback=stall, timeout_s=0.5)
 
     # A lock takes the arm that stands; with none it locks nothing.
     assert sim_scope.camera.lock_auto_gain().state is not None, 'the arm was not re-armed'

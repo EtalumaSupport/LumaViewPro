@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""capture_and_wait delivers while the camera streams.
+"""capture_still delivers while the camera streams.
 
 A connected camera that is not grabbing is refused ``camera_not_streaming``
 and a stalled stream raises ``no_frame`` (both pinned in
@@ -13,11 +13,11 @@ import dataclasses
 import datetime
 
 
-def test_capture_and_wait_succeeds_while_streaming(sim_scope):
+def test_capture_still_succeeds_while_streaming(sim_scope):
     # The precondition guard must not block the normal grabbing path: a
     # streaming sim camera still delivers a frame.
     assert sim_scope.imaging.is_streaming()
-    result = sim_scope.imaging.capture_and_wait(timeout_s=2.0)
+    result = sim_scope.imaging.capture_still(timeout_s=2.0).image
     assert result is not None
 
 
@@ -48,7 +48,7 @@ def test_a_summed_capture_survives_a_backwards_clock_step(sim_scope):
 
     driver.grab_new_capture = grab_with_a_clock_that_runs_backwards
     try:
-        result = sim_scope.imaging.capture_and_wait(sum_count=3, timeout_s=3.0)
+        result = sim_scope.imaging.capture_still(sum_count=3, timeout_s=3.0).image
     finally:
         driver.grab_new_capture = real_grab_new_capture
 

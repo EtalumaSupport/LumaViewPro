@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A script grabs a still and gets it back with its record, its wait bounded.
 
-``capture_and_wait`` hands back an array; its record had to be read
+A capture that handed back an array alone left its record to be read
 afterwards from ``last_capture_info``, a one-slot store the next capture
 replaces, and its depth from a second slot. ``capture_still`` -- the
 Session's door, and the scope's beneath it -- hands back one
@@ -81,7 +81,7 @@ class TestTheStillIsHandedBackWithItsRecord:
         """A sum's depth is the bits it can reach, and stays that after a
         single-frame capture replaces the scope's last-capture slots."""
         summed = session.capture_still('BF', force_to_8bit=False, sum_count=4)
-        session.scope.imaging.capture_and_wait(force_to_8bit=False)
+        session.scope.imaging.capture_still(force_to_8bit=False)
 
         bits = summed.record.frame_significant_bits
         assert summed.record.frames_summed == 4
@@ -110,6 +110,19 @@ class TestTheStillIsHandedBackWithItsRecord:
 
     def test_a_still_with_no_auto_gain_states_none(self, session):
         assert session.capture_still('BF').record.auto_gain is None
+
+    def test_below_the_session_the_scope_has_one_capture(self, session):
+        """A caller below the Session -- autofocus, the engineering plugin, a
+        script on a ``Lumascope`` -- captures through
+        ``ImagingAPI.capture_still`` and reads ``.image``; an array-only
+        second door would hand back pixels whose record the next capture
+        replaces, so the scope has none."""
+        still = session.scope.imaging.capture_still(force_to_8bit=False)
+
+        assert still.record.frames_summed == 1
+        assert not hasattr(session.scope.imaging, 'capture_and_wait'), (
+            'a second capture door hands back pixels without their record'
+        )
 
 
 class TestTheStillIsRefusedBeforeAnythingIsCaptured:

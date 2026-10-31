@@ -57,7 +57,7 @@ class _WedgedSweep:
         self.inside = threading.Event()
         self.release = threading.Event()
         imaging_type = type(session.scope.imaging)
-        real = imaging_type.capture_and_wait
+        real = imaging_type.capture_still
         af_thread = session.autofocus_thread
 
         def wedged(imaging, *args, **kwargs):
@@ -70,7 +70,7 @@ class _WedgedSweep:
                     time.sleep(0.01)
             return real(imaging, *args, **kwargs)
 
-        monkeypatch.setattr(imaging_type, 'capture_and_wait', wedged)
+        monkeypatch.setattr(imaging_type, 'capture_still', wedged)
 
 
 def _record_reports(monkeypatch):

@@ -242,7 +242,7 @@ def test_auto_gain_capture_failed_readback_fails_the_capture(caplog):
     cam.chunks_absent = True
     cam.fail_readback = True
     with pytest.raises(CaptureFailedError) as failed:
-        imaging._capture_and_wait_impl(timeout_s=1.0)
+        imaging._capture_still_impl(timeout_s=1.0, member='capture_still')
     assert failed.value.reason == 'record_read_failed'
     assert 'exposure' in str(failed.value.__cause__)
     assert imaging.frame_validity.target('exposure') is None
@@ -255,13 +255,13 @@ def test_live_view_arm_resumes_after_capture():
     view keeps adjusting; a protocol step's arm stays locked off."""
     imaging, camera, cam = _build(ae_lands_on_ms=62.0)
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
-    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    assert imaging._capture_still_impl(timeout_s=1.0, member='capture_still').image is not None
     assert cam._auto_gain_enabled is True
     assert imaging.frame_validity.frames_until_valid() == 20
 
     imaging, camera, cam = _build(ae_lands_on_ms=62.0)
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
-    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    assert imaging._capture_still_impl(timeout_s=1.0, member='capture_still').image is not None
     assert cam._auto_gain_enabled is False
 
 
@@ -276,7 +276,7 @@ def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
         ),
         pytest.raises(CaptureFailedError) as failed,
     ):
-        imaging._capture_and_wait_impl(timeout_s=1.0)
+        imaging._capture_still_impl(timeout_s=1.0, member='capture_still')
     assert failed.value.reason == 'record_read_failed'
     assert 'BlackLevel read failed' in str(failed.value.__cause__)
     assert cam._auto_gain_enabled is True
@@ -311,7 +311,7 @@ def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts)
     cam.chunks_absent = True
     cam.fail_readback = True
     with pytest.raises(CaptureFailedError) as failed:
-        imaging._capture_and_wait_impl(timeout_s=1.0)
+        imaging._capture_still_impl(timeout_s=1.0, member='capture_still')
     assert failed.value.reason == 'record_read_failed'
     assert [(n.kind, n.reason) for n in centre_posts] == [
         (OutcomeKind.FAULT, 'auto_gain_not_settled')
@@ -351,7 +351,7 @@ def test_converged_lock_leaves_an_info_line(caplog):
     imaging, camera, _cam = _build(ae_lands_on_ms=62.003)
     caplog.clear()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
-    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    assert imaging._capture_still_impl(timeout_s=1.0, member='capture_still').image is not None
     lock_lines = [
         m for m in _logged(caplog, logging.INFO) if '[AG CONVERGE] locked: state=CONVERGED' in m
     ]

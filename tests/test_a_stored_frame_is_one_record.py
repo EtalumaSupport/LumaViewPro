@@ -148,7 +148,7 @@ def test_a_capture_records_the_frame_it_returns_when_a_newer_one_arrives_during_
 def test_a_captured_image_is_read_only(sim_scope):
     """A capture's image is the instrument's account: it refuses a write,
     whichever path made it (here an 8-bit rendering of the camera's frame)."""
-    image = sim_scope.imaging.capture_and_wait(force_to_8bit=True)
+    image = sim_scope.imaging.capture_still(force_to_8bit=True).image
 
     with pytest.raises(ValueError):
         image[0, 0] = 0

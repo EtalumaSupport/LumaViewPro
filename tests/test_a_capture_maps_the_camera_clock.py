@@ -29,9 +29,7 @@ def test_a_mapping_converts_a_host_time_at_the_cameras_tick_rate():
 
 
 def _capture_lines(caplog):
-    return [
-        r.getMessage() for r in caplog.records if r.getMessage().startswith('capture_and_wait:')
-    ]
+    return [r.getMessage() for r in caplog.records if r.getMessage().startswith('capture_still:')]
 
 
 def test_a_captured_frame_mapped_through_its_record_began_before_it_arrived(sim_scope, caplog):

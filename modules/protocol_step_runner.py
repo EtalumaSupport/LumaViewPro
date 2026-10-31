@@ -315,7 +315,7 @@ class ProtocolStepRunner:
         # scene. Hardware AG converges on whatever the camera is grabbing; if
         # the LED is dark when AG arms, it rails on noise and the grab is mis-
         # exposed. Lighting first lets AG settle toward the real exposure. The
-        # capture_and_wait drain then waits the measured auto_gain settle frames
+        # capture_still drain then waits the measured auto_gain settle frames
         # (invalidated inside set_auto_gain) before grabbing -- no separate
         # timed wait. The STEP_LIGHT illuminate makes this channel the only lit
         # one; the capture path re-asserts the same channel idempotently. Arm

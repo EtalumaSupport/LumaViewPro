@@ -101,7 +101,7 @@ class TestDarkFrameDelivery:
         dark_scope.illumination.led_on(LED0, 100)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: sparse)
 
-        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
+        out = dark_scope.imaging._capture_still_impl(timeout_s=0.5, member='capture_still').image
         assert out is not None, 'sparse fluorescence must not be rejected as dark'
 
     def test_dark_by_design_accepted_when_nothing_commanded(self, dark_scope, monkeypatch):
@@ -123,7 +123,7 @@ class TestDarkFrameDelivery:
         dark_scope.illumination.led_on('BF', 0)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
-        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
+        out = dark_scope.imaging._capture_still_impl(timeout_s=0.5, member='capture_still').image
         assert out is not None, 'a 0 mA channel must derive as dark by design'
 
     def test_accept_dark_suppresses_the_darkness_measurement(self, dark_scope, monkeypatch):

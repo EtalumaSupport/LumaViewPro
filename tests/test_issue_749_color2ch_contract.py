@@ -180,7 +180,7 @@ class TestDarkFloorKeysOnLedDrivability:
     @staticmethod
     def _run_capture(step_overrides, writer_setup=None):
         """Drive the REAL ProtocolImageWriter.capture() on stub collaborators
-        and return (capture_and_wait kwargs, scope, writer)."""
+        and return (capture_still kwargs, scope, writer)."""
         from unittest.mock import MagicMock
 
         from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step

@@ -840,9 +840,9 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
         wedge_started.set()
         wedge_release.wait(timeout=60)
 
-    real_capture_and_wait = scope.imaging._capture_still_impl
+    real_capture = scope.imaging._capture_still_impl
 
-    def _capture_and_wait_with_wedge(*args, **kwargs):
+    def _capture_with_wedge(*args, **kwargs):
         # Runs on the protocol worker right before the grab -- i.e. before
         # this step's write is submitted, and only once the run's write batch
         # exists. First call installs the wedge: the worker parks on
@@ -860,9 +860,9 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
                 )
             )
             installed.set()
-        return real_capture_and_wait(*args, **kwargs)
+        return real_capture(*args, **kwargs)
 
-    monkeypatch.setattr(scope.imaging, '_capture_still_impl', _capture_and_wait_with_wedge)
+    monkeypatch.setattr(scope.imaging, '_capture_still_impl', _capture_with_wedge)
 
     fired = []
     # remove_listener unregisters by identity, so the exact same callable
@@ -924,7 +924,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    real_capture_and_wait = scope.imaging._capture_still_impl
+    real_capture = scope.imaging._capture_still_impl
     raised = threading.Event()
 
     def _raise_once_then_real(*args, **kwargs):
@@ -935,7 +935,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
             # exception that is not the API's own ends the run at once as
             # LumaViewPro's defect
             raise HardwareCommandRefusedError('camera_not_streaming', 'capture_still')
-        return real_capture_and_wait(*args, **kwargs)
+        return real_capture(*args, **kwargs)
 
     monkeypatch.setattr(scope.imaging, '_capture_still_impl', _raise_once_then_real)
 

@@ -1669,8 +1669,8 @@ class CaptureError(_Umbrella, Exception):
 class CaptureFailedError(Fault, CaptureError):
     """A capture or a recording was attempted and produced nothing.
 
-    Raised by ``capture_and_wait`` and ``get_image`` for a capture that got
-    no frame, and by ``capture_and_wait`` for one whose frame's record could
+    Raised by ``capture_still`` and ``get_image`` for a capture that got
+    no frame, and by ``capture_still`` for one whose frame's record could
     not be read; a camera that is not there is refused instead
     (``HardwareCommandRefusedError``, ``'not_connected'``).
 

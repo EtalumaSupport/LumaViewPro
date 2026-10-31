@@ -50,7 +50,7 @@ def test_the_save_module_does_not_capture():
     reaches = [
         node.lineno
         for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and node.attr == '_capture_and_wait_impl'
+        if isinstance(node, ast.Attribute) and node.attr == '_capture_still_impl'
     ]
     assert reaches == [], f'modules/image_save.py reaches the capture body at lines {reaches}'
 

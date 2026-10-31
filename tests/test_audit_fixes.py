@@ -7339,7 +7339,7 @@ class TestImagingTimeoutsAreFloatSeconds:
     docstring) but the value flowed unchanged into the driver
     `grab_new_capture(timeout: float)` which is seconds."""
 
-    _METHODS_AND_TIMEOUTS = (('capture_and_wait', 'timeout_s', 0.0),)
+    _METHODS_AND_TIMEOUTS = (('capture_still', 'timeout_s', 0.0),)
 
     def test_timeout_default_is_float(self):
         import inspect
@@ -7499,7 +7499,7 @@ class TestTimeoutParamNamesUseSecondSuffix:
     _SECONDS_TIMEOUT_METHODS = (
         # (module-path, class-or-fn, method_name_or_None)
         ('modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
-        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_still'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
         ('modules.lumascope_api.diagnostics', 'DiagnosticsAPI', 'enter_led_engineering_mode'),
     )
@@ -7522,7 +7522,7 @@ class TestTimeoutParamNamesUseSecondSuffix:
 
     def test_driver_grab_new_capture_uses_timeout_s(self):
         """L2-mirror driver method -- grab_new_capture is invoked from
-        ImagingAPI.capture_and_wait and ImagingAPI.get_image with a
+        ImagingAPI.capture_still and ImagingAPI.get_image with a
         seconds value, and now exposes that unit on the signature."""
         import inspect
         from drivers.camera import Camera
@@ -8061,7 +8061,7 @@ class TestPreReleaseFutureWarning:
 
 class TestAutoGainArmedInScanIterate:
     """Auto_Gain protocol steps light the channel LED and arm continuous AG
-    in scan_iterate (against the lit scene), then let the capture_and_wait
+    in scan_iterate (against the lit scene), then let the capture_still
     auto_gain settle drain wait for the camera to settle before grabbing.
     There is no separate timed deadline-wait: settling is a measured frame
     count (the auto_gain skip-frame source), not a wall-clock timer. capture()
@@ -8152,7 +8152,7 @@ class TestAutoGainArmedInScanIterate:
         """An Auto_Gain step's capture must apply NO camera settings --
         scan_iterate already lit the LED and armed AG against the lit
         scene; a re-apply here would restart AG mid-grab and discard the
-        settling the capture_and_wait drain produced."""
+        settling the capture_still drain produced."""
         camera = self._drive_capture(auto_gain=True)
         assert not camera.apply.called and not camera._apply_settings_impl.called, (
             'AG-step capture must not re-apply layer camera settings'

@@ -194,7 +194,7 @@ class ManualCaptureController:
             ``LiveFolderPathRefusedError`` (reason
             ``'capture_location_unusable'``) when the live folder cannot
             take the still, ``CaptureFailedError`` when no frame passed,
-            with the capture's own reason (``capture_and_wait``);
+            with the capture's own reason (``ImagingAPI.capture_still``);
             ``HardwareCommandRefusedError`` (reason ``'not_connected'``)
             when the camera is absent or was removed during the still,
             ``'camera_not_streaming'`` when its feed is stopped,

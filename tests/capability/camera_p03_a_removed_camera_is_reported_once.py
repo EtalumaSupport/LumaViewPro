@@ -116,7 +116,7 @@ def _arm(session):
     figure('live-view auto-gain armed', armed)
     if armed:
         scope.camera.set_auto_gain(True, AUTO_GAIN)
-    scope.imaging.capture_and_wait()
+    scope.imaging.capture_still()
 
 
 def _still(session, runner):

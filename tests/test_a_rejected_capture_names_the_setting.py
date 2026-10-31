@@ -26,7 +26,7 @@ def test_rejected_capture_names_the_setting():
     cam._exposure_us = 62000.0  # the camera moved on its own; the target did not
 
     with pytest.raises(CaptureFailedError) as failed:
-        imaging._capture_and_wait_impl(timeout_s=1.0)
+        imaging._capture_still_impl(timeout_s=1.0, member='capture_still')
 
     assert (failed.value.reason, failed.value.source) == ('chunk_rejected', 'exposure')
     assert 'exposure' in str(failed.value)

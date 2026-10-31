@@ -77,7 +77,6 @@ REFUSED = {
     'set_high_conversion_gain': lambda s: s.camera.set_high_conversion_gain(False),
     'set_line_noise_reduction': lambda s: s.camera.set_line_noise_reduction(False),
     'apply': lambda s: s.camera.apply(5.0, 20.0, channel='BF'),
-    'capture_and_wait': lambda s: s.imaging.capture_and_wait(),
     'capture_still': lambda s: s.imaging.capture_still(),
 }
 
@@ -157,7 +156,7 @@ def test_with_its_camera_every_command_and_read_answers_as_before(make_session, 
     assert camera.read_exposure_ms() == pytest.approx(20.0, rel=0.1)
     size = camera.read_frame_size()
     assert size.width > 0 and size.height > 0
-    assert im.capture_and_wait() is not None
+    assert im.capture_still().image is not None
     im.disable_streaming()
     im.enable_streaming()
     camera.restore_camera_state(camera.save_camera_state('present'))
@@ -616,7 +615,7 @@ def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame_and_tel
     monkeypatch.setattr(driver, 'auto_gain', leaves_on_the_re_arm)
     centre_posts.clear()
 
-    image = im.capture_and_wait()
+    image = im.capture_still().image
 
     assert image is not None
     assert session.scope.camera.camera_removed

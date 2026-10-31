@@ -84,7 +84,7 @@ def test_a_latch_failing_on_a_later_cycle_leaves_the_arm_re_armed(sim_scope, mon
     monkeypatch.setattr(driver, 'latch_clock', latch_fails_the_second_time)
 
     with pytest.raises(CameraReadFailedError):
-        sim_scope.imaging.capture_and_wait(accept_dark=True)
+        sim_scope.imaging.capture_still(accept_dark=True)
 
     assert len(latches) == 2, 'precondition: the lock re-ran the cycle'
     # A lock takes the arm that stands; with none it locks nothing.
@@ -129,7 +129,7 @@ def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monke
     monkeypatch.setattr(frame_validity, 'judgments', stale_for_the_move)
 
     with pytest.raises(CaptureFailedError) as raised:
-        sim_scope.imaging.capture_and_wait(accept_dark=True)
+        sim_scope.imaging.capture_still(accept_dark=True)
 
     assert (raised.value.reason, raised.value.source) == ('no_fresh_frame', 'z_move')
     assert 'the focus move' in str(raised.value)
@@ -153,8 +153,7 @@ def test_a_frame_an_excluded_change_does_not_count_for_is_kept(sim_scope, monkey
     monkeypatch.setattr(frame_validity, 'judgments', stale_for_the_move)
 
     assert (
-        sim_scope.imaging.capture_and_wait(accept_dark=True, exclude_sources=('z_move',))
-        is not None
+        sim_scope.imaging.capture_still(accept_dark=True, exclude_sources=('z_move',)) is not None
     )
 
 

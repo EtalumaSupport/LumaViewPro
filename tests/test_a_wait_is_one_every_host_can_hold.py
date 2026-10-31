@@ -87,7 +87,7 @@ def test_a_run_waiting_form_refuses_its_wait_before_starting_the_run(session, tm
 def test_a_capture_whose_sum_would_wait_past_the_range_is_refused(session):
     # Each time is in range; two frames at the longest delay are not.
     refused = _refused(
-        lambda: session.scope.imaging.capture_and_wait(sum_count=2, sum_delay_s=WAIT_S[1])
+        lambda: session.scope.imaging.capture_still(sum_count=2, sum_delay_s=WAIT_S[1])
     )
 
     assert (refused.reason, refused.limits) == ('out_of_range', WAIT_S)

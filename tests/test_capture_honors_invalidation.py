@@ -3,7 +3,7 @@
 
 Two defect shapes, both demonstrated red before the fix:
 
-Stale window: `capture_and_wait` drained validity and then grabbed, but a
+Stale window: the capture drained validity and then grabbed, but a
 state change landing after the drain -- during the expectation derivation
 or the grab itself -- was invisible: the capture returned a frame (or a
 rejection) that predated what the caller had just commanded. Recorded
@@ -41,8 +41,7 @@ _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signa
 def live_scope():
     """A full simulated scope: real IlluminationAPI over SimulatedLEDBoard
     and a streaming camera, on the lanes the scope builds. Every capture
-    here goes through a public door (``capture_and_wait``, or
-    ``capture_still`` where the frame's record is read), so its body runs on
+    here goes through the public door (``capture_still``), so its body runs on
     the camera lane and an LED write injected from the camera driver
     dispatches to the IO lane, as a write from another caller would."""
     scope = build_scope(simulate=True)
@@ -145,7 +144,7 @@ class TestMidWindowInvalidationHonored:
             lambda: live_scope.imaging.frame_validity.invalidate('z_move', began_ns=None),
         )
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=1.0, exclude_sources=('z_move',))
+        out = live_scope.imaging.capture_still(timeout_s=1.0, exclude_sources=('z_move',)).image
 
         assert landed.is_set(), 'the mid-window write never landed'
         assert out is not None
@@ -175,7 +174,7 @@ class TestDrainDeadline:
         fv.invalidate('led', began_ns=None)
 
         with pytest.raises(CaptureFailedError) as failed:
-            live_scope.imaging.capture_and_wait(timeout_s=0.5)
+            live_scope.imaging.capture_still(timeout_s=0.5)
 
         assert failed.value.reason == 'deadline_expired', 'expiry is not a grab failure'
         info = live_scope.imaging.last_capture_info
@@ -197,7 +196,7 @@ class TestDrainDeadline:
         live_scope.illumination.led_on('BF', 67)
         # Settled before the capture under test, as a lit scope is: frames
         # still owed to the LED would size its budget past the dark wait.
-        assert live_scope.imaging.capture_and_wait(timeout_s=1.0) is not None
+        assert live_scope.imaging.capture_still(timeout_s=1.0).image is not None
         validity = live_scope.imaging.frame_validity
 
         def a_turret_move_lands():
@@ -222,7 +221,7 @@ class TestDrainDeadline:
         completed capture, and only that: the frame's own facts are the
         record handed back with it, so the slot holds no second copy a
         later capture would replace under its reader."""
-        assert live_scope.imaging.capture_and_wait(timeout_s=1.0) is not None
+        assert live_scope.imaging.capture_still(timeout_s=1.0).image is not None
         assert set(live_scope.imaging.last_capture_info) == {
             'hold_ms',
             'drained',

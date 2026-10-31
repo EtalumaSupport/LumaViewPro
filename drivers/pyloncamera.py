@@ -273,7 +273,7 @@ _DEFAULT_MAX_NUM_BUFFER = 10
 _DEFAULT_MAX_TRANSFER_SIZE = 1024 * 1024  # 1 MB
 
 # Production grab strategy is LatestImageOnly -- frame_validity,
-# capture_and_wait, and the auto-discard skip_frames floor all depend
+# capture_still, and the auto-discard skip_frames floor all depend
 # on this strategy (see DAILY_LOG 2026-05-04). OneByOne delivers every
 # frame for apples-to-apples bench comparisons against Pylon Viewer.
 _DEFAULT_GRAB_STRATEGY = 'LatestImageOnly'

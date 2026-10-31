@@ -767,7 +767,7 @@ class AutofocusRunner:
             # as itself. A camera that is gone is refused, and stops the
             # sweep at once.
             try:
-                image = self._scope.imaging.capture_and_wait(accept_dark=True)
+                image = self._scope.imaging.capture_still(accept_dark=True).image
                 break
             except CaptureFailedError as failed:
                 if attempt == num_retries:
@@ -787,7 +787,7 @@ class AutofocusRunner:
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
             try:
-                image = self._scope.imaging.capture_and_wait(accept_dark=True)
+                image = self._scope.imaging.capture_still(accept_dark=True).image
             except CaptureFailedError as failed:
                 _af_log.warning(f'  DARK FRAME kept: its retry failed ({failed.reason})')
 

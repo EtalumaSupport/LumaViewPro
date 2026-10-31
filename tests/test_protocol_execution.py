@@ -1884,45 +1884,6 @@ class TestDiskSpaceCheck:
 
 
 # ---------------------------------------------------------------------------
-# P0-3: Capture failure handling
-# ---------------------------------------------------------------------------
-
-
-class TestCaptureFailure:
-    """P0-3: capture_and_wait returning False records 'capture_failed'."""
-
-    def test_capture_false_records_failure(self, executor, scope, tmp_path):
-        """When capture_and_wait returns False, protocol completes (doesn't hang)."""
-        protocol = _make_single_step_protocol(color='BF')
-
-        original_capture = scope.imaging.capture_and_wait
-        scope.imaging.capture_and_wait = MagicMock(return_value=False)
-
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-
-        scope.imaging.capture_and_wait = original_capture
-
-    def test_multiple_capture_failures_still_complete(self, executor, scope, tmp_path):
-        """Three steps all fail capture -- protocol runs to completion."""
-        protocol = _make_multi_step_protocol(
-            [
-                {'color': 'BF'},
-                {'color': LED2},
-                {'color': LED1},
-            ]
-        )
-
-        original_capture = scope.imaging.capture_and_wait
-        scope.imaging.capture_and_wait = MagicMock(return_value=False)
-
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-
-        scope.imaging.capture_and_wait = original_capture
-
-
-# ---------------------------------------------------------------------------
 # P1-4: Per-step motion timeout
 # ---------------------------------------------------------------------------
 

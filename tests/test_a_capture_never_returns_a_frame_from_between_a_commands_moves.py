@@ -164,7 +164,7 @@ def test_a_stop_during_a_turret_changes_park_closes_the_command(scope):
     scope.simulation.clear()
 
     # Held open, the capture would drain until its wall bound and fail.
-    scope.imaging.capture_and_wait()
+    scope.imaging.capture_still()
 
     assert scope.imaging.frames_until_valid() == 0
 

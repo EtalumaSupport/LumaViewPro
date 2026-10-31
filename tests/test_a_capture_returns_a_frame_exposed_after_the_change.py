@@ -6,7 +6,7 @@ frame that arrives after it, so a frame exposed before the change but still
 on its way to the host -- in the link, in the driver's queue -- is credited
 and can be returned as the capture. On the simulator's realistic tier, with
 live view crediting frames and the host held a fixed backlog behind the
-camera, each stale-frame member's change is followed by ``capture_and_wait``
+camera, each stale-frame member's change is followed by ``capture_still``
 and the frame it returned is judged by what the simulated sensor made it
 under (``scope.simulation.exposed_under``): never by the gate's own answer,
 never by pixels.
@@ -225,7 +225,7 @@ def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
 ):
     scope = realistic_session.scope
     case.before(scope)
-    scope.imaging.capture_and_wait()
+    scope.imaging.capture_still()
     scope.simulation.delay_delivery(BACKLOG)
     try:
         delivered.next_one()

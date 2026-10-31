@@ -320,7 +320,7 @@ IMAGING_ONLY_METHODS = MemberNames(
     'modules/lumascope_api/imaging.py',
     {
         'add_frame_listener',
-        'capture_and_wait',
+        'capture_still',
         'frames_until_valid',
         'get_image',
         'get_image_from_buffer',

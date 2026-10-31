@@ -2709,8 +2709,14 @@ class ScopeSession:
                 home holds the scope and this call is not made under it.
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved. Nothing is captured.
-            CaptureFailedError: no frame passed, with the capture's own
-                reason (``scope.imaging.capture_and_wait``).
+            CaptureFailedError: ``'no_frame'``, the camera delivered none
+                within its grab window; ``'deadline_expired'``, changes kept
+                landing until the deadline passed; ``'no_fresh_frame'``,
+                frames came but none within the grab's bound counted for the
+                ``setting`` changed; ``'chunk_rejected'``, frames counted but
+                none at the ``setting`` asked; ``'record_read_failed'``, a
+                frame came but the camera did not answer a read of the gain,
+                exposure or black level its record needs, so it was not kept.
             CameraSettingRejected: given ``channel``, the camera refused one
                 of its settings; nothing was captured.
         """

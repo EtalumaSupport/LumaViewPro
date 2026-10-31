@@ -12,6 +12,8 @@ failures by reason.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -73,7 +75,7 @@ class TestAnAutofocus:
         dark_at = 1
         with _session_over_the_focus_target() as session:
             imaging = session.scope.imaging
-            capture = imaging.capture_and_wait
+            capture = imaging.capture_still
             calls = []
 
             # A stand-in by design: the simulator cannot deliver a dark frame
@@ -82,12 +84,13 @@ class TestAnAutofocus:
             def dark_then_none(*args, **kwargs):
                 calls.append(len(calls) + 1)
                 if len(calls) == dark_at:
-                    return np.zeros_like(capture(*args, **kwargs))
+                    still = capture(*args, **kwargs)
+                    return dataclasses.replace(still, image=np.zeros_like(still.image))
                 if len(calls) == dark_at + 1:
                     raise CaptureFailedError('no_frame')
                 return capture(*args, **kwargs)
 
-            imaging.capture_and_wait = dark_then_none
+            imaging.capture_still = dark_then_none
             focus = _autofocus(session)
 
         assert len(calls) > dark_at + 1, 'the dark frame and its failed retry were never served'

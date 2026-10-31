@@ -67,13 +67,13 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
         runner = af_runner_on(sim_scope)
         sim_scope.illumination.led_on(LED1, 5.0)
         lit_at_grabs = []
-        grab = sim_scope.imaging.capture_and_wait
+        grab = sim_scope.imaging.capture_still
 
         def watched(*args, **kwargs):
             lit_at_grabs.append(_lit(sim_scope))
             return grab(*args, **kwargs)
 
-        monkeypatch.setattr(sim_scope.imaging, 'capture_and_wait', watched)
+        monkeypatch.setattr(sim_scope.imaging, 'capture_still', watched)
 
         # Ambient on the simulator is a dark field: the sweep fails flat.
         with pytest.raises(AutofocusFailedError):

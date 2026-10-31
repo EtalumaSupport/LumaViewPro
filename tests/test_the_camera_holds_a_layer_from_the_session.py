@@ -238,7 +238,7 @@ class TestTheHeldLayer:
         imaging = session.scope.imaging
         session.apply_layer_camera(LED0)
         # The capture drains the apply's writes, so the frames are valid after it.
-        imaging.capture_and_wait(timeout_s=5.0)
+        imaging.capture_still(timeout_s=5.0)
         assert imaging.frame_validity.frames_until_valid() == 0
 
         session.apply_layer_camera(LED0)

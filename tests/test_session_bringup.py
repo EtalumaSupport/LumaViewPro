@@ -47,7 +47,7 @@ class TestAFactorySessionIsConfigured:
     def test_a_bare_session_captures_and_saves(self, session, tmp_path):
         from modules.image_save import save_image
 
-        frame = session.scope.imaging.capture_and_wait()
+        frame = session.scope.imaging.capture_still().image
         assert isinstance(frame, np.ndarray)
         path = save_image(
             session.scope,

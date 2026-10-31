@@ -137,8 +137,8 @@ def test_a_capture_refuses_a_time(session, value):
     _refused(lambda: imaging.get_image(timeout_s=value), 'timeout_s')
     _refused(lambda: imaging.get_image(sum_delay_s=value), 'sum_delay_s')
     _refused(lambda: imaging.get_image(new_capture_timeout_s=value), 'new_capture_timeout_s')
-    _refused(lambda: imaging.capture_and_wait(timeout_s=value), 'timeout_s')
-    _refused(lambda: imaging.capture_and_wait(sum_delay_s=value), 'sum_delay_s')
+    _refused(lambda: imaging.capture_still(timeout_s=value), 'timeout_s')
+    _refused(lambda: imaging.capture_still(sum_delay_s=value), 'sum_delay_s')
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

@@ -1582,7 +1582,7 @@ class Camera(ABC):
         still have been exposed before the call: frames already in the
         camera's pipeline arrive first, however many there are, so a frame
         that must reflect a change is taken after frame validity has
-        drained them (``capture_and_wait``).
+        drained them (``ImagingAPI.capture_still``).
 
         Args:
             timeout_s: Maximum wait in seconds.

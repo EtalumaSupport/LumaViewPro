@@ -290,15 +290,15 @@ def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypa
     # The field is dark for the sweep's first grab, then shows the target.
     runner = af_runner_on(sim_scope, pattern='black')
     grabs = []
-    grab = sim_scope.imaging.capture_and_wait
+    grab = sim_scope.imaging.capture_still
 
     def first_grab_dark(*args, **kwargs):
-        frame = grab(*args, **kwargs)
-        grabs.append(float(np.mean(frame)))
+        still = grab(*args, **kwargs)
+        grabs.append(float(np.mean(still.image)))
         sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='focus_target')
-        return frame
+        return still
 
-    monkeypatch.setattr(sim_scope.imaging, 'capture_and_wait', first_grab_dark)
+    monkeypatch.setattr(sim_scope.imaging, 'capture_still', first_grab_dark)
     scored = []
     score = autofocus_functions.autofocus_score
 

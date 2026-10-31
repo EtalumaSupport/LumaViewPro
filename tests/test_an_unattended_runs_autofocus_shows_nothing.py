@@ -80,7 +80,7 @@ def _start(rig, tmp_path, run_mode, caller, borrowed):
 
 def _fail_the_sweep_after_three_grabs(rig) -> list[int]:
     grabs = [0]
-    real_grab = rig.scope.imaging.capture_and_wait
+    real_grab = rig.scope.imaging.capture_still
 
     def _grab_then_fail(*args, **kwargs):
         grabs[0] += 1
@@ -88,7 +88,7 @@ def _fail_the_sweep_after_three_grabs(rig) -> list[int]:
             raise RuntimeError('camera fault mid-sweep')
         return real_grab(*args, **kwargs)
 
-    rig.scope.imaging.capture_and_wait = _grab_then_fail
+    rig.scope.imaging.capture_still = _grab_then_fail
     return grabs
 
 

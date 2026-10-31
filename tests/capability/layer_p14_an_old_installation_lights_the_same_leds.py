@@ -55,7 +55,7 @@ def _stored(session, scope):
 
 
 def _mean(scope):
-    image = scope.imaging.capture_and_wait(accept_dark=True, timeout_s=10.0)
+    image = scope.imaging.capture_still(accept_dark=True, timeout_s=10.0).image
     return round(float(image.mean()), 2)
 
 
