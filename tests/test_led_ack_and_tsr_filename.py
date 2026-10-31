@@ -20,8 +20,10 @@ same bench session:
 
 import logging
 import threading
+import time
 from pathlib import Path
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -29,6 +31,15 @@ from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
 from tests.wire_boards import led_on_the_wire
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _no_boot_wait():
+    """The LED board module's own clock with no sleep; every other thread's is real."""
+    import drivers.ledboard as ledboard_mod
+
+    return patch.object(
+        ledboard_mod, 'time', SimpleNamespace(sleep=MagicMock(), monotonic=time.monotonic)
+    )
 
 
 def _asked(caplog, command):
@@ -330,15 +341,9 @@ class TestLedExitEngineeringRecoversFromWedge:
             ],
             write_log=write_log,
         )
-        # Patch time.sleep to skip the 5s firmware-boot wait.
-        import drivers.ledboard as ledboard_mod
-
-        original_sleep = ledboard_mod.time.sleep
-        ledboard_mod.time.sleep = MagicMock()
-        try:
+        # The board module's own clock skips the 5s firmware-boot wait.
+        with _no_boot_wait():
             led.exit_engineering_mode()
-        finally:
-            ledboard_mod.time.sleep = original_sleep
 
         # Ctrl-C x2, Ctrl-B, Ctrl-D all written in order.
         assert write_log == [b'\x03', b'\x03', b'\x02', b'\x04']
@@ -355,15 +360,8 @@ class TestLedExitEngineeringRecoversFromWedge:
             info_responses=['', ''],  # both probes wedged
             write_log=write_log,
         )
-        import drivers.ledboard as ledboard_mod
-
-        original_sleep = ledboard_mod.time.sleep
-        ledboard_mod.time.sleep = MagicMock()
-        try:
-            with _pytest.raises(HardwareError, match='wedged'):
-                led.exit_engineering_mode()
-        finally:
-            ledboard_mod.time.sleep = original_sleep
+        with _no_boot_wait(), _pytest.raises(HardwareError, match='wedged'):
+            led.exit_engineering_mode()
 
 
 class TestTechSupportReportPassesTimeoutS:

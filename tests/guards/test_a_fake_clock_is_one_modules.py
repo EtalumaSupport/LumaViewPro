@@ -14,8 +14,8 @@ The form that fakes one module's clock replaces the module's own name:
 ``mock.patch.object(module, 'time', SimpleNamespace(sleep=..., ...))``.
 This guard refuses every spelling that sets an attribute on the time
 module instead: a patch target naming ``<...>.time.<member>`` or
-``time.<member>``, and ``patch.object`` / ``setattr`` whose object is
-``time`` or ``<...>.time``.
+``time.<member>``, ``patch.object`` / ``setattr`` whose object is
+``time`` or ``<...>.time``, and an assignment to ``<...>.time.<member>``.
 """
 
 from __future__ import annotations
@@ -41,9 +41,18 @@ def _target_is_a_time_member(target: str) -> bool:
     return len(parts) >= 2 and parts[-2] == 'time'
 
 
-def _offences(tree: ast.AST) -> list[int]:
+def offences(tree: ast.AST) -> list[int]:
+    """The lines in ``tree`` that set a member of the time module; the
+    engineering plugin's tree is scanned by this rule too."""
     lines = []
     for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Attribute) and _names_the_time_module(target.value)
+                for target in node.targets
+            ):
+                lines.append(node.lineno)
+            continue
         if not isinstance(node, ast.Call) or not node.args:
             continue
         func = node.func
@@ -65,7 +74,7 @@ def test_no_test_patches_a_member_of_the_time_module():
     offenders = []
     for path in sorted((REPO_ROOT / 'tests').rglob('*.py')):
         tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
-        for lineno in _offences(tree):
+        for lineno in offences(tree):
             offenders.append(f'{path.relative_to(REPO_ROOT)}:{lineno}')
     assert not offenders, (
         "these patch the process's time module, so every thread sees the fake; "
