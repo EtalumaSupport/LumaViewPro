@@ -2917,8 +2917,8 @@ on arms the camera's auto loop (`apply_layer_camera`); turning it
 off locks the standing arm (`scope.camera.lock_auto_gain`) and
 stores what the camera reached as the layer's manual setting: the
 lock's `gain_db` and its `stored_exposure_ms`, rounded to 0.1 dB
-and 0.01 ms, the resolution the stored settings carry, each only when
-the camera reported it; with no arm standing, or a lock that found
+and 0.01 ms, the resolution the stored settings carry, both when the
+lock reached them; with no arm standing, or a lock that found
 nothing usable, they are left as they were. Either waits on the
 camera lane. For a layer the camera does not hold, only the
 preference is stored: the camera's arm is another layer's, and its

@@ -225,6 +225,16 @@ class AutoGainLock:
                 'AutoGainLock carries exposure_ms and gain_db together or not at all; '
                 f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
             )
+        # The values are what the lock reached, so a lock carries them
+        # exactly when its state says it reached them: a consumer asks
+        # whether the values are there, and the answer agrees with the state.
+        reached = self.state not in (None, AutoGainConvergence.FAILED)
+        if reached != (self.exposure_ms is not None):
+            raise ValueError(
+                f'AutoGainLock in state {self.state!r} carries the achieved values '
+                'exactly when it reached them (CONVERGED, MAXED, AT_MINIMUM); '
+                f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
+            )
 
 
 def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:

@@ -679,7 +679,7 @@ class AutofocusRunner:
         Returns the source of the sweep's targets for the log: 'lock' or
         'step'.
         """
-        if lock.state is not None and lock.exposure_ms is not None:
+        if lock.exposure_ms is not None:
             self._camera_gain = lock.gain_db
             self._camera_exposure = lock.exposure_ms
             return 'lock'

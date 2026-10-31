@@ -2495,8 +2495,8 @@ class ScopeSession:
         off locks the standing arm (``scope.camera.lock_auto_gain``) and
         stores what the camera reached as the layer's manual setting: the
         lock's ``gain_db`` and its ``stored_exposure_ms``, rounded to 0.1 dB
-        and 0.01 ms, the resolution the stored settings carry, each only when
-        the camera reported it; with no arm standing, or a lock that found
+        and 0.01 ms, the resolution the stored settings carry, both when the
+        lock reached them; with no arm standing, or a lock that found
         nothing usable, they are left as they were. Either waits on the
         camera lane. For a layer the camera does not hold, only the
         preference is stored: the camera's arm is another layer's, and its
@@ -2539,11 +2539,9 @@ class ScopeSession:
         else:
             lock = AutoGainLock(state=None)
         with self.settings_lock:
-            if lock is not None and lock.state is not None:
-                if common_utils.is_valid_gain_db(lock.gain_db):
-                    self._store_setting(f'{channel}.gain_db', round(lock.gain_db, 1))
-                if common_utils.is_valid_exposure_ms(lock.exposure_ms):
-                    self._store_setting(f'{channel}.exposure_ms', round(lock.stored_exposure_ms, 2))
+            if lock is not None and lock.gain_db is not None:
+                self._store_setting(f'{channel}.gain_db', round(lock.gain_db, 1))
+                self._store_setting(f'{channel}.exposure_ms', round(lock.stored_exposure_ms, 2))
             self._store_setting(f'{channel}.auto_gain', enabled)
             if lock is not None:
                 self._auto_gain_locks[channel] = lock

@@ -176,3 +176,19 @@ def test_half_populated_lock_is_unconstructible():
         AutoGainLock(AutoGainConvergence.CONVERGED, exposure_ms=5.0)
     with pytest.raises(ValueError):
         AutoGainLock(AutoGainConvergence.CONVERGED, gain_db=5.0)
+
+
+def test_a_lock_carries_values_exactly_when_its_state_reached_them():
+    """A lock that reached values (CONVERGED, MAXED, AT_MINIMUM) carries
+    both; a FAILED lock, or one with no arm, carries neither. The session's
+    store and the sweep each ask only whether the values are there, so a
+    lock whose values disagree with its state cannot be built."""
+    from modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
+
+    with pytest.raises(ValueError, match='exactly when it reached them'):
+        AutoGainLock(AutoGainConvergence.FAILED, exposure_ms=5.0, gain_db=1.0)
+    with pytest.raises(ValueError, match='exactly when it reached them'):
+        AutoGainLock(None, exposure_ms=5.0, gain_db=1.0)
+    for state in ('CONVERGED', 'MAXED', 'AT_MINIMUM'):
+        with pytest.raises(ValueError, match='exactly when it reached them'):
+            AutoGainLock(state)
