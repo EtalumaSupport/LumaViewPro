@@ -10480,6 +10480,7 @@ them all.
 **Fields**
 
 - <a id="Notification.category"></a>`category`: `str` -- The part of the instrument it is about, such as `'Motor'`, `'Camera'`, `'FileIO'` or `'Protocol'`.
+- <a id="Notification.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later: the outcome's `Outcome.cause`, None where its type declares none (a fault among them), and None for a post made with no outcome behind it.
 - <a id="Notification.fatal"></a>`fatal`: `bool` -- True for a fault that ended its operation: it reaches a person even while an unattended run mutes the others.
 - <a id="Notification.kind"></a>`kind`: `OutcomeKind` -- What the outcome is, read from its type; `UNCLASSIFIED` for a post made with no outcome behind it.
 - <a id="Notification.message"></a>`message`: `str` -- The words a person reads.
@@ -13486,7 +13487,7 @@ where its outcome is built.
 <a id="RefusalCause"></a>
 ### `RefusalCause`
 
-Held in: [`Outcome.cause`](#Outcome.cause).
+Held in: [`Notification.cause`](#Notification.cause), [`Outcome.cause`](#Outcome.cause).
 
 Whether a refused request could succeed later, and what must change for it to.
 

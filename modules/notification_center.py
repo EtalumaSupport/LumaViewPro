@@ -244,6 +244,7 @@ def _next_outcome_id() -> int:
     'kind',
     'outcome_id',
     'reason',
+    'cause',
     'shown',
     'wall_time_epoch_s',
 )
@@ -286,6 +287,9 @@ class Notification:
             for every other.
         reason: The outcome's machine-readable code, read from its type;
             empty for a post that declares none.
+        cause: Whether the same request could succeed later: the outcome's
+            ``Outcome.cause``, None where its type declares none (a fault
+            among them), and None for a post made with no outcome behind it.
         shown: Whether it is for display now; False when shutdown, an
             unattended run's mute, a run that already showed it, or the
             repeat window holds it back. The window never holds back a
@@ -326,6 +330,7 @@ class Notification:
     # The outcome's machine-readable code, read from its type; empty for a
     # post that declares none.
     reason: str = ''
+    cause: RefusalCause | None = None
     shown: bool = True
     # Wall-clock seconds, for a client in another process; ``monotonic_s``
     # orders two notifications within this one.
@@ -513,6 +518,7 @@ class NotificationCenter:
         solicited: bool = False,
         ends_a_run: bool = False,
         reason: str = '',
+        cause: RefusalCause | None = None,
         remedy: Remedy | None = None,
         kind: OutcomeKind | None = None,
         outcome_id: int | None = None,
@@ -632,6 +638,7 @@ class NotificationCenter:
             kind=kind,
             outcome_id=_next_outcome_id() if outcome_id is None else outcome_id,
             reason=reason,
+            cause=cause,
             shown=shown,
         )
         for min_sev, cb in listeners:
@@ -772,6 +779,7 @@ class NotificationCenter:
                 ends_a_run=ends_a_run,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=reason,
+                cause=outcome.cause,
                 remedy=remedy,
                 kind=OutcomeKind.REFUSAL,
                 outcome_id=outcome_id,
@@ -787,6 +795,7 @@ class NotificationCenter:
                 ends_a_run=ends_a_run,
                 operation_key=operation_key,
                 reason=reason,
+                cause=outcome.cause,
                 remedy=remedy,
                 kind=OutcomeKind.NOTICE,
                 outcome_id=outcome_id,
@@ -806,6 +815,7 @@ class NotificationCenter:
                 operation_key=operation_key,
                 fatal=fatal,
                 reason=reason,
+                cause=outcome.cause,
                 remedy=remedy,
                 kind=OutcomeKind.FAULT,
                 outcome_id=outcome_id,

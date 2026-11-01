@@ -302,7 +302,9 @@ whether it is for display now: an outcome muted when it happened -- during an
 unattended run, inside the duplicate window, at shutdown -- arrives with `shown`
 False, and again with the same `outcome_id` and `shown` True if it is later
 shown. A program that displays opens only the shown ones; one that records keeps
-them all.
+them all. Each carries the outcome's `reason` and `cause`, so a listener
+branches on them as a caller does on a raised refusal; a post with no outcome
+behind it has no `cause`.
 
 ```python
 heard = []

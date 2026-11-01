@@ -36,6 +36,7 @@ import uvicorn
 import rest.events
 from modules import wire_encoding
 from modules.api_surface import api_fields
+from modules.exceptions import LiveFolderPathRefusedError
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.scope_session import ScopeSession
@@ -349,6 +350,27 @@ def test_an_outcome_nobody_asked_for_is_sent_once_and_an_answered_one_never(clie
     outcomes = [e['data'] for e in events if e['event'] == 'outcome']
     assert [o['category'] for o in outcomes] == ['Unasked']
     assert outcomes[0]['solicited'] is False
+
+
+def test_an_outcomes_event_carries_its_cause_and_a_plain_post_none(client):
+    """The wire event says what the in-process outcome says: a refusal's cause
+    from its type's declaration, and None for a post with no outcome behind it."""
+    refused = LiveFolderPathRefusedError('path_not_found', 'gone.tsv', 'Nothing is at gone.tsv.')
+    with _reading(client) as stream:
+        stream.until('status')
+        notifications.report_outcome(refused, solicited=False, category='Unasked')
+        notifications.warning('Plain', 'A plain post', 'No outcome is behind it.')
+        client.post(
+            '/api/v1/scope/illumination/led_on', json={'channel': LED0, 'illumination_ma': 10.0}
+        )
+        events = stream.until('led')
+
+    outcomes = {e['data']['category']: e['data'] for e in events if e['event'] == 'outcome'}
+    assert (outcomes['Unasked']['reason'], outcomes['Unasked']['cause']) == (
+        'path_not_found',
+        'request',
+    )
+    assert outcomes['Plain']['cause'] is None
 
 
 def test_a_reconnect_is_sent_what_it_missed_and_no_status(client):
