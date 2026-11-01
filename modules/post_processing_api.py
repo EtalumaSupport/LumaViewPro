@@ -1113,7 +1113,7 @@ class PostProcessingAPI:
         """
         return CellCountMethod()
 
-    @api
+    @api(reads=True)
     def load_cell_count_method(self, path: FilePath) -> CellCountMethod:
         """The cell-count method saved in the file at *path*.
 
@@ -1313,7 +1313,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    @api
+    @api(reads=True)
     def graph_options(
         self, results: FilePath, *, x: str | None = None, y: str | None = None
     ) -> GraphOptions:

@@ -4468,7 +4468,8 @@ def graph_options(
 ) -> GraphOptions
 ```
 
-Route: `POST /api/v1/post_processing/graph_options`.
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/post_processing/graph_options`.
 
 The columns of the cell-count *results* file a graph can take, and
 the trendlines the axes given so far take.
@@ -4498,7 +4499,8 @@ filling its choices does not wait behind a build.
 def load_cell_count_method(self, path: FilePath) -> CellCountMethod
 ```
 
-Route: `POST /api/v1/post_processing/load_cell_count_method`.
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/post_processing/load_cell_count_method`.
 
 The cell-count method saved in the file at *path*.
 
@@ -17394,8 +17396,8 @@ reads what the person was shown.
 | `GET` | `/api/v1/post_processing/default_cell_count_method` | [`PostProcessingAPI.default_cell_count_method`](#PostProcessingAPI.default_cell_count_method) |
 | `POST` | `/api/v1/post_processing/enhance` | [`PostProcessingAPI.enhance`](#PostProcessingAPI.enhance) |
 | `POST` | `/api/v1/post_processing/graph` | [`PostProcessingAPI.graph`](#PostProcessingAPI.graph) |
-| `POST` | `/api/v1/post_processing/graph_options` | [`PostProcessingAPI.graph_options`](#PostProcessingAPI.graph_options) |
-| `POST` | `/api/v1/post_processing/load_cell_count_method` | [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method) |
+| `GET` | `/api/v1/post_processing/graph_options` | [`PostProcessingAPI.graph_options`](#PostProcessingAPI.graph_options) |
+| `GET` | `/api/v1/post_processing/load_cell_count_method` | [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method) |
 | `GET` | `/api/v1/post_processing/projection_methods` | [`PostProcessingAPI.projection_methods`](#PostProcessingAPI.projection_methods) |
 | `POST` | `/api/v1/post_processing/save_cell_count_method` | [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method) |
 | `GET` | `/api/v1/post_processing/stitch_modes` | [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes) |
