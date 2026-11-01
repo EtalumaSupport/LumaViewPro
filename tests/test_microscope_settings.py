@@ -200,12 +200,11 @@ def _bind_write_frame_text(fake_self):
 
 
 def _compile_ms_method(method_name: str, namespace: dict):
-    from ui.ui_helpers import show_on_slider, show_text, typed_number
+    from ui.ui_helpers import show_on_slider, typed_number
 
     fn_src = _extract_ms_method(method_name)
-    # The module's own redraw writers: the method writes every box through them.
+    # The module's own helpers the methods call.
     ns = {
-        'show_text': show_text,
         'show_on_slider': show_on_slider,
         'typed_number': typed_number,
         **namespace,

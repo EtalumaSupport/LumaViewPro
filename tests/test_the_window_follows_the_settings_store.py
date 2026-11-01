@@ -234,24 +234,16 @@ def test_a_frames_changes_are_redrawn_once_each_on_the_ui_thread():
     assert sorted(drawn) == ['capture', 'layer BF', 'zstack']
 
 
-def test_a_redraw_leaves_what_the_operator_is_editing_and_follows_the_rest():
-    """A box being typed in keeps the edit, which its focus loss commits; a slider mid-drag keeps the finger's value.
+def test_a_redraw_leaves_a_slider_mid_drag_and_follows_one_at_rest():
+    """A slider under the finger keeps the finger's value; one at rest takes the redraw.
 
-    A focused box still showing what was last drawn holds no edit: it takes
-    the new value, so its focus loss commits nothing stale over another
-    writer's change.
+    A box being typed in is CommitInput's to hold (tests/test_a_box_commits_an_edit.py).
     """
-    from ui.ui_helpers import show_on_slider, show_text
+    from ui.ui_helpers import show_on_slider
 
-    typing = SimpleNamespace(text='5', focus=True, shown_text='3')
-    focused_untouched = SimpleNamespace(text='3', focus=True, shown_text='3')
-    idle = SimpleNamespace(text='3', focus=False, shown_text='3')
-    for box in (typing, focused_untouched, idle):
-        show_text(box, '7')
     dragged = SimpleNamespace(value=10.0, user_interacting=True)
     at_rest = SimpleNamespace(value=10.0, user_interacting=False)
     for slider in (dragged, at_rest):
         show_on_slider(slider, 20.0)
 
-    assert (typing.text, focused_untouched.text, idle.text) == ('5', '7', '7')
     assert (dragged.value, at_rest.value) == (10.0, 20.0)

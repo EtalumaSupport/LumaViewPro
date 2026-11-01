@@ -14,7 +14,7 @@ import modules.layer_record as layer_record
 import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.acquire_mode import AcquireMode
-from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
+from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -771,7 +771,8 @@ class LayerControl(BoxLayout):
         the one the user reads the setting from.
 
         Neither is written while the operator is on it -- a box being typed
-        in, a slider under the finger (``show_text``, ``show_on_slider``).
+        in holds the write until it is left (``CommitInput``), a slider under
+        the finger is left as it is (``show_on_slider``).
 
         Both writes run with the layer's handlers suppressed: these are
         display, and a slider's on_value handler exists to record what the USER
@@ -787,7 +788,7 @@ class LayerControl(BoxLayout):
         self._initializing = True
         try:
             show_on_slider(slider, on_slider)
-            show_text(self.ids[text_id], str(value))
+            self.ids[text_id].text = str(value)
         finally:
             self._initializing = was_initializing
 
@@ -825,9 +826,10 @@ class LayerControl(BoxLayout):
         bridge), the end of a run and the end of a standalone autofocus
         (which restored the camera from the settings) all call this. Reads
         the layer's settings once under the settings lock; writes only
-        widgets. A box the operator is typing in and a slider under the
-        finger are left as they are (``show_text``, ``show_on_slider``):
-        the commit that follows is redrawn in its turn.
+        widgets. A box the operator is typing in holds the write until it is
+        left (``CommitInput``) and a slider under the finger is left as it
+        is (``show_on_slider``): the commit that follows is redrawn in its
+        turn.
 
         The gain and exposure sliders' ``max`` is a camera fact set by the
         caller that learns it; the value written here follows whatever
@@ -859,7 +861,7 @@ class LayerControl(BoxLayout):
                 self.ids['acquire_none'].active = True
 
             video_config = layer_settings['video_config']
-            show_text(self.ids['video_duration_text'], str(video_config['duration']))
+            self.ids['video_duration_text'].text = str(video_config['duration'])
             show_on_slider(self.ids['video_duration_slider'], video_config['duration'])
 
             self.ids['autofocus'].active = layer_settings['autofocus']
@@ -877,15 +879,15 @@ class LayerControl(BoxLayout):
                 self.ids['stim_enable_btn'].active = stim_config['enabled']
                 self.ids['stim_disable_btn'].active = not stim_config['enabled']
                 ill = stim_config.get('illumination_ma', 100)
-                show_text(self.ids['stim_ill_text'], str(ill))
+                self.ids['stim_ill_text'].text = str(ill)
                 show_on_slider(self.ids['stim_ill_slider'], float(ill))
-                show_text(self.ids['stim_freq_text'], str(stim_config['frequency']))
+                self.ids['stim_freq_text'].text = str(stim_config['frequency'])
                 show_on_slider(self.ids['stim_freq_slider'], float(stim_config['frequency']))
-                show_text(self.ids['stim_pulse_width_text'], str(stim_config['pulse_width']))
+                self.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
                 show_on_slider(
                     self.ids['stim_pulse_width_slider'], float(stim_config['pulse_width'])
                 )
-                show_text(self.ids['stim_pulse_count_text'], str(stim_config['pulse_count']))
+                self.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
                 show_on_slider(self.ids['stim_pulse_count_slider'], int(stim_config['pulse_count']))
 
                 # Force hide until enabled

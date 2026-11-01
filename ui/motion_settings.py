@@ -265,16 +265,9 @@ class XYStageControl(BoxLayout):
             plate = ctx.lumaview.scope.runtime_state.stage_to_plate(x_target, y_target)
             plate_x, plate_y = plate.x_mm, plate.y_mm
 
-            if not self.ids['x_pos_id'].focus:
-                # Cache text to prevent redundant ScrollView updates
-                new_x_text = format(plate_x, '.2f')
-                if self.ids['x_pos_id'].text != new_x_text:
-                    self.ids['x_pos_id'].text = new_x_text  # Update x position text box
-
-            if not self.ids['y_pos_id'].focus:
-                new_y_text = format(plate_y, '.2f')
-                if self.ids['y_pos_id'].text != new_y_text:
-                    self.ids['y_pos_id'].text = new_y_text  # Update y position text box
+            # A box the user is in holds these until it is left (CommitInput).
+            self.ids['x_pos_id'].text = format(plate_x, '.2f')
+            self.ids['y_pos_id'].text = format(plate_y, '.2f')
 
     def _xy_jog(self, axis: str, direction: int, coarse: bool):
         """Shared XY-axis jog handler.

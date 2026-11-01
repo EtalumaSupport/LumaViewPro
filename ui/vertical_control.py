@@ -64,25 +64,17 @@ class VerticalControl(BoxLayout):
         Clock.schedule_once(lambda dt: run_reported(None, self.redraw_z, 'Z_POSITION'), 0)
 
     def _write_z_text(self, pos):
-        """Write a Z read-back into its box, unless the user is typing in it.
+        """Write a Z read-back into its box.
 
-        The box commits on focus loss (`on_focus: if not self.focus:
-        root.set_position_text(self.text)`), so a value written underneath a
-        part-typed entry is not merely displayed -- it is committed as a Z
-        move when the user clicks away. Every read-back write goes through
-        here so the guard cannot be present at three sites and missing at
-        the fourth. ``pos`` None, a Z the API does not know (homing, or
-        lost), is shown as ``--``; committed from the box, it moves nothing.
+        While the user is in the box it holds the read-back and shows it once
+        left unedited (``CommitInput``), so a click in and out moves nothing
+        and a part-typed entry is never written over. ``pos`` None, a Z the
+        API does not know (homing, or lost), is shown as ``--``; committed
+        from the box, it moves nothing.
         """
-        box = self.ids['z_position_id']
-        if box.focus:
-            return
         # The figures are a readout; whether the API knows Z is the change.
         gui_logger.display('Z_POSITION_KNOWN', pos is not None)
-        new_text = '--' if pos is None else format(pos, '.2f')
-        # Cache text to prevent redundant ScrollView updates
-        if box.text != new_text:
-            box.text = new_text
+        self.ids['z_position_id'].text = '--' if pos is None else format(pos, '.2f')
 
     def redraw_z(self):
         """Draw the Z panel as the API answers it now: the slider at the target, the text where Z is.

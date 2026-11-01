@@ -177,17 +177,28 @@ def _assigned_subscript_attrs(node: ast.AST, attr: str) -> set[str]:
     return found
 
 
+def _text_box_writes(fn) -> list[ast.Assign]:
+    """Every `self.ids[text_id].text = ...` in *fn*."""
+    return [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign)
+        and any(ast.unparse(t) == 'self.ids[text_id].text' for t in n.targets)
+    ]
+
+
 class TestThePrimitiveIsTheOneWriter:
     """One home for "show this value on its slider and its text box"."""
 
     def test_it_writes_both_widgets(self):
-        """Each through the redraw writer that leaves what the operator is editing."""
+        """The slider through the writer that leaves a drag alone; the box by
+        assignment, which a box being typed in holds until it is left."""
         fn = _func(LAYER_CONTROL_PATH, PRIMITIVE)
         calls = [ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)]
         assert calls.count('show_on_slider') == 1, (
             f'{PRIMITIVE} must write the slider exactly once.'
         )
-        assert calls.count('show_text') == 1, f'{PRIMITIVE} must write the text box exactly once.'
+        assert len(_text_box_writes(fn)) == 1, f'{PRIMITIVE} must write the text box exactly once.'
 
     def test_the_slider_is_clipped_and_the_text_is_not(self):
         fn = _func(LAYER_CONTROL_PATH, PRIMITIVE)
@@ -196,11 +207,7 @@ class TestThePrimitiveIsTheOneWriter:
             'The slider must take the nearest position it can represent, clipped to '
             'its OWN range -- a stored value above a convenience ceiling pins it.'
         )
-        written_to_text = {
-            ast.unparse(n.args[1])
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and ast.unparse(n.func) == 'show_text'
-        }
+        written_to_text = {ast.unparse(n.value) for n in _text_box_writes(fn)}
         assert written_to_text == {'str(value)'}, (
             'The text box must show the stored value itself, unclipped and uncast; '
             'anything else is the display reverting to the slider, which is the bug. '

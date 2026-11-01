@@ -23,7 +23,6 @@ from ui.ui_helpers import (
     refused_in_this_input,
     run_reported,
     show_on_slider,
-    show_text,
     submit_reported,
     typed_number,
 )
@@ -727,24 +726,17 @@ class MicroscopeSettings(BoxLayout):
         }
 
     def _write_frame_text(self, width, height) -> None:
-        """Write a frame read-back into the boxes, unless the user is typing.
+        """Write a frame read-back into the boxes.
 
-        The boxes commit on focus loss (`on_focus: if not self.focus:
-        root.frame_size(...)`), so a size written underneath a part-typed
-        entry is not merely displayed -- it is committed as a framing change
-        when the user clicks away. Each box is guarded on its OWN edit
-        (``show_text``): they are edited one at a time, and skipping both
-        because one is being typed in would leave the other showing a size
-        no camera is at.
-
-        Every writer of these boxes goes through here so the guard cannot be
-        present at three sites and missing at the fourth.
+        A box the user is typing in holds the write until it is left
+        (``CommitInput``), each box on its own: they are edited one at a
+        time, and the other box still shows the size the camera is at.
         """
         for widget_id, value in (
             ('frame_width_id', width),
             ('frame_height_id', height),
         ):
-            show_text(self.ids[widget_id], str(value))
+            self.ids[widget_id].text = str(value)
 
     def frame_size(self, committed_id: str):
         """Apply a user edit of the frame width/height fields.

@@ -294,26 +294,6 @@ class CommitInput(TextInput):
         """The person's entry, bound in the kv; one call per entry."""
 
 
-def show_text(box, text: str) -> None:
-    """Show *text* in a box a redraw writes, unless the operator is typing in it.
-
-    A focused box whose text is not what was last shown there holds the
-    operator's edit, which its focus loss commits; writing over it would lose
-    the edit, so it is left and redrawn after that commit. A focused box
-    still showing what was last drawn here holds no edit: it takes *text*,
-    so its focus loss finds nothing changed and commits nothing stale over
-    another writer's change. A focused box nothing was drawn in through here
-    is taken as being edited. Every box a redraw writes is written through
-    here.
-    """
-    if box.focus and box.text != getattr(box, 'shown_text', None):
-        return
-    # Rewriting the same string churns the enclosing ScrollView.
-    if box.text != text:
-        box.text = text
-    box.shown_text = text
-
-
 def show_on_slider(slider, value: float) -> None:
     """Show *value* on a slider a redraw writes, unless the operator is dragging it.
 

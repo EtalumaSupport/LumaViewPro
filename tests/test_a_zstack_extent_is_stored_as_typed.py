@@ -110,10 +110,9 @@ def test_the_placeholder_before_the_first_redraw_stores_nothing(panel):
     assert settings['zstack']['position'] == 'center'
 
 
-def test_the_redraw_offers_every_reference_and_shows_the_stored_ones_label(panel, monkeypatch):
+def test_the_redraw_offers_every_reference_and_shows_the_stored_ones_label(panel):
     zstack, settings = panel
     settings['zstack']['position'] = 'bottom'
-    monkeypatch.setattr(zstack_module, 'show_text', lambda box, text: setattr(box, 'text', text))
     zstack.show_settings()
     assert zstack.ids['zstack_spinner'].values == [
         'Current Position at Top',

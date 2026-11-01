@@ -16,7 +16,6 @@ from ui.ui_helpers import (
     run_reported,
     set_last_save_folder,
     show_captured_frame,
-    show_text,
     show_video_progress,
     submit_reported,
     sync_layer_widgets_from_settings,
@@ -132,8 +131,8 @@ class ZStack(FloatLayout):
         reference = ZStackReference(settings['position'])
         self.ids['zstack_spinner'].values = list(ZSTACK_REFERENCE_LABELS.values())
         self.ids['zstack_spinner'].text = ZSTACK_REFERENCE_LABELS[reference]
-        show_text(self.ids['zstack_stepsize_id'], str(settings['step_size']))
-        show_text(self.ids['zstack_range_id'], str(settings['range']))
+        self.ids['zstack_stepsize_id'].text = str(settings['step_size'])
+        self.ids['zstack_range_id'].text = str(settings['range'])
         zstack_config = ZStackConfig(
             range=settings['range'],
             step_size=settings['step_size'],

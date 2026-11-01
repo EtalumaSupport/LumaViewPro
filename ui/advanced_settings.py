@@ -26,7 +26,7 @@ from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
-from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
+from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 
 class AdvancedSettings(Popup):
@@ -86,9 +86,7 @@ class AdvancedSettings(Popup):
         video_settings = settings['video']
         for slider_id in self._FPS_LIMITS:
             self._show_fps_limit(slider_id)
-        show_text(
-            self.ids['video_max_duration_input'], str(get_manual_video_max_duration(settings))
-        )
+        self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
         self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
 
         self.ids['separate_folder_per_channel_id'].state = (
