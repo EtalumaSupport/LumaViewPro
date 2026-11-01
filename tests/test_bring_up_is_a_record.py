@@ -158,6 +158,29 @@ class TestEachPartNamesItsCause:
             s.shutdown()
             s.scope.disconnect()
 
+    def test_a_scope_whose_model_the_catalogue_lacks_is_missing_its_led_board(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # Only a resolved identity can say a scope has no LED board: one
+        # whose board reports a model this release does not list has no
+        # layers to read, and its held LED board is missing, not unexpected.
+        # A stand-in by design: no simulated board reports an unlisted model.
+        monkeypatch.setattr(NullMotionBoard, 'get_microscope_model', lambda self: 'LS999X')
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('port_in_use', ('LEDBoard',)),
+            microscope='LS850T',
+        )
+        try:
+            assert s.scope.channel_identity.channels == ()
+            led = _status(s.bring_up_record(), Part.LED)
+            assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
+            assert led in s.bring_up_record().missing
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
     def test_an_absent_led_board_is_said_once_with_the_advice_its_cause_needs(
         self, monkeypatch, tmp_path, centre_posts
     ):

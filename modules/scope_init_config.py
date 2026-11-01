@@ -52,10 +52,13 @@ class ScopeInitConfig:
         expects_motion for the partial-hardware notification filter.
 
         channel_identity: the scope's resolved layer identity snapshot.
-        When provided, drives expects_led: identity carrying at least one
+        When resolved, drives expects_led: identity carrying at least one
         LED-driving layer means an LED board is expected, so its absence
         deserves the notification. Identity outranks the scopes.json
         entry here because a unit's own config can differ from its model.
+        An unresolved identity has no layers to read, and only a resolved
+        one can say a scope has no LED board, as only the catalogue can
+        say it has no motor board: it expects one.
 
         ``settings`` is a prepared dict (``settings_init.prepare_loaded``,
         which every session's settings went through): every key is
@@ -65,7 +68,10 @@ class ScopeInitConfig:
         acceleration_pct = settings['motion']['acceleration_max_pct']
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
-        if channel_identity is None:
+        if (
+            channel_identity is None
+            or channel_identity.source == layer_record.IdentitySource.UNRESOLVED
+        ):
             expects_led = True
         else:
             expects_led = any(layer.led_addresses for layer in channel_identity.channels)
