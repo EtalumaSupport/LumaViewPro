@@ -124,6 +124,7 @@ from modules.api_surface import (
     ProgressCallback,
     api,
     api_fields,
+    host_wiring,
     mark_of,
     sets_of,
 )
@@ -505,6 +506,18 @@ class LiveFolderEntry:
 
 
 @api_fields('manual_capture', 'manual_recording', 'post_processing', 'scope')
+@host_wiring(
+    'io_executor',
+    'camera_executor',
+    'executor_bundle',
+    'settings',
+    'settings_lock',
+    'in_flight_named',
+    'open_protocol',
+    'open_remembered_protocol',
+    'as_a_guarded_write',
+    'status_at_edge',
+)
 class ScopeSession:
     """Owns the shared, GUI-independent state for one microscope session."""
 
@@ -745,20 +758,12 @@ class ScopeSession:
 
     @property
     def io_executor(self) -> 'SequentialIOExecutor':
-        """The scope's IO lane. Read from the scope, never held as a copy.
-
-        Composition wiring for the host that builds its context and its run
-        engine around the session -- not part of the L2 API surface.
-        """
+        """The scope's IO lane. Read from the scope, never held as a copy."""
         return self.scope.io_lane()
 
     @property
     def camera_executor(self) -> 'SequentialIOExecutor':
-        """The scope's CAMERA lane. Read from the scope, never held as a copy.
-
-        Composition wiring for the host that builds its context and its run
-        engine around the session -- not part of the L2 API surface.
-        """
+        """The scope's CAMERA lane. Read from the scope, never held as a copy."""
         return self.scope.camera_lane()
 
     @api
@@ -987,8 +992,6 @@ class ScopeSession:
         while a control session is held by someone else, as every Session
         write is, and before ``write`` runs.
 
-        It is not part of the L2 API surface.
-
         Raises:
             ControlSessionRefusedError: ``'control_session_held'``. ``write``
                 did not run.
@@ -1192,8 +1195,7 @@ class ScopeSession:
         ``camera_streaming`` is read on the calling thread, at the edge, and
         the camera is asked when the call is made, on a thread that may
         wait (a grab stop holds the camera SDK for as long as the camera
-        takes to stop). ``status`` makes the call at once. Composition
-        wiring for a host's event stream, not part of the L2 API surface.
+        takes to stop). ``status`` makes the call at once.
 
         Raises:
             RunCheckFailedError: ``'hardware_state_unknown'``, the
@@ -1340,8 +1342,7 @@ class ScopeSession:
         while the stage moves; an autofocus sweep, which holds no scope
         claim; a plugin run from its press to its end
         (``plugin_run_in_flight``), which holds its claim for only part of
-        that. Composition wiring for the walk host, not part of the L2 API
-        surface.
+        that.
         """
         still = []
         holding = self.controls_lock.run_named
@@ -4540,9 +4541,6 @@ class ScopeSession:
         controls hold its settings: a refused file leaves the remembered path
         where it was.
 
-        It is not part of the L2 API surface, like the remembered path it
-        writes.
-
         A file that is refused or fails to load leaves no path remembered.
 
         Raises:
@@ -4577,8 +4575,7 @@ class ScopeSession:
         glass, the plate, a layer, the file's contents) can be put right and
         the protocol loaded again.
 
-        The GUI's start-up adoption; not part of the L2 API surface, like the
-        remembered path it reads.
+        The GUI's start-up adoption.
 
         Returns:
             The protocol, or None when no path is remembered or no file is

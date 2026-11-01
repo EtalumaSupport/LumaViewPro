@@ -53,7 +53,7 @@ from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
 from modules.stitch_mode import StitchAlgorithm, StitchMode
 from modules.zproject_method import ZProjectMethod
-from modules.api_surface import FilePath, api, api_fields
+from modules.api_surface import FilePath, api, api_fields, host_wiring
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -511,6 +511,7 @@ def _save_graph(results, path, *, x, y, trendline, x_label, y_label, title, on_p
     return GraphResult(message=f'Saved the graph of {y} against {x} to {path}.', path=path)
 
 
+@host_wiring('lane')
 class PostProcessingAPI:
     """The post-processing builds, each run on the post-processing lane."""
 

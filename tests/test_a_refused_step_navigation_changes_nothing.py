@@ -117,7 +117,7 @@ def nav_env(gui_ctx, monkeypatch):
         return ENQUEUED
 
     pool.put.side_effect = _put
-    gui_ctx.worker_pool = pool
+    monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
     protocol_settings = MagicMock()
     protocol_settings.curr_step = 3
     layer_obj = MagicMock()

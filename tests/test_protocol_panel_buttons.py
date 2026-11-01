@@ -139,7 +139,7 @@ def held():
 
 
 @pytest.fixture
-def app_ctx(engine, session, held, tmp_path, monkeypatch):
+def app_ctx(session, held, tmp_path, monkeypatch):
     from modules.sequential_io_executor import ENQUEUED
 
     saved = getattr(_app_ctx, 'ctx', None)
@@ -159,7 +159,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
         settings={'live_folder': str(tmp_path)},
         settings_lock=MagicMock(),
         worker_pool=pool,
-        sequenced_capture_runner=engine,
     )
     yield _app_ctx.ctx
     _app_ctx.ctx = saved
@@ -536,11 +535,10 @@ def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(
     assert not engine.start.called
 
 
-def test_each_button_greys_while_anything_else_holds_the_scope(app_ctx, session):
+def test_each_button_greys_while_anything_else_holds_the_scope(app_ctx, engine, session):
     """Each of the three asks the Session about the run it started: another
     holder greys it, its own run leaves it live as that run's Stop."""
     panel = _Panel()
-    engine = app_ctx.sequenced_capture_runner
     runs = {trigger: _run(engine).operation for trigger in ('scan', 'protocol', 'autofocus_scan')}
     panel._runs_started_here = dict(runs)
     own_run = runs['protocol']

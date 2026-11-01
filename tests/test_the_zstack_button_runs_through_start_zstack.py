@@ -77,7 +77,7 @@ def clicked(gui_ctx, monkeypatch, held, centre_posts):
 
     pool.put.side_effect = _put
     switch = _SavingSwitch()
-    gui_ctx.worker_pool = pool
+    monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
     gui_ctx.image_settings = MagicMock()
     gui_ctx.scope_display = SimpleNamespace(start=lambda: None, stop=lambda: None)
     gui_ctx.motion_settings = SimpleNamespace(ids={'protocol_settings_id': switch})

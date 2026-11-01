@@ -44,7 +44,7 @@ from modules.exceptions import (
 )
 from drivers.camera import Frame
 from modules.notification_center import notifications
-from modules.api_surface import FilePath, api, api_fields
+from modules.api_surface import FilePath, api, api_fields, host_wiring
 from modules.run_outcome import FilesOutcome
 
 logger = logging.getLogger('lvp_logger')
@@ -306,6 +306,7 @@ class _BaseNamespace:
             self._entries.pop(plugin_name, None)
 
 
+@host_wiring('mounts')
 class UIRegistry(_BaseNamespace):
     """UI-extending plugins. Adds widgets at named mount points."""
 
@@ -576,6 +577,7 @@ class RESTRegistry(_BaseNamespace):
 
 
 @api_fields('ui', 'post_processing', 'live_processing', 'rest')
+@host_wiring('attribute_exception', 'record_runtime_error')
 class PluginRegistry:
     """Single ctx.plugins entry point exposing the four namespaces.
 

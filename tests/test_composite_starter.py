@@ -70,7 +70,7 @@ def app_ctx(gui_ctx, held, monkeypatch):
         return ENQUEUED
 
     pool.put.side_effect = _put
-    gui_ctx.worker_pool = pool
+    monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
     gui_ctx.ui_listener_bridge = MagicMock()
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     for channel in ('BF', LED1):

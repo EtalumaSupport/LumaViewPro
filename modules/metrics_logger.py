@@ -125,7 +125,8 @@ class MetricsLogger:
         Delegates to ``config_helpers.log_system_metrics`` so the format
         + content match the existing log surface; engineering tools
         that grep ``[PDH METRICS]`` / ``[BUFFER METRICS]`` keep working.
-        Safe to call on demand from a status endpoint.
+        Its callers are this logger's own: its start and its scheduled
+        cadence.
         """
         try:
             config_helpers.log_system_metrics(

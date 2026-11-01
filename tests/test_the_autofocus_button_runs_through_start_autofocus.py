@@ -68,7 +68,7 @@ def pressed(gui_ctx, monkeypatch, held, centre_posts):
         return ENQUEUED
 
     pool.put.side_effect = _put
-    gui_ctx.worker_pool = pool
+    monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
     gui_ctx.image_settings = MagicMock()
     gui_ctx.session.set_engineering_mode(True)
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))

@@ -51,7 +51,7 @@ def stepnav_env(gui_ctx, monkeypatch):
         return ENQUEUED
 
     pool.put.side_effect = _put
-    gui_ctx.worker_pool = pool
+    monkeypatch.setattr(gui_ctx.session.executor_bundle, 'worker_pool', pool)
     layer_obj = SimpleNamespace(
         ids={'enable_led_btn': SimpleNamespace(state='normal')},
         set_step_state=MagicMock(),

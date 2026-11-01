@@ -165,11 +165,11 @@ def test_a_locked_control_surface_submits_nothing(env, monkeypatch):
     assert env.record == []
 
 
-def test_a_lane_that_takes_no_work_skips_the_gui_work(env):
+def test_a_lane_that_takes_no_work_skips_the_gui_work(env, monkeypatch):
     closed = SequentialIOExecutor(name='CLOSED_IO')
     closed.start()
     closed.shutdown(wait=False)
-    env.ctx.io_executor = closed
+    monkeypatch.setattr(env.ctx.scope, 'io_lane', lambda: closed)
 
     ui_helpers.submit_gesture(
         'GESTURE',

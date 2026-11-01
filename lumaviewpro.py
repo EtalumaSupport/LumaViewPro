@@ -410,11 +410,10 @@ if __name__ == '__main__':
     # build().
     show_tooltips = False
 
-    # The executor handles are the single-source-of-truth on ctx: they are
-    # locals in build() and read everywhere else (including shutdown) as
-    # ctx.<name>. The bundle itself rides into the session at construction
-    # (which registers it on the scope), so no build()->on_start() handoff
-    # global exists anymore.
+    # The executor handles are the session's: ctx forwards each one to it
+    # (ctx.<name>), and holds no copy. The bundle itself rides into the
+    # session at construction (which registers it on the scope), so no
+    # build()->on_start() handoff global exists anymore.
     ctx = None
 
 else:
@@ -1041,7 +1040,7 @@ class LumaViewProApp(TooltipMixin, App):
         # the API, so it has nothing to tell it and would only reach
         # the user's console. A raise inside the factory tears down
         # what it had started before it reaches here.
-        def _compose(from_settings):
+        def _compose(from_settings: dict) -> ScopeSession:
             return ScopeSession.create(
                 settings=from_settings,
                 source_path=source_path,

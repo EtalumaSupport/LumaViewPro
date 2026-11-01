@@ -8,7 +8,10 @@ on a wire, whatever its name. ``docs/api-reference.md`` is this set,
 rendered from the marks and the docstrings (``entries_of``,
 ``markdown_of``), and ``tests/guards/test_the_api_is_declared.py`` holds
 it current and the set closed: every type a marked member hands out or
-takes in is itself published.
+takes in is itself published. ``@host_wiring`` names the unmarked public
+members a host outside ``modules/`` reads to compose what it serves (a
+lane, the settings store), so a client's read of any other unmarked
+member is counted (``tests/guards/test_no_client_reads_an_unmarked_member.py``).
 
 ``@api(in_process=True)`` marks a member that is kept off the wire --
 hosting a session, returning a function, or held back by policy -- so a
@@ -109,6 +112,9 @@ FIELDS_ATTRIBUTE = '_lvp_api_fields'
 # The attribute, and the dataclass field metadata key, an event's record is
 # declared under.
 EVENT_ATTRIBUTE = '_lvp_api_event'
+# The attribute a class's host wiring is recorded under, read from the
+# class's own namespace as its published fields are.
+HOST_WIRING_ATTRIBUTE = '_lvp_host_wiring'
 # The attribute a class that is not a dataclass or NamedTuple declares
 # itself a record under.
 RECORD_ATTRIBUTE = '_lvp_api_record'
@@ -307,6 +313,53 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
         return cls
 
     return publish
+
+
+HOST_WIRING_SENTENCE = (
+    'Host wiring, not API: a host outside modules/ reads it to compose '
+    'what it serves. It is not in the reference, is not frozen, and may '
+    'change in any release.'
+)
+
+
+def host_wiring[C: type](*names: str) -> Callable[[C], C]:
+    """Name a class's public members that a host wires, which are not API.
+
+    A public name a host outside ``modules/`` reads -- the GUI's context,
+    the REST server, the application -- to compose what it serves, and
+    no client calls: a lane, the settings store, a GUI-only load. Methods,
+    properties and instance attributes alike, so it is declared at class
+    level as ``api_fields`` is. Each method's or property's docstring
+    gains ``HOST_WIRING_SENTENCE`` after its summary, so the fact has one
+    form; ``docs/api-reference.md`` is unchanged, being the declared set.
+    A name that is also marked ``@api`` is refused here
+    (``TypeError``); one also published as a field is refused by
+    ``tests/guards/test_no_client_reads_an_unmarked_member.py``, which
+    counts every client read of a member that is neither.
+    """
+
+    def declare(cls: C) -> C:
+        for name in names:
+            member = vars(cls).get(name)
+            if member is None:
+                continue
+            if mark_of(member) is not None:
+                raise TypeError(f'{cls.__name__}.{name} is marked API, so it is not host wiring')
+            function = _function_of(member)
+            function.__doc__ = _with_the_host_sentence(function.__doc__)
+            if isinstance(member, property):
+                setattr(
+                    cls, name, property(member.fget, member.fset, member.fdel, function.__doc__)
+                )
+        setattr(cls, HOST_WIRING_ATTRIBUTE, tuple(names))
+        return cls
+
+    return declare
+
+
+def _with_the_host_sentence(doc: str | None) -> str:
+    summary, _, rest = inspect.cleandoc(doc or '').partition('\n\n')
+    return '\n\n'.join(part for part in (summary, HOST_WIRING_SENTENCE, rest) if part)
 
 
 class ClosedField(typing.NamedTuple):
@@ -577,6 +630,11 @@ def mark_of(member: object) -> str | None:
 def fields_of(cls: type) -> tuple[str, ...]:
     """The data attributes *cls* itself publishes."""
     return vars(cls).get(FIELDS_ATTRIBUTE, ())
+
+
+def host_wiring_of(cls: type) -> tuple[str, ...]:
+    """The public members *cls* itself declares as host wiring."""
+    return vars(cls).get(HOST_WIRING_ATTRIBUTE, ())
 
 
 def reads_of(member: object) -> bool:
