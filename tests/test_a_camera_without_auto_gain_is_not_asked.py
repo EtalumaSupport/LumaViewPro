@@ -156,11 +156,6 @@ class TestThePublicSetters:
                 'auto_exposure',
             ),
             (
-                'update_auto_gain_target_brightness',
-                lambda camera: camera.update_auto_gain_target_brightness(0.4),
-                'auto_gain_target_brightness',
-            ),
-            (
                 'auto_gain_once',
                 lambda camera: camera.auto_gain_once(
                     state=True, target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0

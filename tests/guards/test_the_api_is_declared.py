@@ -608,9 +608,6 @@ UNITLESS: dict[str, str] = {
     'SensorExposure.light field': (
         "the simulated scene's light per second of exposure at unity gain, in its own scale"
     ),
-    'CameraAPI.update_auto_gain_target_brightness parameter target_brightness': (
-        'a fraction of full scale'
-    ),
     'FrameRecord.saturated_fraction field': "a fraction of the frame's pixels",
     'SimulationAPI.hold_axis parameter at_fraction': "a fraction of the move's travel",
     'MotionAPI.start_jog parameter steps': "a count of the active objective's jog steps",

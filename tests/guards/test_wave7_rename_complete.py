@@ -361,7 +361,6 @@ CAMERA_ONLY_METHODS = MemberNames(
         'set_gain_db',
         'set_image_mode',
         'suppress_value_warnings',
-        'update_auto_gain_target_brightness',
     },
 )
 

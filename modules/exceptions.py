@@ -5022,8 +5022,6 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
             ``'auto_gain_unsupported'`` -- this camera has no automatic
             gain to turn on. ``'auto_exposure_unsupported'`` -- this camera
             has no automatic exposure to turn on.
-            ``'auto_gain_target_brightness_unsupported'`` -- this camera has
-            no automatic gain, so it takes no target brightness.
             ``'binning_unsupported'`` -- the binning size is not one this
             camera reports. ``'black_level_unsupported'`` -- this camera has
             no black level setting. ``'conversion_gain_mode_unsupported'``
@@ -5043,7 +5041,6 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
         (
             'auto_gain_unsupported',
             'auto_exposure_unsupported',
-            'auto_gain_target_brightness_unsupported',
             'binning_unsupported',
             'black_level_unsupported',
             'conversion_gain_mode_unsupported',

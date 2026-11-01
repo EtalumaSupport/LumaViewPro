@@ -27,7 +27,6 @@ _WRITE_BODIES = MemberNames(
         '_set_exposure_ms_impl',
         '_set_auto_gain_impl',
         '_set_auto_exposure_impl',
-        '_update_auto_gain_target_brightness_impl',
         '_auto_gain_once_impl',
         '_lock_auto_gain_impl',
         '_apply_settings_impl',

@@ -716,7 +716,7 @@ class SimulationAPI:
             node: The setting written: ``'gain'``, ``'exposure'``,
                 ``'auto_exposure'``, ``'frame_size'``, ``'binning'``,
                 ``'pixel_format'``, ``'black_level'``, ``'auto_gain'``,
-                ``'auto_gain_once'`` or ``'auto_gain_target_brightness'``.
+                or ``'auto_gain_once'``.
             answer: What the node write answers: ``'false'``, ``'none'``
                 (no confirmation), ``'true'`` (a bare True that confirms no
                 value; not for ``'frame_size'``, whose write answers the

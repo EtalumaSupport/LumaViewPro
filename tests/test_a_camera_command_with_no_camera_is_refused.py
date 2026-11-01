@@ -67,9 +67,6 @@ REFUSED = {
     'set_black_level': lambda s: s.camera.set_black_level(10.0),
     'set_auto_gain_on': lambda s: s.camera.set_auto_gain(True, _AUTO_GAIN),
     'set_auto_exposure_on': lambda s: s.camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
-    'update_auto_gain_target_brightness': lambda s: s.camera.update_auto_gain_target_brightness(
-        0.5
-    ),
     'auto_gain_once': lambda s: s.camera.auto_gain_once(True, 0.5, 0.0, 20.0),
     'enable_streaming': lambda s: s.imaging.enable_streaming(),
     'set_frame_size': lambda s: s.camera.set_frame_size(1024, 1024),
@@ -480,7 +477,6 @@ REMOVED_DURING = {
     'pixel_format': 'set_image_mode',
     'auto_gain': 'set_auto_gain_on',
     'auto_gain_once': 'auto_gain_once',
-    'auto_gain_target_brightness': 'update_auto_gain_target_brightness',
 }
 
 

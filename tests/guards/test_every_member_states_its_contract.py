@@ -75,7 +75,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('CameraAPI.set_black_level', 'CameraSettingUnsupportedError'),
         ('CameraAPI.set_exposure_ms', 'CameraSettingOutOfRangeError'),
         ('CameraAPI.set_gain_db', 'CameraSettingOutOfRangeError'),
-        ('CameraAPI.update_auto_gain_target_brightness', 'CameraSettingUnsupportedError'),
         ('ManualRecordingController.start', 'ObjectiveUnknownError'),
         ('MotionAPI.jog_step_um', 'ObjectiveUnknownError'),
         ('ProtocolRunner.start_autofocus', 'ProtocolRunRefusedError'),

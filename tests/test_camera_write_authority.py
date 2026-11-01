@@ -177,14 +177,6 @@ class TestAutoSetterSequences:
         assert fv.invalidation_counts == _grown_by_one(before, 'gain')
         assert fv.target('gain') is None
 
-    def test_update_auto_gain_target_brightness_arms_settle_window(self, camera_plain):
-        """A new target brightness re-drives the running convergence, so it
-        holds readiness for the same sources arming does."""
-        fv = camera_plain.frame_validity
-        before = fv.invalidation_counts
-        camera_plain.update_auto_gain_target_brightness(0.5)
-        assert fv.invalidation_counts == _grown_by_one(before, 'gain', 'auto_gain')
-
     def test_set_auto_exposure_enable_sequence(self, camera_plain):
         """Toggling auto-exposure holds readiness for 'exposure' and clears
         the manual exposure target."""

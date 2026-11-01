@@ -48,16 +48,6 @@ def test_a_refused_auto_exposure_raises(sim_scope):
     assert excinfo.value.setting == 'auto_exposure'
 
 
-def test_a_refused_target_brightness_raises(sim_scope):
-    camera = sim_scope.camera
-    sim_scope.simulation.refuse_camera_write('auto_gain_target_brightness', 'false')
-
-    with pytest.raises(CameraSettingRejected) as excinfo:
-        camera.update_auto_gain_target_brightness(0.4)
-
-    assert excinfo.value.setting == 'auto_gain_target_brightness'
-
-
 def test_the_layer_apply_names_a_refused_auto_gain(sim_scope):
     camera = sim_scope.camera
     sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
@@ -105,24 +95,6 @@ def test_the_runs_arm_take_reports_a_refused_disarm(reported):
     runner._take_auto_gain_arm_for_run()
 
     assert [exc for exc, _kw in reported] == [refusal]
-
-
-def test_the_runs_camera_take_writes_no_target_brightness(reported):
-    # Every step that arms auto-gain, and every one-shot, hands the camera
-    # its target in the same write; a run-start target write only re-drove a
-    # loop the take had just disarmed, and a camera without auto-gain
-    # refused it on every run.
-    from tests.protocol_drives import bare_capture_runner
-
-    runner = bare_capture_runner()
-    runner._is_run_live = lambda: True
-    runner._saved_camera_state = {}
-    runner._autogain_settings = {'target_brightness': 0.4}
-    runner._scope.camera.save_camera_state.return_value = {}
-
-    assert runner._take_camera() is None, 'the run still takes the camera'
-    assert runner._scope.camera.update_auto_gain_target_brightness.call_count == 0
-    assert reported == []
 
 
 def test_the_step_end_disarm_reports_a_refusal_and_goes_on(reported):

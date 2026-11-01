@@ -5695,7 +5695,7 @@ auto-exposure never had, with nothing written.
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `auto_gain_target_brightness_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5744,7 +5744,7 @@ bool | None: The camera's answer, True or None; True, with nothing written, for 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `auto_gain_target_brightness_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5826,7 +5826,7 @@ float | None: The black level now in effect, which differs from the request when
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `auto_gain_target_brightness_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6055,43 +6055,6 @@ the camera took it, as `set_high_conversion_gain` is.
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="CameraAPI.update_auto_gain_target_brightness"></a>
-### `CameraAPI.update_auto_gain_target_brightness`
-
-```python
-def update_auto_gain_target_brightness(self, target_brightness: float) -> bool | None
-```
-
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/camera/update_auto_gain_target_brightness`.
-
-Set the auto-gain target brightness, and wait for it.
-
-One command on the camera's lane, waited for; a write the camera
-does not apply raises.
-
-**Args**
-
-- `target_brightness`: The brightness auto-gain settles on, as a fraction of full scale, 0.0 to 1.0.
-
-**Returns**
-
-bool | None: The camera's answer. `None` when no camera is active.
-
-**Raises**
-
-- `CameraSettingRejected`: The camera refused the change; nothing is shown here.
-- `CameraSettingUnsupportedError`: The camera has no hardware auto-gain, so there is no target to set.
-- `ArgumentRefusedError`: `'not_a_number'`, the target is not a finite number.
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `auto_gain_target_brightness_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -8835,7 +8798,7 @@ The camera's next `count` writes of `node` answer `answer` and move nothing.
 
 **Args**
 
-- `node`: The setting written: `'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, `'auto_gain_once'` or `'auto_gain_target_brightness'`.
+- `node`: The setting written: `'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, or `'auto_gain_once'`.
 - `answer`: What the node write answers: `'false'`, `'none'` (no confirmation), `'true'` (a bare True that confirms no value; not for `'frame_size'`, whose write answers the window it delivers), `'raise'` (`CameraWriteFailedError`, the driver's failed node write), or `'removed'` (False, with the camera gone from the bus during the write; it stays removed for the session, as after `remove_camera`), or `'no_answer'` (`CameraNoAnswerError`: the write timed out, and the camera stays on the bus).
 - `count`: How many writes in a row meet it, 1 or more: the API sends a write the camera did not answer once more, so a second unanswered write takes 2.
 
@@ -13215,7 +13178,6 @@ A camera setting whose write a simulated fault can refuse.
 - `black_level`
 - `auto_gain`
 - `auto_gain_once`
-- `auto_gain_target_brightness`
 
 <a id="Counter"></a>
 ### `Counter`
@@ -14506,7 +14468,7 @@ for a caller that treats it as the bad argument it is.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code, `'<setting>_unsupported'`. `'auto_gain_unsupported'` -- this camera has no automatic gain to turn on. `'auto_exposure_unsupported'` -- this camera has no automatic exposure to turn on. `'auto_gain_target_brightness_unsupported'` -- this camera has no automatic gain, so it takes no target brightness. `'binning_unsupported'` -- the binning size is not one this camera reports. `'black_level_unsupported'` -- this camera has no black level setting. `'conversion_gain_mode_unsupported'` -- this camera has no high conversion gain, or the mode asked for is neither High nor Low. `'line_noise_reduction_unsupported'` -- this camera has no line noise reduction to turn on.
+- `reason`: Machine-readable refusal code, `'<setting>_unsupported'`. `'auto_gain_unsupported'` -- this camera has no automatic gain to turn on. `'auto_exposure_unsupported'` -- this camera has no automatic exposure to turn on. `'binning_unsupported'` -- the binning size is not one this camera reports. `'black_level_unsupported'` -- this camera has no black level setting. `'conversion_gain_mode_unsupported'` -- this camera has no high conversion gain, or the mode asked for is neither High nor Low. `'line_noise_reduction_unsupported'` -- this camera has no line noise reduction to turn on.
 - `setting`: Machine-readable setting name (e.g. 'binning').
 - `requested`: The value asked for.
 - `offered`: The values the camera reports it supports.
@@ -14514,7 +14476,6 @@ for a caller that treats it as the bad argument it is.
 | Reason | Cause | REST status |
 |---|---|---|
 | `auto_exposure_unsupported` | request | 422 |
-| `auto_gain_target_brightness_unsupported` | request | 422 |
 | `auto_gain_unsupported` | request | 422 |
 | `binning_unsupported` | request | 422 |
 | `black_level_unsupported` | request | 422 |
@@ -17453,7 +17414,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/camera/read_gain_db` | [`CameraAPI.read_gain_db`](#CameraAPI.read_gain_db) |
 | `GET` | `/api/v1/scope/camera/read_pixel_format` | [`CameraAPI.read_pixel_format`](#CameraAPI.read_pixel_format) |
 | `POST` | `/api/v1/scope/camera/set_auto_gain` | [`CameraAPI.set_auto_gain`](#CameraAPI.set_auto_gain) |
-| `POST` | `/api/v1/scope/camera/update_auto_gain_target_brightness` | [`CameraAPI.update_auto_gain_target_brightness`](#CameraAPI.update_auto_gain_target_brightness) |
 | `GET` | `/api/v1/scope/capabilities` | [`Lumascope.capabilities`](#Lumascope.capabilities) |
 | `GET` | `/api/v1/scope/channel_identity` | [`Lumascope.channel_identity`](#Lumascope.channel_identity) |
 | `GET` | `/api/v1/scope/diagnostics/get_camera_link_info` | [`DiagnosticsAPI.get_camera_link_info`](#DiagnosticsAPI.get_camera_link_info) |

@@ -203,7 +203,6 @@ class TestARaisingWriteIsARejection:
             'black_level': lambda: camera.set_black_level(10.0),
             'auto_gain': lambda: camera.set_auto_gain(True, _AUTO_GAIN),
             'auto_gain_once': lambda: camera.auto_gain_once(True, 0.5, 0.0, 20.0),
-            'auto_gain_target_brightness': lambda: camera.update_auto_gain_target_brightness(0.6),
         }
         escaped = {}
         for node, setter in setters.items():
@@ -341,7 +340,6 @@ def test_every_setter_raises_a_refusal_as_rejected(sim_scope):
         'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
         'black_level': lambda: camera.set_black_level(10.0),
         'auto_gain': lambda: camera.set_auto_gain(True, _AUTO_GAIN),
-        'auto_gain_target_brightness': lambda: camera.update_auto_gain_target_brightness(0.6),
     }
     answered = {}
     for node, setter in setters.items():

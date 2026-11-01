@@ -94,12 +94,6 @@ FAMILIES = [
     ('camera', 'set_black_level', {'level': 4.0}, 'camera'),
     (
         'camera',
-        'update_auto_gain_target_brightness',
-        {'target_brightness': 0.5},
-        'camera',
-    ),
-    (
-        'camera',
         'auto_gain_once',
         {
             'state': True,
