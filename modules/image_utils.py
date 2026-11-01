@@ -2460,6 +2460,9 @@ def write_tiff(
     )
     tiff_datetime = metadata['datetime'].strftime(_TIFF_DATETIME)
 
+    # tifffile encodes each write's strips on its own thread pool (maxworkers
+    # left at its auto default). A Windows handle soak measured that executor
+    # as a minor share of the save path's handle growth, not its source.
     with _written_whole(file_loc) as tmp_loc:
         with tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
             if (image_type is None) and is_color_image(image=data):
@@ -2656,16 +2659,9 @@ def generate_tiff_data(
         # Bio-Formats list line by line. ImageJ consumes its own description,
         # so the record there is shown to no one.
         tiff_metadata['Info'] = _view_lines(_readable_view(metadata), ascii_only=False)
-        # imagej path mirrors the default/ome maxworkers=0 below for the
-        # same Windows kernel-handle-leak reason; this path triggers on
-        # 16-bit fluorescence + non-color + image_layer, which the
-        # bench-witnessed 8-bit Bug E soak did not exercise. Adjacent
-        # symmetry: same tifffile.write() ThreadPoolExecutor pattern,
-        # same leak risk; deflate single-threaded cost is negligible.
         options = {
             'photometric': photometric,
             'compression': 'deflate',
-            'maxworkers': 0,
         }
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (
@@ -2674,13 +2670,7 @@ def generate_tiff_data(
             else None
         )
     else:
-        # ome and default use same options. maxworkers=0 disables tifffile's
-        # per-write ThreadPoolExecutor; the executor's internal queue holds
-        # a Windows kernel Event handle that intermittently outlives cleanup,
-        # giving ~1 leaked handle per save (instrumentation confirmed via
-        # lib/handle_trace.py over a 28-min bench run: mean +0.967/call).
-        # LZW compression now runs single-threaded -- +~10ms per 5MP save,
-        # negligible vs typical 1-2 saves/sec protocol cadence.
+        # ome and default use same options.
         options = {
             'photometric': photometric,
             'compression': 'lzw',
@@ -2689,7 +2679,6 @@ def generate_tiff_data(
             # wildly wrong scale claim. NONE is the TIFF convention for "ratio
             # only, no absolute unit", which is what an unknown scale means.
             'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
-            'maxworkers': 0,
         }
         resolution = resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
         if image_type is None:

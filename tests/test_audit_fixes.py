@@ -6999,55 +6999,6 @@ class TestSCEResetSignalsAbort:
         runner._cleanup.assert_not_called()
 
 
-class TestImageUtilsMaxWorkersIsZero:
-    """tifffile's per-write ThreadPoolExecutor holds a Windows kernel
-    Event handle that outlives cleanup -- ~1 leaked handle per save
-    over a 28-min bench run. Every tifffile write-options dict must use
-    maxworkers=0 to retire the per-write executor. This test pins the
-    floor; a future revert to maxworkers>=1 fails it.
-
-    Matches dict LITERALS, and scans every module building write options.
-    The original form walked dict() Call nodes and scanned image_utils.py
-    alone -- but all these sites are {...} literals, so it inspected zero
-    nodes and was unconditionally green, which is how stack_builder.py
-    drifted to maxworkers=2 and stayed there.
-    """
-
-    def test_all_write_options_maxworkers_are_zero(self):
-        import ast
-        import pathlib
-
-        offenders: list[str] = []
-        scanned = 0
-        for rel in ('modules/image_utils.py', 'modules/stack_builder.py'):
-            source = pathlib.Path(rel).read_text(encoding='utf-8')
-            tree = ast.parse(source, filename=rel)
-
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Dict):
-                    continue
-                # ast.Dict keeps keys and values the same length; a ** unpacking
-                # entry pairs a None key with its expression, and is skipped
-                # below because None is not a Constant.
-                for key, value in zip(node.keys, node.values, strict=True):
-                    if not isinstance(key, ast.Constant) or key.value != 'maxworkers':
-                        continue
-                    scanned += 1
-                    if not isinstance(value, ast.Constant) or value.value != 0:
-                        shown = getattr(value, 'value', '<non-literal>')
-                        offenders.append(f'{rel}:{node.lineno}: maxworkers={shown}')
-
-        # A pin that matches nothing cannot fail. Assert it found the sites.
-        assert scanned >= 3, (
-            f'expected at least 3 maxworkers write-options sites, found {scanned} -- '
-            'the pin stopped matching the code it exists to protect'
-        )
-        assert not offenders, (
-            'All tifffile write-options maxworkers must be 0 to avoid the '
-            'Windows kernel-handle leak:\n  ' + '\n  '.join(offenders)
-        )
-
-
 class TestProtocolIOTimeoutsAreNotShort:
     """The protocol_step_runner + protocol_cleanup `fut.result(timeout=N)`
     sites that wait on io_executor / camera_executor work must use a
