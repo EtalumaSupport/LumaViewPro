@@ -7713,10 +7713,9 @@ A jog is a move by a distance (`start_move_z_by`, or
 Its refusals come in the order every move's do: the lane's (a run,
 a home or another session's control holds the scope), then the
 motion gate's, then the objective's. The step is asked only once
-the scope may move, because an unknown objective's advice -- home
-the turret, assign the slot -- is wrong while an axis has no known
-position: the gate refuses the turret home too, and only a home of
-the scope helps.
+the scope may move: while an axis has no known position the
+objective is not what stops the jog, and the gate's refusal names
+what helps, a home of the scope.
 
 **Args**
 
