@@ -214,14 +214,11 @@ class ProtocolStepRunner:
         # A z-stack slice never triggers its own sweep. Focusing every slice
         # walks them all onto the same plane and the stack spans nothing, so
         # the group is focused ONCE, at its first slice, and every slice is
-        # then placed from that result. Auto_Focus on a slice marks which one
-        # is the group's reference plane, not which one sweeps.
-        zstack_focus_anchor = p._protocol.zstack_group_focus_anchor(step_index=p._curr_step)
-        wants_af = (
-            zstack_focus_anchor is not None
-            if step['Z-Stack Group ID'] != -1
-            else bool(step.get('Auto_Focus'))
-        )
+        # then placed from that result. The protocol answers where a sweep
+        # runs and in whose light.
+        sweep_step_index = p._protocol.focus_sweep_step(step_index=p._curr_step)
+        wants_af = sweep_step_index is not None
+        in_zstack = step['Z-Stack Group ID'] != -1
 
         # --- Pipeline timing instrumentation ---
         _t_settle = time.monotonic()
@@ -241,11 +238,7 @@ class ProtocolStepRunner:
             # A group's sweep runs in its reference slice's light. The first
             # slice fires it, and may be another channel's: a group holds
             # every channel at the position, in Z order.
-            sweep_step = (
-                step
-                if zstack_focus_anchor is None
-                else p._protocol.step_row(step_index=zstack_focus_anchor)
-            )
+            sweep_step = p._protocol.step_row(step_index=sweep_step_index)
             p._af_future = p.autofocus_thread.run_autofocus(
                 objective_id=sweep_step['Objective'],
                 save_results_to_file=p._save_autofocus_data,
@@ -293,11 +286,11 @@ class ProtocolStepRunner:
         # call computes a zero shift), but the move is not -- re-issuing it on
         # every poll would return here forever and the step would never reach
         # its capture.
-        if wants_af and zstack_focus_anchor is not None and p._focus_placed_step != p._curr_step:
+        if wants_af and in_zstack and p._focus_placed_step != p._curr_step:
             found_z = p._autofocus_runner.best_focus_position()
             if found_z is not None:
                 moved = p._protocol.apply_zstack_group_focus(
-                    reference_step_idx=zstack_focus_anchor, z=found_z
+                    reference_step_idx=sweep_step_index, z=found_z
                 )
                 logger.info(
                     f'[Capture   ] Z-stack group placed around Z={found_z} ({moved} slices)'
@@ -386,7 +379,7 @@ class ProtocolStepRunner:
             new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
-            elif zstack_focus_anchor is None:
+            elif not in_zstack:
                 p._protocol.modify_step_z_height(step_index=p._curr_step, z=new_z_pos)
 
         if wants_af:

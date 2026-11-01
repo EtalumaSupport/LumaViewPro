@@ -271,6 +271,11 @@ def scan_ready_runner(step, **state):
     protocol = MagicMock()
     protocol.step_row.return_value = step
     protocol.num_steps.return_value = 1
+    # a stand-in by design: the one step is in no z-stack, where a step
+    # sweeps in its own light when its Auto_Focus is on.
+    protocol.focus_sweep_step.side_effect = lambda step_index: (
+        step_index if step.get('Auto_Focus') else None
+    )
     runner._protocol = protocol
     runner._n_scans = 1
     runner._scan_in_progress.set()

@@ -472,7 +472,9 @@ Route: `POST /api/v1/apply_focus_to_channel_steps`.
 
 Save the live Z as `channel`'s focus and as the Z of its every step.
 
-Returns how many steps took it.
+A slice of a z-stack takes the Z plus its offset from its channel's
+reference slice, so each stack is placed with its reference at the
+Z and keeps its spacing. Returns how many steps took it.
 
 **Args**
 
@@ -3134,6 +3136,10 @@ Route: `POST /api/v1/set_step_autofocus`.
 
 Turn autofocus on or off for step `step_index` of `protocol`, or for every step.
 
+A slice of a z-stack is set with every slice of its channel in that
+stack: a stack is focused once, and the found focus is placed on its
+channel's reference slice whichever slices were set.
+
 **Args**
 
 - `protocol`: The protocol whose steps are set.
@@ -3812,12 +3818,13 @@ Returns the step's name after the update.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`. Nothing is changed on either.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, as `add_step` raises it (`'slot_unassigned'`, the turret's current slot has no objective). The step is unchanged.
 - `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_layer'`, `channel` is not set to acquire; `'channel_already_in_add'`, another step of the same add already takes that channel. The step is unchanged.
+- `StepEditRefusedError`: `'step_value_refused'`, the step is a slice of a z-stack and `channel` is not its channel: a slice's place in its stack is measured from its channel's reference slice. The step is unchanged.
 - `StepNotFoundError`: `'no_such_step'`, `step_index` is not a step of `protocol`, judged before anything else.
 
 **Refusals by REST status**
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unassigned`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_unknown`, `no_acquiring_layer`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
 
 <a id="ScopeSession.user_settings_file"></a>
 ### `ScopeSession.user_settings_file`
@@ -12539,6 +12546,7 @@ One step of a protocol, a field per column of its steps table.
 - <a id="StepRecord.y_mm"></a>`y_mm`: `float | None` -- Y in mm on the protocol's plate; None as for X.
 - <a id="StepRecord.z_slice"></a>`z_slice`: `int | None` -- The step's slice in its z-stack; None for none.
 - <a id="StepRecord.z_stack_group_id"></a>`z_stack_group_id`: `int | None` -- The z-stack the step is one slice of; None for none.
+- <a id="StepRecord.z_stack_offset_um"></a>`z_stack_offset_um`: `float` -- The slice's distance in um from its channel's reference slice in its z-stack, the slice built at the focus the stack was built around; 0 for a step in no z-stack.
 - <a id="StepRecord.z_um"></a>`z_um`: `float | None` -- Z in um; None as for X.
 
 <a id="StepStarted"></a>
@@ -17120,7 +17128,8 @@ A refusal; bases `Refusal`, `ProtocolError`.
 A value a step writer cannot take; the protocol is unchanged.
 
 A name with nothing left once cleaned, a value not of its column's type,
-or an insert that names no place or two. A refusal, as a missing step is.
+an insert that names no place or two, or another channel for a slice of
+a z-stack. A refusal, as a missing step is.
 
 | Reason | Cause | REST status |
 |---|---|---|

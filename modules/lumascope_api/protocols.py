@@ -495,6 +495,9 @@ class ProtocolsAPI:
                 not set to acquire (``'no_acquiring_layer'``, as an add), or
                 another step of the same add already takes that channel
                 (``'channel_already_in_add'``). The step is unchanged.
+            StepEditRefusedError: ``'step_value_refused'``, the step is a
+                slice of a z-stack and ``layer`` is not its channel (raised
+                by the protocol). The step is unchanged.
             ObjectiveUnknownError: the active objective is unknown, as an
                 add refuses it; the step is unchanged.
             StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
@@ -622,6 +625,10 @@ class ProtocolsAPI:
 
     def apply_focus_to_channel_steps(self, protocol: Protocol, layer: str, z: float) -> int:
         """Write ``z`` as the Z of every step of ``layer``; returns how many.
+
+        A slice of a z-stack takes ``z`` plus its offset from its channel's
+        reference slice, so each stack is placed with its reference at ``z``
+        and keeps its spacing.
 
         Raises:
             ProtocolError: ``z`` is not a number (raised by the protocol).

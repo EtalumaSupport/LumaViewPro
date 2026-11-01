@@ -87,6 +87,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Label': f'A1_{color}_AG',
         'Channel Group ID': 0,
         'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
 

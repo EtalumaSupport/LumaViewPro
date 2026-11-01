@@ -109,6 +109,7 @@ def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1, 
         'Label': '',
         'Channel Group ID': 0,
         'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': True,
     }
 

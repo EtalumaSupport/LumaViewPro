@@ -117,7 +117,11 @@ def test_a_frame_with_its_own_index_is_written_by_position():
     # is renumbered 0..n-1 when it is taken, or index 1 passes the range
     # check and the write appends a row labelled 1.
     frame = pd.DataFrame(
-        [_make_step(name=f'A{i + 1}_BF', well=f'A{i + 1}') for i in range(NUM_STEPS)],
+        # Steps in no z-stack, so each takes its own autofocus flag.
+        [
+            _make_step(name=f'A{i + 1}_BF', well=f'A{i + 1}', z_slice=-1, zstack_group_id=-1)
+            for i in range(NUM_STEPS)
+        ],
         index=[5, 7, 9],
     )
     protocol = protocol_of(

@@ -61,6 +61,7 @@ def _step(name, objective, slot, index, position, layer):
         'Label': '',
         'Channel Group ID': 0,
         'Turret Slot': slot,
+        'Z-Stack Offset': 0.0,
     }
 
 

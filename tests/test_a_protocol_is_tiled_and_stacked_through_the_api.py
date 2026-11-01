@@ -258,10 +258,17 @@ class TestNewStacksAsApplyDoes:
         groups = steps.groupby('Z-Stack Group ID')
         assert groups.ngroups == wells
         assert all(set(group['Color']) == {'BF', LED0} for _, group in groups)
-        flagged = steps[steps['Auto_Focus']]
-        assert flagged.groupby('Z-Stack Group ID').size().tolist() == [1] * wells
-        assert set(flagged['Color']) == {'BF'}
-        assert flagged['Z'].tolist() == pytest.approx([5000.0] * wells)
+        # The autofocus channel is flagged on every slice, and each group is
+        # swept at its BF reference slice, the one built at BF's focus.
+        assert set(steps[steps['Auto_Focus']]['Color']) == {'BF'}
+        assert set(steps[steps['Color'] == 'BF']['Auto_Focus']) == {True}
+        first_slices = [group.index[0] for _, group in groups]
+        swept = [
+            protocol.step_row(step_index=protocol.focus_sweep_step(step_index=idx))
+            for idx in first_slices
+        ]
+        assert [(row['Color'], row['Z-Stack Offset']) for row in swept] == [('BF', 0.0)] * wells
+        assert [row['Z'] for row in swept] == pytest.approx([5000.0] * wells)
 
     def test_a_stack_past_the_z_travel_is_refused(self, session):
         z_max = session.scope.motion.get_axis_limits('Z').max_um

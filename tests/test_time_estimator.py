@@ -40,6 +40,12 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None,
         df = pd.DataFrame()
     protocol.steps.return_value = df
     protocol.num_steps.return_value = len(df)
+    # The steps here are in no z-stack, where a step sweeps when its
+    # Auto_Focus is on; a stack's one sweep is pinned on a real Protocol in
+    # tests/test_zstack_group_autofocus.py.
+    protocol.focus_sweep_step.side_effect = lambda step_index: (
+        step_index if df.iloc[step_index].get('Auto_Focus', False) else None
+    )
     schedule = protocol_of(
         config={
             'version': Protocol.CURRENT_VERSION,
@@ -204,7 +210,7 @@ class TestStepEstimation:
     def test_basic_image_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Exposure=50)
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.move_time_s == 0.0  # first step
         assert est.led_time_s == LED_SETTLE_S + LED_SERIAL_S
         assert est.autofocus_time_s == 0.0
@@ -215,26 +221,30 @@ class TestStepEstimation:
     def test_autofocus_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Auto_Focus=True)
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.autofocus_time_s > 0
 
     def test_autogain_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Auto_Gain=True)
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.autogain_time_s == AUTOGAIN_MAX_DURATION_S
 
     def test_video_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
         vc = {'fps': 30, 'duration': 10.0}
         step = _valid_step(Acquire='video', **{'Video Config': vc})
-        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
+        est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.capture_time_s >= 10.0
 
     def test_sum_increases_capture_time(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
-        est1 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X)
-        est4 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X)
+        est1 = estimator._estimate_step(
+            0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X, sweeps=False
+        )
+        est4 = estimator._estimate_step(
+            0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X, sweeps=False
+        )
         assert est4.capture_time_s > est1.capture_time_s
 
 

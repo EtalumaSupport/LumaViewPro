@@ -189,6 +189,7 @@ def _make_single_step_protocol(
         'Label': '',
         'Channel Group ID': 0,
         'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': True,
     }
     return _build_real_protocol([step])
@@ -259,6 +260,7 @@ def _make_multi_step_protocol(steps_config):
                 'Label': name,
                 'Channel Group ID': 0,
                 'Turret Slot': -1,
+                'Z-Stack Offset': 0.0,
                 'Auto_Named': False,
             }
         )

@@ -454,7 +454,8 @@ class StepEditRefusedError(Refusal, ProtocolError):
     """A value a step writer cannot take; the protocol is unchanged.
 
     A name with nothing left once cleaned, a value not of its column's type,
-    or an insert that names no place or two. A refusal, as a missing step is.
+    an insert that names no place or two, or another channel for a slice of
+    a z-stack. A refusal, as a missing step is.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'step_value_refused': RefusalCause.REQUEST}
@@ -624,6 +625,7 @@ _STEP_CELLS = {
     'Label': _str_cell,
     'Channel Group ID': _int_cell,
     'Turret Slot': _int_cell,
+    'Z-Stack Offset': _float_cell,
 }
 
 
@@ -700,6 +702,7 @@ class Stimulation:
     'label',
     'channel_group_id',
     'turret_slot',
+    'z_stack_offset_um',
 )
 @dataclasses.dataclass(frozen=True)
 class StepRecord:
@@ -741,6 +744,9 @@ class StepRecord:
         channel_group_id: The steps captured together as one composite
             share it; None for a step recorded before groups were.
         turret_slot: The turret slot the step uses; None for none.
+        z_stack_offset_um: The slice's distance in um from its channel's
+            reference slice in its z-stack, the slice built at the focus
+            the stack was built around; 0 for a step in no z-stack.
     """
 
     name: str
@@ -769,6 +775,7 @@ class StepRecord:
     label: str
     channel_group_id: int | None
     turret_slot: int | None
+    z_stack_offset_um: float
 
 
 # Each steps-table column with the step record's field for it: the one place
@@ -800,6 +807,7 @@ _STEP_FIELDS = {
     'Label': 'label',
     'Channel Group ID': 'channel_group_id',
     'Turret Slot': 'turret_slot',
+    'Z-Stack Offset': 'z_stack_offset_um',
 }
 
 # The columns whose -1 says the step has none, answered as None.
@@ -1301,7 +1309,15 @@ class Protocol:
     # slots holding that objective it meant. -1: none (no turret, or a step
     # recorded before the column).
     COLUMNS[9] = COLUMNS[8] + ['Channel Group ID', 'Turret Slot']
-    CURRENT_VERSION: ClassVar[int] = 9
+    # v10 adds Z-Stack Offset: a slice's distance from its channel's
+    # reference slice, the one built at the focus the stack was built
+    # around. A run places every slice at the focus it finds plus this
+    # offset. The reference was marked by Auto_Focus on that one slice,
+    # which every other writer of Auto_Focus erased, and the found focus then
+    # landed on the stack's floor. The version moves with the column so a
+    # build that cannot place by it refuses the file instead of loading it.
+    COLUMNS[10] = COLUMNS[9] + ['Z-Stack Offset']
+    CURRENT_VERSION: ClassVar[int] = 10
     CURRENT_COLUMNS: ClassVar[tuple[str, ...]] = tuple(COLUMNS[CURRENT_VERSION])
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -1758,6 +1774,7 @@ class Protocol:
                 ('Label', str),
                 ('Channel Group ID', int),
                 ('Turret Slot', int),
+                ('Z-Stack Offset', float),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -2262,14 +2279,44 @@ class Protocol:
     def modify_autofocus(self, step_index: int, enabled: bool) -> None:
         """Turn autofocus on or off for the step at ``step_index``.
 
+        For a slice of a z-stack, the flag is its channel's in that stack,
+        so every slice of the channel there takes it.
+
         Raises:
             StepNotFoundError: ``step_index`` is not a step of this protocol.
                 Nothing changes.
         """
         self._refuse_unless_in_range(step_index)
-        self._config['steps'].at[step_index, 'Auto_Focus'] = self._typed_value(
-            'Auto_Focus', enabled
+        self._config['steps'].loc[self._stack_channel_slices(step_index), 'Auto_Focus'] = (
+            self._typed_value('Auto_Focus', enabled)
         )
+
+    def _stack_channel_slices(self, step_index: int) -> pd.Index:
+        """The steps of ``step_index``'s channel in its z-stack; the step alone outside one."""
+        steps = self._config['steps']
+        group_id = steps.at[step_index, 'Z-Stack Group ID']
+        if group_id == -1:
+            return pd.Index([step_index])
+        return steps.index[
+            (steps['Z-Stack Group ID'] == group_id)
+            & (steps['Color'] == steps.at[step_index, 'Color'])
+        ]
+
+    @staticmethod
+    def _channel_reference(steps: pd.DataFrame, slices: pd.Index) -> int:
+        """A channel's reference slice in a stack, from its ``slices``.
+
+        The slice at offset 0, or, when it was deleted, the surviving slice
+        nearest it (the lower of two equally near).
+        """
+        offsets = steps.loc[slices, 'Z-Stack Offset']
+        return int(min(slices, key=lambda idx: (abs(offsets[idx]), offsets[idx])))
+
+    @classmethod
+    def _channel_plane(cls, steps: pd.DataFrame, slices: pd.Index) -> float:
+        """Where a channel's reference slice in a stack sits: its reference's Z less that slice's offset."""
+        reference = cls._channel_reference(steps, slices)
+        return float(steps.at[reference, 'Z'] - steps.at[reference, 'Z-Stack Offset'])
 
     def modify_autofocus_all_steps(self, enabled: bool) -> None:
         """Turn autofocus on or off for every step.
@@ -2344,51 +2391,76 @@ class Protocol:
                     raise FocusNotWrittenError(f"step {idx + 1}'s {words} changed")
         mine['Z'] = theirs['Z'].to_numpy()
 
-    def zstack_group_focus_anchor(self, step_index: int) -> int | None:
-        """The slice holding this step's group focus reference, or None.
+    def focus_sweep_step(self, step_index: int) -> int | None:
+        """The step whose light the focus sweep at ``step_index`` runs in; None where none runs.
 
-        Answers only at the FIRST slice of a z-stack group that wants
-        autofocus, because the two roles cannot be the same slice. The sweep
-        has to run before any slice of the group is captured -- they are
-        acquired in order -- while the offsets have to be measured from the
-        slice at the layer focus, which for the shipped 'center' reference is
-        the middle one. So a run fires the sweep when this returns a value,
-        and hands that value back to apply_zstack_group_focus.
+        A step in no z-stack sweeps in its own light when its Auto_Focus is
+        on. A z-stack sweeps once, at its first slice, because every slice
+        must be placed before any is captured and they are captured in
+        order. It sweeps in the light of the first channel there whose
+        Auto_Focus is on, at that channel's reference slice (or the slice
+        nearest it, when the reference slice was deleted); no other slice
+        sweeps. A run sweeps here and then hands the answer and the found
+        focus to ``apply_zstack_group_focus``, and an estimate counts a sweep
+        at each step this answers for.
+
+        Raises:
+            StepNotFoundError: ``step_index`` is not a step of this protocol.
         """
+        self._refuse_unless_in_range(step_index)
         steps = self._config['steps']
-        if step_index not in steps.index:
+        group_id = steps.at[step_index, 'Z-Stack Group ID']
+        if group_id == -1:
+            return step_index if bool(steps.at[step_index, 'Auto_Focus']) else None
+        members = steps.index[steps['Z-Stack Group ID'] == group_id]
+        if members[0] != step_index:
             return None
-        if steps.at[step_index, 'Z-Stack Group ID'] == -1:
+        focused = [idx for idx in members if bool(steps.at[idx, 'Auto_Focus'])]
+        if not focused:
             return None
-        members = steps.index[steps['Z-Stack Group ID'] == steps.at[step_index, 'Z-Stack Group ID']]
-        if len(members) == 0 or members[0] != step_index:
-            return None
-        flagged = [idx for idx in members if bool(steps.at[idx, 'Auto_Focus'])]
-        return int(flagged[0]) if flagged else None
+        return self._channel_reference(steps, self._stack_channel_slices(focused[0]))
 
     def apply_zstack_group_focus(self, reference_step_idx: int, z: float) -> int:
-        """Re-place a whole z-stack group around a focus found for it.
+        """Place a whole z-stack around the focus ``z`` found at ``reference_step_idx``.
 
-        Every slice moves by the same amount, so the spacing the user
-        configured is preserved and the found focus lands where the layer
-        focus sat when the stack was built. Writing the stored steps is what
+        ``reference_step_idx`` is the step ``focus_sweep_step`` answered for
+        the stack. Its channel's reference slice is placed at ``z``, and
+        every channel moves by the same amount, so the Z between channels is
+        kept. Each slice is then placed at its channel's reference plus its
+        own offset: the ladder is rigid, so a slice whose Z was written by
+        hand goes back onto it, and a reference slice whose Z was written by
+        hand moves its channel's plane. Writing the stored steps is what
         makes the stage move at all: each step's move is issued from this
         frame, not from the row object the run is holding.
 
-        Returns the number of slices moved.
+        Returns the number of slices placed.
+
+        Raises:
+            StepNotFoundError: ``reference_step_idx`` is not a step of this
+                protocol. Nothing changes.
         """
         self._refuse_unless_in_range(reference_step_idx)
         z = self._measured_z(z)
         steps = self._config['steps']
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
-        shift = z - steps.at[reference_step_idx, 'Z']
         members = steps.index[steps['Z-Stack Group ID'] == group_id]
+        planes = {
+            color: self._channel_plane(steps, members[steps.loc[members, 'Color'] == color])
+            for color in steps.loc[members, 'Color'].unique()
+        }
+        shift = z - planes[steps.at[reference_step_idx, 'Color']]
         for idx in members:
-            steps.at[idx, 'Z'] = float(steps.at[idx, 'Z'] + shift)
+            steps.at[idx, 'Z'] = self._measured_z(
+                planes[steps.at[idx, 'Color']] + shift + steps.at[idx, 'Z-Stack Offset']
+            )
         return len(members)
 
     def apply_focus_all_layer_steps(self, layer: str, z: float) -> int:
         """Set Z on EVERY step of the layer, unconditionally.
+
+        A slice of a z-stack is set to ``z`` plus its offset from its
+        channel's reference slice, so the layer's stacks are placed with
+        their reference at ``z`` and keep their spacing.
 
         The explicit bulk counterpart to the selected-step Save Focus
         write: covers the fresh-protocol workflow where the user focuses
@@ -2413,7 +2485,9 @@ class Protocol:
         mask = steps_df['Color'] == layer
         count = int(mask.sum())
         if count > 0:
-            steps_df.loc[mask, 'Z'] = z
+            steps_df.loc[mask, 'Z'] = [
+                self._measured_z(z + offset) for offset in steps_df.loc[mask, 'Z-Stack Offset']
+            ]
         return count
 
     def modify_capture_root(self, capture_root: str) -> None:
@@ -2477,8 +2551,30 @@ class Protocol:
         Name is re-rendered from the updated columns either way, so a channel
         change updates exactly the channel token while the label -- user text
         or auto base -- rides along untouched.
+
+        For a slice of a z-stack, the Auto_Focus written is its channel's in
+        that stack, so every slice of the channel there takes it, and its
+        channel cannot change: the slice's offset is measured from its
+        channel's reference slice, so another channel would place it from a
+        plane it was never built against.
+
+        Raises:
+            StepNotFoundError: ``step_index`` is not a step of this protocol.
+            StepEditRefusedError: a value is not of its column's type, or
+                ``layer`` is not the channel of a slice of a z-stack. Nothing
+                changes.
         """
         self._refuse_unless_in_range(step_index)
+        steps = self._config['steps']
+        if (
+            steps.at[step_index, 'Z-Stack Group ID'] != -1
+            and layer != steps.at[step_index, 'Color']
+        ):
+            raise StepEditRefusedError(
+                f'step {step_index + 1} is a slice of a z-stack of {steps.at[step_index, "Color"]}, '
+                f'so it cannot become {layer}. Change the channel of the step before it is '
+                'stacked, then stack it again.'
+            )
 
         # Every value is read before any is written, so a refused one leaves
         # the step as it was.
@@ -2504,8 +2600,9 @@ class Protocol:
         if label is not None:
             typed['Label'] = Protocol._sanitized_label(label)
             typed['Auto_Named'] = False
+        steps.loc[self._stack_channel_slices(step_index), 'Auto_Focus'] = typed.pop('Auto_Focus')
         for column, value in typed.items():
-            self._config['steps'].at[step_index, column] = _read_only(value)
+            steps.at[step_index, column] = _read_only(value)
         self._regenerate_step_name(step_index=step_index)
 
     def new_channel_group_id(self) -> int:
@@ -2608,6 +2705,7 @@ class Protocol:
             auto_named=auto_named,
             channel_group_id=channel_group_id,
             turret_slot=turret_slot,
+            zstack_offset=0.0,
         )
 
         if before_step_index is not None:
@@ -2844,6 +2942,7 @@ class Protocol:
                     auto_named=orig_step_df['Auto_Named'],
                     channel_group_id=orig_step_df['Channel Group ID'],
                     turret_slot=orig_step_df['Turret Slot'],
+                    zstack_offset=orig_step_df['Z-Stack Offset'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -3008,16 +3107,22 @@ class Protocol:
                 next_group_id += 1
             zstack_group_id = group_ids[place]
 
-            # Create a z-stack. The slices are collected first so exactly one
-            # of them can be marked as the group's focus reference below.
-            group_steps: list[tuple[float, dict]] = []
+            # Every slice records its distance from the reference slice, the
+            # one built at the step's Z (the focus the stack is built around),
+            # and every slice carries the step's Auto_Focus: the flag says the
+            # channel is focused, the offset where each slice sits from the
+            # focus found. A run sweeps once per stack, so the flag on every
+            # slice does not walk them onto one plane.
+            reference_position = zstack_positions[zstack_config.reference_slice()]
+            max_precision = common_utils.max_decimal_precision(parameter='z')
+            group_steps: list[dict] = []
             for zstack_slice, zstack_position in zstack_positions.items():
                 new_step_dict = self._create_step_dict(
                     label=orig_step_df['Label'],
                     x=orig_step_df['X'],
                     y=orig_step_df['Y'],
                     z=zstack_position,
-                    af=False,
+                    af=orig_step_df['Auto_Focus'],
                     color=orig_step_df['Color'],
                     fc=orig_step_df['False_Color'],
                     ill=orig_step_df['Illumination'],
@@ -3038,25 +3143,12 @@ class Protocol:
                     auto_named=orig_step_df['Auto_Named'],
                     channel_group_id=orig_step_df['Channel Group ID'],
                     turret_slot=orig_step_df['Turret Slot'],
+                    zstack_offset=round(zstack_position - reference_position, max_precision),
                 )
 
-                group_steps.append((zstack_position, new_step_dict))
+                group_steps.append(new_step_dict)
 
-            # Autofocus belongs to the GROUP, not to each slice: focusing every
-            # slice walks them all onto the same plane and the stack spans
-            # nothing. Exactly one slice carries the flag, and it is the one at
-            # the layer's focus -- the plane the stack was built around -- so a
-            # focus found there re-centres the whole group. Picking it by
-            # nearest Z rather than by index keeps it right for every
-            # z_reference.
-            if group_steps and orig_step_df['Auto_Focus']:
-                reference_position = orig_step_df['Z']
-                _, reference_step = min(
-                    group_steps, key=lambda entry: abs(entry[0] - reference_position)
-                )
-                reference_step['Auto_Focus'] = True
-
-            (new_steps if only is None else block).extend(step_dict for _, step_dict in group_steps)
+            (new_steps if only is None else block).extend(group_steps)
 
         if only is None:
             self._set_steps(pd.DataFrame.from_dict(new_steps))
@@ -3258,6 +3350,7 @@ class Protocol:
                     # The protocols API stamps the slot once the
                     # protocol is built: this build has no scope.
                     turret_slot=-1,
+                    zstack_offset=0.0,
                 )
                 steps.append(step_dict)
 
@@ -3356,6 +3449,7 @@ class Protocol:
         auto_named,
         channel_group_id,
         turret_slot,
+        zstack_offset,
     ):
         """Build a step dict; the derived Name is rendered here, never passed.
 
@@ -3390,6 +3484,7 @@ class Protocol:
             'Label': label,
             'Channel Group ID': channel_group_id,
             'Turret Slot': turret_slot,
+            'Z-Stack Offset': zstack_offset,
         }
         step['Name'] = common_utils.build_step_name(common_utils.step_components(step))
         return step
@@ -3426,6 +3521,50 @@ class Protocol:
         new_steps_df = pd.DataFrame(new_steps)
         steps_df = pd.concat([steps_df, new_steps_df], ignore_index=True).reset_index(drop=True)
         return steps_df
+
+    @staticmethod
+    def _with_inferred_zstack_offsets(
+        protocol_df: pd.DataFrame, file_path: pathlib.Path
+    ) -> pd.DataFrame:
+        """``protocol_df``, from a file before Z-Stack Offset, with each slice's offset recovered.
+
+        Such a file marked a stack's reference by Auto_Focus on one slice, a
+        mark any other Auto_Focus write erased. For each channel in each
+        stack, the one flagged slice is its reference; with none or several
+        flagged, the slice nearest the middle of the channel's span is (the
+        lower of two equally near), and each stack recovered that way is
+        logged once. Each slice's offset is its Z less its reference's, and a
+        channel with any slice flagged is flagged on all of them, as a stack
+        built now is. A step in no stack takes 0.
+        """
+        # The cells were read by their readers, a blank kept blank for the
+        # constructor to refuse, so a flag is True only where the file says so.
+        offsets = pd.Series(0.0, index=protocol_df.index, dtype=float)
+        flags = protocol_df['Auto_Focus'].copy()
+        stacked = protocol_df.index[protocol_df['Z-Stack Group ID'] != -1]
+        max_precision = common_utils.max_decimal_precision(parameter='z')
+        inferred = set()
+        for (group_id, _color), slices in (
+            protocol_df.loc[stacked].groupby(['Z-Stack Group ID', 'Color']).groups.items()
+        ):
+            z = protocol_df.loc[slices, 'Z'].astype(float)
+            flagged = [idx for idx in slices if flags[idx] != '' and bool(flags[idx])]
+            if len(flagged) == 1:
+                reference = flagged[0]
+            else:
+                middle = (z.min() + z.max()) / 2
+                reference = min(slices, key=lambda idx: (abs(z[idx] - middle), z[idx]))
+                inferred.add(group_id)
+            for idx in slices:
+                offsets[idx] = round(z[idx] - z[reference], max_precision)
+            if flagged:
+                flags[slices] = True
+        for group_id in sorted(inferred, key=str):
+            logger.info(
+                f'[Protocol] {file_path.name}: z-stack {group_id} recorded no reference slice; '
+                'its middle slice is taken as the reference.'
+            )
+        return protocol_df.assign(**{'Z-Stack Offset': offsets, 'Auto_Focus': flags})
 
     @classmethod
     def from_file(
@@ -3529,11 +3668,12 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3, 4, 5, 6, 7, 8)) and (cls.CURRENT_VERSION == 9):
+        elif 2 <= config['version'] < cls.CURRENT_VERSION:
             # v6 introduced the Layer Settings header block; v7 added the
             # Auto_Named column; v8 the Label column; v9 the Channel Group
-            # ID and Turret Slot columns. Older versions load with the
-            # missing columns recovered or defaulted below.
+            # ID and Turret Slot columns; v10 the Z-Stack Offset column.
+            # Older versions load with the missing columns recovered or
+            # defaulted below.
             allowed = True
 
         if not allowed:
@@ -3913,6 +4053,8 @@ class Protocol:
             # A file from before the column named only each step's objective;
             # the protocols API fills the slot where only one slot can mean it.
             protocol_df['Turret Slot'] = _typed_column((-1 for _ in protocol_df.index), int)
+        if 'Z-Stack Offset' not in protocol_df.columns:
+            protocol_df = cls._with_inferred_zstack_offsets(protocol_df, file_path)
 
         # The rename entry points store labels sanitized, but a file edited
         # outside the app may carry characters the writer strips at save

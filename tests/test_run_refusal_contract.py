@@ -182,6 +182,7 @@ def _make_single_step_protocol(color='BF'):
         'Label': 'A1_test',
         'Channel Group ID': 0,
         'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
         'Auto_Named': False,
     }
     return _build_real_protocol([step])

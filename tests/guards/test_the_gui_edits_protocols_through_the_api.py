@@ -89,7 +89,7 @@ NOT_WRITERS = MemberNames(
         'validate_for_run',
         'validate_steps',
         'valid_colors',
-        'zstack_group_focus_anchor',
+        'focus_sweep_step',
     },
 )
 

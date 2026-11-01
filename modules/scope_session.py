@@ -2998,6 +2998,10 @@ class ScopeSession:
                 ``channel`` is not set to acquire; ``'channel_already_in_add'``,
                 another step of the same add already takes that channel. The
                 step is unchanged.
+            StepEditRefusedError: ``'step_value_refused'``, the step is a
+                slice of a z-stack and ``channel`` is not its channel: a
+                slice's place in its stack is measured from its channel's
+                reference slice. The step is unchanged.
             StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
                 step of ``protocol``, judged before anything else.
         """
@@ -3287,7 +3291,9 @@ class ScopeSession:
     def apply_focus_to_channel_steps(self, protocol: 'Protocol', channel: str) -> int:
         """Save the live Z as ``channel``'s focus and as the Z of its every step.
 
-        Returns how many steps took it.
+        A slice of a z-stack takes the Z plus its offset from its channel's
+        reference slice, so each stack is placed with its reference at the
+        Z and keeps its spacing. Returns how many steps took it.
 
         Args:
             protocol: The protocol whose steps of ``channel`` take the Z.
@@ -3417,6 +3423,10 @@ class ScopeSession:
         self, protocol: 'Protocol', *, enabled: bool, step_index: int | None = None
     ) -> None:
         """Turn autofocus on or off for step ``step_index`` of ``protocol``, or for every step.
+
+        A slice of a z-stack is set with every slice of its channel in that
+        stack: a stack is focused once, and the found focus is placed on its
+        channel's reference slice whichever slices were set.
 
         Args:
             protocol: The protocol whose steps are set.

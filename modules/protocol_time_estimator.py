@@ -179,7 +179,10 @@ class ProtocolTimeEstimator:
 
         for idx, step in steps.iterrows():
             obj_info = self._get_objective_info(step.get('Objective', ''))
-            est = self._estimate_step(idx, step, prev_step, obj_info)
+            # A step is focused where a run sweeps: once per z-stack, not
+            # once per flagged slice.
+            sweeps = protocol.focus_sweep_step(step_index=idx) is not None
+            est = self._estimate_step(idx, step, prev_step, obj_info, sweeps)
             estimates.append(est)
             prev_step = step
 
@@ -191,6 +194,7 @@ class ProtocolTimeEstimator:
         step,
         prev_step,
         objective_info: Objective | None,
+        sweeps: bool,
     ) -> StepTimeEstimate:
         """Estimate time for a single protocol step."""
         name = str(step.get('Name', f'Step {idx + 1}'))
@@ -204,7 +208,7 @@ class ProtocolTimeEstimator:
 
         # Autofocus
         af_time = 0.0
-        if step.get('Auto_Focus', False) and objective_info:
+        if sweeps and objective_info:
             af_time = self._estimate_autofocus(objective_info, exposure_s)
 
         # Auto-gain wait

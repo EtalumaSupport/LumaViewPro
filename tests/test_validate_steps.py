@@ -75,6 +75,7 @@ def _valid_step(**overrides) -> dict:
         'Label': '',
         'Channel Group ID': 0,
         'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
     step.update(overrides)
     return step

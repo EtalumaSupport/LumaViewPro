@@ -86,14 +86,22 @@ def test_tiling_a_zstack_gives_each_tile_its_own_group(scale_capabilities):
 
 
 def test_tiling_a_zstack_keeps_every_slice_of_a_tile_together(scale_capabilities):
-    """The grouping must still bind the slices AT one position."""
+    """The grouping must still bind the slices AT one position, each slice
+    keeping its offset from its reference slice, so every tile is placed as
+    the stack was built."""
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0, z=5000.0)])
     proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
+    built = sorted(proto.steps()['Z-Stack Offset'])
     _tile_2x2(proto, scale_capabilities)
 
     steps = proto.steps()
     counts = steps.groupby('Z-Stack Group ID').size()
     assert set(counts) == {6}, f'each tile keeps its 6 slices, got {dict(counts)}'
+    offsets = {
+        group_id: sorted(group['Z-Stack Offset'])
+        for group_id, group in steps.groupby('Z-Stack Group ID')
+    }
+    assert all(tile == built for tile in offsets.values()), (built, offsets)
 
 
 def test_tiling_an_ungrouped_step_allocates_no_group(scale_capabilities):

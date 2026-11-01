@@ -867,6 +867,13 @@ plate = session.new_protocol(tiling='2x2', use_zstacking=True)
 print(plate.num_steps(), plate.tiling())
 ```
 
+A z-stack whose channel autofocuses is focused once, at its first slice, and
+the found focus lands on its reference slice -- the slice built at the
+channel's focus: the middle slice of a centre stack (the lower middle of an
+even count), the top of a top stack, the bottom of a bottom stack. Every slice keeps its
+distance from that slice, its record's `z_stack_offset_um`, whichever of its
+slices a caller turned autofocus on or moved.
+
 A protocol is edited only through the session (`add_step`, `update_step`,
 `rename_step`, `delete_step`, `apply_tiling`, `apply_zstacking`,
 `set_protocol_schedule`, ...), and each edit is a guarded write, refused under
@@ -907,7 +914,7 @@ when the file is read, and refused when a run starts.
 | `start_single_scan(protocol)` | every step once |
 | `start_protocol(protocol)` | every scan of the schedule |
 | `start_autofocus(channel)` | an autofocus where the stage is |
-| `start_autofocus_all_steps(protocol)` | an autofocus at each step, written into the protocol |
+| `start_autofocus_all_steps(protocol)` | an autofocus at each step (once per z-stack), written into the protocol |
 | `start_zstack(channel)` | a stack of the stored range where the stage is |
 | `start_composite(...)` | one capture per acquiring channel, merged |
 

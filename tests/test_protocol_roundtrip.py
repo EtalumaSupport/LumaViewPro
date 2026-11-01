@@ -167,6 +167,7 @@ def _make_step(
         'Label': label,
         'Channel Group ID': 0,
         'Turret Slot': -1,
+        'Z-Stack Offset': 0.0,
     }
 
 
@@ -2040,10 +2041,15 @@ class TestProtocolDeleteStep:
 
 
 class TestProtocolModifyStep:
-    """Test modify_step -- simulates user editing a step in the UI."""
+    """Test modify_step -- simulates user editing a step in the UI.
+
+    Each step is in no z-stack: a slice of one keeps its channel.
+    """
 
     def test_modify_color_and_illumination(self):
-        proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
+        proto = _build_protocol(
+            [_make_step(color='BF', illumination=50.0, z_slice=-1, zstack_group_id=-1)]
+        )
         proto.modify_step(
             turret_slot=-1,
             step_index=0,
@@ -2060,11 +2066,11 @@ class TestProtocolModifyStep:
         # A rename via modify_step stores the label and derives the display
         # Name with the (new) channel token.
         assert step['Label'] == 'modified'
-        assert step['Name'] == f'modified_{LED1}_Z0'
+        assert step['Name'] == f'modified_{LED1}'
         assert not step['Auto_Named']
 
     def test_modify_to_video_with_stim(self):
-        proto = _build_protocol([_make_step(acquire='image')])
+        proto = _build_protocol([_make_step(acquire='image', z_slice=-1, zstack_group_id=-1)])
         sc = _stim_config_enabled(channels=[LED0])
         vc = {'duration': 3.0, 'fps': 15}
         proto.modify_step(
@@ -2084,7 +2090,7 @@ class TestProtocolModifyStep:
 
     def test_modify_save_load_run(self, real_executor, scope, tmp_path):
         """Modify a step, save, reload, run."""
-        proto = _build_protocol([_make_step(color='BF')])
+        proto = _build_protocol([_make_step(color='BF', z_slice=-1, zstack_group_id=-1)])
         proto.modify_step(
             turret_slot=-1,
             step_index=0,

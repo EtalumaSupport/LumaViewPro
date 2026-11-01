@@ -44,8 +44,11 @@ def _make_protocol_with_steps(rows: list[dict]):
     from modules.protocol import Protocol
 
     proto = Protocol.__new__(Protocol)
+    # Each step is in no z-stack, so it takes the focus itself.
     proto._config = {
-        'steps': pd.DataFrame(rows),
+        'steps': pd.DataFrame(
+            [{'Z-Stack Group ID': -1, 'Z-Stack Offset': 0.0, **row} for row in rows]
+        ),
         'version': 1,
         'custom_step_count': 0,
     }

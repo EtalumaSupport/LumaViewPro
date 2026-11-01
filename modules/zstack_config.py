@@ -43,6 +43,20 @@ class ZStackConfig:
         # straight into the Steps field, where a float shows as "11.0".
         return int(np.floor(self._range / self._step_size) + 1)
 
+    def reference_slice(self) -> int:
+        """The index of the slice built at the Z the stack is built around.
+
+        The top slice for a top stack, the bottom for a bottom stack, the
+        middle for a centre stack, and the lower of the two middles when a
+        centre stack has an even count, since no slice is at that Z then.
+        """
+        n_steps = self.number_of_steps()
+        if self._current_z_reference == ZStackReference.TOP:
+            return n_steps - 1
+        if self._current_z_reference == ZStackReference.CENTER:
+            return (n_steps - 1) // 2
+        return 0
+
     def step_positions(self) -> dict[int, float]:
         """Each slice's Z, keyed by slice index, lowest first.
 
