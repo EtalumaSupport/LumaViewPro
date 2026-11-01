@@ -234,7 +234,7 @@ class TestTheLights:
         illumination = session.scope.illumination
         led0 = illumination.color2ch(LED0)
         illumination.led_on(LED0, 80.0)
-        lit_led0 = illumination.save_led_state('led0 and bf lit')
+        lit_led0 = illumination.get_led_states()
         illumination.led_off(LED0)
         before = illumination.get_led_states()
         lights = [

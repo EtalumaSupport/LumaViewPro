@@ -162,13 +162,13 @@ class TestLEDOwnership:
 
 
 class TestLEDSaveRestore:
-    """Tests for save_led_state / restore_led_state."""
+    """Tests for restoring saved readings (get_led_states / restore_led_state)."""
 
     def test_save_restore_roundtrip(self, scope):
         """Save state with LEDs on, turn all off, restore, verify original."""
         scope.illumination.led_on_by_address(0, 100)
         scope.illumination.led_on_by_address(1, 50)
-        snapshot = scope.illumination.save_led_state('test')
+        snapshot = scope.illumination.get_led_states()
         scope.illumination.leds_off()
         assert led_reading(scope, 0).state is LedState.DARK
         scope.illumination.restore_led_state(snapshot)
@@ -176,9 +176,9 @@ class TestLEDSaveRestore:
         assert led_reading(scope, 1).state is LedState.LIT
 
     def test_restoring_an_all_dark_snapshot_darkens_what_was_lit_since(self, scope):
-        """A snapshot holds every address, so one taken with nothing lit
-        restores every address dark."""
-        snapshot = scope.illumination.save_led_state('dark')
+        """The readings hold every address, so ones taken with nothing lit
+        restore every address dark."""
+        snapshot = scope.illumination.get_led_states()
         scope.illumination.led_on_by_address(0, 100)
         scope.illumination.restore_led_state(snapshot)
         assert led_reading(scope, 0).state is LedState.DARK
@@ -188,7 +188,7 @@ class TestLEDSaveRestore:
         # User has LED 0 on
         scope.illumination.led_on_by_address(0, 100)
         # AF starts
-        snapshot = scope.illumination.save_led_state('autofocus')
+        snapshot = scope.illumination.get_led_states()
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(3, 200, member='led_on', _lease=lease)  # BF for AF
         # AF finishes

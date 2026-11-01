@@ -3122,7 +3122,7 @@ class FX2LEDController:
     **Thin command translator.** The LVC reference carried a ``led_ma``
     dict and client-side state tracking read back from it. That existed
     because the pre-4.1 GUI owned LED state. In 4.1 the API owns state via
-    ``IlluminationAPI._led_state`` / ``save_led_state`` / ``restore_led_state``,
+    ``IlluminationAPI._led_state`` / ``get_led_states`` / ``restore_led_state``,
     so this driver keeps no LED state and answers no state queries.
 
     **LED channel -> I2C ASCII byte mapping** lives in this class only:

@@ -612,8 +612,8 @@ scope.illumination.leds_off()
 it is held by the illumination API; the drivers hold nothing. A run, an
 autofocus, a diagnostic or a home holds the LEDs for its length, and a write
 from anyone else is refused `'exclusive_activity_running'`. Work that borrows the
-light and gives it back saves it first and restores it after
-(`save_led_state` / `restore_led_state`).
+light and gives it back reads it first and restores it after
+(`get_led_states`, then `restore_led_state` with what it answered).
 
 **The shown channel.** LumaViewPro shows one channel at a time, and so does
 the session: `session.show_channel(channel)` puts that channel's stored gain,

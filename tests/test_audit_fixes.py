@@ -1015,8 +1015,6 @@ class TestAFPrecisionModeRestoresOn:
         with (
             patch.object(scope.motion, 'set_precision_mode') as mock_set,
             patch.object(af, '_move_absolute_position'),
-            patch.object(scope.illumination, 'save_led_state', return_value={}),
-            patch.object(scope.illumination, 'restore_led_state'),
             patch.object(scope.camera, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):

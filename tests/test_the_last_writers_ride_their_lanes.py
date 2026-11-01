@@ -19,7 +19,7 @@ import pytest
 from modules import sequential_io_executor
 from modules.activity_claim import acting
 from modules.exceptions import HardwareCommandRefusedError
-from modules.lumascope_api.illumination import LedReading, LedSnapshot, LedState
+from modules.lumascope_api.illumination import LedReading, LedState
 from tests.protocol_drives import run_identity
 from tests.stock_channels import LED0
 
@@ -54,9 +54,7 @@ _GATED = [
     ),
     (
         'restore_led_state',
-        lambda sc: sc.illumination.restore_led_state(
-            LedSnapshot('t', (LedReading(0, LED0, LedState.LIT, 10.0),))
-        ),
+        lambda sc: sc.illumination.restore_led_state((LedReading(0, LED0, LedState.LIT, 10.0),)),
         '_led_driver',
         'led_on',
         'io',

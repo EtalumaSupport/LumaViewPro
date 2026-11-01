@@ -82,7 +82,7 @@ def _camera_setting_unreadable(scope, sweep_kwargs):
 # failure of it, the failure it raises, and whether the scan parameters
 # exist by the time it runs. The parameters are what the unwind's Z
 # restore reads, so they decide what the unwind is entitled to do. The LED
-# snapshot raises nothing (``save_led_state``: Raises: Nothing), so it has
+# read raises nothing (``get_led_states``: Raises: Nothing), so it has
 # no case; the parameter calculation's raise is the first window past travel.
 SETUP_FAILURES = [
     (
@@ -110,7 +110,7 @@ SETUP_CALLS_IN_SOURCE_ORDER = [
     'get_objective_info',
     '_calculate_params',
     'info',
-    'save_led_state',
+    'get_led_states',
     'save_camera_state',
 ]
 

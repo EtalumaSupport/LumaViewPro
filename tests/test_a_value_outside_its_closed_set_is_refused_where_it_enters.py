@@ -23,7 +23,7 @@ from modules.api_surface import api, api_fields
 from modules.axes import StageAxis
 from modules.exceptions import ArgumentRefusedError, ArgumentTypeRefusedError
 from modules.lumascope_api.camera import CameraAutoMode
-from modules.lumascope_api.illumination import LedReading, LedSnapshot, LedState
+from modules.lumascope_api.illumination import LedReading, LedState
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.routes import routes
@@ -159,23 +159,20 @@ def test_a_records_item_or_key_outside_the_set_is_refused_naming_its_place():
     _not_offered(lambda: _Held((), {'Twice': 1}), "_Held.by_mode['Twice']", OFFERED)
 
 
-def test_a_snapshot_a_caller_built_with_plain_strings_restores_its_lit_address(session):
+def test_readings_a_caller_built_with_plain_strings_restore_their_lit_address(session):
     illumination = session.scope.illumination
     illumination.leds_off()
-    snapshot = LedSnapshot(
-        'by hand',
-        tuple(
-            LedReading(
-                r.address,
-                r.name,
-                'lit' if r.name == LED2 else 'dark',
-                10.0 if r.name == LED2 else None,
-            )
-            for r in illumination.get_led_states()
-        ),
+    readings = tuple(
+        LedReading(
+            r.address,
+            r.name,
+            'lit' if r.name == LED2 else 'dark',
+            10.0 if r.name == LED2 else None,
+        )
+        for r in illumination.get_led_states()
     )
 
-    illumination.restore_led_state(snapshot)
+    illumination.restore_led_state(readings)
 
     assert channel_reading(illumination, LED2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
@@ -198,13 +195,11 @@ def test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered
 
 
 def test_over_rest_a_records_field_outside_its_set_is_a_422_naming_the_field(client, session):
-    snapshot = client.get(
-        '/api/v1/scope/illumination/save_led_state', params={'tag': 'before'}
-    ).json()
-    snapshot['readings'][0].update(state='glowing', illumination_ma=None)
+    readings = client.get('/api/v1/scope/illumination/get_led_states').json()
+    readings[0].update(state='glowing', illumination_ma=None)
 
     refused = client.post(
-        '/api/v1/scope/illumination/restore_led_state', json={'snapshot': snapshot}
+        '/api/v1/scope/illumination/restore_led_state', json={'readings': readings}
     )
 
     assert refused.status_code == 422

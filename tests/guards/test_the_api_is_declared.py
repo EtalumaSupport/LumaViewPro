@@ -797,7 +797,6 @@ OPEN_STRINGS: dict[str, str] = {
     'IlluminationAPI.led_off parameter channel': _CHANNEL,
     'IlluminationAPI.led_on parameter channel': _CHANNEL,
     'IlluminationAPI.remove_led_listener parameter listener': _CHANNEL,
-    'IlluminationAPI.save_led_state parameter tag': _TAG,
     'ImagingAPI.add_frame_listener parameter name': _LISTENER,
     'InjectedFault.arguments field': _MEMBER,
     'InjectedFault.member field': _MEMBER,
@@ -806,7 +805,6 @@ OPEN_STRINGS: dict[str, str] = {
     'LedBoardInfo.firmware_date field': _BOARD,
     'LedBoardInfo.firmware_version field': _BOARD,
     'LedReading.name field': _CHANNEL,
-    'LedSnapshot.tag field': _TAG,
     'LiveFolderEntry.name field': _PATH,
     'LiveProcessingRegistry.unregister parameter name': _PLUGIN,
     'Lumascope.labware return': _LABWARE,
@@ -1054,8 +1052,8 @@ def test_every_fixed_word_is_a_closed_set(
 
 # The members outside engineering that take an LED address, each with its reason.
 LED_ADDRESS_TAKERS = {
-    'IlluminationAPI.restore_led_state parameter snapshot': (
-        "the snapshot is the API's own answer (save_led_state) handed back; restoring it "
+    'IlluminationAPI.restore_led_state parameter readings': (
+        "the readings are the API's own answer (get_led_states) handed back; restoring them "
         'by address keeps a lit address the identity cannot name'
     ),
 }
@@ -1107,7 +1105,7 @@ def test_an_led_is_lit_by_its_channels_name(
     from modules.api_surface import is_engineering
 
     holders = _holds_an_address(universe)
-    assert {'LedReading', 'LedSnapshot'} <= holders, f'the walk lost the LED records: {holders}'
+    assert 'LedReading' in holders, f'the walk lost the LED record: {holders}'
     takers, engineering = set(), set()
     for name in sorted(marked):
         cname, member, value = marked[name].owner_name, marked[name].member, marked[name].value

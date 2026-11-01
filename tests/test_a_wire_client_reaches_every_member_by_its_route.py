@@ -320,20 +320,17 @@ def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, sessi
     assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in states.json()
 
 
-def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session):
-    # The snapshot holds its readings as records inside an array; the
-    # wire answers it as JSON and restore_led_state decodes it back.
+def test_readings_read_over_the_wire_are_taken_back_by_restore(client, session):
+    # The readings are records inside an array; the wire answers them as
+    # JSON and restore_led_state decodes them back.
     session.scope.illumination.led_on(LED2, 10.0)
-    snapshot = client.get('/api/v1/scope/illumination/save_led_state', params={'tag': 'before'})
-    assert snapshot.status_code == 200
-    assert snapshot.json()['tag'] == 'before'
-    assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in (
-        snapshot.json()['readings']
-    )
+    readings = client.get('/api/v1/scope/illumination/get_led_states')
+    assert readings.status_code == 200
+    assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in readings.json()
     session.scope.illumination.leds_off()
 
     restored = client.post(
-        '/api/v1/scope/illumination/restore_led_state', json={'snapshot': snapshot.json()}
+        '/api/v1/scope/illumination/restore_led_state', json={'readings': readings.json()}
     )
 
     assert restored.status_code == 200

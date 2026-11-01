@@ -323,7 +323,7 @@ class AutofocusRunner:
             # The camera snapshot must precede the auto-gain lock below: it
             # records a live-view arm BEFORE the lock consumes it, and the
             # restore in the finally is what puts that arm back.
-            self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
+            self._saved_led_state = self._scope.illumination.get_led_states()
             self._saved_camera_state = self._scope.camera.save_camera_state('autofocus')
             # A live-view auto-gain arm is locked ONCE for the whole sweep
             # and resumed in the finally below. Left standing, every sweep
@@ -601,11 +601,7 @@ class AutofocusRunner:
                             if self._led_color is not None
                             else None
                         )
-                        snapshot_lit = (
-                            snapshot_lit_pairs(self._saved_led_state.readings)
-                            if self._saved_led_state
-                            else frozenset()
-                        )
+                        snapshot_lit = snapshot_lit_pairs(self._saved_led_state)
                         self._led_lease.apply(
                             LedTransition.AF_TO_CAPTURE,
                             LedTransitionCtx(

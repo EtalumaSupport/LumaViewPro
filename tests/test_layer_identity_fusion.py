@@ -98,7 +98,7 @@ class TestTwoResolverSplit:
         narrowed, a light of an LED the model now lacks is refused and
         lights nothing."""
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
-        snapshot = scope.illumination.save_led_state('fusion-test')
+        snapshot = scope.illumination.get_led_states()
         scope.illumination.led_off(channel=LED1)
         scope.refresh_layer_identity(override_model='LS850-0')
         for light in (

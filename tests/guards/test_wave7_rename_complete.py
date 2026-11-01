@@ -208,7 +208,6 @@ ILLUMINATION_ONLY_METHODS = MemberNames(
         'leds_off',
         'remove_led_listener',
         'restore_led_state',
-        'save_led_state',
     },
 )
 

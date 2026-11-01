@@ -390,7 +390,7 @@ def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tup
 
     Mirrors the filter restore_led_state uses for its restore target: an
     address counts as lit only if it is lit at a positive current. Used to
-    feed a save_led_state snapshot into apply() as snapshot_lit.
+    feed readings saved from get_led_states into apply() as snapshot_lit.
     """
     return _lit_channel_pairs(readings, drop_nonpositive=True)
 
@@ -480,20 +480,6 @@ class LedReading:
                 f'a {self.state} LED reading with illumination_ma={self.illumination_ma!r}: '
                 'only a lit address carries a current'
             )
-
-
-@api_fields('tag', 'readings')
-@dataclass(frozen=True)
-class LedSnapshot:
-    """Every LED address as it read at one moment, for ``restore_led_state``.
-
-    Attributes:
-        tag: A label for logs.
-        readings: One reading per address of the board.
-    """
-
-    tag: str
-    readings: tuple[LedReading, ...]
 
 
 @dataclass(frozen=True)
@@ -1318,63 +1304,41 @@ class IlluminationAPI:
         with self._led_state_lock:
             return self._readings()
 
-    # --- Save / restore ---
-    @api(reads=True)
-    def save_led_state(self, tag: str) -> LedSnapshot | None:
-        """Snapshot every LED address for later restoration.
-
-        Args:
-            tag: Descriptive name for the snapshot (for logging).
-
-        Returns:
-            Snapshot suitable for passing to ``restore_led_state``; None
-            when no LED board is installed, so there is no state to keep.
-
-        Raises:
-            Nothing.
-        """
-        readings = self.get_led_states()
-        if readings is None:
-            return None
-        _api_log.info(
-            f'save_led_state tag={tag}: {[r.address for r in readings if r.state == LedState.LIT]}'
-        )
-        return LedSnapshot(tag, readings)
-
+    # --- Restore ---
     @api(admitted_by=(Admission.LANE_CALL,))
-    def restore_led_state(self, snapshot: LedSnapshot) -> None:
-        """Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
+    def restore_led_state(self, readings: tuple[LedReading, ...]) -> None:
+        """Restore LEDs to readings saved earlier, as one task on the IO lane, and wait.
 
-        Turns off the addresses the snapshot does not have lit, then lights
-        the addresses it has lit at a positive current.
+        Turns off the addresses the readings do not have lit, then lights
+        the addresses they have lit at a positive current.
 
         Args:
-            snapshot: Return value from ``save_led_state``.
+            readings: What ``get_led_states`` answered when the state was
+                saved.
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs, raised at the
                 first channel it would change; or a manual recording runs
-                and the snapshot has an LED lit, raised before any change.
+                and the readings have an LED lit, raised before any change.
                 ``'not_connected'``, no LED controller is connected, or
                 ``'not_on_this_scope'``, before anything is written.
             ArgumentRefusedError: ``'led_address_unknown'``,
                 ``'not_a_number'`` or ``'illumination_out_of_range'`` for a
-                light in the snapshot, before anything is written.
+                light in the readings, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
         """
         return self._dispatch_led(
             self._restore_led_state_impl,
             'restore_led_state',
-            args=(snapshot,),
-            lights=bool(snapshot_lit_pairs(snapshot.readings)),
+            args=(readings,),
+            lights=bool(snapshot_lit_pairs(readings)),
         )
 
-    def _restore_led_state_impl(self, snapshot: LedSnapshot) -> None:
-        _api_log.info(f'restore_led_state tag={snapshot.tag}')
+    def _restore_led_state_impl(self, readings: tuple[LedReading, ...]) -> None:
         self._emit_led_diff(
-            snapshot_lit_pairs(snapshot.readings),
+            snapshot_lit_pairs(readings),
             lease=None,
             block=False,
             member='restore_led_state',
@@ -1651,7 +1615,7 @@ class IlluminationAPI:
         ``block`` waits for the board to confirm each illuminate before
         returning -- set for a transition whose LED must be on before the
         camera grabs; the off does not block (clearing a channel never gates a
-        grab). ``restore_led_state`` drives this diff over a saved snapshot.
+        grab). ``restore_led_state`` drives this diff over saved readings.
         ``member`` is the member whose call this is, named by its refusals.
 
         Raises:

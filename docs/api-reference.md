@@ -78,7 +78,6 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`Labware`](#Labware)
 - [`LedBoardInfo`](#LedBoardInfo)
 - [`LedReading`](#LedReading)
-- [`LedSnapshot`](#LedSnapshot)
 - [`LiveFolderEntry`](#LiveFolderEntry)
 - [`LiveProcessingRegistry`](#LiveProcessingRegistry)
 - [`LiveWork`](#LiveWork)
@@ -6436,25 +6435,25 @@ Nothing.
 ### `IlluminationAPI.restore_led_state`
 
 ```python
-def restore_led_state(self, snapshot: LedSnapshot) -> None
+def restore_led_state(self, readings: tuple[LedReading, ...]) -> None
 ```
 
 Marks: enters: `lane_call`.  
 Route: `POST /api/v1/scope/illumination/restore_led_state`.
 
-Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
+Restore LEDs to readings saved earlier, as one task on the IO lane, and wait.
 
-Turns off the addresses the snapshot does not have lit, then lights
-the addresses it has lit at a positive current.
+Turns off the addresses the readings do not have lit, then lights
+the addresses they have lit at a positive current.
 
 **Args**
 
-- `snapshot`: Return value from `save_led_state`.
+- `readings`: What `get_led_states` answered when the state was saved.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the snapshot has an LED lit, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
-- `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'illumination_out_of_range'` for a light in the snapshot, before anything is written.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the readings have an LED lit, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
+- `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'illumination_out_of_range'` for a light in the readings, before anything is written.
 - `BoardNoReplyError`: the board did not answer a write; that channel is unknown and the writes after it are not made.
 
 **Refusals by REST status**
@@ -6463,30 +6462,6 @@ the addresses it has lit at a positive current.
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `illumination_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="IlluminationAPI.save_led_state"></a>
-### `IlluminationAPI.save_led_state`
-
-```python
-def save_led_state(self, tag: str) -> LedSnapshot | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/illumination/save_led_state`.
-
-Snapshot every LED address for later restoration.
-
-**Args**
-
-- `tag`: Descriptive name for the snapshot (for logging).
-
-**Returns**
-
-Snapshot suitable for passing to `restore_led_state`; None when no LED board is installed, so there is no state to keep.
-
-**Raises**
-
-Nothing.
 
 <a id="ImagingAPI"></a>
 ## `ImagingAPI`
@@ -10349,7 +10324,7 @@ peripheral). Whether a board is connected is `led_connected`.
 
 A record: it crosses the wire as its data.  
 Returned by: [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states).  
-Held in: [`LedSnapshot.readings`](#LedSnapshot.readings).  
+Taken by: [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state).  
 Delivered by: [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener).
 
 One LED address: the layer it lights, what it is doing, and its current.
@@ -10362,20 +10337,6 @@ The answer of every LED read and the `led` event.
 - <a id="LedReading.illumination_ma"></a>`illumination_ma`: `float | None` -- The commanded current in mA when lit; None otherwise.
 - <a id="LedReading.name"></a>`name`: `str | None` -- The layer the unit's identity names for the address, read at the moment of the reading; None when the identity names none, which never hides the address.
 - <a id="LedReading.state"></a>`state`: `LedState` -- Lit, dark, or unknown.
-
-<a id="LedSnapshot"></a>
-## `LedSnapshot`
-
-A record: it crosses the wire as its data.  
-Returned by: [`IlluminationAPI.save_led_state`](#IlluminationAPI.save_led_state).  
-Taken by: [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state).
-
-Every LED address as it read at one moment, for `restore_led_state`.
-
-**Fields**
-
-- <a id="LedSnapshot.readings"></a>`readings`: `tuple[LedReading, ...]` -- One reading per address of the board.
-- <a id="LedSnapshot.tag"></a>`tag`: `str` -- A label for logs.
 
 <a id="LiveFolderEntry"></a>
 ## `LiveFolderEntry`
@@ -17468,7 +17429,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/illumination/led_on` | [`IlluminationAPI.led_on`](#IlluminationAPI.led_on) |
 | `POST` | `/api/v1/scope/illumination/leds_off` | [`IlluminationAPI.leds_off`](#IlluminationAPI.leds_off) |
 | `POST` | `/api/v1/scope/illumination/restore_led_state` | [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state) |
-| `GET` | `/api/v1/scope/illumination/save_led_state` | [`IlluminationAPI.save_led_state`](#IlluminationAPI.save_led_state) |
 | `POST` | `/api/v1/scope/imaging/disable_streaming` | [`ImagingAPI.disable_streaming`](#ImagingAPI.disable_streaming) |
 | `POST` | `/api/v1/scope/imaging/enable_streaming` | [`ImagingAPI.enable_streaming`](#ImagingAPI.enable_streaming) |
 | `GET` | `/api/v1/scope/imaging/frames_until_valid` | [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid) |
