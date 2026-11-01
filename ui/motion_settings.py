@@ -235,39 +235,43 @@ class MotionSettings(BoxLayout):
 
 class XYStageControl(BoxLayout):
     def update_gui(self, dt=0, full_redraw: bool = False):
-        # The targets are a cache and config read with no serial I/O, so they
-        # are read here, on the GUI thread, whether or not a run is going.
-        self.get_targets_ui_callback(result=self.get_xy_targets())
+        """Draw the X and Y boxes: the plate position of where the stage is, or ``--``.
 
-    def get_xy_targets(self):
-        ctx = _app_ctx.ctx
-        scope = ctx.lumaview.scope
-        # A cold start without a motor has no X/Y travel, and no limits to
-        # read.
+        Both boxes show ``--`` while the API does not know X or Y -- before
+        the stage homes, while it homes, after a disconnect, with the motor
+        board lost -- because a plate position is converted from X and Y
+        together, and converting with a known number in place of the unknown
+        one would show a position nobody established. A cold start without
+        a motor has no X/Y travel and is left as it is. The read is a cache
+        read with no serial I/O, so it runs here, on the GUI thread, whether
+        or not a run is going. A box the user is in holds what is written
+        until it is left (CommitInput).
+        """
+        scope = _app_ctx.ctx.lumaview.scope
         if not scope.capabilities.has_xy_stage:
+            return
+        plate = self.get_xy_positions()
+        if plate is None:
+            x_text = y_text = '--'
+        else:
+            x_text, y_text = format(plate.x_mm, '.2f'), format(plate.y_mm, '.2f')
+        self.ids['x_pos_id'].text = x_text
+        self.ids['y_pos_id'].text = y_text
+
+    def get_xy_positions(self):
+        """The plate position of where the stage is, on the selected plate; None while X or Y is not known.
+
+        X and Y are read from ``axis_positions`` because it answers no
+        position for an axis that homes or has lost its reference (a lost
+        motor board and a disconnect included), where the target and
+        current-position reads still answer its last number.
+        """
+        scope = _app_ctx.ctx.lumaview.scope
+        stage = scope.motion.axis_positions()
+        x_um, y_um = stage['X'].position_um, stage['Y'].position_um
+        if x_um is None or y_um is None:
             return None
-        targets = scope.motion.get_target_positions()
-        x_target = targets.get('X')
-        y_target = targets.get('Y')
-        # After disconnect() the null board is installed and there is no
-        # target to show; a position listener can still tick here then.
-        if x_target is None or y_target is None:
-            return None
-        return (x_target, y_target)
-
-    def get_targets_ui_callback(self, result=None, exception=None):
-        ctx = _app_ctx.ctx
-        if result is not None:
-            x_target = result[0]
-            y_target = result[1]
-
-            # The stage targets as plate positions on the selected plate.
-            plate = ctx.lumaview.scope.runtime_state.stage_to_plate(x_target, y_target)
-            plate_x, plate_y = plate.x_mm, plate.y_mm
-
-            # A box the user is in holds these until it is left (CommitInput).
-            self.ids['x_pos_id'].text = format(plate_x, '.2f')
-            self.ids['y_pos_id'].text = format(plate_y, '.2f')
+        return scope.runtime_state.stage_to_plate(x_um, y_um)
 
     def _xy_jog(self, axis: str, direction: int, coarse: bool):
         """Shared XY-axis jog handler.

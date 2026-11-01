@@ -62,7 +62,7 @@ CLASSIFIED = {
     'modules/scope_session.py::ScopeSession.get_sequenced_capture_config': FEEDS_A_REFUSING_API,
     'modules/scope_session.py::ScopeSession.status_at_edge': DISPLAYS,
     'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
-    'ui/motion_settings.py::XYStageControl.get_xy_targets': DISPLAYS,
+    'ui/motion_settings.py::XYStageControl.get_xy_positions': DISPLAYS,
     'ui/protocol_settings.py::ProtocolSettings.insert_step_ex': DISPLAYS,
     'ui/shader.py::cursor_plate': DISPLAYS,
     'ui/stage.py::Stage.draw_labware_io_calculations': DISPLAYS,

@@ -71,7 +71,7 @@ def window(tmp_path, monkeypatch):
         settings={'stage_offset': {'x': 0, 'y': 0}},
         ready=True,
         motion_settings=SimpleNamespace(
-            update_xy_stage_control_gui=xy.get_xy_targets,
+            update_xy_stage_control_gui=xy.get_xy_positions,
             # No vertical control: the Z and turret handlers return early.
             ids={},
         ),

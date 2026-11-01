@@ -180,8 +180,9 @@ def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_ba
 ):
     """What the kv float filter lets through but is not a number moves
     nothing. The refusal leaves a line saying so -- the name alone would read
-    as a successful move -- and then the box shows the target again, and
-    that is recorded too. One entry: which entries are not numbers ('',
+    as a successful move -- and then the box is redrawn (where the stage
+    is, tests/test_the_xy_boxes_show_the_known_position.py), and what it
+    shows is recorded too. One entry: which entries are not numbers ('',
     '-', '.', '-.') is typed_number's to decide, pinned in
     test_a_typed_non_number_puts_its_box_back.py; here every one reaches the
     same branch."""
