@@ -40,11 +40,8 @@ def control(gui_ctx):
 
 WRITERS = [
     ('show_z', lambda c, p: c.show_z(p)),
-    ('_update_z_position', lambda c, p: c._update_z_position(p)),
-    (
-        'update_text_only',
-        lambda c, p: (setattr(c.ids['obj_position'], 'value', p), c.update_text_only()),
-    ),
+    # The redraw writes the Z the API answers, which the fixture put at 3774.
+    ('redraw_z', lambda c, p: c.redraw_z()),
 ]
 
 

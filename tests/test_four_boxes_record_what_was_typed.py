@@ -77,8 +77,8 @@ def _step_name_panel(monkeypatch, caplog, typed):
     return panel, applies, shown
 
 
-def _z_panel(monkeypatch, caplog, typed='', show_target=None):
-    """The real commit and queue; the move's trigger, the Z target and the box stood in.
+def _z_panel(monkeypatch, caplog, typed='', show_z=None):
+    """The real commit and queue; the move's trigger, the Z redraw and the box stood in.
 
     Returns the panel, the positions queued, and the records in the log at each queue.
     """
@@ -99,7 +99,7 @@ def _z_panel(monkeypatch, caplog, typed='', show_target=None):
         queue_slider_position_trigger=_queued,
     )
     panel._queue_z_move = lambda pos: VerticalControl._queue_z_move(panel, pos)
-    panel._show_z_target = lambda: show_target(panel.ids['z_position_id'])
+    panel.redraw_z = lambda: show_z(panel.ids['z_position_id'])
     return panel, moves, seen
 
 
@@ -245,11 +245,11 @@ class TestATypedZCommitIsNotADrag:
     dragging the slider to it.
     """
 
-    def test_a_typed_non_number_moves_nothing_and_the_box_shows_the_target(
+    def test_a_typed_non_number_moves_nothing_and_the_box_shows_where_z_is(
         self, monkeypatch, gui_log
     ):
-        """'-' passes the kv float filter. Nothing moves; the box shows the Z
-        target again, and the record has what was typed, then what the box
+        """'-' passes the kv float filter. Nothing moves; the box shows
+        where Z is again, and the record has what was typed, then what the box
         went back to."""
         panel, moves, _seen = _z_panel(
             monkeypatch, gui_log, '-', lambda box: setattr(box, 'text', '4950.00')

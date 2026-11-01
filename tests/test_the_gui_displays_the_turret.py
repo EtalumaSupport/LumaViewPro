@@ -363,7 +363,7 @@ def test_a_full_home_shows_the_turret(monkeypatch):
 
     shown = []
     vertical = SimpleNamespace(
-        update_gui=lambda vertical_control=False: None,
+        update_gui=lambda: None,
         show_turret_state=lambda prompt=True: shown.append(prompt),
     )
     monkeypatch.setattr(

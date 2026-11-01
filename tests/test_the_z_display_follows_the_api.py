@@ -91,18 +91,57 @@ def test_the_display_shows_the_apis_z_as_it_answers_it(control):
     assert control.ids['z_position_id'].text == '-2.00'
 
 
-def test_a_finished_move_redraws_the_z_target(control, monkeypatch):
-    """A move's completion redraws the panel at the API's Z target, run or not:
-    the display reads no run state."""
-    control.motion.move_z(2500.0)
+def _draw_now(monkeypatch):
+    """Run ``update_gui``'s deferred draw where it is posted."""
     monkeypatch.setattr(
         'ui.vertical_control.Clock.schedule_once', lambda fn, dt: fn(dt), raising=False
     )
+
+
+def test_a_finished_move_redraws_the_arrived_z(control, monkeypatch):
+    """A move's completion redraws the panel from the API, run or not: the
+    slider at the Z target, the text where Z arrived. The display reads no
+    run state."""
+    control.motion.move_z(2500.0)
+    _draw_now(monkeypatch)
 
     control.update_gui()
 
     assert control.ids['obj_position'].value == 2500.0
     assert control.ids['z_position_id'].text == '2500.00'
+
+
+def test_a_redraw_shows_no_z_while_the_api_does_not_know_it(gui_ctx, monkeypatch):
+    """Unhomed, Z is UNKNOWN while its target still answers a number (the
+    position cache's seed): the text says Z is not known, never that number,
+    and the slider shows the target. A scope comes up this way, and a failed
+    home leaves Z the same."""
+    motion = gui_ctx.scope.motion
+    assert motion.axis_positions()['Z'] == AxisPosition(AxisState.UNKNOWN, None)
+    target = motion.get_target_positions()['Z']
+    assert target is not None
+    ctrl = VerticalControl.__new__(VerticalControl)
+    ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
+    ctrl.ids['obj_position'].value = target + 100.0
+    _draw_now(monkeypatch)
+
+    ctrl.update_gui()
+
+    assert ctrl.ids['z_position_id'].text == '--'
+    assert ctrl.ids['obj_position'].value == target
+
+
+@pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)
+def test_a_redraw_on_a_scope_with_no_z_draws_nothing(control):
+    """An LS620 has no focus motor: the panel is left as it is. Called
+    directly, not through ``update_gui``, whose reporter would catch a read
+    of the Z the scope does not have and leave the panel as it is too."""
+    control.ids['obj_position'].value = 900.0
+
+    control.redraw_z()
+
+    assert control.ids['obj_position'].value == 900.0
+    assert control.ids['z_position_id'].text == ''
 
 
 @pytest.fixture

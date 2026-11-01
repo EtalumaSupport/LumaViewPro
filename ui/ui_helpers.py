@@ -373,16 +373,16 @@ def find_nearest_step(x, y, protocol):
 # ============================================================================
 
 
-def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
+def _handle_ui_update_for_axis(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
     if axis == 'Z':
-        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui()
     elif axis in ('X', 'Y', 'XY'):
         ctx.motion_settings.update_xy_stage_control_gui()
     elif axis == 'ALL':
         # A full home moves every axis the scope has, the turret included.
-        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui()
         ctx.motion_settings.update_xy_stage_control_gui()
         if ctx.scope.capabilities.has_turret:
             ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()

@@ -90,7 +90,7 @@ _UI_THREAD = {
         "the bridge's posted turret draw and widget handlers",
     ),
     ('ui/vertical_control.py', 'VerticalControl.update_gui'): (
-        2,
+        1,
         'every caller is on the UI thread: a posted redraw, a widget handler, the Clock',
     ),
 }

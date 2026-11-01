@@ -58,14 +58,10 @@ class VerticalControl(BoxLayout):
             lambda dt: self.queue_slider_position(), 0.1
         )
 
-    def update_gui(self, vertical_control=False):
-        if not vertical_control:
-            # The target is a cache read -- no lane, no serial I/O. Every
-            # caller is on the UI thread; the draw is deferred to its next
-            # frame.
-            Clock.schedule_once(lambda dt: run_reported(None, self._show_z_target, 'Z_TARGET'), 0)
-        else:
-            Clock.schedule_once(lambda dt: self.update_text_only(), 0)
+    def update_gui(self):
+        # The reads are cache reads -- no lane, no serial I/O. Every caller
+        # is on the UI thread; the draw is deferred to its next frame.
+        Clock.schedule_once(lambda dt: run_reported(None, self.redraw_z, 'Z_POSITION'), 0)
 
     def _write_z_text(self, pos):
         """Write a Z read-back into its box, unless the user is typing in it.
@@ -88,24 +84,18 @@ class VerticalControl(BoxLayout):
         if box.text != new_text:
             box.text = new_text
 
-    def update_text_only(self):
-        self._write_z_text(self.ids['obj_position'].value)
+    def redraw_z(self):
+        """Draw the Z panel as the API answers it now: the slider at the target, the text where Z is.
 
-    def _show_z_target(self):
-        """Show the Z target the API holds; nothing when it holds none."""
-        pos = _app_ctx.ctx.lumaview.scope.motion.get_target_positions().get('Z')
-        if pos is not None:
-            self._update_z_position(pos)
-
-    def _update_z_position(self, pos):
-        """Update Z slider and text -- must be called on main thread.
-
-        Only updates text field when user is not typing (focus check),
-        matching XY behavior. Without this, the text shows current
-        position during motion then snaps to target -- confusing.
+        The text is the position the API knows, never the target: while Z
+        homes or is lost the target still answers the last number Z
+        reported, and the box would show a Z nobody established. A scope
+        without Z is left as it is.
         """
-        self.ids['obj_position'].value = pos
-        self._write_z_text(pos)
+        scope = _app_ctx.ctx.lumaview.scope
+        if not scope.capabilities.has_focus:
+            return
+        self.show_z(scope.motion.axis_positions()['Z'].position_um)
 
     def show_z(self, polled):
         """Show a Z position change: the slider at the API's Z target, the text at ``polled``.
@@ -115,9 +105,10 @@ class VerticalControl(BoxLayout):
 
         The listener bridge calls this, on the UI thread, for every Z move,
         run or not: a step's move, each autofocus sample, the restore when
-        an autofocus gives up. The slider is where Z is going and the text
-        where it is. The slider is left alone while the user holds it, as
-        the text is while the box has focus, so a drag is not overwritten.
+        an autofocus gives up; ``redraw_z`` calls it for every other redraw.
+        The slider is where Z is going and the text where it is. The slider
+        is left alone while the user holds it, as the text is while the box
+        has focus, so a drag is not overwritten.
         """
         slider = self.ids['obj_position']
         target = _app_ctx.ctx.lumaview.scope.motion.get_target_positions().get('Z')
@@ -179,7 +170,7 @@ class VerticalControl(BoxLayout):
         setting, and the verb is what tells them apart.
         """
         gui_logger.text_input('Z_POSITION', text)
-        pos = typed_number(text, float, self._show_z_target)
+        pos = typed_number(text, float, self.redraw_z)
         if pos is None:
             gui_logger.text_input('Z_POSITION_APPLIED', self.ids['z_position_id'].text)
             return
