@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from modules import settings_paths
-from modules.api_surface import sets_of
+from modules.api_surface import IN_PROCESS, mark_of, sets_of
 from modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
@@ -174,27 +174,39 @@ def test_the_turret_map_is_empty_on_a_scope_with_no_turret_and_the_stored_slots_
 
 
 def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
-    # The table's paths, a layer's for '*': each owned setting with a read
-    # is refused, naming it; an action's setting and a host's are answered.
+    # The table's paths, a layer's for '*': each owned setting is refused,
+    # naming its read -- a setter's own, an action's from the table -- and
+    # only the settings the host moves, whose writers are in-process, are
+    # answered.
     wrong = {}
     for pattern, member in settings_paths.SETTINGS_WITH_A_MEMBER.items():
         path = pattern.replace('*', LED0, 1)
         owner = ScopeSession if member.owner == 'ScopeSession' else CameraAPI
-        read = sets_of(getattr(owner, member.name))
+        writer = getattr(owner, member.name)
         try:
             session.get_setting(path)
         except ArgumentRefusedError as refused:
             answered = (refused.reason, refused.member)
         else:
             answered = 'answered'
-        expected = 'answered' if read is None else ('has_member', member.path_of(read))
+        if mark_of(writer) == IN_PROCESS:
+            expected = 'answered'
+        else:
+            expected = ('has_member', member.path_of(sets_of(writer) or member.read))
         if answered != expected:
             wrong[path] = (answered, expected)
     assert wrong == {}
-    # Below an owned key as at it: the refusal is the setting's.
-    with pytest.raises(ArgumentRefusedError) as refused:
-        session.get_setting('binning.size')
-    assert (refused.value.reason, refused.value.member) == ('has_member', 'scope.camera.binning')
+    # An action's setting is refused for the action's read, at the key and
+    # below it, as a setter's is.
+    for path, read in (
+        ('bookmark', 'bookmark'),
+        ('bookmark.z', 'bookmark'),
+        ('objective_confirmed', 'objective_question'),
+        ('binning.size', 'scope.camera.binning'),
+    ):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            session.get_setting(path)
+        assert (refused.value.reason, refused.value.member) == ('has_member', read), path
 
 
 def test_a_wire_get_setting_of_an_owned_setting_names_its_read(session):

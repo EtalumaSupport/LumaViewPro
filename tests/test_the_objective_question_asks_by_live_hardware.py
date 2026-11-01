@@ -214,7 +214,7 @@ class TestAChangeOfTopologyAsksAgain:
             first.confirm_objective(
                 '10x Oly', slot=1 if first.scope.capabilities.has_turret else None
             )
-            stored = first.get_setting('objective_confirmed')
+            stored = first.settings['objective_confirmed']
             assert first.objective_question() is None
         finally:
             first.shutdown()
@@ -244,7 +244,7 @@ class TestAChangeOfTopologyAsksAgain:
         """A stored ``true`` predates the record; the upgrade asks nothing."""
         session = _brought_up(tmp_path, model, objective_confirmed=True)
         try:
-            assert session.get_setting('objective_confirmed') == recorded
+            assert session.settings['objective_confirmed'] == recorded
             assert session.objective_question() is None
         finally:
             session.shutdown()
@@ -252,7 +252,7 @@ class TestAChangeOfTopologyAsksAgain:
     def test_an_unconfirmed_file_from_before_the_record_is_still_unconfirmed(self, tmp_path):
         session = _brought_up(tmp_path, 'LS850', objective_confirmed=False)
         try:
-            assert session.get_setting('objective_confirmed') is None
+            assert session.settings['objective_confirmed'] is None
             assert session.objective_question() is not None
         finally:
             session.shutdown()

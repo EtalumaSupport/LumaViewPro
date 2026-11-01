@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunProgress
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
+from modules.zstack_config import ZStackReference
 from modules import gui_logger, live_work
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
@@ -483,12 +484,12 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
 
-        zstack_params = ctx.session.get_zstack_params()
+        stack = ctx.session.get_setting('zstack')
         ctx.session.apply_zstacking(
             self._protocol,
-            range_um=zstack_params['range'],
-            step_size_um=zstack_params['step_size'],
-            z_reference=zstack_params['z_reference'],
+            range_um=stack['range'],
+            step_size_um=stack['step_size'],
+            z_reference=ZStackReference(stack['position']),
         )
 
         ctx.stage.set_protocol_steps(self._protocol)

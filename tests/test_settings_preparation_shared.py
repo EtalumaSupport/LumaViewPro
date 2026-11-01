@@ -142,8 +142,7 @@ def test_a_handed_zstack_label_is_read_as_its_reference(tmp_path):
         simulate=True,
     )
     try:
-        assert session.settings['zstack']['position'] == 'bottom'
-        assert session.get_zstack_params()['z_reference'] is ZStackReference.BOTTOM
+        assert session.get_setting('zstack')['position'] == ZStackReference.BOTTOM
     finally:
         session.shutdown()
 

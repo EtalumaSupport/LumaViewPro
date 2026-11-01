@@ -51,10 +51,16 @@ class SettingMember:
     root, which is the session: the member's own name on the session, and
     ``scope.camera.<name>`` on the camera, so a REST client is sent to the
     route that exists.
+
+    ``read`` names the owner's member that reads the setting when the
+    writer is an action, not a setter: a setter names its read itself
+    (``@api(sets=...)``), and an action stores the setting as one effect
+    among others, so the table says where it is read.
     """
 
     owner: str
     name: str
+    read: str | None = None
 
     @property
     def path(self) -> str:
@@ -70,8 +76,8 @@ class SettingMember:
         return f'ScopeSession.{self.name}' if self.owner == 'ScopeSession' else self.path
 
 
-def _session(name: str) -> SettingMember:
-    return SettingMember('ScopeSession', name)
+def _session(name: str, *, read: str | None = None) -> SettingMember:
+    return SettingMember('ScopeSession', name, read)
 
 
 def _camera(name: str) -> SettingMember:
@@ -87,7 +93,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'live_folder': _session('set_live_folder'),
     'protocol.filepath': _session('set_protocol_filepath'),
     'objective_id': _session('select_objective'),
-    'objective_confirmed': _session('confirm_objective'),
+    'objective_confirmed': _session('confirm_objective', read='objective_question'),
     'turret_objectives': _session('assign_turret_objective'),
     'protocol.labware': _session('select_labware'),
     'image_mode': _camera('set_image_mode'),
@@ -97,7 +103,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'camera.line_noise_reduction': _camera('set_line_noise_reduction'),
     'scale_bar.enabled': _session('set_scale_bar'),
     'motion.acceleration_max_pct': _session('set_acceleration_limit'),
-    'bookmark': _session('save_bookmark'),
+    'bookmark': _session('save_bookmark', read='bookmark'),
     '*.acquire': _session('set_channel_acquire'),
     '*.auto_gain': _session('set_channel_auto_gain'),
     '*.focus': _session('save_channel_focus'),

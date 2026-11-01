@@ -1401,8 +1401,9 @@ and the Session's members do).
 A setting with a read of its own is read there, so one setting has
 one read: `get_setting('binning')` is refused for
 `scope.camera.binning`, `get_setting('objective_id')` for
-`objective_id`. The live folder and the protocol file, which only
-the host moves, are read here.
+`objective_id`, `get_setting('bookmark')` for `bookmark`. The
+live folder and the protocol file, which only the host moves, are
+read here.
 
 **Args**
 
@@ -1410,7 +1411,7 @@ the host moves, are read here.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_setting'`, the settings have no value at `path`; `'has_member'`, the setting at or above `path` has its own read, named in `member`.
+- `ArgumentRefusedError`: `'not_a_setting'`, the settings have no value at `path`; `'has_member'`, the setting at or above `path` has its own read, named in `member`: its setter's, or the read of the action that stores it (`bookmark`, `objective_question`).
 
 **Refusals by REST status**
 
@@ -1435,25 +1436,6 @@ reads a setting by its path, through `get_setting`.
 `objective_id` is the active objective, as `get_setting` answers
 it: on a turret scope, the slot's in the light path, or None while
 that is unknown.
-
-**Raises**
-
-Nothing.
-
-<a id="ScopeSession.get_zstack_params"></a>
-### `ScopeSession.get_zstack_params`
-
-```python
-def get_zstack_params(self) -> dict
-```
-
-Marks: in-process; reads (changes nothing).
-
-The stored z-stack, what New and Add stack with.
-
-`range` and `step_size` in micrometres, and `z_reference`, where
-a step's Z sits in its stack, a `ZStackReference`. The store holds
-each to its writer's rule at load and at every write.
 
 **Raises**
 
@@ -1998,7 +1980,7 @@ steps; a labware with no wells still gives an empty protocol, which
 **Args**
 
 - `tiling`: The tile grid at each well, a grid the installation's tiling catalogue offers, such as `'3x3'`; `'1x1'` (the default) is one tile.
-- `use_zstacking`: Stack each step through the stored z-stack (`get_zstack_params`); False takes one plane.
+- `use_zstacking`: Stack each step through the stored z-stack (the setting `zstack`); False takes one plane.
 - `period_s`: The protocol's period, in seconds; None is the stored default's.
 - `duration_s`: The protocol's duration, in seconds; 0 is one scan, and None is the stored default's.
 

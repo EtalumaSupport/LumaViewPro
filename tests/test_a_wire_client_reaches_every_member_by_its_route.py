@@ -179,7 +179,6 @@ def test_a_wire_client_reads_settings_by_path_and_not_by_document(client, sessio
         'get_enabled_stim_configs',
         'get_auto_gain_settings',
         'capture_settings_snapshot',
-        'get_zstack_params',
     }
     paths = client.get('/api/v1/openapi.json').json()['paths']
     assert {path.rsplit('/', 1)[-1] for path in paths} & documents == set()

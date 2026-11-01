@@ -2108,21 +2108,6 @@ class ScopeSession:
             raise FocusNotSavedError(channel)
         return focus
 
-    @api(in_process=True, reads=True)
-    def get_zstack_params(self) -> dict:
-        """The stored z-stack, what New and Add stack with.
-
-        ``range`` and ``step_size`` in micrometres, and ``z_reference``, where
-        a step's Z sits in its stack, a ``ZStackReference``. The store holds
-        each to its writer's rule at load and at every write.
-
-        Raises:
-            Nothing.
-        """
-        import modules.config_helpers as config_helpers
-
-        return config_helpers.get_zstack_params_from_settings(self.settings)
-
     @api(reads=True)
     def channel_colors(self) -> dict[str, tuple[float, float, float]]:
         """Every layer of the release and the colour it is shown and written
@@ -2217,8 +2202,6 @@ class ScopeSession:
                 with no turret.
             ProtocolScheduleRefusedError: the stored period or duration is one
                 no protocol can run.
-            ConfigError: the stored z-stack will not parse (as
-                ``get_zstack_params``).
             AxisStateUnknownError: a scope with no Z motor, and an axis it has
                 does not know its position (as ``get_current_plate_position``).
             AxisMovingError: ``'axis_moving'``, Z is moving, or, on a scope
@@ -2802,8 +2785,8 @@ class ScopeSession:
             tiling: The tile grid at each well, a grid the installation's
                 tiling catalogue offers, such as ``'3x3'``; ``'1x1'`` (the
                 default) is one tile.
-            use_zstacking: Stack each step through the stored z-stack
-                (``get_zstack_params``); False takes one plane.
+            use_zstacking: Stack each step through the stored z-stack (the
+                setting ``zstack``); False takes one plane.
             period_s: The protocol's period, in seconds; None is the stored
                 default's.
             duration_s: The protocol's duration, in seconds; 0 is one scan,
@@ -2953,6 +2936,12 @@ class ScopeSession:
                 if layer_config['acquire'] is None:
                     layer_config['acquire'] = AcquireMode.IMAGE
             channel_order = list(channels)
+        zstack_params = None
+        if use_zstacking:
+            import modules.config_helpers as config_helpers
+
+            with self.settings_lock:
+                zstack_params = config_helpers.get_zstack_params_from_settings(self.settings)
         return self.scope.protocols.add_step(
             protocol,
             layer_configs=layer_configs,
@@ -2961,7 +2950,7 @@ class ScopeSession:
             channel_order=channel_order,
             before_step_index=before_step_index,
             after_step_index=after_step_index,
-            zstack_params=self.get_zstack_params() if use_zstacking else None,
+            zstack_params=zstack_params,
         )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
@@ -4197,8 +4186,9 @@ class ScopeSession:
         A setting with a read of its own is read there, so one setting has
         one read: ``get_setting('binning')`` is refused for
         ``scope.camera.binning``, ``get_setting('objective_id')`` for
-        ``objective_id``. The live folder and the protocol file, which only
-        the host moves, are read here.
+        ``objective_id``, ``get_setting('bookmark')`` for ``bookmark``. The
+        live folder and the protocol file, which only the host moves, are
+        read here.
 
         Args:
             path: The setting's dotted path, each segment a key one level
@@ -4207,10 +4197,12 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'not_a_setting'``, the settings have no
                 value at ``path``; ``'has_member'``, the setting at or above
-                ``path`` has its own read, named in ``member``.
+                ``path`` has its own read, named in ``member``: its setter's,
+                or the read of the action that stores it (``bookmark``,
+                ``objective_question``).
         """
         member = settings_paths.member_for(path)
-        read = sets_of(getattr(_owner_of(member), member.name)) if member else None
+        read = (sets_of(getattr(_owner_of(member), member.name)) or member.read) if member else None
         if read is not None:
             raise ArgumentRefusedError(
                 'has_member', argument='path', value=path, member=member.path_of(read)
