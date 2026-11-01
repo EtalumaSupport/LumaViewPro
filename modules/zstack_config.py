@@ -44,12 +44,23 @@ class ZStackConfig:
         return int(np.floor(self._range / self._step_size) + 1)
 
     def step_positions(self) -> dict[int, float]:
+        """Each slice's Z, keyed by slice index, lowest first.
+
+        The slices are laid over the span they cover, (n - 1) x step, and
+        that span is placed against the Z the stack is built around: a top
+        stack ends at it, a bottom stack starts at it, a centre stack is
+        centred on it. Placing the requested range instead puts no slice at
+        that Z whenever the range is not a whole number of steps (599 / 200
+        centred gives -299.5, -99.5, +100.5), and that Z is the focus the
+        stack's reference slice must hold.
+        """
         n_steps = self.number_of_steps()
+        span = (n_steps - 1) * self._step_size
 
         if self._current_z_reference == ZStackReference.TOP:
-            start_pos = self._current_z_value - self._range
+            start_pos = self._current_z_value - span
         elif self._current_z_reference == ZStackReference.CENTER:
-            start_pos = self._current_z_value - self._range / 2
+            start_pos = self._current_z_value - span / 2
         elif self._current_z_reference == ZStackReference.BOTTOM:
             start_pos = self._current_z_value
         else:
