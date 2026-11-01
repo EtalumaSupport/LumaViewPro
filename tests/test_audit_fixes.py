@@ -998,7 +998,7 @@ class TestAFPrecisionModeRestoresOn:
         af, scope = self._build_af()
         with patch.object(scope.motion, 'set_precision_mode') as mock_set:
             af.reset()
-            mock_set.assert_called_with('Z', True)
+            mock_set.assert_called_with(True)
 
     def test_abort_path_restores_precision_on(self):
         # AFE.run() finally block must restore Z precision ON on abort,
@@ -1028,7 +1028,7 @@ class TestAFPrecisionModeRestoresOn:
                     led_lease=run_lease,
                 )
             calls = [tuple(c.args) for c in mock_set.call_args_list]
-            assert ('Z', True) in calls, (
+            assert (True,) in calls, (
                 f'abort path must restore Z precision_mode=True; got calls {calls}'
             )
 

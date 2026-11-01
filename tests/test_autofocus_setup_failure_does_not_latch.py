@@ -554,16 +554,16 @@ def test_a_clean_exit_still_runs_every_restore_step(scope, runner, monkeypatch):
     precision = []
     real = scope.motion.set_precision_mode
 
-    def spy(axis, enabled):
-        precision.append((axis, enabled))
-        return real(axis, enabled)
+    def spy(enabled):
+        precision.append(enabled)
+        return real(enabled)
 
     monkeypatch.setattr(scope.motion, 'set_precision_mode', spy)
     _live_view_arm(scope)
 
     assert _focused(sweep(runner, scope, keep_led_on=True))
 
-    assert precision[-1] == ('Z', True), f'the precision restore must still run; {precision}'
+    assert precision[-1] is True, f'the precision restore must still run; {precision}'
     lit = [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
     assert lit == ['BF'], f'the AF-end LED transition must still run; lit: {lit}'
     assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, 'the camera restore must still run'

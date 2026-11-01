@@ -7660,33 +7660,32 @@ Nothing.
 ### `MotionAPI.set_precision_mode`
 
 ```python
-def set_precision_mode(self, axis: Axis, enabled: bool) -> None
+def set_precision_mode(self, enabled: bool) -> None
 ```
 
 Marks: enters: `lane_call`.  
 Route: `POST /api/v1/scope/motion/set_precision_mode`.
 
-Set motor precision mode for an axis.
+Set Z's precision mode: how tightly the focus motor stops.
 
-Precision mode uses accurate but slightly slower motor stopping.
-Use before autofocus fine passes or any measurement requiring
-precise Z positioning. Disable for coarse moves where speed
-matters more than final position accuracy.
+On, Z stops at the tight threshold and its final position is
+accurate; off, it stops at the loose threshold, sooner, and its
+final position drifts. Autofocus turns it off for its coarse passes
+and on for its fine pass and at its end. Precision is Z's alone: the
+other axes keep the threshold their controller gives them.
 
 **Args**
 
-- `axis`: Axis name ("X", "Y", "Z", "T").
-- `enabled`: True for precise positioning, False for speed.
+- `enabled`: True for the tight threshold, False for the loose one.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_offered'`, `axis` is no axis name; nothing was sent.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis (see `refuse_absent`); nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z (see `refuse_absent`); nothing was sent.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -13089,7 +13088,7 @@ the achieved values and a run continues.
 
 Returned by: [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position).  
 Held in: [`PositionOutOfRangeError.axis`](#PositionOutOfRangeError.axis), [`ScopeCapabilities.axes`](#ScopeCapabilities.axes).  
-Taken by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits), [`MotionAPI.get_limit_switch_status`](#MotionAPI.get_limit_switch_status), [`MotionAPI.set_precision_mode`](#MotionAPI.set_precision_mode), [`SimulationAPI.fail_home`](#SimulationAPI.fail_home), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).
+Taken by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits), [`MotionAPI.get_limit_switch_status`](#MotionAPI.get_limit_switch_status), [`SimulationAPI.fail_home`](#SimulationAPI.fail_home), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).
 
 An axis a motion member names: a stage axis, or the turret, T.
 

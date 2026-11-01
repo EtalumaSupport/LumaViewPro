@@ -107,7 +107,7 @@ class AutofocusRunner:
 
         self._reset_state()
 
-    def reset(self):
+    def reset(self) -> None:
         # Skip if a run is in flight: _reset_state() would wipe _params
         # while AFE.run() reads it on the AF thread. AFE.run()'s own
         # _reset_state() on entry covers deferred cleanup. Callers that
@@ -126,7 +126,7 @@ class AutofocusRunner:
         # of which AF phase was interrupted so subsequent protocol Z
         # moves stop accurately.
         try:
-            self._scope.motion.set_precision_mode('Z', True)
+            self._scope.motion.set_precision_mode(True)
         except Exception as e:
             logger.debug(
                 f'[AF] Could not restore precision mode during reset (scope may be unavailable): {e}'
@@ -392,7 +392,7 @@ class AutofocusRunner:
             # precision ON, and all exit paths (success, abort, exception)
             # also restore ON via the finally block and reset().
             try:
-                self._scope.motion.set_precision_mode('Z', False)
+                self._scope.motion.set_precision_mode(False)
             except Exception as e:
                 logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
             self._move_absolute_position(position=self._params['z_min'])
@@ -434,7 +434,7 @@ class AutofocusRunner:
             # protocol Z move stops accurately even if AF threw mid-
             # coarse-pass with precision OFF.
             try:
-                self._scope.motion.set_precision_mode('Z', True)
+                self._scope.motion.set_precision_mode(True)
             except Exception:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
@@ -531,7 +531,7 @@ class AutofocusRunner:
                 # precision to restore.
                 try:
                     if self._scope.motor_connected:
-                        self._scope.motion.set_precision_mode('Z', True)
+                        self._scope.motion.set_precision_mode(True)
                 except Exception:
                     logger.debug('[AF] precision restore in finally failed', exc_info=True)
                 # A run that chose a focus leaves the stage standing there; one
@@ -746,7 +746,7 @@ class AutofocusRunner:
     def run_in_progress(self) -> bool:
         return self._af_in_progress.is_set()
 
-    def _iterate(self):
+    def _iterate(self) -> None:
         if not self._is_focusing_event.is_set():
             return
 
@@ -926,7 +926,7 @@ class AutofocusRunner:
             # so the invariant "Z precision ON outside of AF" holds
             # regardless of exit path. Idempotent when the fine pass
             # already set it.
-            self._scope.motion.set_precision_mode('Z', True)
+            self._scope.motion.set_precision_mode(True)
 
             self._is_focusing_event.clear()
             self._is_complete_event.set()
@@ -957,7 +957,7 @@ class AutofocusRunner:
             self._last_pass = True
             # Enable precision mode for the fine pass -- accurate
             # motor stopping for reliable focus measurements.
-            self._scope.motion.set_precision_mode('Z', True)
+            self._scope.motion.set_precision_mode(True)
             _af_log.info('  PRECISION MODE ON for fine pass')
 
     def best_focus_position(self) -> float | None:

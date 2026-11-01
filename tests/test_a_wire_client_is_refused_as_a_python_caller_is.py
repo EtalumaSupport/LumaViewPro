@@ -253,7 +253,7 @@ def test_a_setting_outside_its_range_answers_the_range(client, session):
 
 def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     body = _problem(
-        client.post('/api/v1/scope/motion/set_precision_mode', json={'axis': 'x', 'enabled': True}),
+        client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'x'}),
         422,
     )
 
@@ -461,9 +461,7 @@ def test_an_invalid_body_names_each_argument_that_does_not_fit(client):
 def test_the_openapi_declares_every_answer_that_is_not_a_result_as_a_problem(client):
     openapi = client.get('/api/v1/openapi.json').json()
     operations = [op for path in openapi['paths'].values() for op in path.values()]
-    refused = client.post(
-        '/api/v1/scope/motion/set_precision_mode', json={'axis': 'x', 'enabled': True}
-    )
+    refused = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'x'})
 
     # Every route keeps the ranges; a status its member declares (its
     # Raises: section) is a problem too.

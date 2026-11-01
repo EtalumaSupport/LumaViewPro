@@ -1555,35 +1555,33 @@ class MotionAPI:
         return self._driver.current_pos(axis)
 
     @api(admitted_by=(Admission.LANE_CALL,))
-    def set_precision_mode(self, axis: Axis, enabled: bool) -> None:
-        """Set motor precision mode for an axis.
+    def set_precision_mode(self, enabled: bool) -> None:
+        """Set Z's precision mode: how tightly the focus motor stops.
 
-        Precision mode uses accurate but slightly slower motor stopping.
-        Use before autofocus fine passes or any measurement requiring
-        precise Z positioning. Disable for coarse moves where speed
-        matters more than final position accuracy.
+        On, Z stops at the tight threshold and its final position is
+        accurate; off, it stops at the loose threshold, sooner, and its
+        final position drifts. Autofocus turns it off for its coarse passes
+        and on for its fine pass and at its end. Precision is Z's alone: the
+        other axes keep the threshold their controller gives them.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            enabled: True for precise positioning, False for speed.
+            enabled: True for the tight threshold, False for the loose one.
 
         Raises:
-            ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
-                name; nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no such axis (see
+                ``'axis_absent'``, no motor controller or no Z (see
                 ``refuse_absent``); nothing was sent.
         """
         return self._dispatch_motion(
             self._set_precision_mode_impl,
             'set_precision_mode',
-            args=(axis, enabled),
+            args=(enabled,),
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    def _set_precision_mode_impl(self, axis: str, enabled: bool) -> None:
-        self.refuse_absent('set_precision_mode', axis)
-        self._driver.set_precision_mode(axis, enabled)
+    def _set_precision_mode_impl(self, enabled: bool) -> None:
+        self.refuse_absent('set_precision_mode', 'Z')
+        self._driver.set_precision_mode('Z', enabled)
 
     def get_target_status(self, axis: str) -> bool:
         """Check if an axis has reached its target position.

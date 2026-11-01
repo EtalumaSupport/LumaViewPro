@@ -108,7 +108,7 @@ _MANUAL_REFUSES = {
     'home_z': lambda m: m.home('Z'),
     'home_t': lambda m: m.home('T'),
     'stop_motion': lambda m: m.stop_motion(),
-    'precision': lambda m: m.set_precision_mode('Z', True),
+    'precision': lambda m: m.set_precision_mode(True),
     'acceleration': lambda m: m.set_acceleration_limit(limit_pct=50),
     'limits': lambda m: m.get_axis_limits('Z'),
 }
@@ -117,7 +117,6 @@ _MANUAL_REFUSES = {
 _Z_ONLY_REFUSES = {
     'move_x': (lambda m: m.move_xy(x_um=1000.0), MissingPart.X),
     'move_y': (lambda m: m.start_move_xy_by(dy_um=10.0), MissingPart.Y),
-    'precision_x': (lambda m: m.set_precision_mode('X', True), MissingPart.X),
     'move_turret': (lambda m: m.move_turret(2), MissingPart.TURRET),
     'home_t': (lambda m: m.home('T'), MissingPart.TURRET),
     'limits_x': (lambda m: m.get_axis_limits('X'), MissingPart.X),
@@ -197,7 +196,7 @@ def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_ses
     """A name that is no axis is the request's fault on every model, a manual one included."""
     scope = make_session(model).scope
     with pytest.raises(ArgumentRefusedError) as refused:
-        scope.motion.set_precision_mode('Q', True)
+        scope.motion.get_axis_limits('Q')
     assert refused.value.reason == 'not_offered'
 
 
