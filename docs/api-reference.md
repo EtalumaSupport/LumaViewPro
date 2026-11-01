@@ -7696,6 +7696,54 @@ a home, and nothing once the home has ended.
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
+<a id="MotionAPI.start_jog"></a>
+### `MotionAPI.start_jog`
+
+```python
+def start_jog(self, axis: StageAxis, steps: float, coarse: bool) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_jog`.
+
+Start `axis` moving by `steps` of the active objective's jog step; return the started move.
+
+A jog is a move by a distance (`start_move_z_by`, or
+`start_move_xy_by` for X or Y) of `steps` times `jog_step_um`.
+Its refusals come in the order every move's do: the lane's (a run,
+a home or another session's control holds the scope), then the
+motion gate's, then the objective's. The step is asked only once
+the scope may move, because an unknown objective's advice -- home
+the turret, assign the slot -- is wrong while an axis has no known
+position: the gate refuses the turret home too, and only a home of
+the scope helps.
+
+**Args**
+
+- `axis`: The axis to jog: `'X'`, `'Y'` or `'Z'`.
+- `steps`: How many steps, signed: `1` or `-1` for one step up or down, a fraction or a multiple for a gesture that scales it (scroll-to-focus's speed).
+- `coarse`: True for the coarse step, False for the fine one.
+
+**Returns**
+
+The move's `Operation`, as `start_move_z_by`'s.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_offered'`, `axis` is not 'X', 'Y' or 'Z'; `'not_a_number'`, `steps` is not a finite number. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'position_unread'`, the board did not report a target to add to; `'monitor_ended'`, as `start_move_z_by`; `'lid_open_before_motion'`, as `start_move_xy_by`. Nothing was driven.
+- `AxisStateUnknownError`: An axis of the scope does not know its position, whichever axis is jogged. Nothing was driven.
+- `ObjectiveUnknownError`: The scope may move but its active objective is unknown, so no step can be sized: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`. Nothing was driven.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, the jog is beyond the safety limit or its target is outside the axis's travel. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.start_move_to_plate"></a>
 ### `MotionAPI.start_move_to_plate`
 
@@ -10515,7 +10563,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -13545,7 +13593,7 @@ strings cannot be written.
 
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep).  
 Held in: [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
-Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
+Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
 
 A stage axis, X, Y or Z: an axis with a position in um.
 
@@ -17393,6 +17441,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion/positions_to_keep` | [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep) |
 | `POST` | `/api/v1/scope/motion/set_precision_mode` | [`MotionAPI.set_precision_mode`](#MotionAPI.set_precision_mode) |
 | `POST` | `/api/v1/scope/motion/start_home` | [`MotionAPI.start_home`](#MotionAPI.start_home) |
+| `POST` | `/api/v1/scope/motion/start_jog` | [`MotionAPI.start_jog`](#MotionAPI.start_jog) |
 | `POST` | `/api/v1/scope/motion/start_move_to_plate` | [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate) |
 | `POST` | `/api/v1/scope/motion/start_move_to_well` | [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well) |
 | `POST` | `/api/v1/scope/motion/start_move_xy` | [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy) |

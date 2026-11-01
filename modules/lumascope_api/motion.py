@@ -3330,6 +3330,73 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    def start_jog(self, axis: StageAxis, steps: float, coarse: bool) -> Operation[None]:
+        """Start ``axis`` moving by ``steps`` of the active objective's jog step; return the started move.
+
+        A jog is a move by a distance (``start_move_z_by``, or
+        ``start_move_xy_by`` for X or Y) of ``steps`` times ``jog_step_um``.
+        Its refusals come in the order every move's do: the lane's (a run,
+        a home or another session's control holds the scope), then the
+        motion gate's, then the objective's. The step is asked only once
+        the scope may move, because an unknown objective's advice -- home
+        the turret, assign the slot -- is wrong while an axis has no known
+        position: the gate refuses the turret home too, and only a home of
+        the scope helps.
+
+        Args:
+            axis: The axis to jog: ``'X'``, ``'Y'`` or ``'Z'``.
+            steps: How many steps, signed: ``1`` or ``-1`` for one step up
+                or down, a fraction or a multiple for a gesture that scales
+                it (scroll-to-focus's speed).
+            coarse: True for the coarse step, False for the fine one.
+
+        Returns:
+            The move's ``Operation``, as ``start_move_z_by``'s.
+
+        Raises:
+            ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
+                'Y' or 'Z'; ``'not_a_number'``, ``steps`` is not a finite
+                number. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'position_unread'``, the board did not report a target to
+                add to; ``'monitor_ended'``, as ``start_move_z_by``;
+                ``'lid_open_before_motion'``, as ``start_move_xy_by``.
+                Nothing was driven.
+            AxisStateUnknownError: An axis of the scope does not know its
+                position, whichever axis is jogged. Nothing was driven.
+            ObjectiveUnknownError: The scope may move but its active
+                objective is unknown, so no step can be sized:
+                ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``. Nothing was
+                driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, the jog
+                is beyond the safety limit or its target is outside the
+                axis's travel. Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command; ``'board_lost'``, the board is no longer connected.
+        """
+        return self._dispatch_motion(
+            self._jog_impl,
+            'start_jog',
+            args=(axis, steps, coarse),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    def _jog_impl(self, axis: StageAxis, steps: float, coarse: bool) -> Operation:
+        """Start a jog on the lane: the axis and argument checks, the gate, the step, the move."""
+        axis = refuse_unless_offered(StageAxis, axis, 'axis')
+        self.refuse_absent('start_jog', axis)
+        refuse_unless_finite_number(steps, 'steps')
+        self._pre_drive('start_jog')
+        distance = steps * self.jog_step_um(axis, coarse)
+        if axis == StageAxis.Z:
+            return self._move_z_by_impl(distance, None)
+        if axis == StageAxis.X:
+            return self._move_xy_by_impl(distance, None)
+        return self._move_xy_by_impl(None, distance)
+
     @api(admitted_by=(Admission.LANE_CALL,))
     def home(self, axis: HomeTarget = HomeTarget.ALL) -> None:
         """Home the given axis set, and wait for it.

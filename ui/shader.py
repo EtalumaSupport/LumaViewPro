@@ -254,19 +254,14 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send the last tick's Z move."""
-        from ui.ui_helpers import jog_z, run_reported
+        from ui.ui_helpers import jog
 
         pending = self._scroll_z_pending
         self._scroll_z_pending = None
         if pending is None:
             return
         factor, coarse = pending
-        scope = _app_ctx.ctx.scope
-        run_reported(
-            lambda: jog_z(factor * scope.motion.jog_step_um('Z', coarse=coarse)),
-            redraw=None,
-            label='SCROLL_TO_FOCUS',
-        )
+        jog('Z', factor, coarse)
 
     def _on_cursor_leave(self, window):
         """The pointer left the window, so it is over no image."""

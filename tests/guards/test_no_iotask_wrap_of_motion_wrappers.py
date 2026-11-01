@@ -1,6 +1,6 @@
 """Regression test: do not wrap self-dispatching motion wrappers in IOTask.
 
-The UI helpers ``ui_helpers.move_z``, ``jog_xy``, ``jog_z`` and
+The UI helpers ``ui_helpers.move_z``, ``jog`` and
 ``move_home`` already submit their hardware call to the io_executor
 through ``submit_reported(..., lane=io_executor)``. Wrapping
 them in an outer ``IOTask(action=move_z, ...)`` causes TWO
@@ -29,8 +29,7 @@ SELF_DISPATCHING_WRAPPERS = MemberNames(
     'ui/ui_helpers.py',
     {
         'move_z',
-        'jog_xy',
-        'jog_z',
+        'jog',
         'move_home',
     },
 )

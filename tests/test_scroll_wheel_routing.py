@@ -276,23 +276,32 @@ class TestWheelDirectionIsConsistent:
         assert down._scroll_z_pending[0] < 0, 'ctrl + wheel down must lower the objective.'
 
     @pytest.mark.parametrize('sim_session', [{'microscope': 'LS850T'}], indirect=True)
-    def test_focus_with_the_objective_unknown_is_refused_visibly(
-        self, monkeypatch, gui_ctx, centre_posts
-    ):
-        """The step scales with the objective. With none known -- a turret
-        not yet homed is in no known slot -- nothing moves, and the refusal
-        is shown as the jog buttons show theirs, not a debug line nobody
-        sees."""
-        from ui import shader, ui_helpers
+    def test_focus_on_an_unhomed_scope_is_refused_visibly(self, monkeypatch, gui_ctx, centre_posts):
+        """A scope not yet homed -- its turret in no known slot, so the
+        objective unknown too -- moves nothing, and the motion gate's refusal
+        is shown as the jog buttons show theirs, not a debug line nobody sees
+        and not the objective's, whose remedies the gate refuses."""
+        import sys
+        import types
 
-        moved = []
-        monkeypatch.setattr(ui_helpers, 'jog_z', lambda *a, **k: moved.append(a))
+        from modules.sequential_io_executor import IOTask
+        from ui import shader
+
+        # No running app: the controls are not locked, as on a scope nothing holds.
+        monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
+        motion = gui_ctx.scope.motion
+        before = motion.get_target_positions()
         viewer = self._scroll_live_image(
             monkeypatch, gui_ctx, self.TOKEN_PHYSICAL_UP, ctrl_held=True
         )
+        # The vertical control the jog's redraw reads; the Kivy tree never runs here.
+        gui_ctx.motion_settings.ids = {
+            'verticalcontrol_id': types.SimpleNamespace(update_gui=lambda **_: None)
+        }
         shader.ShaderViewer._flush_scroll_z(viewer, 0)
-        assert moved == []
-        assert [n.title for n in centre_posts] == ['Objective Unknown']
+        assert gui_ctx.io_executor.call(IOTask(action=lambda: None), 'settle', 30.0) is None
+        assert motion.get_target_positions() == before
+        assert [n.title for n in centre_posts] == ['Scope Not Homed']
 
     def test_wheel_up_zooms_in(self, monkeypatch, gui_ctx):
         up = self._scroll_live_image(monkeypatch, gui_ctx, self.TOKEN_PHYSICAL_UP, ctrl_held=False)

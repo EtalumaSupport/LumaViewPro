@@ -469,29 +469,19 @@ def go_to_bookmark(label: str, axes: tuple[str, ...]) -> None:
     )
 
 
-def jog_xy(dx_um: float | None = None, dy_um: float | None = None):
-    """Start X or Y jogging for a person's gesture; started, not waited, as ``move_z``."""
-    axes = ''.join(axis for axis, d in (('X', dx_um), ('Y', dy_um)) if d is not None)
-    if _user_motion_locked(axes):
+def jog(axis: str, steps: float, coarse: bool):
+    """Start ``axis`` jogging by ``steps`` objective steps for a person's gesture; started, not waited, as ``move_z``.
+
+    The gesture goes to the API whole: the step size, and which refusal
+    answers first, are the API's.
+    """
+    if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
     submit_reported(
-        lambda: ctx.scope.motion.start_move_xy_by(dx_um, dy_um),
-        lambda: _handle_ui_update_for_axis(axis='XY'),
-        f'JOG_{axes}',
-        lane=ctx.io_executor,
-    )
-
-
-def jog_z(dz_um: float):
-    """Start Z jogging for a person's gesture; started, not waited, as ``move_z``."""
-    if _user_motion_locked('Z'):
-        return
-    ctx = _app_ctx.ctx
-    submit_reported(
-        lambda: ctx.scope.motion.start_move_z_by(dz_um),
-        lambda: _handle_ui_update_for_axis(axis='Z'),
-        'JOG_Z',
+        lambda: ctx.scope.motion.start_jog(axis, steps, coarse),
+        lambda: _handle_ui_update_for_axis(axis='Z' if axis == 'Z' else 'XY'),
+        f'JOG_{axis}',
         lane=ctx.io_executor,
     )
 

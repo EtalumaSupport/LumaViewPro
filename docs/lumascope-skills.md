@@ -568,8 +568,12 @@ print(scope.motion.turret_status())
 print(session.objective_id)                 # slot 2's objective
 ```
 
-**Jogging.** `jog_step_um(axis, coarse)` answers the step a jog of that axis
-takes under the active objective.
+**Jogging.** `start_jog(axis, steps, coarse)` moves X, Y or Z by `steps` of
+the active objective's fine or coarse jog step: `1` or `-1` for one step, a
+fraction or a multiple for a gesture that scales it. Like every move it is
+refused while any axis of the scope has no known position, before the
+objective is asked, so its refusal says to home the scope. `jog_step_um(axis,
+coarse)` answers the step itself, for showing it.
 
 ## Illumination
 

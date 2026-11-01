@@ -613,6 +613,7 @@ UNITLESS: dict[str, str] = {
     ),
     'FrameRecord.saturated_fraction field': "a fraction of the frame's pixels",
     'SimulationAPI.hold_axis parameter at_fraction': "a fraction of the move's travel",
+    'MotionAPI.start_jog parameter steps': "a count of the active objective's jog steps",
     'CameraLink.link_speed field': (
         'in the unit the camera declares (link_speed_unit), carried and never converted'
     ),

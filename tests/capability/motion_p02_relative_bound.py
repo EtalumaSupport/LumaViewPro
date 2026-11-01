@@ -1,8 +1,8 @@
 """P02 -- does a relative jog past the travel limit raise, clamp, or go through?
 
 The GUI's coarse/fine Z and XY jogs are all relative moves
-(vertical_control.py _z_jog -> jog_z -> move_z_by; motion_settings.py
-_xy_jog -> jog_xy -> move_xy_by).
+(vertical_control.py _z_jog and motion_settings.py _xy_jog -> jog ->
+start_jog -> the move_z_by / move_xy_by body).
 """
 
 from harness import check, run

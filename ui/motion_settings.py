@@ -13,7 +13,7 @@ from modules.coord_transformations import PlateLocation
 from ui.ui_helpers import (
     go_to_bookmark,
     move_home,
-    jog_xy,
+    jog,
     move_to_plate,
     resort_accordion,
     run_reported,
@@ -284,24 +284,11 @@ class XYStageControl(BoxLayout):
             direction: +1 or -1.
             coarse: True for coarse step, False for fine step.
         """
-        ctx = _app_ctx.ctx
         dir_names = {('X', 1): 'RIGHT', ('X', -1): 'LEFT', ('Y', 1): 'FWD', ('Y', -1): 'BACK'}
         label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
-
-        def jog():
-            step_um = direction * ctx.scope.motion.jog_step_um(axis, coarse)
-            if axis == 'X':
-                jog_xy(dx_um=step_um)
-            else:
-                jog_xy(dy_um=step_um)
-
-        run_reported(
-            jog,
-            redraw=None,
-            label=label,
-        )
+        jog(axis, direction, coarse)
 
     @debounce(0.2)
     def fine_left(self):

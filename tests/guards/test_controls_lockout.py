@@ -346,7 +346,7 @@ class TestGestureMotionFunnel:
         assert ui_helpers._user_motion_locked('X') is True
         # No ctx is wired in this test process: reaching past the guard
         # would raise on ctx access, so returning cleanly IS the proof.
-        ui_helpers.jog_xy(dx_um=5.0)
+        ui_helpers.jog('X', 1, coarse=False)
 
     def test_unlocked_app_reaches_for_the_scope(self):
         from ui import ui_helpers
@@ -362,7 +362,7 @@ class TestGestureMotionFunnel:
 
     def test_every_mover_guards(self):
         src = (REPO_ROOT / 'ui' / 'ui_helpers.py').read_text()
-        for mover in ('jog_xy', 'jog_z', 'move_z', 'move_home', 'submit_move'):
+        for mover in ('jog', 'move_z', 'move_home', 'submit_move'):
             idx = src.find(f'def {mover}(')
             nxt = src.find('\ndef ', idx + 1)
             body = src[idx:nxt]
