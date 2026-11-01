@@ -106,9 +106,8 @@ class TestTheGuiNeverNarrowsTheStore:
         assert written == set(), f'the reconcile must not write the store; found {sorted(written)}'
 
     def test_a_text_box_narrows_nothing_and_commits_no_unedited_value(self):
-        # The kv fires the text handlers on focus LOSS, not on edit, so a
-        # click into a box and out again arrives with the untouched stored
-        # value: the handler returns without committing when the parsed value
+        # An Enter on the shown value, or the value retyped, arrives with the
+        # untouched stored value: the handler returns without committing when the parsed value
         # equals the stored one. And a typed value is written as typed: the
         # handler clips nothing to a slider's range or a widget ceiling; the
         # writer refuses what is out of range and the apply caps what the

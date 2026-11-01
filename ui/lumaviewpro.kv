@@ -633,7 +633,7 @@
 				        font_size: '12sp'
 				        text: 'Z-Position (um)'
 
-				    TextInput:
+				    CommitInput:
 						id: z_position_id
 						size_hint_x: NARROW_WIDTH
 						pos_hint: {'center_x': 0.5}
@@ -644,7 +644,7 @@
 						halign: 'center'
 		            	input_filter: 'float'
 				        text: ''
-						on_focus: if not self.focus: root.set_position_text(self.text)
+						on_commit: root.set_position_text(self.text)
 
 					BoxLayout:
 						orientation:'horizontal'
@@ -840,9 +840,9 @@
 			spacing: '5dp'
 			disabled: app.lock.controls_locked
 
-			TextInput:
+			CommitInput:
 				id: zstack_stepsize_id
-				on_focus: if not self.focus: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
+				on_commit: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
 		        size_hint_y: None
@@ -851,11 +851,11 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_focus: if not self.focus: root.set_steps()
+	            on_commit: root.set_steps()
 
-			TextInput:
+			CommitInput:
 				id: zstack_range_id
-				on_focus: if not self.focus: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
+				on_commit: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				tooltip_text: 'Total stack depth'
 	        	multiline: False
 		        size_hint_y: None
@@ -864,7 +864,7 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_focus: if not self.focus: root.set_steps()
+	            on_commit: root.set_steps()
 
 			TextInput:
 				id: zstack_steps_id
@@ -974,7 +974,7 @@
 						tooltip_text: 'Current X value'
 
 					# Set and Display X Position	
-					TextInput:
+					CommitInput:
 						id: x_pos_id
 						multiline: False
 						size_hint_y: None
@@ -983,7 +983,7 @@
 						halign: 'center'
 						input_filter: 'float'
 						text: ''
-						on_focus: if not self.focus: root.set_xposition(self.text)
+						on_commit: root.set_xposition(self.text)
 			
 					# Set X Bookmark
 					RoundedButton:
@@ -1061,7 +1061,7 @@
 						text: 'Y: (mm)'
 
 					# Set and Display Y Position	
-					TextInput:
+					CommitInput:
 						id: y_pos_id
 						multiline: False
 						size_hint_y: None
@@ -1070,7 +1070,7 @@
 						halign: 'center'
 						input_filter: 'float'
 						text: ''
-						on_focus: if not self.focus: root.set_yposition(self.text)
+						on_commit: root.set_yposition(self.text)
 
 					# Set Y Bookmark
 					RoundedButton:
@@ -1196,7 +1196,7 @@
 					size_hint_x: None
 					width: '95dp'
 					font_size: '12sp'
-				TextInput:
+				CommitInput:
 					id: capture_period
 					disabled: app.lock.run_lockout
 					multiline: False
@@ -1207,7 +1207,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(5, '.3g')
-					on_focus: if not self.focus: root.update_period()
+					on_commit: root.update_period()
 				Label:
 					text: 'minutes'
 					size_hint_x: None
@@ -1225,7 +1225,7 @@
 					size_hint_x: None
 					width: '95dp'
 					font_size: '12sp'
-				TextInput:
+				CommitInput:
 					id: capture_dur
 					disabled: app.lock.run_lockout
 					multiline: False
@@ -1236,7 +1236,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(48, '.3g')
-					on_focus: if not self.focus: root.update_duration()
+					on_commit: root.update_duration()
 				Label:
 					text: 'hours'
 					size_hint_x: None
@@ -1378,7 +1378,7 @@
 					width: '75dp'
 					font_size: '12sp'
 
-				TextInput:
+				CommitInput:
 					id: capture_root
 					disabled: app.lock.run_lockout
 					text: ''
@@ -1388,7 +1388,7 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Filename prefix'
-					on_focus: if not self.focus: root.update_capture_root(self.text)
+					on_commit: root.update_capture_root(self.text)
 				
 
 			# Step Name
@@ -1405,7 +1405,7 @@
 					width: '75dp'
 					font_size: '12sp'
 
-				TextInput:
+				CommitInput:
 					id: step_name_input
 					disabled: app.lock.run_lockout
 					text: ''
@@ -1415,7 +1415,7 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Step Name'
-					on_focus: if not self.focus: root.step_name_validation(self.text)
+					on_commit: root.step_name_validation(self.text)
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1440,7 +1440,7 @@
 					background_normal: './data/icons/L_normal.png'
 					background_down: './data/icons/L_down.png'
 					on_release: root.prev_step()
-				TextInput:
+				CommitInput:
 					id: step_number_input
 					disabled: app.lock.run_lockout
 					text: '0'
@@ -1451,7 +1451,7 @@
 					halign: 'center'
 					multiline: False
 					input_filter: 'int'
-					on_focus: if not self.focus: root.handle_step_ui_input_change()
+					on_commit: root.handle_step_ui_input_change()
 					valign: 'center'
 				Label:
 					text: 'of'
@@ -1848,9 +1848,9 @@
             width: '120dp'
 			tooltip_text: "Playback FPS for video creation\n(blank = the recording's own measured rate)"
 			
-        TextInput:
+        CommitInput:
             id: video_gen_fps_id
-            on_focus: if not self.focus: root.log_video_gen_fps()
+            on_commit: root.log_video_gen_fps()
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
 			halign: 'center'
@@ -2368,7 +2368,7 @@
 					width: '80dp'
 					text_size: self.size
 
-				TextInput:
+				CommitInput:
 					id: frame_width_id
 					disabled: app.lock.run_lockout or not root.camera_connected
 					multiline: False
@@ -2376,7 +2376,7 @@
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_focus: if not self.focus: root.frame_size('frame_width_id')
+					on_commit: root.frame_size('frame_width_id')
 					font_size: '12sp'
 				Label:
 					text: 'x'
@@ -2385,7 +2385,7 @@
 					width: '15dp'
 					font_size: '12sp'
 					halign: 'center'
-				TextInput:
+				CommitInput:
 					id: frame_height_id
 					disabled: app.lock.run_lockout or not root.camera_connected
 					multiline: False
@@ -2393,7 +2393,7 @@
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_focus: if not self.focus: root.frame_size('frame_height_id')
+					on_commit: root.frame_size('frame_height_id')
 					font_size: '12sp'
 			
 			# Field of View
@@ -2894,7 +2894,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_value: root.ill_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: ill_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -2904,7 +2904,7 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_focus: if not self.focus: root.ill_text()
+					on_commit: root.ill_text()
 
 			# Stimulation
 			Label:
@@ -3003,7 +3003,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_ill_slider()
-				TextInput:
+				CommitInput:
 					id: stim_ill_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3014,7 +3014,7 @@
 					halign: 'right'
 					input_filter: 'int'
 					text: str(int(stim_ill_slider.value))
-					on_focus: if not self.focus: root.stim_ill_text()
+					on_commit: root.stim_ill_text()
 
 			BoxLayout:
 				id: stim_freq_box
@@ -3049,7 +3049,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_freq_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: stim_freq_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3060,7 +3060,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_freq_slider.value, '.4g')
-					on_focus: if not self.focus: root.stim_freq_text()
+					on_commit: root.stim_freq_text()
 
 			BoxLayout:
 				id: stim_pulse_width_box
@@ -3095,7 +3095,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_pulse_width_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: stim_pulse_width_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3106,7 +3106,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_width_slider.value, '.4g')
-					on_focus: if not self.focus: root.stim_pulse_width_text()
+					on_commit: root.stim_pulse_width_text()
 
 			
 			BoxLayout:
@@ -3142,7 +3142,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.stim_pulse_count_slider() # on_touch_move # on_release
-				TextInput:
+				CommitInput:
 					id: stim_pulse_count_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3153,7 +3153,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_count_slider.value, '.4g')
-					on_focus: if not self.focus: root.stim_pulse_count_text()
+					on_commit: root.stim_pulse_count_text()
 
 			# Camera
 			Label:
@@ -3237,7 +3237,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_value: root.gain_slider()
-				TextInput:
+				CommitInput:
 					id: gain_text
 					disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected
 					size_hint_x: None
@@ -3247,7 +3247,7 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_focus: if not self.focus: root.gain_text()
+					on_commit: root.gain_text()
 
 			# Exposure
 			BoxLayout:
@@ -3287,7 +3287,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_value: root.exp_slider()
-				TextInput:
+				CommitInput:
 					id: exp_text
 					disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected
 					size_hint_x: None
@@ -3298,7 +3298,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					# text: format(10 ** exp_slider.value, '.3g')
-					on_focus: if not self.focus: root.exp_text()
+					on_commit: root.exp_text()
 				
 			# Exposure Summing
 			BoxLayout:
@@ -3332,7 +3332,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.sum_slider()
-				TextInput:
+				CommitInput:
 					id: sum_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3343,7 +3343,7 @@
 					halign: 'right'
 					input_filter: "int"
 					text: "{:d}".format(int(sum_slider.value))
-					on_focus: if not self.focus: root.sum_text()
+					on_commit: root.sum_text()
 
 			BoxLayout:
 				id: sum_depth_hint_row
@@ -3513,7 +3513,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.video_duration_slider()
-				TextInput:
+				CommitInput:
 					id: video_duration_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3524,7 +3524,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(video_duration_slider.value, '.4g')
-					on_focus: if not self.focus: root.video_duration_text()
+					on_commit: root.video_duration_text()
 
 			# Acquire Settings
 			Label:
@@ -3642,7 +3642,7 @@
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
 					on_release: root.composite_threshold_slider()
-				TextInput:
+				CommitInput:
 					id: composite_threshold_text
 					disabled: app.lock.run_lockout
 					size_hint_x: None
@@ -3653,7 +3653,7 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(composite_threshold_slider.value, '.3g')
-					on_focus: if not self.focus: root.composite_threshold_text()
+					on_commit: root.composite_threshold_text()
 				
 			FloatLayout:
 				padding: '0dp'
@@ -3818,9 +3818,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: graph_title_input
-				on_focus: if not self.focus: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
+				on_commit: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				valign: 'center'
 				text: root.graph_title
 				width: '80dp'
@@ -3849,9 +3849,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: x_axis_label_input
-				on_focus: if not self.focus: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
+				on_commit: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				valign: 'center'
 				text: root.x_axis_label
 				width: '80dp'
@@ -3910,9 +3910,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: y_axis_label_input
-				on_focus: if not self.focus: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
+				on_commit: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				valign: 'center'
 				text: root.y_axis_label
 				width: '80dp'
@@ -4058,9 +4058,9 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			TextInput:
+			CommitInput:
 				id: text_cell_count_pixels_per_um_id
-				on_focus: if not self.focus: root.commit_pixels_per_um()
+				on_commit: root.commit_pixels_per_um()
 				valign: 'center'
 				text: ''
 				hint_text: 'image'

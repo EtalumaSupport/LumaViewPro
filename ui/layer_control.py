@@ -209,10 +209,10 @@ class LayerControl(BoxLayout):
             gui_logger.text_input(f'{record_name}_APPLIED', val)
             return False
 
-        # The kv fires this handler on focus LOSS, not on edit
-        # (`on_focus: if not self.focus: root.gain_text()`), so clicking into
-        # a box and out again arrives here with the untouched stored value.
-        # No edit, no commit; the box already shows the stored value.
+        # An entry equal to the stored value changes nothing: the box arrives
+        # here on an edit or an Enter (`on_commit`), and an Enter on the shown
+        # value, or a retyped one, is that case. No change, no commit; the box
+        # already shows the stored value.
         if raw == val:
             return False
 

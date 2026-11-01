@@ -49,6 +49,9 @@ PERSON_EVENTS = (
     # PickSpinner's: raised only by a person choosing from the dropdown,
     # never by a write to the spinner's text.
     'on_pick',
+    # CommitInput's: raised only by a person's edit or Enter, never by a
+    # write to the box (ui/ui_helpers.py).
+    'on_commit',
 )
 
 # Kivy events a value change raises, whoever made it: a person operating the

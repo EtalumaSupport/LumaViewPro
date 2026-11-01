@@ -499,7 +499,7 @@ kv = Builder.load_string(
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.acceleration_pct_slider()
-                    TextInput:
+                    CommitInput:
                         id: acceleration_pct_text
                         disabled: app.lock.run_lockout
                         size_hint_x: None
@@ -510,7 +510,7 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: format(acceleration_pct_slider.value)
-                        on_focus: if not self.focus: root.acceleration_pct_text()
+                        on_commit: root.acceleration_pct_text()
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
                 # collapses with the row, so the invisible button cannot overlap
@@ -639,7 +639,7 @@ kv = Builder.load_string(
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
-                    TextInput:
+                    CommitInput:
                         id: video_max_duration_input
                         disabled: app.lock.run_lockout
                         size_hint_x: None
@@ -650,7 +650,7 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '30'
-                        on_focus: if not self.focus: root.update_video_max_duration()
+                        on_commit: root.update_video_max_duration()
 
                 BoxLayout:
                     orientation: 'horizontal'

@@ -135,7 +135,7 @@ def popup_response(title: str, response: str) -> None:
 def text_input(name: str, value: object) -> None:
     """Log a text field's final committed value.
 
-    Call this once per commit, from the handler the box's ``on_focus`` binding
+    Call this once per commit, from the handler the box's ``on_commit`` binding
     reaches, with what the box holds BEFORE the handler transforms it. The
     emit is synchronous and unconditional: the record lands in the file ahead
     of whatever the entry goes on to do, so a bundle reads in the order the

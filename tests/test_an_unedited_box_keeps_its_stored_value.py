@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A layer's box commits what was typed, and nothing when nothing was typed.
 
-The kv fires every layer text handler on focus LOSS, not on edit, so a
-click in and out arrives with the box's text untouched. The shared text
-handler returns without committing when that text equals the stored
-value. The exposure and illumination boxes had their own handlers
+A click in and out commits nothing (``CommitInput``), but an Enter on the
+shown value, or the value retyped, reaches the layer text handler with the
+box's text equal to the stored value. The shared text handler returns
+without committing when that text equals the stored value. The exposure and illumination boxes had their own handlers
 without that return, so a stray click clipped the stored value to the
 box's bound: a layer stored at 2000 ms, kept on purpose above the FX2's
 1000 ms cap, became 1000 ms, and the periodic flush persisted the loss.

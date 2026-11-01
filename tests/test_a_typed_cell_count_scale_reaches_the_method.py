@@ -125,7 +125,7 @@ def test_the_box_is_judged_on_commit_not_on_every_keystroke():
     kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
     start = kv.index('id: text_cell_count_pixels_per_um_id')
     rule = kv[start : kv.index('Label:', start)]
-    assert 'on_focus: if not self.focus: root.commit_pixels_per_um()' in rule
+    assert 'on_commit: root.commit_pixels_per_um()' in rule
     assert 'on_text' not in rule
 
 

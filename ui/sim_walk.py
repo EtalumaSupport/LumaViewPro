@@ -212,6 +212,8 @@ class SimWalk:
         # text in one call would be refused where a person's keystrokes are not.
         for character in step['text']:
             field.insert_text(character)
+        # Left as a click away leaves it: a box commits only an edit, so text
+        # equal to what the box held commits nothing, as for a person.
         if step.get('commit', True):
             field.focus = False
 

@@ -645,8 +645,8 @@ class ProtocolsAPI:
         Characters a filename cannot carry are removed from ``name``.
         Returns the step's name after the rename. A rename to the label the
         step already holds as its own changes nothing, so it gives no
-        invalid-step notice: a name field sends the name it shows each time
-        it loses focus.
+        invalid-step notice: a name field sends the name it shows when Enter
+        is pressed on it.
 
         Raises:
             StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a

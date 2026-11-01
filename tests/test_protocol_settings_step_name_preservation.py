@@ -15,7 +15,7 @@ An auto-named custom step blanks step_name_input.text so the default
 name shows as a hint placeholder, not editable text. Two paths persist
 that field into the protocol:
   - modify_step_ex      (the Change button)
-  - step_name_validation (on_text_validate / on_focus blur)
+  - step_name_validation (on_commit: an edit left, or Enter)
 modify_step_ex already preserved the existing name when the field was
 blank; step_name_validation did not -- it wrote the empty string
 straight to Protocol.modify_name, wiping the name on blur, before the

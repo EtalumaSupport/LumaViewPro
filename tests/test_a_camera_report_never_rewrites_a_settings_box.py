@@ -4,8 +4,8 @@
 Bug shape: a camera that quantizes (the FX2 sets exposure in whole sensor
 rows) answers a 1000 ms request with 1000.0057 ms. The GUI's camera
 listener wrote that answer over the exposure box, so the box read
-"1000.01" after the slider had set 1000.0 -- and the box commits what it
-shows on focus loss, so a click in and out stored the camera's number
+"1000.01" after the slider had set 1000.0 -- and the box then committed what
+it showed on any focus loss, so a click in and out stored the camera's number
 over the user's. The box shows the stored setting; what the camera
 applied is the API's to answer (``set_exposure_ms`` returns it,
 ``get_exposure_ms`` reads it) and the saved frame's to record.

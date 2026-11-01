@@ -8,7 +8,7 @@ bundle asserts the user chose something they were actually refused.
 The two halves of that split on whether the write dispatches:
 
 - A TEXT box does not. Assigning ``.text`` rebuilds the lines and the cursor
-  and never touches ``focus``, so the ``on_focus`` binding these handlers hang
+  and never touches ``focus``, so the ``on_commit`` binding these handlers hang
   from cannot fire from an app write. The two text boxes are driven through
   their REAL handlers here, one commit per test, and what is pinned is that the
   attempt and the correction are BOTH recorded and the reverted value is never

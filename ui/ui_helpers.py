@@ -11,8 +11,9 @@ import logging
 import threading
 import typing
 
-from kivy.properties import StringProperty
+from kivy.properties import AliasProperty, StringProperty
 from kivy.uix.accordion import AccordionItem
+from kivy.uix.textinput import TextInput
 from modules import gui_logger, live_work
 from modules.acquire_mode import AcquireMode
 from modules.caller import Caller, calling
@@ -221,6 +222,76 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     False, without deciding what the outcome meant.
     """
     return _contained(call, label, solicited=False)
+
+
+class CommitInput(TextInput):
+    """A text box that commits what the person typed, and nothing else.
+
+    It fires ``on_commit`` when the person leaves it edited, or presses
+    Enter in it whatever it holds. A click in and out with nothing typed
+    commits nothing: the box's text when it gained focus is compared with
+    its text when it lost it, so a focus loss alone -- which moved Z to the
+    number a moving Z box showed -- is never taken for a request.
+
+    That comparison holds only while nothing but the person writes the box,
+    so the box is never written from code while it has focus. ``text`` is
+    redefined over Kivy's own getter with a setter that, while focused,
+    holds the newest value instead of showing it: a writer's assignment, a
+    kv ``text:`` binding and a put-back alike. Kivy applies the person's
+    keystrokes, deletions and pastes through ``_set_line_text``, never this
+    setter, so typing is untouched. Left unedited, the box then shows the
+    held value; left edited, it drops it, since the commit's own redraw
+    runs after the unfocus and writes the box.
+
+    The getter and setter are Kivy's private ``_get_text`` / ``_set_text``
+    (Kivy is pinned in requirements.txt); a real-Kivy test fails if either
+    moves (tests/test_a_box_commits_an_edit.py).
+
+    Enter reaches the commit through Kivy's unfocus: ``on_text_validate``
+    is dispatched, then ``focus`` is cleared, in one call. The note the
+    validate leaves is what makes an unchanged Enter a commit, so a box
+    that turns ``text_validate_unfocus`` off would leave a stale note for
+    the next click away; the guard refuses it
+    (tests/test_text_input_single_commit.py).
+    """
+
+    __events__ = ('on_commit',)
+
+    def __init__(self, **kwargs):
+        self._text_at_focus: str | None = None
+        self._held_text: str | None = None
+        self._entered = False
+        super().__init__(**kwargs)
+
+    def _shown_text(self) -> str:
+        return TextInput._get_text(self)
+
+    def _show_unless_focused(self, text: str) -> None:
+        if self.focus:
+            self._held_text = text
+            return
+        TextInput._set_text(self, text)
+
+    text = AliasProperty(_shown_text, _show_unless_focused, bind=('_lines',), cache=True)
+
+    def on_text_validate(self) -> None:
+        self._entered = True
+
+    def on_focus(self, _instance, focused: bool) -> None:
+        if focused:
+            self._text_at_focus = self.text
+            self._held_text = None
+            self._entered = False
+            return
+        held, self._held_text = self._held_text, None
+        entered, self._entered = self._entered, False
+        if entered or self.text != self._text_at_focus:
+            self.dispatch('on_commit')
+        elif held is not None:
+            self.text = held
+
+    def on_commit(self) -> None:
+        """The person's entry, bound in the kv; one call per entry."""
 
 
 def show_text(box, text: str) -> None:
