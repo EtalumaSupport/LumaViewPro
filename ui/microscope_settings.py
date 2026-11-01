@@ -13,10 +13,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules import gui_logger, path_utils
-from modules.config_helpers import (
-    camera_max_exposure_for_ui,
-    camera_max_gain_for_ui,
-)
+from modules.config_helpers import camera_max_gain_for_ui
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.kivy_utils import schedule_ui_latest
 from modules.notification_center import notifications
@@ -219,12 +216,10 @@ class MicroscopeSettings(BoxLayout):
 
         self.show_capture_settings()
 
-        # The exposure/gain slider caps from the live camera (the resolver
-        # applies the documented no-camera fallback; #616). The gain cap
-        # keeps the slider honest per-camera -- a universal 48 dB let LS620
-        # users overdrive past the usable range and black out the image.
-        max_exposure = camera_max_exposure_for_ui(lumaview.scope.capabilities.camera_limits)
-        ctx.max_exposure = max_exposure
+        # The gain slider cap from the live camera (the resolver applies the
+        # documented no-camera fallback). The gain cap keeps the slider
+        # honest per-camera -- a universal 48 dB let LS620 users overdrive
+        # past the usable range and black out the image.
         max_gain = camera_max_gain_for_ui(lumaview.scope.capabilities.camera_limits)
         ctx.max_gain = max_gain
 
@@ -273,15 +268,13 @@ class MicroscopeSettings(BoxLayout):
         # owner (which forces it off on unsupported firmware).
         self.apply_stimulation_support()
 
+        # Size the sliders to the camera caps BEFORE the values land (the
+        # Kivy slider clamps the displayed value to its max). A stored value
+        # above the cap stays in the store and is pinned on the slider; the
+        # box keeps the real number.
         for layer in common_utils.get_layers():
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-
-            # Size the sliders to the camera caps BEFORE the values land
-            # (the Kivy slider clamps the displayed value to its max). A
-            # stored value above the cap stays in the store and is pinned
-            # on the slider; the box keeps the real number.
-            layer_obj.ids['gain_slider'].max = max_gain
-            layer_obj.ids['exp_slider'].max = max_exposure
+            ctx.image_settings.layer_lookup(layer=layer).ids['gain_slider'].max = max_gain
+        ctx.image_settings.set_layer_exposure_ranges()
 
         # Render and re-apply any layer the camera cannot fully reach --
         # the single owner, shared with the capability resync. Ordering:

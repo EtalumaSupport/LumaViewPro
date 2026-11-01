@@ -13,30 +13,15 @@ zeros back to disk, corrupting the settings file for future sessions.
 
 Structural fix (4.1): the camera's limits (`capabilities.camera_limits`)
 are `None` (not 0.0) when no camera is connected, so callers can
-distinguish "camera missing" from a real driver value. The exposure slider's range is
-sized through `camera_max_exposure_for_ui`, which substitutes
-`DEFAULT_MAX_EXPOSURE_MS` only for `None`: a slider needs some range to draw,
-and a cap of 0 is a cap, not a missing one.
+distinguish "camera missing" from a real driver value. The exposure slider's
+maximum is the session's answer (`ScopeSession.channel_slider_maxima`, pinned in
+tests/test_the_slider_maxima_are_the_sessions.py), None with no camera, which
+the slider leaves alone.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
-
-
-class TestTheSliderRangeWithNoCamera:
-    """Regression for #616: the slider's range comes from the one UI resolver."""
-
-    @pytest.mark.parametrize(
-        ('cached', 'expected'),
-        [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
-    )
-    def test_only_a_missing_cap_takes_the_default(self, cached, expected):
-        limits = SimpleNamespace(exposure_max_ms=cached)
-        assert camera_max_exposure_for_ui(limits) == expected
 
 
 class TestCoalescingApplier:

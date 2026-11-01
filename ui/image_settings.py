@@ -11,8 +11,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules import gui_logger
-from modules.config_helpers import layer_max_illumination_ma_for_ui
-from modules.config_ui_getters import get_layer_exposure_slider_max
 from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
@@ -194,32 +192,28 @@ class ImageSettings(BoxLayout):
                 layer_obj.ids['image_af_score_id'].height = '30dp'
 
     def set_layer_exposure_ranges(self):
-        """Size each layer's exposure slider from the connected camera's cap,
-        narrowed to the layer's catalogue ceiling.
-
-        The one owner of exp_slider.max. The ceilings are catalogue data,
-        beside the illumination ceilings, rather than literals here, so the
-        bound a non-GUI caller is held to and the bound the slider shows come
-        from the same place.
+        """Size each layer's exposure slider to the session's answer
+        (``channel_slider_maxima``), the one owner of exp_slider.max. With no
+        camera there is no maximum to show, and the camera controls are
+        disabled (set_camera_controls_support), so the slider keeps its own.
         """
-        camera_max_ms = _app_ctx.ctx.max_exposure
+        session = _app_ctx.ctx.session
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
             ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
-
-        for layer in common_utils.get_transmitted_layers():
-            layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
+
+        for layer in common_utils.get_layers():
+            maximum = session.channel_slider_maxima(layer).slider_max_exposure_ms
+            if maximum is not None:
+                self.layer_lookup(layer=layer).ids['exp_slider'].max = maximum
 
     def set_layer_gain_ranges(self):
         """Size each layer's gain slider to the connected camera's cap.
@@ -237,19 +231,17 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['gain_slider'].max = ctx.max_gain
 
     def set_layer_illumination_ranges(self):
-        """Size each layer's illumination slider from the scope's LED
-        driver cap, narrowed to the layer's catalogue ceiling. The one owner
-        of ill_slider.max; the .kv value is the placeholder until this runs.
-        A scope with no LED board has no cap to size from,
-        and its illumination controls are hidden
-        (set_layer_led_controller_support), so those layers are skipped.
+        """Size each layer's illumination slider to the session's answer
+        (``channel_slider_maxima``), the one owner of ill_slider.max; the .kv
+        value is the placeholder until this runs. A scope with no LED board
+        has no maximum to show, and its illumination controls are hidden
+        (set_layer_led_controller_support), so the slider keeps its own.
         """
-        capabilities = _app_ctx.ctx.scope.capabilities
+        session = _app_ctx.ctx.session
         for layer in common_utils.get_layers():
-            layer_obj = self.layer_lookup(layer=layer)
-            if not layer_obj.led_controller_support:
-                continue
-            layer_obj.ids['ill_slider'].max = layer_max_illumination_ma_for_ui(capabilities, layer)
+            maximum = session.channel_slider_maxima(layer).slider_max_illumination_ma
+            if maximum is not None:
+                self.layer_lookup(layer=layer).ids['ill_slider'].max = maximum
 
     def set_layer_autogain_support(self):
         """Gate the Auto Gain/Exp control on the camera's hardware auto-gain.
@@ -303,8 +295,8 @@ class ImageSettings(BoxLayout):
         The single grouping of the per-layer capability setters, so the connect
         path (_init_ui) and the reconnect path apply the SAME set and can't
         drift to a subset (reconnect previously refreshed only exposure ranges).
-        Callers that change the camera (reconnect) must refresh ctx.max_gain /
-        ctx.max_exposure first -- these setters read those caps.
+        Callers that change the camera (reconnect) must refresh ctx.max_gain
+        first -- the gain setter reads that cap.
 
         The setters run with every layer marked initializing. Narrowing a
         slider's max makes Kivy clamp its value, which fires on_value into the
@@ -333,11 +325,13 @@ class ImageSettings(BoxLayout):
                 layer_obj._initializing = False
         shown = layer_objs[0]
         ctx = _app_ctx.ctx
+        limits = ctx.scope.capabilities.camera_limits
+        exposure_max = None if limits is None else limits.exposure_max_ms
         gui_logger.display(
             'CAMERA_CONTROLS',
             f'camera={shown.camera_connected} led_board={shown.led_controller_support} '
             f'autogain={shown.camera_autogain_support} '
-            f'gain_max={ctx.max_gain} exposure_max={ctx.max_exposure}',
+            f'gain_max={ctx.max_gain} exposure_max={exposure_max}',
         )
         self.reconcile_layers_to_camera_caps()
 

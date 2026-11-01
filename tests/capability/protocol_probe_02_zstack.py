@@ -4,8 +4,8 @@ Part A: itemise the difference by capturing the kwargs each lane hands to
         SequencedCaptureRunner.prepare(). The GUI lane is replayed here in
         its settings-side equivalent (ui/zstack.py:150-314 with every
         `*_from_ui` getter swapped for the `*_from_settings` function it
-        delegates to -- see modules/config_ui_getters.py, each of which is
-        a one-line adapter).
+        delegated to -- each was a one-line adapter, and the GUI now reads
+        the settings-side functions itself).
 Part B: RUN start_zstack for real and assert the slices landed on disk.
 """
 

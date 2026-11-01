@@ -6629,15 +6629,6 @@ class TestBfIlluminationCapAtStartup:
         body = src[idx : src.find('\n    def ', idx + 1)]
         assert 'self.sync_camera_capability_ranges()' in body
 
-    def test_the_transmitted_cap_is_policy_below_the_gui(self):
-        from types import SimpleNamespace
-
-        from modules.config_helpers import layer_max_illumination_ma_for_ui
-
-        caps = SimpleNamespace(led_max_ma=1000)
-        for layer in ('BF', 'PC', 'DF'):
-            assert layer_max_illumination_ma_for_ui(caps, layer) == 50
-
 
 class TestModSliderScrollWheel:
     """ModSlider must accept mouse-wheel events to adjust value by

@@ -8,7 +8,7 @@ Covers:
        - modules/*.py must not import from ui/
        - drivers/*.py must not import from modules/ or ui/
        - lib/*.py must not import from drivers/, modules/, or ui/
-  2. config_getters -> config_ui_getters rename
+  2. config_getters retired (its successor, config_ui_getters, retired in turn)
   3. stitch_algorithms.py replaces image_stitcher.py
   4. Dead code removal (position_stitcher removed from stitcher.py)
   5. Tiny file consolidation -- enums/classes merged into parent modules
@@ -106,24 +106,18 @@ class TestLayerViolations:
 
 
 # ---------------------------------------------------------------------------
-# 2. config_getters renamed to config_ui_getters
+# 2. config_getters retired
 # ---------------------------------------------------------------------------
 
 
 class TestConfigGettersRename:
-    """Verify old config_getters.py is gone and new name exists."""
+    """Verify the old config_getters.py is gone and nothing imports it."""
 
     def test_old_file_does_not_exist(self):
         import os
 
         old_path = os.path.join(REPO_ROOT, 'modules', 'config_getters.py')
         assert not os.path.exists(old_path), 'Old config_getters.py still exists'
-
-    def test_new_file_exists(self):
-        import os
-
-        new_path = os.path.join(REPO_ROOT, 'modules', 'config_ui_getters.py')
-        assert os.path.exists(new_path), 'config_ui_getters.py not found'
 
     def test_no_imports_reference_old_name(self):
         """Scan every tracked .py file for 'modules.config_getters' imports (should be zero)."""
@@ -322,12 +316,12 @@ def _relpath(path):
     return os.path.relpath(path, REPO_ROOT)
 
 
-# The answerer layer: the two modules that answer questions about the
-# instrument and its configuration for the GUI. Every call into them from
+# The answerer layer: the module that answers questions about the
+# instrument and its configuration below the API. Every call into it from
 # ui/ is a question the GUI answers below the API, and retiring one is the
 # unit of migration work -- route the caller at its `ScopeSession` member
 # and the call site goes away.
-_ANSWERER_MODULES = Packages({'config_ui_getters', 'config_helpers'}, under='modules')
+_ANSWERER_MODULES = Packages({'config_helpers'}, under='modules')
 
 
 def _ui_answerer_call_counts():
@@ -473,8 +467,7 @@ def _ui_except_counts():
 # call site disappears when, and only when, the GUI stops answering.
 _UI_ANSWERER_CALL_PIN = {
     'ui/advanced_settings.py': 1,
-    'ui/image_settings.py': 4,
-    'ui/microscope_settings.py': 2,
+    'ui/microscope_settings.py': 1,
     'ui/ui_helpers.py': 1,
 }
 
@@ -736,69 +729,6 @@ def _lower_layer_ui_import_counts():
 _MODULES_WIDGET_READ_PIN = {}
 
 
-# Proxy 7: TWO ANSWERERS for one question. The five proxies above all count
-# REACH -- who touches whom, in which direction. None of them can see the
-# failure that actually stalls the migration: the same question answered in
-# two places, one for the GUI and one for L2, so the GUI never goes through
-# the Session and the two answers are free to drift.
-#
-# The measurement is the shape, not the names: a `config_ui_getters`
-# function and a `ScopeSession` method that both forward to the SAME
-# `config_helpers` function are two routes to one answer. Moving logic out
-# of ui/ into a modules/ helper LOWERS proxies 1-3 and 5 while creating one
-# of these, which is how a commit can score on every instrument and still
-# leave the API not owning the answer.
-
-
-def _twin_answerer_names():
-    """{'<config_helpers function>': 1} for each one reached by BOTH a
-    `config_ui_getters` function and a `ScopeSession` method."""
-
-    def helper_calls_in(node):
-        return {
-            n.func.attr
-            for n in _ast.walk(node)
-            if isinstance(n, _ast.Call)
-            and isinstance(n.func, _ast.Attribute)
-            and isinstance(n.func.value, _ast.Name)
-            and n.func.value.id == 'config_helpers'
-        }
-
-    with open(os.path.join(REPO_ROOT, 'modules', 'config_ui_getters.py')) as fh:
-        gui_tree = _ast.parse(fh.read())
-    gui = set()
-    for node in gui_tree.body:
-        if isinstance(node, _ast.FunctionDef):
-            gui |= helper_calls_in(node)
-
-    with open(os.path.join(REPO_ROOT, 'modules', 'scope_session.py')) as fh:
-        session_tree = _ast.parse(fh.read())
-    session = set()
-    for cls in session_tree.body:
-        if isinstance(cls, _ast.ClassDef):
-            for node in cls.body:
-                if isinstance(node, _ast.FunctionDef):
-                    session |= helper_calls_in(node)
-
-    return dict.fromkeys(gui & session, 1)
-
-
-# Pinned at 0e4a609e. Every entry is one question with a GUI answerer and an
-# L2 answerer; the set may only shrink. Retire one by deleting the
-# `config_ui_getters` forwarder and routing its GUI callers at the
-# `ScopeSession` member -- never by adding a third.
-#
-# `get_sequenced_capture_config_from_settings` is the worked example, both
-# ways: it entered this set at `ee765db0` (pre-REST item 1), in the commit
-# that added `ScopeSession.get_sequenced_capture_config` beside the GUI's
-# existing `get_sequenced_capture_config_from_ui` rather than routing the
-# GUI at it -- the set went 5 -> 6 there and no instrument in this file
-# moved -- and it left when the protocol panel was routed at the Session
-# member and the forwarder deleted, the remedy below applied as written.
-# Empty since `get_layer_configs`' forwarder, dead since 6d29326c, went: a
-# pin kept at zero, so the next twin is a rise from it.
-_TWIN_ANSWERER_PIN: dict[str, int] = {}
-
 # Empty, and empty is the achieved state: nothing under modules/ or
 # drivers/ imports ui/. The pin stays so the next one is a rise from zero.
 _LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
@@ -818,11 +748,6 @@ _ANSWERER_REMEDY = (
 )
 _MODULES_REMEDY = (
     'The lower layer is reaching up into the GUI: take the value as an argument (Rule 2).'
-)
-_TWIN_REMEDY = (
-    'Two answerers for one question. Moving logic out of ui/ is only half the '
-    'migration -- it has to land ON the API. Route the GUI at the ScopeSession '
-    'member and delete the config_ui_getters forwarder (goal 1, Rule 35).'
 )
 
 
@@ -912,16 +837,6 @@ class TestGuiIsDisplayOnly:
             _lower_layer_ui_import_counts(),
             'ui imports',
             _MODULES_REMEDY,
-        )
-        assert report == [], '\n'.join(report)
-
-    def test_twin_answerers_match_the_pin(self):
-        report = _ratchet_report(
-            'GUI: questions with a GUI answerer and an L2 answerer',
-            _TWIN_ANSWERER_PIN,
-            _twin_answerer_names(),
-            'GUI+Session answerers',
-            _TWIN_REMEDY,
         )
         assert report == [], '\n'.join(report)
 

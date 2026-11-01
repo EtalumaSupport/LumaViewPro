@@ -938,6 +938,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.channel_auto_gain parameter channel': _CHANNEL,
     'ScopeSession.channel_auto_gain_lock parameter channel': _CHANNEL,
     'ScopeSession.channel_colors return': _CHANNEL,
+    'ScopeSession.channel_slider_maxima parameter channel': _CHANNEL,
     'ScopeSession.confirm_objective parameter objective_id': _OBJECTIVE,
     'ScopeSession.end_control parameter session_id': _CONTROL,
     'ScopeSession.get_setting parameter path': _SETTING,

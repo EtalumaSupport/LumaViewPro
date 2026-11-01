@@ -168,15 +168,6 @@ class TestRunnerHyperstackTrigger:
         build.assert_called_once()
 
 
-def test_gui_tier_no_longer_owns_the_trigger():
-    # The GUI-tier trigger read the LIVE UI config and was unreachable
-    # from a headless host; its deletion is load-bearing for the
-    # relocation (a surviving copy would be a second, drifting path).
-    import modules.config_ui_getters as config_ui_getters
-
-    assert not hasattr(config_ui_getters, 'create_hyperstacks_if_needed')
-
-
 # ---------------------------------------------------------------------------
 # Run-mode exhaustiveness: every kind states what the engine does with it
 # ---------------------------------------------------------------------------

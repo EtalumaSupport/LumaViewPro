@@ -201,6 +201,30 @@ class ChannelRecord:
     label: str
 
 
+@api_fields('slider_max_exposure_ms', 'slider_max_illumination_ma')
+@dataclass(frozen=True)
+class ChannelSliderMaxima:
+    """Where one layer's manual sliders stop: display hints, never a bound.
+
+    Each is the connected part's cap narrowed to the layer's manual ceiling,
+    so the brightfield slider stops at a useful range while a typed value
+    still reaches past it, up to what the camera or the LED board can be
+    asked for. A value above that limit is refused by its writer
+    (``CameraAPI.set_exposure_ms``, the illumination and settings writers),
+    never by this record.
+
+    Attributes:
+        slider_max_exposure_ms: The exposure slider's maximum, in
+            milliseconds; None with no camera connected.
+        slider_max_illumination_ma: The illumination slider's maximum, in
+            mA; None with no LED board, or for a layer with no LED on this
+            scope (luminescence).
+    """
+
+    slider_max_exposure_ms: float | None
+    slider_max_illumination_ma: int | None
+
+
 class IdentitySource(enum.StrEnum):
     """Which rung of the identity resolver answered."""
 

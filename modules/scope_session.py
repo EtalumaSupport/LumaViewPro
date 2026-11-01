@@ -41,7 +41,7 @@ from modules import (
     path_utils,
     settings_paths,
 )
-from modules.layer_record import refuse_unknown_layer
+from modules.layer_record import ChannelSliderMaxima, refuse_unknown_layer
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -2150,6 +2150,34 @@ class ScopeSession:
             if override is not None:
                 colors[key] = parse_display_color(override)
         return colors
+
+    @api(reads=True)
+    def channel_slider_maxima(self, channel: str) -> ChannelSliderMaxima:
+        """Where ``channel``'s manual exposure and illumination sliders stop.
+
+        Display hints for a control, never a bound: a typed value may exceed
+        either, up to what the camera or the LED board can be asked for,
+        which their writers refuse past. The illumination maximum is None for
+        a channel with no LED on this scope.
+
+        Args:
+            channel: The layer read.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
+        """
+        import modules.config_helpers as config_helpers
+
+        refuse_unknown_layer(channel)
+        capabilities = self.scope.capabilities
+        limits = capabilities.camera_limits
+        record = self.scope.channel_identity.find(channel)
+        lit = record is not None and bool(record.led_addresses)
+        return config_helpers.layer_slider_maxima(
+            channel,
+            exposure_cap_ms=None if limits is None else limits.exposure_max_ms,
+            illumination_cap_ma=capabilities.led_max_ma if lit else None,
+        )
 
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers

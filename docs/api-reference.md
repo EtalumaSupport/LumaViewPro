@@ -44,6 +44,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`ChannelIdentity`](#ChannelIdentity)
 - [`ChannelRecord`](#ChannelRecord)
 - [`ChannelSettings`](#ChannelSettings)
+- [`ChannelSliderMaxima`](#ChannelSliderMaxima)
 - [`ClockMapping`](#ClockMapping)
 - [`ControlSession`](#ControlSession)
 - [`ControlsLock`](#ControlsLock)
@@ -863,6 +864,35 @@ release's, so a folder captured on another unit still has one.
 **Refusals by REST status**
 
 - 500: [`InstallationFileError`](#InstallationFileError): `installation_file_unusable`
+
+<a id="ScopeSession.channel_slider_maxima"></a>
+### `ScopeSession.channel_slider_maxima`
+
+```python
+def channel_slider_maxima(self, channel: str) -> ChannelSliderMaxima
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/channel_slider_maxima`.
+
+Where `channel`'s manual exposure and illumination sliders stop.
+
+Display hints for a control, never a bound: a typed value may exceed
+either, up to what the camera or the LED board can be asked for,
+which their writers refuse past. The illumination maximum is None for
+a channel with no LED on this scope.
+
+**Args**
+
+- `channel`: The layer read.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 
 <a id="ScopeSession.clear_current_turret_objective"></a>
 ### `ScopeSession.clear_current_turret_objective`
@@ -9611,6 +9641,26 @@ the channel's control keeps what it holds.
 - <a id="ChannelSettings.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current, in mA.
 - <a id="ChannelSettings.stim_enabled"></a>`stim_enabled`: `bool | None` -- The channel's stimulation is on; never inferred from the steps.
 
+<a id="ChannelSliderMaxima"></a>
+## `ChannelSliderMaxima`
+
+A record: it crosses the wire as its data.  
+Returned by: [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima).
+
+Where one layer's manual sliders stop: display hints, never a bound.
+
+Each is the connected part's cap narrowed to the layer's manual ceiling,
+so the brightfield slider stops at a useful range while a typed value
+still reaches past it, up to what the camera or the LED board can be
+asked for. A value above that limit is refused by its writer
+(`CameraAPI.set_exposure_ms`, the illumination and settings writers),
+never by this record.
+
+**Fields**
+
+- <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected.
+- <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a layer with no LED on this scope (luminescence).
+
 <a id="ClockMapping"></a>
 ## `ClockMapping`
 
@@ -17271,6 +17321,7 @@ reads what the person was shown.
 | `PUT` | `/api/v1/channel_auto_gain` | [`ScopeSession.set_channel_auto_gain`](#ScopeSession.set_channel_auto_gain) |
 | `GET` | `/api/v1/channel_auto_gain_lock` | [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock) |
 | `GET` | `/api/v1/channel_colors` | [`ScopeSession.channel_colors`](#ScopeSession.channel_colors) |
+| `GET` | `/api/v1/channel_slider_maxima` | [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima) |
 | `POST` | `/api/v1/clear_current_turret_objective` | [`ScopeSession.clear_current_turret_objective`](#ScopeSession.clear_current_turret_objective) |
 | `POST` | `/api/v1/clear_turret_objective` | [`ScopeSession.clear_turret_objective`](#ScopeSession.clear_turret_objective) |
 | `POST` | `/api/v1/confirm_objective` | [`ScopeSession.confirm_objective`](#ScopeSession.confirm_objective) |

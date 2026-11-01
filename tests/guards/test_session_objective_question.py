@@ -582,11 +582,6 @@ class TestT14OpticsRecord:
         ]
         assert offenders == [], offenders
 
-    def test_the_gui_getters_no_longer_define_the_record(self):
-        import modules.config_ui_getters as config_ui_getters
-
-        assert not hasattr(config_ui_getters, 'log_resolved_optics')
-
 
 class TestPopulatedSlotsSurviveTheLoad:
     """A behaviour-preservation guard for the settings pipeline's ordering.

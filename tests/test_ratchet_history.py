@@ -79,7 +79,7 @@ def test_every_guard_detector_has_a_history_column():
     for every other migration and says nothing about the new one, which
     reads as "nothing to measure" rather than as an omission.
     """
-    detector_name = re.compile(r'_(?:ui|gui|modules|lower_layer|twin)_\w+_(?:counts|names)')
+    detector_name = re.compile(r'_(?:ui|gui|modules|lower_layer)_\w+_(?:counts|names)')
     in_guards = {
         name
         for name, obj in vars(_guards).items()

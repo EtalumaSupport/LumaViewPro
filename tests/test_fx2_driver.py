@@ -495,7 +495,7 @@ class TestFX2CameraProfile:
     def test_max_exposure_picks_up_dynamic_1000ms_cap(self, fake_fx2_conn):
         """Camera.max_exposure must reflect the dynamic 1000 ms cap, not
         the static MT9P031 register max (~7,366 ms). The UI exposure
-        slider reads `ctx.max_exposure` (= camera.max_exposure) and was
+        slider's maximum comes from the camera's cap (camera.max_exposure) and was
         previously letting users dial past the safe-frame ceiling
         because Camera.max_exposure was a stored field set from a
         separate static profile field. Rule 2 fix: collapsed to a

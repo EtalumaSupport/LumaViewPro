@@ -14,7 +14,6 @@ from __future__ import annotations
 import ast
 import inspect
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
@@ -23,7 +22,6 @@ from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, LEDBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.registry import led_registry
 from drivers.simulated_ledboard import SimulatedLEDBoard
-from modules import config_helpers
 from modules.exceptions import ArgumentRefusedError
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
@@ -31,7 +29,7 @@ from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 from tests.case_walk import failing_cases
 from tests.scope_fakes import capabilities_of
-from tests.stock_channels import LED0, LED2
+from tests.stock_channels import LED0
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
@@ -175,19 +173,8 @@ def test_the_protocol_carries_no_cap_of_its_own():
 
 
 # ---------------------------------------------------------------------------
-# The UI bounds resolve below the GUI
+# The slider bound is the session's answer, shown by the GUI
 # ---------------------------------------------------------------------------
-
-
-def _fake_caps(cap):
-    return SimpleNamespace(led_max_ma=cap)
-
-
-def test_slider_bound_is_the_cap_narrowed_by_the_catalogue_ceiling():
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'BF') == 50
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'PC') == 50
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), LED0) == 840
-    assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(1000), LED2) == 1000
 
 
 def _calls_in(fn_node) -> set[str]:
@@ -222,7 +209,7 @@ def test_the_capability_grouping_owns_the_slider_bound():
     setter = find_def('ui/image_settings.py', 'set_layer_illumination_ranges', 'ImageSettings')
     assert setter is not None
     assert _ill_slider_max_writes_in(setter) == 1
-    assert 'layer_max_illumination_ma_for_ui' in _calls_in(setter)
+    assert 'session.channel_slider_maxima' in _calls_in(setter)
 
 
 def test_nothing_else_in_the_panel_writes_the_slider_bound():

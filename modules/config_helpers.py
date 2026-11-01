@@ -19,7 +19,7 @@ from lvp_logger import logger, metrics_logger
 from modules.acquire_mode import AcquireMode
 from modules.api_surface import api
 from modules.coord_transformations import PlateLocation
-from modules.layer_record import Modality
+from modules.layer_record import ChannelSliderMaxima, Modality, release_layer
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -855,15 +855,11 @@ def log_system_metrics(
 
 
 # ---------------------------------------------------------------------------
-# Headless config getters -- GUI-free equivalents of config_ui_getters.py
+# Headless config getters
 #
-# These read from the settings dict (or scope object) instead of Kivy widgets.
-# Used by the REST API and any non-GUI context.
+# These read from the settings dict (or scope object), never from Kivy
+# widgets, so the REST API, the GUI and any non-GUI context share them.
 # ---------------------------------------------------------------------------
-
-# Fallback exposure slider upper bound used when no camera is connected:
-# capabilities.camera_limits is None then, or its maximum unknown. See #616.
-DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # The usable exposure FLOOR per channel class (ms): see
 # get_ag_ae_min_exposure_ms. Transmitted light can legitimately run at a
@@ -882,30 +878,10 @@ DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
-def _camera_cap_for_ui(value: float | None, default: float) -> float:
-    """A live camera cap, or the no-camera default.
-
-    The limits are None by design when no camera is connected (so callers
-    can tell "missing" from a real value; #616); this applies the documented
-    UI fallback in one place for both the exposure and gain resolvers.
-    """
-    if value is not None:
-        return value
-    return default
-
-
-def camera_max_exposure_for_ui(limits: 'CameraLimits | None') -> float:
-    """The exposure-slider upper bound from the camera's limits
-    (``capabilities.camera_limits``), or the no-camera default. The single
-    UI-facing resolver, so the connect (load_settings) and reconnect paths
-    can't apply the fallback differently.
-    """
-    return _camera_cap_for_ui(limits.exposure_max_ms if limits else None, DEFAULT_MAX_EXPOSURE_MS)
-
-
 def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
     """The gain-slider upper bound from the camera's limits, or the no-camera
-    default. Parallel to camera_max_exposure_for_ui.
+    default (``DEFAULT_MAX_GAIN_DB``; the limits are None by design when no
+    camera is connected, so a caller can tell "missing" from a real value).
 
     Normalised to the same precision every other gain number in the app
     carries. A GenICam float node reports its maximum in continuous units and
@@ -925,63 +901,63 @@ def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
-    cap = _camera_cap_for_ui(limits.gain_max_db if limits else None, DEFAULT_MAX_GAIN_DB)
+    cap = (
+        limits.gain_max_db
+        if limits is not None and limits.gain_max_db is not None
+        else DEFAULT_MAX_GAIN_DB
+    )
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 
-# The manual illumination ceilings are each layer's catalogue record's
-# (`manual_max_illumination_ma` in scopes.json). The transmitted LEDs
-# (BF / PC / DF) are far brighter per mA than the fluorescence channels, so
-# their slider stops well under the board's ceiling; the text entry reaches
-# past it for the rare sample that needs it (Eric, 2026-09-12: "slider at 50,
-# but you can type up to 500 still"), up to what the connected board can be
-# asked for, which the settings writer refuses to exceed.
-
-
-def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
-    """The illumination-slider upper bound for one layer: the connected LED
-    driver's cap, narrowed to the layer's manual ceiling where it has one.
-
-    Raises:
-        ArgumentRefusedError: ``layer`` is not a layer of this release.
-    """
-    from modules.layer_record import release_layer
-
-    cap = int(capabilities.led_max_ma)
-    ceiling = release_layer(layer).manual_max_illumination_ma
-    if ceiling is None:
-        return cap
-    return min(ceiling, cap)
-
-
-# The manual exposure ceilings are each layer's catalogue record's
-# (`manual_max_exposure_ms` in scopes.json). Transmitted light is bright
-# enough that the useful manual range sits far under the sensor's maximum,
-# BF's lowest of all. Fluorescence exposures past a second stop being a
-# usable manual range: the Pylon sensors reach ten seconds, which would put
-# every useful slider position in the first tenth of the track. Luminescence
-# has no ceiling -- integrating as long as the sensor allows is that
-# channel's purpose, so its slider goes to the camera's own cap (Eric,
-# 2026-09-12).
+# The manual ceilings are each layer's catalogue record's
+# (`manual_max_exposure_ms`, `manual_max_illumination_ma` in scopes.json).
+#
+# Illumination: the transmitted LEDs (BF / PC / DF) are far brighter per mA
+# than the fluorescence channels, so their slider stops well under the
+# board's ceiling; the text entry reaches past it for the rare sample that
+# needs it (Eric, 2026-09-12: "slider at 50, but you can type up to 500
+# still"), up to what the connected board can be asked for, which the
+# settings writer refuses to exceed.
+#
+# Exposure: transmitted light is bright enough that the useful manual range
+# sits far under the sensor's maximum, BF's lowest of all. Fluorescence
+# exposures past a second stop being a usable manual range: the Pylon sensors
+# reach ten seconds, which would put every useful slider position in the
+# first tenth of the track. Luminescence has no ceiling -- integrating as long
+# as the sensor allows is that channel's purpose, so its slider goes to the
+# camera's own cap (Eric, 2026-09-12).
 #
 # Deliberately NOT settings['ag_ae_max_exposure_ms']: that bounds what the AUTO
 # loop may drive to and is set per install, so reusing it would let auto-exposure
 # tuning silently resize the manual slider.
 
 
-def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
-    """The exposure-slider upper bound for one layer: the camera's own cap,
-    narrowed to the layer's manual ceiling where it has one.
+def _narrowed(cap: float | None, ceiling: float | None) -> float | None:
+    """A connected part's cap narrowed to a layer's manual ceiling: None with
+    no part to cap it, the cap where the layer has no ceiling."""
+    if cap is None or ceiling is None:
+        return cap
+    return min(ceiling, cap)
+
+
+def layer_slider_maxima(
+    layer: str, *, exposure_cap_ms: float | None, illumination_cap_ma: int | None
+) -> ChannelSliderMaxima:
+    """One layer's manual slider maxima: the connected camera's exposure cap
+    and the current cap of the layer's LED, each narrowed to the layer's
+    manual ceiling where it has one; None where there is no cap (no camera;
+    no LED board, or no LED for the layer).
 
     Raises:
         ArgumentRefusedError: ``layer`` is not a layer of this release.
     """
-    from modules.layer_record import release_layer
-
-    ceiling = release_layer(layer).manual_max_exposure_ms
-    if ceiling is None:
-        return camera_max_ms
-    return min(ceiling, camera_max_ms)
+    catalogue = release_layer(layer)
+    return ChannelSliderMaxima(
+        slider_max_exposure_ms=_narrowed(exposure_cap_ms, catalogue.manual_max_exposure_ms),
+        slider_max_illumination_ma=_narrowed(
+            illumination_cap_ma, catalogue.manual_max_illumination_ma
+        ),
+    )
 
 
 def get_binning_from_settings(settings: dict) -> int:

@@ -18,9 +18,8 @@ from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_report
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
-# Brightfield's illumination bounds come from the resolver in
-# modules.config_helpers, beside the LED driver's cap; its exposure bounds
-# come from the camera, through the resolvers in modules.config_ui_getters.
+# Every layer's slider maxima, brightfield's included, are the session's
+# answer (ScopeSession.channel_slider_maxima), set in image_settings.
 INIT_MAX_RETRIES = 50
 
 # The three settings a layer shows twice -- once on a slider, once in a text

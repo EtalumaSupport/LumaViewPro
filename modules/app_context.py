@@ -94,7 +94,6 @@ class AppContext:
     show_tooltips: bool = False
     live_histo_setting: bool = False
     last_save_folder: str = None
-    max_exposure: float = 0.0
     max_gain: float = 0.0
     live_view_fps: int = 30
 
