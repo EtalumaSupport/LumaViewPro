@@ -8131,11 +8131,12 @@ monitor sets; no serial I/O from the calling thread.
 - `MoveStoppedError`: An axis it waited for ended UNKNOWN after a STOP ended its move, as the close's does: `'stopped'`, or `'superseded'`.
 - `MoveWaitExpiredError`: `'still_moving'`, a `TimeoutError`: an axis was still moving when `timeout_s` ran out; its state is left to its own move.
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout_s` is not a wait from 0 to 30 days: a NaN deadline would end the wait at once, and one longer than the host can hold would raise out of it.
+- `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, which a wait of up to `timeout_s` would freeze.
 
 **Refusals by REST status**
 
 - 409: [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`MoveWaitExpiredError`](#MoveWaitExpiredError): `still_moving`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 - 500: [`MoveFaultError`](#MoveFaultError): `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 
 <a id="RuntimeState"></a>

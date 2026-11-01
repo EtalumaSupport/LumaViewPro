@@ -7,7 +7,9 @@ done is refused ``wait_on_ui_thread`` (``modules/operation.py``). Asked
 only at the wait, that refusal reached the caller after the start: the
 caller was told "refused" while the stage drove on or the run went on. So
 each waiting form refuses first, by the same reason, and the scope is left
-as it was: nothing holds it, no lane has work, no axis moves.
+as it was: nothing holds it, no lane has work, no axis moves. A wait that
+starts nothing, ``wait_until_finished_moving``, is refused there by the same
+reason: it would hold the UI thread for up to its whole timeout.
 """
 
 import pytest
@@ -71,6 +73,7 @@ _WAITING_FORMS = {
     'run_autofocus': lambda s, r, d: r.run_autofocus('BF', parent_dir=str(d)),
     'run_autofocus_all_steps': lambda s, r, d: r.run_autofocus_all_steps(_far_step(s)),
     'run_zstack': lambda s, r, d: r.run_zstack('BF', parent_dir=str(d)),
+    'wait_until_finished_moving': lambda s, r, d: s.scope.motion.wait_until_finished_moving(),
 }
 
 

@@ -3669,7 +3669,10 @@ class MotionAPI:
                 ``timeout_s`` is not a wait from 0 to 30 days: a NaN deadline
                 would end the wait at once, and one longer than the host can
                 hold would raise out of it.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, which a wait of up to ``timeout_s`` would freeze.
         """
+        refuse_waiting_on_ui_thread('wait_until_finished_moving')
         refuse_unless_wait_s(timeout_s, 'timeout_s')
         with self._axis_state_lock:
             moving = [
