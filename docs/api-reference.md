@@ -15838,7 +15838,7 @@ selected.
 
 **Attributes**
 
-- `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalogue'` -- the slot in the light path is assigned an objective that is not in the objective catalogue. `'none_selected'` -- no objective has been selected, as on a scope with no turret before its first selection.
+- `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost, or a turret command is still under way. The sentence names the two remedies that work in both: wait for the turret, or home the scope. A turret home or move is not one of them, since the motion gate refuses both while any axis has no known position. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalogue'` -- the slot in the light path is assigned an objective that is not in the objective catalogue. `'none_selected'` -- no objective has been selected, as on a scope with no turret before its first selection.
 - `slot`: The slot in the light path, or None when that is what is unknown.
 
 | Reason | Cause | REST status |

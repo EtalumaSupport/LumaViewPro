@@ -191,7 +191,7 @@ class TestTheContinuationFollowsTheQuestion:
         h = _Harness(monkeypatch, _ScriptedSession(ObjectiveUnknownError('slot_unknown')))
         runs = self._prompt(h)
         assert [n.title for n in centre_posts] == ['Objective Unknown']
-        assert 'home the turret' in centre_posts[0].message
+        assert 'home the scope' in centre_posts[0].message
         assert h.popups == [] and h.error_popups == []
         assert runs == [1]
 
@@ -412,7 +412,7 @@ class TestResetLeavesTheSlotCleared:
         h = _Harness(monkeypatch, session)
         h.stand.reset_turret_objective()
         assert [n.title for n in centre_posts] == ['Objective Unknown']
-        assert 'home the turret' in centre_posts[0].message
+        assert 'home the scope' in centre_posts[0].message
         assert h.error_popups == []
         assert h.stand.shown == [False]
 
@@ -471,7 +471,7 @@ class TestAnUnknownSlotSaysWhatHappensNext:
             assert h.popups == [] and h.error_popups == []
             assert [n.title for n in centre_posts] == ['Objective Unknown']
             message = centre_posts[0].message
-            assert 'home the turret' in message
+            assert 'home the scope' in message
             assert 'may be wrong' not in message
 
             with pytest.raises(ObjectiveUnknownError):

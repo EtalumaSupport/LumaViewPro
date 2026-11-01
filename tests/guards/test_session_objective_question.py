@@ -158,7 +158,7 @@ class TestT8ObjectiveQuestion:
         assert question is not None
         assert question.turret_slot == 2
 
-    def test_an_owed_question_with_the_slot_unknown_says_home_the_turret(self, sessions):
+    def test_an_owed_question_with_the_slot_unknown_says_home_the_scope(self, sessions):
         # Bring-up alone leaves the slot unknown: there is no slot to ask about.
         from modules.exceptions import ObjectiveUnknownError
 
@@ -166,7 +166,7 @@ class TestT8ObjectiveQuestion:
         with pytest.raises(ObjectiveUnknownError) as excinfo:
             session.objective_question()
         assert excinfo.value.reason == 'slot_unknown'
-        assert 'home the turret' in str(excinfo.value)
+        assert 'home the scope' in str(excinfo.value)
 
     def test_a_turret_move_in_flight_owes_no_question(self, sessions, monkeypatch):
         # The slot is unknown for the whole of every turret move. On a

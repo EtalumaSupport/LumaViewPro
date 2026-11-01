@@ -68,7 +68,7 @@ def test_resetting_an_unknown_slot_is_one_objective_unknown_warning(
     assert [(n.severity, n.title) for n in centre_posts] == [
         (Severity.WARNING, 'Objective Unknown')
     ]
-    assert 'home the turret' in centre_posts[0].message
+    assert 'home the scope' in centre_posts[0].message
     assert _records(caplog) == [(NOTIFICATIONS, logging.WARNING, False)]
     assert stand.popups == []
 

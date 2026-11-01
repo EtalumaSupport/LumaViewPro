@@ -3,7 +3,7 @@
 
 Nothing is broken when no one can say which objective is in the light
 path: the scope declines to answer with one it cannot vouch for, and the
-person can home the turret or assign the objective. Unmarked, a lane task
+person can home the scope or assign the objective. Unmarked, a lane task
 that raised it read as a crash -- an ERROR with a traceback, and a popup
 titled "Background operation failed" over the refusal's own words.
 """
