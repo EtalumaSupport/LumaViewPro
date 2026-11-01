@@ -50,6 +50,7 @@ Walk files are read and checked by ``ui.sim_walk_file``.
 import logging
 import pathlib
 import time
+import weakref
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -130,6 +131,8 @@ class SimWalk:
         self.shots: list[str] = []
 
     def start(self) -> None:
+        Window.bind(children=_watch_popups)
+        _watch_popups()
         self._bring_up_deadline = time.monotonic() + _BRING_UP_TIMEOUT_S
         Clock.schedule_once(self._await_bring_up, 0)
 
@@ -261,18 +264,6 @@ class SimWalk:
                 )
             yield _POLL_S
 
-    def _until_closed(self, view):
-        # A dismissed popup stays on the window, still open, until its fade
-        # has run; the next step would find it there and stop, on a host
-        # slow enough that the fade outlasts the step between.
-        deadline = time.monotonic() + _WAIT_TIMEOUT_S
-        while view in open_popups():
-            if time.monotonic() > deadline:
-                raise WalkStepError(
-                    f'the popup {getattr(view, "title", "")!r} was answered but never closed'
-                )
-            yield _POLL_S
-
     def _choose(self, step):
         button = self._resolve(step['path'])
         file_dialogs.answer_next_dialog('' if step.get('cancel') else step['file'])
@@ -302,6 +293,8 @@ class SimWalk:
         yield from ()
 
     def _shot(self, step):
+        # A popup fading out is a picture of neither its open nor its closed state.
+        yield from _until_no_popup_fades()
         yield 0
         if not self._picture(step['name']):
             raise WalkStepError(f'the window picture {step["name"]!r} was not written')
@@ -325,6 +318,9 @@ class SimWalk:
             if questions:
                 raise WalkStepError(_answer_it_first(questions[0]))
             still = [f'a popup ({getattr(view, "title", "")!r})' for view in open_popups()]
+            still.extend(
+                f'a popup closing ({getattr(view, "title", "")!r})' for view in _fading_popups()
+            )
             still.extend(self._in_flight())
             if not still:
                 return
@@ -402,6 +398,9 @@ class SimWalk:
             yield _POLL_S
         # The accordion lays out on the frame after its last animation tick.
         yield _POLL_S
+        # A popup fading out after its dismiss still takes every touch until
+        # the fade removes it, so a press sent before then lands on it.
+        yield from _until_no_popup_fades()
         # A person scrolls only to reach what they cannot see, so the walk
         # does too: Kivy's scroll_to moves content shorter than its view to
         # the view's bottom even when the target is already in it.
@@ -419,13 +418,6 @@ class SimWalk:
             if widget.collide_point(*touch.pos):
                 arrived.append(True)
 
-        # The popup the target sits in, which the reachability check put on
-        # top: a touch that closes it waits out its fade, so the next step
-        # never meets a popup the walk itself has answered.
-        popups = open_popups()
-        view = popups[0] if popups else None
-        dismissed = []
-        uid = view.fbind('on_pre_dismiss', lambda *_: dismissed.append(True)) if view else None
         target.fbind('on_touch_down', arrival)
         try:
             touch = UnitTestTouch(x, y)
@@ -436,12 +428,8 @@ class SimWalk:
                 yield _POLL_S
         finally:
             target.funbind('on_touch_down', arrival)
-            if view is not None:
-                view.unbind_uid('on_pre_dismiss', uid)
         if not arrived:
             raise WalkStepError(f'{path}: the touch at ({x:.0f}, {y:.0f}) did not reach it')
-        if dismissed:
-            yield from self._until_closed(view)
 
 
 def _stop_the_app() -> None:
@@ -478,9 +466,42 @@ def _answer_it_first(view) -> str:
     return f'a popup is open ({getattr(view, "title", "")!r}); answer it first'
 
 
+# A popup told to close stays on the window while it fades out, until the
+# fade removes it; a person sees it going, not open. Each is recorded as it
+# is dismissed, and every popup is watched from the moment it reaches the
+# window, so none closes unrecorded.
+_closing: weakref.WeakSet = weakref.WeakSet()
+_watched: weakref.WeakSet = weakref.WeakSet()
+
+
+def _fading_popups() -> list:
+    return [w for w in Window.children if w in _closing]
+
+
+def _until_no_popup_fades():
+    deadline = time.monotonic() + _WAIT_TIMEOUT_S
+    while fading := _fading_popups():
+        if time.monotonic() > deadline:
+            raise WalkStepError(
+                f'the popup {getattr(fading[0], "title", "")!r} was dismissed but never closed'
+            )
+        yield _POLL_S
+
+
+def _watch_popups(*_args) -> None:
+    for view in Window.children:
+        if isinstance(view, ModalView) and view not in _watched:
+            _watched.add(view)
+            view.fbind('on_pre_dismiss', _closing.add)
+            view.fbind('on_pre_open', _closing.discard)
+
+
 def open_popups() -> list:
-    """The open popups, the one on top first: Kivy puts the newest window child at index 0."""
-    return [w for w in Window.children if isinstance(w, ModalView)]
+    """The open popups, the one on top first: Kivy puts the newest window child at index 0.
+
+    A popup fading out after its dismiss is not one: it asks nothing.
+    """
+    return [w for w in Window.children if isinstance(w, ModalView) and w not in _closing]
 
 
 def _placed_by(widget):

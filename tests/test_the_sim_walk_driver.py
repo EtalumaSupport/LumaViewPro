@@ -219,6 +219,12 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 500, 200
+    Button:
+        id: handbtn
+        text: 'hand'
+        size_hint: None, None
+        size: 100, 40
+        pos: 20, 200
 ''')
 
 root = FloatLayout()
@@ -251,10 +257,22 @@ def field_focus(field, focused):
         frames['commit'] = Clock.frames
 ids.field.bind(focus=field_focus)
 
+# When a popup leaves the window, its fade run, in wall time: read in the
+# window's own change of children, so in the same call that removes it.
+def record_gone(p, key):
+    shown = []
+    def check(window, children):
+        if p in children:
+            shown.append(True)
+        elif shown and key not in frames:
+            frames[key] = time.time()
+    Window.bind(children=check)
+
 def open_popup(*_):
     ok = Button(text='OK')
     p = Popup(title='Notice', content=ok, size_hint=(0.3, 0.3), auto_dismiss=False)
     ok.bind(on_release=lambda *_: (hits.append('ok'), p.dismiss()))
+    record_gone(p, 'notice_gone')
     p.open()
 ids.popbtn.bind(on_release=open_popup)
 
@@ -301,6 +319,26 @@ def open_progress(*_):
     p.open()
     Clock.schedule_once(lambda dt: p.dismiss(), 1.0)
 ids.progbtn.bind(on_release=open_progress)
+
+# A notice that hands over to the next as it closes, as a run's "Saving
+# Hyperstacks" closes when "Hyperstacks Saved" opens: both have an OK. The
+# first's fade is made long, so the walk's answer lands inside it whatever
+# the host's frame rate.
+def notice(title):
+    ok = Button(text='OK')
+    p = Popup(title=title, content=ok, size_hint=(0.3, 0.3), auto_dismiss=False)
+    ok.bind(on_release=lambda *_: (hits.append('ok ' + title), p.dismiss()))
+    return p
+def open_handover(*_):
+    saving = notice('Saving')
+    saving._anim_duration = 1.0
+    record_gone(saving, 'saving_gone')
+    saving.open()
+    def hand_over(dt):
+        saving.dismiss()
+        notice('Saved').open()
+    Clock.schedule_once(hand_over, 0.3)
+ids.handbtn.bind(on_release=open_handover)
 
 def native():
     raise AssertionError('the native picker ran during a scripted walk')
@@ -505,6 +543,24 @@ def test_the_popup_on_top_is_the_one_answered(tmp_path):
     )
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['ok'], result
+
+
+def test_a_popup_closing_as_another_opens_is_not_answered(tmp_path):
+    """A dismissed popup stays on the window while it fades; the answer is
+    the one still open, as a person sees only it."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/handbtn'},
+            # Holds the UI thread past the handover, so the answer's first
+            # look comes with the closed popup still fading.
+            {'do': 'hold', 'seconds': 0.5},
+            {'do': 'answer', 'button': 'OK'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok Saved'], result
 
 
 def test_a_spinner_inside_a_popup_takes_its_pick(tmp_path):
@@ -773,7 +829,7 @@ def test_a_wait_stops_at_once_at_a_popup_that_waits_for_a_person(tmp_path):
 
 def test_a_wait_after_a_press_that_closed_a_popup_runs_on(tmp_path):
     """The popup a press inside it dismissed fades before it leaves the
-    window; the press waits that out, so the wait after it finds no popup."""
+    window; it asks nothing, so the wait after it runs on, once it is gone."""
     result = _run(
         tmp_path,
         [
@@ -785,6 +841,27 @@ def test_a_wait_after_a_press_that_closed_a_popup_runs_on(tmp_path):
 
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['ok'], result
+    waited = next(t for line, t in result['walk_times'].items() if ' step 3 ' in line)
+    assert waited >= result['frames']['notice_gone'], 'the wait ended while the popup faded'
+
+
+def test_a_picture_waits_for_a_closing_popup_to_leave(tmp_path):
+    """A popup fading out is neither its open nor its closed state, so a
+    picture taken while one fades waits until it has left the window."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/handbtn'},
+            {'do': 'hold', 'seconds': 0.5},
+            {'do': 'shot', 'name': 'handover'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    pictured = next(t for line, t in result['walk_times'].items() if ' step 3 picture ' in line)
+    # No time is recorded when the walk ended with the popup still fading.
+    gone = result['frames'].get('saving_gone')
+    assert gone is not None and pictured >= gone, 'the picture caught the fading popup'
 
 
 def test_a_wait_holds_for_a_progress_popup_until_it_closes_itself(tmp_path):
