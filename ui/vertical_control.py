@@ -229,7 +229,7 @@ class VerticalControl(BoxLayout):
             # is; the active objective there is unknown.
             button.text = f'< {position} >' if assigned is None else assigned
 
-        objective_id = ctx.scope.runtime_state.get_current_objective_id()
+        objective_id = ctx.session.objective_id
         self.ids['assign_objective_btn'].text = objective_id or 'Assign Objective'
         shown = objective_id or 'Unknown'
         if ctx.scope.capabilities.has_turret:

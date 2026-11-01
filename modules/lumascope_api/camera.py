@@ -152,9 +152,19 @@ class _AutoGainArm:
     resume_after_capture: bool
 
 
+@api_fields('auto_gain', 'auto_gain_settings', 'exposure_ms', 'gain_db')
 @dataclasses.dataclass(frozen=True)
 class LayerCameraRequest:
-    """A layer's stored camera settings, read from its store, for the camera to take."""
+    """A layer's stored camera settings, read from its store, for the camera to take.
+
+    Attributes:
+        gain_db: The layer's stored gain, in dB.
+        exposure_ms: The layer's stored exposure, in ms.
+        auto_gain: Whether the layer's gain is set by auto-gain.
+        auto_gain_settings: The auto-gain bounds the layer's channel class
+            and the installation's override give it, with its exposure
+            ceiling and floor.
+    """
 
     gain_db: float
     exposure_ms: float
@@ -162,13 +172,19 @@ class LayerCameraRequest:
     auto_gain_settings: dict
 
 
+@api_fields('channel', 'request')
 @dataclasses.dataclass(frozen=True)
 class LayerHold:
     """A layer and its stored camera settings, for a capture to hold: the pair
     ``CameraAPI.hold_layer`` takes, in one value so neither travels without
-    the other. The Session reads ``request`` from the layer's store."""
+    the other. The Session reads ``request`` from the layer's store.
 
-    layer: str
+    Attributes:
+        channel: The layer's channel key.
+        request: The layer's stored camera settings.
+    """
+
+    channel: str
     request: LayerCameraRequest
 
 
@@ -4218,6 +4234,7 @@ class CameraAPI:
         # converged value while LVP's cache is still pre-auto.
         self._refresh_cache_from_hardware_after_auto()
 
+    @api(in_process=True, engineering=True)
     @contextlib.contextmanager
     def suppress_value_warnings(self) -> Iterator[None]:
         """Suppress programmatic value-range warnings (sub-0.1ms exposure
@@ -4233,6 +4250,9 @@ class CameraAPI:
         nested `with` blocks behave correctly. Restoration runs on
         exception too -- exiting an exception-aborted char run leaves
         the API in a clean state for the next user action.
+
+        Raises:
+            Nothing.
         """
         prior = self._suppress_value_warnings
         self._suppress_value_warnings = True

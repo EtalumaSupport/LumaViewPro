@@ -802,6 +802,7 @@ OPEN_STRINGS: dict[str, str] = {
     'InjectedFault.member field': _MEMBER,
     'Labware.name field': _CATALOGUE_TEXT,
     'Labware.standard field': _CATALOGUE_TEXT,
+    'LayerHold.channel field': _CHANNEL,
     'LedBoardInfo.firmware_date field': _BOARD,
     'LedBoardInfo.firmware_version field': _BOARD,
     'LedReading.name field': _CHANNEL,

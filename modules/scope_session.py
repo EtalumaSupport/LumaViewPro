@@ -2737,7 +2737,7 @@ class ScopeSession:
             )
             if channel != self._shown_layer:
                 raise HardwareCommandRefusedError('channel_not_shown', 'capture_still')
-            hold = LayerHold(layer=channel, request=self._layer_camera_request(channel))
+            hold = LayerHold(channel=channel, request=self._layer_camera_request(channel))
         still = self.scope.imaging.capture_still(
             hold,
             force_to_8bit=force_to_8bit,

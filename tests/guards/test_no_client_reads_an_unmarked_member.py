@@ -82,7 +82,6 @@ _PINNED: dict[str, int] = {
     'PostProcessingAPI.zproject': 1,
     'Protocol.copy_for_execution': 2,
     'Protocol.step_row': 6,
-    'RuntimeState.get_current_objective_id': 1,
     'RuntimeState.get_labware': 4,
 }
 

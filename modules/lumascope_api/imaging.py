@@ -1338,6 +1338,7 @@ class ImagingAPI:
         """
         return self._camera.read_black_level()
 
+    @api(in_process=True, engineering=True)
     def capture_still(
         self,
         hold: LayerHold | None = None,
@@ -1449,7 +1450,7 @@ class ImagingAPI:
         return self._camera._dispatch_camera(
             self._capture_holding_layer_impl,
             'capture_still',
-            args=(hold.layer, hold.request, 'capture_still'),
+            args=(hold.channel, hold.request, 'capture_still'),
             kwargs=capture,
             timeout_s=wait_s + self._camera._CAMERA_WRITE_TIMEOUT_S,
         )

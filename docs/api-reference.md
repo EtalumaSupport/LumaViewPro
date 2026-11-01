@@ -76,6 +76,8 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`InjectedFault`](#InjectedFault)
 - [`Judgment`](#Judgment)
 - [`Labware`](#Labware)
+- [`LayerCameraRequest`](#LayerCameraRequest)
+- [`LayerHold`](#LayerHold)
 - [`LedBoardInfo`](#LedBoardInfo)
 - [`LedReading`](#LedReading)
 - [`LiveFolderEntry`](#LiveFolderEntry)
@@ -3910,7 +3912,7 @@ the turret slot.
 
 **Returns**
 
-An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`ImagingAPI.capture_still`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown layer's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged); `CancelledError` when the lane dropped it unrun (the scope disconnected); `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given: the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
+An `Operation` whose result is a `SavedStill` per file written, the unmarked file first: its file and the instrument's record of it. Done once the still has let go of the camera lane's guard, so a second still asked then is not refused. The still is on the camera lane when this returns, so a run started after it waits for it when it is running or was put on an idle lane. A still has no stop: `stop()` does nothing. The operation raises what the capture raised: `ObjectiveUnknownError` when the objective in the light path is unknown (nothing captured), `LiveFolderPathRefusedError` (reason `'capture_location_unusable'`) when the live folder cannot take the still, `CaptureFailedError` when no frame passed, with the capture's own reason (`ScopeSession.capture_still`); `HardwareCommandRefusedError` (reason `'not_connected'`) when the camera is absent or was removed during the still, `'camera_not_streaming'` when its feed is stopped, `'other_led_lit'` when an LED other than the shown layer's is lit before the frame or lit it (nothing is saved), and `'exclusive_activity_running'` when a run took the scope while the still was queued behind other camera work, waiting or running when it was put on the lane, or when a recording runs and the camera would have to change layers for the still (nothing is written then, and the recording is unchanged); `CancelledError` when the lane dropped it unrun (the scope disconnected); `LaneCallStillRunningError` when it has not finished within the bound a capture and its write are given: the still may yet be taken and saved, its file logged when it is, and a second still is refused `'capture_in_flight'` until then.
 
 **Raises**
 
@@ -10300,6 +10302,35 @@ The centre of the well in column `i` and row `j`, in mm from the plate's top-lef
 **Raises**
 
 Nothing.
+
+<a id="LayerCameraRequest"></a>
+## `LayerCameraRequest`
+
+A record: it crosses the wire as its data.  
+Held in: [`LayerHold.request`](#LayerHold.request).
+
+A layer's stored camera settings, read from its store, for the camera to take.
+
+**Fields**
+
+- <a id="LayerCameraRequest.auto_gain"></a>`auto_gain`: `bool` -- Whether the layer's gain is set by auto-gain.
+- <a id="LayerCameraRequest.auto_gain_settings"></a>`auto_gain_settings`: `dict` -- The auto-gain bounds the layer's channel class and the installation's override give it, with its exposure ceiling and floor.
+- <a id="LayerCameraRequest.exposure_ms"></a>`exposure_ms`: `float` -- The layer's stored exposure, in ms.
+- <a id="LayerCameraRequest.gain_db"></a>`gain_db`: `float` -- The layer's stored gain, in dB.
+
+<a id="LayerHold"></a>
+## `LayerHold`
+
+A record: it crosses the wire as its data.
+
+A layer and its stored camera settings, for a capture to hold: the pair
+`CameraAPI.hold_layer` takes, in one value so neither travels without
+the other. The Session reads `request` from the layer's store.
+
+**Fields**
+
+- <a id="LayerHold.channel"></a>`channel`: `str` -- The layer's channel key.
+- <a id="LayerHold.request"></a>`request`: `LayerCameraRequest` -- The layer's stored camera settings.
 
 <a id="LedBoardInfo"></a>
 ## `LedBoardInfo`
