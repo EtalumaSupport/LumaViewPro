@@ -13,6 +13,7 @@ what a read that waited out its timeout returns, without the wait.
 """
 
 import threading
+import time
 
 import serial
 from serial.tools.list_ports_common import ListPortInfo
@@ -27,11 +28,13 @@ class ScriptedLink:
     ``answers`` maps a command to the lines the board sends back; a command
     with no entry is answered with nothing. ``write_fault`` and
     ``read_fault``, when set, are raised by every write or every read, as
-    pyserial raises a write timeout or a failed link.
+    pyserial raises a write timeout or a failed link. ``write_takes_s`` is
+    how long every write takes to return, as a USB write does.
     """
 
     def __init__(self, answers: dict[str, list[str]] | None = None):
         self.answers = dict(answers or {})
+        self.write_takes_s = 0.0
         self.write_fault: Exception | None = None
         self.read_fault: Exception | None = None
         self.written: list[bytes] = []
@@ -57,6 +60,8 @@ class ScriptedPort:
     def write(self, data: bytes) -> int:
         if self._link.write_fault is not None:
             raise self._link.write_fault
+        if self._link.write_takes_s:
+            time.sleep(self._link.write_takes_s)
         with self._link._lock:
             self._link.written.append(bytes(data))
             answer = self._link.answers.get(data.strip().decode('utf-8', 'ignore'), [])

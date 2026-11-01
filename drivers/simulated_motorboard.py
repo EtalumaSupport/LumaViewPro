@@ -29,6 +29,7 @@ from drivers.exceptions import (
     BoardReportedError,
     PartAbsentError,
 )
+from drivers import host_clock
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
@@ -499,7 +500,7 @@ class SimulatedMotorBoard:
                 pulled, which closes it.
         """
         with self.thread_lock:
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             if not self._plugged:
                 # The write finds the port dead, and the driver closes it.
                 self.driver = None
@@ -514,13 +515,13 @@ class SimulatedMotorBoard:
                 logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 _serial_log.warning(
                     f'[XYZ Sim] {command} -> INJECTED TIMEOUT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                    f'({(host_clock.steady_ns() - t_start) / 1e6:.1f}ms)'
                 )
                 raise BoardNoReplyError(f'{command}: no reply from the board')
 
             self._sim_delay(command)
             response = self._handle_command(command)
-            elapsed_ms = (time.monotonic() - t_start) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[XYZ Sim   ] exchange_command({command}) -> {response}')
             resp_repr = repr(response)
             if len(resp_repr) > 200:

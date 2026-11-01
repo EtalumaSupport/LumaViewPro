@@ -1,11 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The scope's steady clock: the one clock every host stamp set against a frame is read from.
+"""The scope's steady clock: the one clock every host stamp set against a
+frame, and every duration the drivers log, is read from.
 
 A frame's arrival, a change's write and its in-force instant, and the camera
 clock latch's bracket are compared with one another and with the camera's
 own clock, so they are read from this one function and never from a clock
 chosen at the call. The scope publishes it as ``Lumascope.host_steady_ns()``
 for a caller that sets its own "now" against those stamps.
+
+The serial boards' durations -- an exchange, a write, a reset step, the gap
+between commands -- are a few milliseconds, so they are read here too: on a
+coarser clock serial.log would state every one of them as 0 or one step.
 """
 
 import time

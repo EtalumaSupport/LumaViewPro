@@ -15,6 +15,7 @@ from drivers.exceptions import (
     BoardReportedError,
     LedFirmwareWedgedError,
 )
+from drivers import host_clock
 from drivers.serialboard import SerialBoard
 from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import led_registry
@@ -185,7 +186,7 @@ class LEDBoard(SerialBoard):
             sent = False
             try:
                 self.driver.reset_input_buffer()
-                _t0 = time.monotonic()
+                _t0 = host_clock.steady_ns()
                 self.driver.write(b'STIM 0 0 1 2 1\n')
                 sent = True
                 got_stim = None
@@ -213,7 +214,7 @@ class LEDBoard(SerialBoard):
                 _shown = resp or (f'(no answer in {heard!r})' if heard else '(no reply)')
                 _serial_log.info(
                     f'{self._label} {_probe_cmd} (firmware-stim probe) -> '
-                    f'{_shown!r} ({(time.monotonic() - _t0) * 1000.0:.1f}ms)'
+                    f'{_shown!r} ({(host_clock.steady_ns() - _t0) / 1e6:.1f}ms)'
                 )
                 # Drain residual bytes so subsequent commands see a clean buffer
                 time.sleep(0.2)

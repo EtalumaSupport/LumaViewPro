@@ -16,6 +16,7 @@ emulation carries only the field LED firmware, which reports none).
 """
 
 import logging
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -649,6 +650,73 @@ class TestABoardThatSendsNothing:
         board.connect()
         assert board.is_responsive() is True
         assert board.exchange_command('PING') == 'PONG'
+
+
+def _coarse_time(step_s=1.0):
+    """The board module's ``time`` with ``monotonic`` on a coarse grid, as
+    Windows under Python 3.12 reads it (``GetTickCount64``, 15.6 ms a step).
+    The grid here is a second, coarser than any host's, so a duration read
+    from it is 0 or a whole second, never the true few milliseconds."""
+    return SimpleNamespace(
+        monotonic=lambda: time.perf_counter() // step_s * step_s, sleep=time.sleep
+    )
+
+
+def _ms(caplog, pattern):
+    """The duration, in ms, each serial.log line matching *pattern* states."""
+    found = [re.search(pattern, r.getMessage()) for r in caplog.records if r.name == 'LVP.serial']
+    return [float(m.group(1)) for m in found if m]
+
+
+class TestTheDurationsSerialLogStates:
+    """Every duration serial.log states is the true one on any host clock:
+    on a coarse ``time.monotonic`` (Windows 3.12) a 2 ms write and a 14 ms
+    one would read alike. The log is the product here: it is what a
+    connection fault is diagnosed from (#619)."""
+
+    _WRITE_S = 0.002
+
+    def test_each_line_states_the_true_duration_on_a_coarse_clock(self, monkeypatch, caplog):
+        monkeypatch.setattr(serialboard, 'time', _coarse_time())
+        link = ScriptedLink({**_ANSWERING, 'LEDS_OFF': ['LEDs off'], 'FULLINFO': ['a', 'b']})
+        link.write_takes_s = self._WRITE_S
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            board = _connected(link, LEDBoard)
+            board.exchange_command('PING')
+            board.exchange_multiline('FULLINFO', timeout=1)
+            board.leds_off_fast()
+        lines = {
+            'a raw write': _ms(caplog, r'WRITE .* in (\d+)ms'),
+            'the detect step': _ms(caplog, r'RESET step3 detect result: .* in (\d+)ms'),
+            'the reset total': _ms(caplog, r'RESET done .*total=(\d+)ms'),
+            'an exchange': _ms(caplog, r"PING -> 'PONG' \(([\d.]+)ms\)"),
+            'a multi-line exchange': _ms(caplog, r'FULLINFO -> 2 lines: .* \(([\d.]+)ms\)'),
+            'a fast write': _ms(caplog, r'FAST LEDS_OFF: .* write=([\d.]+)ms'),
+        }
+        # Each line spans at least one 2 ms write; a second is the coarse
+        # clock's step, never a real duration here.
+        wrong = {
+            name: found
+            for name, found in lines.items()
+            if not found or any(not self._WRITE_S * 1000 <= ms < 900 for ms in found)
+        }
+        assert not wrong, f'durations off the true one: {wrong}'
+
+    def test_the_command_gap_is_kept_on_a_coarse_clock(self, monkeypatch):
+        """The coarse clock ticks between two commands sent microseconds
+        apart; the gap a board sets is still kept."""
+        now = [100.0]
+        monkeypatch.setattr(
+            serialboard, 'time', SimpleNamespace(monotonic=lambda: now[0], sleep=time.sleep)
+        )
+        board = _connected(ScriptedLink(_ANSWERING))
+        # A board sets its gap here; no shipped board sets one yet.
+        board._min_command_interval = 0.05
+        board.exchange_command('PING')
+        now[0] += 1.0
+        began = time.perf_counter()
+        board.exchange_command('PING')
+        assert time.perf_counter() - began >= 0.045
 
 
 # ---------------------------------------------------------------------------

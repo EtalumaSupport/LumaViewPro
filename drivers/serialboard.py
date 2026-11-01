@@ -28,6 +28,7 @@ from drivers.raw_repl import (
 )
 
 from lib import profile_trace
+from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, HardwareError
 from drivers.serial_backend import PYSERIAL, SerialBackend
 
@@ -102,7 +103,7 @@ class SerialBoard:
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
         self._min_command_interval = 0.0  # seconds; 0 = no rate limit (subclass can override)
-        self._last_command_time = 0.0
+        self._last_command_time = 0  # host_clock.steady_ns() of the last command
         self.baudrate = 115200
         self.bytesize = serial.EIGHTBITS
         self.parity = serial.PARITY_NONE
@@ -253,7 +254,7 @@ class SerialBoard:
         serial.log with per-step timing, bytes drained/written, and
         driver state.
         """
-        t_total_start = time.monotonic()
+        t_total_start = host_clock.steady_ns()
         _serial_log.info(f'{self._label} RESET begin')
         # Reset per-attempt state so reconnect after a power cycle
         # starts fresh instead of carrying over a stale "silent"
@@ -267,11 +268,11 @@ class SerialBoard:
         bytes_ever_seen = 0
 
         # Step 1: Drain stale data from boot or previous session
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         drained = self._drain_serial()
         bytes_ever_seen += drained
         _serial_log.info(
-            f'{self._label} RESET step1 drain: {drained}B in {(time.monotonic() - t0) * 1000:.0f}ms'
+            f'{self._label} RESET step1 drain: {drained}B in {(host_clock.steady_ns() - t0) / 1e6:.0f}ms'
         )
 
         # Step 2: Flush board's input buffer -- USB CDC enumeration can
@@ -281,18 +282,18 @@ class SerialBoard:
         # its input state.
         self._safe_write(b'\n', context='RESET step2 wake newline')
         time.sleep(0.1)
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         drained = self._drain_serial()
         bytes_ever_seen += drained
         _serial_log.info(
-            f'{self._label} RESET step2 drain: {drained}B in {(time.monotonic() - t0) * 1000:.0f}ms'
+            f'{self._label} RESET step2 drain: {drained}B in {(host_clock.steady_ns() - t0) / 1e6:.0f}ms'
         )
 
         # Step 3: Try version detection -- works if firmware is running
         _serial_log.info(
             f'{self._label} RESET step3 detect (in_waiting={self._safe_in_waiting()}B)'
         )
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         pre_bytes = self._detect_response_bytes
         self._detect_firmware_version()
         bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
@@ -300,12 +301,12 @@ class SerialBoard:
             f'{self._label} RESET step3 detect result: '
             f'responding={self.firmware_responding} '
             f'version={self.firmware_version} '
-            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+            f'in {(host_clock.steady_ns() - t0) / 1e6:.0f}ms'
         )
         if self.firmware_responding:
             _serial_log.info(
                 f'{self._label} RESET done (step3 ok) total='
-                f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
+                f'{(host_clock.steady_ns() - t_total_start) / 1e6:.0f}ms'
             )
             return  # Firmware running (version may or may not be parseable)
 
@@ -371,7 +372,7 @@ class SerialBoard:
             f'{self._label} Firmware not responding -- attempting recovery (Ctrl-C/Ctrl-B/Ctrl-D)'
         )
         _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')
         time.sleep(0.2)
         self._safe_write(b'\x03', context='RESET step4 Ctrl-C #2')
@@ -386,14 +387,14 @@ class SerialBoard:
         bytes_ever_seen += drained
         _serial_log.info(
             f'{self._label} RESET step4 drain after Ctrl-D+5s: {drained}B '
-            f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
+            f'(elapsed {(host_clock.steady_ns() - t0) / 1e6:.0f}ms)'
         )
 
         # Step 5: Retry version detection after recovery
         _serial_log.info(
             f'{self._label} RESET step5 detect (in_waiting={self._safe_in_waiting()}B)'
         )
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         pre_bytes = self._detect_response_bytes
         self._detect_firmware_version()
         bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
@@ -401,12 +402,12 @@ class SerialBoard:
             f'{self._label} RESET step5 detect result: '
             f'responding={self.firmware_responding} '
             f'version={self.firmware_version} '
-            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+            f'in {(host_clock.steady_ns() - t0) / 1e6:.0f}ms'
         )
         if self.firmware_responding:
             _serial_log.info(
                 f'{self._label} RESET done (step5 ok after soft reset) total='
-                f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
+                f'{(host_clock.steady_ns() - t_total_start) / 1e6:.0f}ms'
             )
             return  # Recovery with soft reset worked
 
@@ -418,7 +419,7 @@ class SerialBoard:
         # up and declare it silent.
         logger.info(f'{self._label} Trying WDT-safe Ctrl-C recovery')
         _serial_log.info(f'{self._label} RESET step6 WDT-safe retry begin')
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         self._safe_write(b'\x03', context='RESET step6 Ctrl-C #1')
         time.sleep(0.2)
         self._safe_write(b'\x03', context='RESET step6 Ctrl-C #2')
@@ -434,13 +435,13 @@ class SerialBoard:
         bytes_ever_seen += drained
         _serial_log.info(
             f'{self._label} RESET step6 drain after newline: {drained}B '
-            f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
+            f'(elapsed {(host_clock.steady_ns() - t0) / 1e6:.0f}ms)'
         )
 
         _serial_log.info(
             f'{self._label} RESET step7 detect (in_waiting={self._safe_in_waiting()}B)'
         )
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         pre_bytes = self._detect_response_bytes
         self._detect_firmware_version()
         bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
@@ -448,7 +449,7 @@ class SerialBoard:
             f'{self._label} RESET step7 detect result: '
             f'responding={self.firmware_responding} '
             f'version={self.firmware_version} '
-            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+            f'in {(host_clock.steady_ns() - t0) / 1e6:.0f}ms'
         )
 
         # Final decision: if the board has not produced a single byte
@@ -459,7 +460,7 @@ class SerialBoard:
             self.firmware_silent = True
         _serial_log.info(
             f'{self._label} RESET done (final) total='
-            f'{(time.monotonic() - t_total_start) * 1000:.0f}ms '
+            f'{(host_clock.steady_ns() - t_total_start) / 1e6:.0f}ms '
             f'responding={self.firmware_responding} '
             f'silent={self.firmware_silent} '
             f'bytes_ever_seen={bytes_ever_seen}'
@@ -479,16 +480,16 @@ class SerialBoard:
         are logged but not re-raised so the caller can continue its
         recovery sequence.
         """
-        t0 = time.monotonic()
+        t0 = host_clock.steady_ns()
         try:
             n = self.driver.write(data)
-            elapsed_ms = (time.monotonic() - t0) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t0) / 1e6
             _serial_log.info(
                 f'{self._label} WRITE {context}: {len(data)}B written={n} in {elapsed_ms:.0f}ms'
             )
             return n or len(data)
         except Exception as e:
-            elapsed_ms = (time.monotonic() - t0) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t0) / 1e6
             _serial_log.error(
                 f'{self._label} WRITE {context}: {len(data)}B FAILED after {elapsed_ms:.0f}ms ({e})'
             )
@@ -864,10 +865,10 @@ class SerialBoard:
             # Rate limiting: enforce minimum interval between commands
             min_interval = getattr(self, '_min_command_interval', 0)
             if min_interval > 0:
-                elapsed = time.monotonic() - getattr(self, '_last_command_time', 0.0)
+                elapsed = (host_clock.steady_ns() - self._last_command_time) / 1e9
                 if elapsed < min_interval:
                     time.sleep(min_interval - elapsed)
-                self._last_command_time = time.monotonic()
+                self._last_command_time = host_clock.steady_ns()
 
             # Per-call timeout override
             saved_timeout = None
@@ -877,7 +878,7 @@ class SerialBoard:
 
             cmd_upper = command.strip().upper()
             stream = command.encode('utf-8') + b'\n'
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             sent = False
             try:
                 # Flush any stale data in the input buffer before writing.
@@ -935,7 +936,7 @@ class SerialBoard:
                     drained = self.driver.read(remaining)
                     _serial_log.info(f'{self._label} {command} DRAIN {remaining}B: {drained!r}')
 
-                elapsed_ms = (time.monotonic() - t_start) * 1000
+                elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
 
                 # Serial log: compact command -> response with timing
                 resp_repr = repr(response)
@@ -961,7 +962,7 @@ class SerialBoard:
                 return response
 
             except serial.SerialTimeoutException as e:
-                elapsed_ms = (time.monotonic() - t_start) * 1000
+                elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
                 interval = getattr(self, '_error_log_interval', 2.0)
@@ -971,7 +972,7 @@ class SerialBoard:
                 raise BoardNoReplyError(f'{command}: the write to the board timed out') from e
 
             except (serial.SerialException, OSError) as e:
-                elapsed_ms = (time.monotonic() - t_start) * 1000
+                elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
                 interval = getattr(self, '_error_log_interval', 2.0)
@@ -1038,7 +1039,7 @@ class SerialBoard:
             self.driver.timeout = min(timeout, 5.0)  # per-readline timeout
 
             cmd_upper = command.strip().upper()
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             # Before the write: a write that times out is answered from it.
             lines = []
             sent = False
@@ -1087,7 +1088,7 @@ class SerialBoard:
                                 lines.append(decoded)
                         break
 
-                elapsed_ms = (time.monotonic() - t_start) * 1000
+                elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
                 # Log the full response content, not just the line count, so a
                 # multi-line diagnostic / calibration reply is recoverable from
                 # serial.log. Joined onto one line (grep-friendly); these
@@ -1101,14 +1102,14 @@ class SerialBoard:
                 return '\n'.join(lines)
 
             except serial.SerialTimeoutException as e:
-                elapsed_ms = (time.monotonic() - t_start) * 1000
+                elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
                 _serial_log.warning(f'{self._label} {command} -> TIMEOUT ({elapsed_ms:.1f}ms)')
                 if not lines:
                     raise BoardNoReplyError(f'{command}: the write to the board timed out') from e
                 return '\n'.join(lines)
 
             except (serial.SerialException, OSError) as e:
-                elapsed_ms = (time.monotonic() - t_start) * 1000
+                elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
                 _serial_log.error(f'{self._label} {command} -> EXCEPTION: {e} ({elapsed_ms:.1f}ms)')
                 self._close_driver()
                 if sent:
@@ -1135,9 +1136,9 @@ class SerialBoard:
             BoardPortFailedError: the port is closed, or the write failed,
                 which closes it.
         """
-        t_enter = time.monotonic()
+        t_enter = host_clock.steady_ns()
         with self._lock:
-            t_lock = time.monotonic()
+            t_lock = host_clock.steady_ns()
             if self.driver is None:
                 raise BoardPortFailedError(f'{command}: the port is closed')
 
@@ -1147,7 +1148,7 @@ class SerialBoard:
                 in_waiting = -1
 
             stream = command.encode('utf-8') + b'\n'
-            t_before_write = time.monotonic()
+            t_before_write = host_clock.steady_ns()
             try:
                 self.driver.write(stream)
             except serial.SerialTimeoutException as e:
@@ -1163,10 +1164,10 @@ class SerialBoard:
                 self._close_driver()
                 raise BoardPortFailedError(f'{command}: the port failed: {e}') from e
 
-            t_after_write = time.monotonic()
-            lock_wait_ms = (t_lock - t_enter) * 1000
-            write_ms = (t_after_write - t_before_write) * 1000
-            total_ms = (t_after_write - t_enter) * 1000
+            t_after_write = host_clock.steady_ns()
+            lock_wait_ms = (t_lock - t_enter) / 1e6
+            write_ms = (t_after_write - t_before_write) / 1e6
+            total_ms = (t_after_write - t_enter) / 1e6
             _serial_log.info(
                 f'{self._label} FAST {command}: {len(stream)}B '
                 f'in_waiting={in_waiting}B lock_wait={lock_wait_ms:.2f}ms '

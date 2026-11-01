@@ -18,6 +18,7 @@ import threading
 import time
 from typing import ClassVar
 from lvp_logger import logger
+from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
 from drivers.registry import led_registry
@@ -195,7 +196,7 @@ class SimulatedLEDBoard:
             BoardPortFailedError: the port is closed.
         """
         with self._lock:
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             if self.driver is None:
                 raise BoardPortFailedError(f'{command}: the port is closed')
 
@@ -206,13 +207,13 @@ class SimulatedLEDBoard:
                 logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 _serial_log.warning(
                     f'[LED Sim] {command} -> INJECTED TIMEOUT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                    f'({(host_clock.steady_ns() - t_start) / 1e6:.1f}ms)'
                 )
                 raise BoardNoReplyError(f'{command}: no reply from the board')
 
             self._sim_delay()
             response = f'RE: {command}'
-            elapsed_ms = (time.monotonic() - t_start) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
             resp_repr = repr(response)
             if len(resp_repr) > 200:
@@ -242,12 +243,12 @@ class SimulatedLEDBoard:
 
     def _write_command_fast(self, command: str):
         with self._lock:
-            t_start = time.monotonic()
+            t_start = host_clock.steady_ns()
             if self.driver is None:
                 raise BoardPortFailedError(f'{command}: the port is closed')
 
             # No delay on fast path
-            elapsed_ms = (time.monotonic() - t_start) * 1000
+            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[LED Sim   ] _write_command_fast({command})')
             # SIM-SERIAL-LOG: write-only path -> mark as TX with no response
             _serial_log.info(f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')

@@ -10,10 +10,12 @@ Verifies that simulators are drop-in replacements for real hardware:
 """
 
 import itertools
+import re
 import logging
 import pytest
 import threading
 import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -87,6 +89,38 @@ class TestSimulatedLEDBoard:
         # simulated board's own current read reports them.
         lit = {ch: board.read_led_current(ch) for ch in board.available_channels()}
         assert set(lit.values()) == {0.0}, f'not reset after concurrent toggle: {lit}'
+
+
+def test_a_simulated_exchange_logs_its_true_duration_on_a_coarse_clock(monkeypatch, caplog):
+    """The simulated boards write serial.log's exchange line as the boards
+    do, its duration the true one even when ``time.monotonic`` is coarse
+    (Windows under Python 3.12 reads it 15.6 ms a step; a second here, so
+    a duration read from it is 0 or a whole second). The fast tier's 1 ms
+    command delay is the duration."""
+    import drivers.simulated_ledboard as led_module
+    import drivers.simulated_motorboard as motor_module
+
+    for module in (led_module, motor_module):
+        monkeypatch.setattr(
+            module,
+            'time',
+            SimpleNamespace(monotonic=lambda: time.perf_counter() // 1.0, sleep=time.sleep),
+        )
+    with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        SimulatedLEDBoard().exchange_command('STATUS')
+        SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS).exchange_command('INFO')
+    stated = {
+        label: [
+            float(m.group(1))
+            for r in caplog.records
+            if r.name == 'LVP.serial' and label in r.getMessage()
+            for m in [re.search(r'\(([\d.]+)ms\)$', r.getMessage())]
+            if m
+        ]
+        for label in ('[LED Sim] STATUS', '[XYZ Sim] INFO')
+    }
+    wrong = {k: v for k, v in stated.items() if not v or any(not 1.0 <= ms < 900 for ms in v)}
+    assert not wrong, f'durations off the true one: {wrong}'
 
 
 # ---------------------------------------------------------------------------
