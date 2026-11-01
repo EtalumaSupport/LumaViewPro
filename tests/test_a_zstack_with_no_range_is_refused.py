@@ -168,7 +168,7 @@ class TestTheHeadlessCallerGetsIt:
         for key, value in zstack.items():
             sim_session.update_settings(f'zstack.{key}', value)
         live_folder = sim_session.settings['live_folder']
-        runner = sim_session.create_protocol_runner()
+        runner = sim_session.protocol_runner()
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
             runner.start_zstack(channel='BF')

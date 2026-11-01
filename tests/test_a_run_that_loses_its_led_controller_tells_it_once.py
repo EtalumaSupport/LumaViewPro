@@ -35,7 +35,7 @@ def test_an_fx2_pulled_mid_run_is_told_by_the_abort_and_the_cleanup(tmp_path, ce
 
     try:
         centre_posts.clear()
-        run = session.create_protocol_runner().start_protocol(
+        run = session.protocol_runner().start_protocol(
             protocol=_protocol(rows=rows, n_scans=3),
             sequence_name='pulled',
             parent_dir=str(tmp_path / 'run'),

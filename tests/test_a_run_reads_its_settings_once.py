@@ -128,7 +128,7 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
         with session.settings_lock:
             session.settings['BF']['autofocus'] = True
 
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(
             [copy.deepcopy(_make_single_step_protocol().step_row(step_index=0))]
         ),
@@ -160,7 +160,7 @@ def test_before_a_home_the_run_is_refused_as_not_homed(unhomed_session, member):
     for layer in config_helpers.get_layer_configs(settings):
         settings[layer]['acquire'] = 'image' if layer in ('BF', LED1) else None
     settings['zstack'].update({'range': 20.0, 'step_size': 5.0})
-    runner = unhomed_session.create_protocol_runner()
+    runner = unhomed_session.protocol_runner()
     with pytest.raises(ProtocolRunRefusedError) as refused:
         _MEMBERS[member](runner)
     assert refused.value.reason == 'position_unknown'

@@ -46,7 +46,7 @@ def _step_at(z_um):
 
 
 def _run_and_wait_for_files(session, tmp_path, protocol):
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     files_written = threading.Event()
     run = runner.start_single_scan(
         protocol=protocol,

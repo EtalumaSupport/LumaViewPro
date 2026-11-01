@@ -17,7 +17,7 @@ curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $
 
 # A run is answered 202 with its job, which ends as the run lets go of the
 # scope; the job's files job ends once the run's images are on disk.
-RUNNER=$(curl -s --json '{}' $API/create_protocol_runner | jq -r .handle)         # 200
+RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\", \"sequence_name\": \"example_scan\"}" $API/handles/ProtocolRunner/$RUNNER/start_single_scan | jq -r .id)   # 202
 FILES=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r .files.id)   # 200: "result" the RunOutcome
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$FILES               # 200: "result" the RunFiles, once the images are on disk

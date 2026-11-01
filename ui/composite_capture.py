@@ -91,7 +91,7 @@ class CompositeCapture(FloatLayout):
         """
         gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
-        runner = ctx.session.create_protocol_runner()
+        runner = ctx.session.protocol_runner()
         run = self._composite_run
         # The button is disabled until this request's own redraw, so a
         # second press cannot race the first one to the pool.

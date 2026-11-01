@@ -368,7 +368,7 @@ def headless_session(live_folder, acquiring=('BF', LED0), **extra):
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')
     home_sim_scope(scope)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     try:
         yield session, runner
     finally:
@@ -435,7 +435,7 @@ def hardware_session():
                 flush=True,
             )
             sys.exit(2)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         yield session, runner
     finally:
         with contextlib.suppress(BaseException):

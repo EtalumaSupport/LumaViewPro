@@ -79,7 +79,7 @@ def test_a_live_runs_captured_images_are_written_not_called_incomplete(sim_sessi
     sim_session.set_channel_acquire('BF', 'image')
     for _ in range(40):
         sim_session.add_step(protocol)
-    run = sim_session.create_protocol_runner().start_single_scan(
+    run = sim_session.protocol_runner().start_single_scan(
         protocol, parent_dir=str(tmp_path / 'runs')
     )
     time.sleep(1.0)
@@ -95,7 +95,7 @@ def test_a_live_runs_captured_images_are_written_not_called_incomplete(sim_sessi
 
 def _race_a_start_against_the_close(session, close_delay_s):
     protocol = _one_step_protocol(session)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     go = threading.Barrier(2)
     box = {}
 
@@ -314,7 +314,7 @@ def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_
     runner.prepare = prepared_then_the_close_finishes
 
     with pytest.raises(SessionClosingError) as refused:
-        session.create_protocol_runner().start_single_scan(protocol)
+        session.protocol_runner().start_single_scan(protocol)
 
     assert (refused.value.reason, refused.value.activity) == ('session_closing', 'protocol')
     assert session.activity_claim.holder is None
@@ -343,7 +343,7 @@ def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
         took.append(time.monotonic() - began)
         closed.set()
 
-    session.create_protocol_runner().start_single_scan(
+    session.protocol_runner().start_single_scan(
         protocol,
         parent_dir=str(tmp_path / 'runs'),
         events=RunEvents(run_ended=close_the_session),

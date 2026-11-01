@@ -137,7 +137,7 @@ def test_the_panels_start_runs_through_the_api_then_names_the_folder():
         )
         assert [
             ast.unparse(kw.value) for c in handed for kw in c.keywords if kw.arg == 'start_run'
-        ] == [f'ctx.session.create_protocol_runner().{member}'], (
+        ] == [f'ctx.session.protocol_runner().{member}'], (
             f'{starter} must hand the panel start ProtocolRunner.{member}'
         )
 

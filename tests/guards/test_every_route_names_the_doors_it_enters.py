@@ -476,7 +476,7 @@ def walk(tmp_path_factory):
     live = tmp_path_factory.mktemp('live')
     session = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
     try:
-        yield _Walk([session, session.create_protocol_runner()])
+        yield _Walk([session, session.protocol_runner()])
     finally:
         session.shutdown()
 

@@ -119,7 +119,7 @@ class _Session(SimpleNamespace):
             files_left=0,
             # Nothing holds the scope.
             held_by_other=lambda run: False,
-            create_protocol_runner=lambda: member,
+            protocol_runner=lambda: member,
         )
 
     @property
@@ -219,7 +219,7 @@ def test_a_press_starts_its_run_through_the_apis_runner(
 
     getattr(panel, press)()
 
-    member = getattr(session.create_protocol_runner(), member_name)
+    member = getattr(session.protocol_runner(), member_name)
     member.assert_called_once()
     kwargs = member.call_args.kwargs
     assert starters == [Caller.GUI], 'the press reaches the API stamped as the GUI'
@@ -248,7 +248,7 @@ def test_a_ticked_disable_image_saving_box_starts_a_run_that_saves_none(
 
     getattr(_Panel(saving_disabled=True), press)()
 
-    member = getattr(session.create_protocol_runner(), member_name)
+    member = getattr(session.protocol_runner(), member_name)
     assert member.call_args.kwargs['enable_image_saving'] is False
 
 

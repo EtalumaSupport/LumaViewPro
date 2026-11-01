@@ -93,7 +93,7 @@ def _start_a_scan(session, **events):
     session.set_channel_acquire('BF', 'image')
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
-    return session.create_protocol_runner().start_single_scan(
+    return session.protocol_runner().start_single_scan(
         protocol=protocol, enable_image_saving=False, events=RunEvents(**events)
     )
 

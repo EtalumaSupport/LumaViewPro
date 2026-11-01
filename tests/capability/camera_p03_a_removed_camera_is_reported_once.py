@@ -260,7 +260,7 @@ def _phase(phase):
             if blank:
                 session.scope._camera_driver.set_test_pattern(enabled=True, pattern='white')
             try:
-                yield session, session.create_protocol_runner()
+                yield session, session.protocol_runner()
             finally:
                 session.shutdown()
 

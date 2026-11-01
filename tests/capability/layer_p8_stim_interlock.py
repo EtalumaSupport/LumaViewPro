@@ -53,7 +53,7 @@ try:
     s.scope.motion.home('ALL')
     time.sleep(2)
     s.scope.imaging.enable_streaming()
-    runner = s.create_protocol_runner()
+    runner = s.protocol_runner()
     refused = False
     try:
         run = runner.start_composite(sequence_name='stimpair', parent_dir=pathlib.Path(live) / 'C')

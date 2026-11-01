@@ -72,7 +72,7 @@ def test_a_run_waiting_form_refuses_its_wait_before_starting_the_run(session, tm
     session.scope.simulation.hold_axis('Z')
     try:
         refused = _refused(
-            lambda: session.create_protocol_runner().run_single_scan(
+            lambda: session.protocol_runner().run_single_scan(
                 protocol=_build_real_protocol([step]), parent_dir=str(tmp_path), timeout_s=1e12
             )
         )

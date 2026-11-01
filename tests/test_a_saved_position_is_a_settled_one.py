@@ -62,7 +62,7 @@ def _arrive(session, move):
 def test_every_member_that_keeps_the_live_position_refuses_while_z_moves(session):
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     before = {
         'bookmark': session.bookmark,
         'focus': session.saved_focus_z_um('BF'),

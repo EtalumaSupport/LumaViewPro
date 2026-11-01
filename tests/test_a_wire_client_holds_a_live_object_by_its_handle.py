@@ -79,8 +79,8 @@ def test_the_live_objects_a_client_can_be_handed_each_have_their_members(client)
 
 
 def test_one_object_has_one_id(client):
-    first = client.post('/api/v1/create_protocol_runner').json()
-    second = client.post('/api/v1/create_protocol_runner').json()
+    first = client.post('/api/v1/protocol_runner').json()
+    second = client.post('/api/v1/protocol_runner').json()
 
     assert first == second == {'handle': first['handle'], 'type': 'ProtocolRunner'}
     assert client.get('/api/v1/handles').json() == [first]
@@ -120,7 +120,7 @@ def test_an_id_not_held_for_its_type_is_404(client):
 
 def test_forgetting_an_id_lets_go_of_the_id_and_the_shared_runner_is_kept(client):
     protocol = client.post('/api/v1/create_empty_protocol').json()
-    runner = client.post('/api/v1/create_protocol_runner').json()
+    runner = client.post('/api/v1/protocol_runner').json()
 
     assert client.delete(f'/api/v1/handles/Protocol/{protocol["handle"]}').status_code == 204
     assert client.delete(f'/api/v1/handles/Protocol/{protocol["handle"]}').status_code == 404
@@ -133,7 +133,7 @@ def test_forgetting_an_id_lets_go_of_the_id_and_the_shared_runner_is_kept(client
 
 def test_a_call_that_would_hand_out_past_the_limit_is_refused_before_it_runs(client, monkeypatch):
     monkeypatch.setattr(rest.handles, 'LIMIT', 1)
-    runner = client.post('/api/v1/create_protocol_runner').json()
+    runner = client.post('/api/v1/protocol_runner').json()
 
     refused = client.post('/api/v1/create_empty_protocol')
 

@@ -235,7 +235,7 @@ def test_a_file_naming_one_channel_twice_is_refused(tmp_path, monkeypatch):
 
 def _run(session, protocol, tmp_path) -> threading.Event:
     done = threading.Event()
-    session.create_protocol_runner().start_single_scan(
+    session.protocol_runner().start_single_scan(
         protocol=protocol,
         sequence_name='stimulation',
         parent_dir=str(tmp_path / 'runs'),

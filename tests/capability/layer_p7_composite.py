@@ -12,7 +12,7 @@ try:
         for lay in (LED0, LED1):
             s.settings[lay]['acquire'] = 'image'
             s.settings[lay]['illumination_ma'] = 50
-    runner = s.create_protocol_runner()
+    runner = s.protocol_runner()
     parent = pathlib.Path(live) / 'Manual' / 'Composites'
     # (a) not streaming -- does the ENGINE refuse, or only the GUI pre-check?
     print('streaming?', s.scope.imaging.is_streaming(), 'active', s.scope.camera.active)

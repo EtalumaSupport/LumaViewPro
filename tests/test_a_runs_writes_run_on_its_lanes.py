@@ -81,7 +81,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol
 
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     files_written = threading.Event()
     run = runner.start_single_scan(
         protocol=_build_real_protocol(steps),

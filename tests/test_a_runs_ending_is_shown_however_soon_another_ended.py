@@ -66,7 +66,7 @@ def _shown(centre_posts, *, title=None, reason=None):
 
 def _stopped_mid_move(session, tmp_path):
     held = session.scope.simulation.hold_axis('X')
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
@@ -102,7 +102,7 @@ def test_two_runs_that_could_not_start_both_say_so(session, tmp_path, centre_pos
         raise ProtocolNotSavedError(file_path, OSError(28, 'No space left on device'))
 
     monkeypatch.setattr(Protocol, 'to_file', _refused)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     endings = [
         runner.start_single_scan(
             protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path / name)
@@ -121,7 +121,7 @@ def test_two_autofocus_runs_that_did_not_focus_both_say_so(session, centre_posts
     monkeypatch.setattr(autofocus_functions, 'autofocus_score', lambda **kwargs: 0.0)
     # Mid-travel, so each sweep's window lies inside Z's travel.
     session.scope.motion.move_z(5000.0)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     endings = [runner.start_autofocus('BF').result(timeout=COMPLETION_TIMEOUT) for _ in range(2)]
 
     assert [(e.status, e.reason) for e in endings] == [('failed', 'autofocus_failed')] * 2
@@ -165,7 +165,7 @@ def test_two_composites_whose_merge_raised_both_say_so(tmp_path, centre_posts, m
 
 def _failed_mid_run(session, tmp_path, *, faults=1):
     held = session.scope.simulation.hold_axis('X')
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"

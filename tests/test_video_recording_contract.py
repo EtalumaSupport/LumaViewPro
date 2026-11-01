@@ -690,7 +690,7 @@ class TestSessionActivityClaim:
 
         recording = headless_session.activity_claim.try_claim('recording')
         assert recording
-        runner = headless_session.create_protocol_runner()
+        runner = headless_session.protocol_runner()
         with pytest.raises(ProtocolRunRefusedError):
             runner.start_single_scan(
                 protocol=_make_single_step_protocol(),

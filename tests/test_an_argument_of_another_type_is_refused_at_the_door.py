@@ -100,7 +100,7 @@ def test_none_is_taken_only_where_the_signature_says_so(session):
 def test_a_run_given_no_layer_is_told_none_is_selected(session, member):
     """The GUI hands the open drawer's channel, None when no drawer is open:
     these two take None and answer it by name, naming the argument."""
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     with pytest.raises(ArgumentRefusedError) as refused:
         getattr(runner, member)(channel=None)
     assert refused.value.reason == 'no_channel_selected'
@@ -130,7 +130,7 @@ def test_a_union_takes_each_of_its_types_and_nothing_else():
 
 
 def test_a_class_is_taken_only_as_itself(session):
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     _refused(
         lambda: runner.start_single_scan(protocol=MagicMock()),
         'ProtocolRunner.start_single_scan',

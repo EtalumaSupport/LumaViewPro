@@ -40,7 +40,7 @@ def main():
             scope.motion.move_to_well(well)
             session.add_step(protocol, channels=('BF',))
 
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         started = runner.start_single_scan(protocol, sequence_name='example_scan')
 
         # A run ends with an outcome; it does not raise. Its images keep

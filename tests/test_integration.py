@@ -724,10 +724,10 @@ class TestHeadlessSession:
         pos = scope.motion.get_current_position('Z')
         assert isinstance(pos, (int, float))
 
-    def test_create_protocol_runner(self):
-        """ScopeSession.create_protocol_runner() should return a ProtocolRunner."""
+    def test_protocol_runner(self):
+        """ScopeSession.protocol_runner() should return a ProtocolRunner."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         assert isinstance(runner, ProtocolRunner)
         assert runner.session is session
 
@@ -740,7 +740,7 @@ class TestHeadlessSession:
         session = ScopeSession.create(complete_settings(), simulate=True)
         assert session.file_io_executor is not None
         assert session.file_io_executor is session.executor_bundle.file_io_executor
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         assert not any(isinstance(v, SequentialIOExecutor) for v in vars(runner).values())
 
     def test_protocol_runner_runs_protocol(self, tmp_path):
@@ -764,7 +764,7 @@ class TestHeadlessSession:
         # axis position is unknown.
         home_sim_scope(session.scope)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
 
             done = threading.Event()
@@ -789,7 +789,7 @@ class TestHeadlessSession:
         thread-driven model the AF thread drives iterations directly;
         there are no Clock-schedule attributes to misconfigure."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         af = runner.sequenced_capture_runner._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
         assert not hasattr(af, '_clock_schedule_interval_fn')
@@ -921,7 +921,7 @@ class TestRestAPIPrep:
         """AutofocusRunner.get_status() should return idle state initially."""
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             status = af.get_status()
             assert status['state'] == 'idle'
@@ -936,7 +936,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
@@ -968,7 +968,7 @@ class TestRestAPIPrep:
         camera.set_focal_z(2000.0)
         park_z(session.scope, 3000.0)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
@@ -1009,7 +1009,7 @@ class TestRestAPIPrep:
         home_sim_scope(session.scope)
         park_z(session.scope, 7000.0)
         try:
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()

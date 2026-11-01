@@ -333,7 +333,7 @@ def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_st
     make_session, monkeypatch, tmp_path, model
 ):
     session = _camera_less(make_session, monkeypatch, model)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     with pytest.raises(ProtocolRunRefusedError) as run:
         runner.start_single_scan(
@@ -417,7 +417,7 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
     monkeypatch.setattr(scope.imaging, '_capture_still_impl', removed_after_this)
     first = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
     second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'X': 12.0}
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     run = runner.start_single_scan(
         protocol=_build_real_protocol([first, second]),
@@ -581,7 +581,7 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
     step = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
 
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]),
         sequence_name='removed',
         parent_dir=str(tmp_path),

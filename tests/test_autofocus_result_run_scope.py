@@ -238,7 +238,7 @@ def _focus(gui, layer):
 def _press(gui, monkeypatch):
     """Press Autofocus; return the events the button handed start_autofocus."""
     member = MagicMock()
-    gui.ctx.session.create_protocol_runner = lambda: member
+    gui.ctx.session.protocol_runner = lambda: member
     gui.button._submit_autofocus_request = lambda call, stop=False: call()
     gui.vc.VerticalControl.run_autofocus_from_ui(gui.button)
     return member.start_autofocus.call_args.kwargs['events']

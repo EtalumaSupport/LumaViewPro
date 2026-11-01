@@ -46,7 +46,7 @@ def main():
         # A run's events arrive on the run's threads: this one only says so.
         first_scan_ended = threading.Event()
         events = RunEvents(scan_ended=lambda scan, remaining, period_s: first_scan_ended.set())
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         running = runner.start_protocol(protocol, sequence_name='stopped', events=events)
 
         first_scan_ended.wait(timeout=60)

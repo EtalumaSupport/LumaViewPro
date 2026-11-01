@@ -172,10 +172,10 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
     session.settings['BF']['acquire'] = 'image'
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    runner = client.post('/api/v1/protocol_runner').json()['handle']
     # The run is dispatched before its call returns, so its first event can
     # come first; this call returns only once it has, every time.
-    the_runner = session.create_protocol_runner()
+    the_runner = session.protocol_runner()
     real = the_runner.start_single_scan
 
     def returns_after_the_first_event(*args, events, **kwargs):
@@ -219,7 +219,7 @@ def _run_one_step(client, session):
     session.settings['BF']['acquire'] = 'image'
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    runner = client.post('/api/v1/protocol_runner').json()['handle']
     return client.post(
         f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
         json={'protocol': protocol, 'enable_image_saving': False},

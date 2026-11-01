@@ -5982,7 +5982,7 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     @api
-    def create_protocol_runner(self) -> 'ProtocolRunner':
+    def protocol_runner(self) -> 'ProtocolRunner':
         """The session's one ProtocolRunner (memoized).
 
         Wraps the session-composed sequenced-capture engine; repeated

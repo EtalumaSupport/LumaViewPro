@@ -273,7 +273,7 @@ def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
         'capabilities',
         dataclasses.replace(scope.capabilities, led_max_ma=None, led_addresses=None),
     )
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     with pytest.raises(ProtocolRunRefusedError) as exc:
         runner.start_single_scan(
@@ -326,7 +326,7 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
     monkeypatch.setattr(driver, 'led_on', pulled_after_this)
     first = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
     second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'Color': LED0, 'X': 12.0}
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     run = runner.start_single_scan(
         protocol=_build_real_protocol([first, second]),

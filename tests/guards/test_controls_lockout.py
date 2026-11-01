@@ -280,7 +280,7 @@ class TestStandaloneAfLockout:
             for sub in ast.walk(node)
             if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
         }
-        assert {'create_protocol_runner', 'start_autofocus'} <= called, (
+        assert {'protocol_runner', 'start_autofocus'} <= called, (
             'the standalone button must run ProtocolRunner.start_autofocus, the '
             'one autofocus a script and REST also run; a second assembly in '
             'the widget drifts from it'

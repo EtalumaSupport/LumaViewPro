@@ -81,7 +81,7 @@ def main():
             # Bench-paced Z, so the stopped leg's stop lands inside the sweep.
             session.scope._motion_driver.set_timing_mode('realistic')
             try:
-                yield session, session.create_protocol_runner()
+                yield session, session.protocol_runner()
             finally:
                 session.shutdown()
 

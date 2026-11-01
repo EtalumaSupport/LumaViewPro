@@ -190,7 +190,7 @@ def main():
         'layer_p13', home=True, microscope='LS850T', turret_objectives=dict(TEST_TURRET_OBJECTIVES)
     )
     try:
-        body(session, session.create_protocol_runner())
+        body(session, session.protocol_runner())
     except BaseException:
         traceback.print_exc()
         check('probe completed without an unexpected raise', False)

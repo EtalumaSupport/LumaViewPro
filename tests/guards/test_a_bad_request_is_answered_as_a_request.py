@@ -114,7 +114,7 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
     with TestClient(build_app(session), raise_server_exceptions=False) as client:
         document = client.get('/api/v1/openapi.json').json()
         protocol = client.post('/api/v1/new_protocol').json()['handle']
-        runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+        runner = client.post('/api/v1/protocol_runner').json()['handle']
         handles = {'/Protocol/': protocol, '/ProtocolRunner/': runner}
         walked = 0
         paths = document['paths']
@@ -165,7 +165,7 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
                     )
             # A run a route started is ended before the next route is posted,
             # so no route is refused for an activity the walk itself left.
-            session.create_protocol_runner().sequenced_capture_runner.wait_for_run_idle(1)
+            session.protocol_runner().sequenced_capture_runner.wait_for_run_idle(1)
     # Each operation: the POSTs, the PUTs, and the reads that take arguments.
     assert walked >= 120, f'the walk reached only {walked} routes'
     assert not wrong, '\n'.join(wrong)

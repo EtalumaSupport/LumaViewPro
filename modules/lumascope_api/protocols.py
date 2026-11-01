@@ -12,7 +12,7 @@ against both come from it, so a protocol is never built against another
 installation's files.
 
 This surface BUILDS protocols; it does not run them. The runner is
-`ScopeSession.create_protocol_runner()`.
+`ScopeSession.protocol_runner()`.
 
 It also owns the one rule that decides whether a protocol is admissible
 on this scope at all -- whether the scope can put the glass it names in

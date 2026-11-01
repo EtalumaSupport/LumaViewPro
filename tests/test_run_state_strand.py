@@ -109,7 +109,7 @@ class TestClaimRefusalLeavesNoState:
         # A headless session does not home: an unhomed scope refuses every
         # XY move, and the run would end on its three-strike ceiling instead.
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         claim_held = False
         try:
             # A completed first run arms the completion event, so the
@@ -203,7 +203,7 @@ class TestTheHolderIsTheLiveRun:
         # A headless session does not home, and a run is refused while any
         # axis position is unknown.
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         try:
             # Read from inside the run: scan_started fires from the run
             # loop, with the claim held, so this observes the holder while

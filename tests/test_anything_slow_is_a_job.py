@@ -290,7 +290,7 @@ def test_a_run_started_past_the_clients_wait_is_stopped_by_the_job_it_answered(
     home_sim_scope(session.scope)
     session.settings['BF']['acquire'] = 'image'
     reached, release = _scans_held_at_their_first_step(session, monkeypatch)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     held_start = runner.start_single_scan
     dispatching, dispatch = threading.Event(), threading.Event()
 
@@ -304,7 +304,7 @@ def test_a_run_started_past_the_clients_wait_is_stopped_by_the_job_it_answered(
     monkeypatch.setattr(runner, 'start_single_scan', dispatched_once_released)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    handle = client.post('/api/v1/create_protocol_runner').json()['handle']
+    handle = client.post('/api/v1/protocol_runner').json()['handle']
     try:
         poster, answers = _posted(
             client,
@@ -337,7 +337,7 @@ def test_a_start_is_answered_on_return_whatever_the_clients_wait(client, session
     reached, release = _scans_held_at_their_first_step(session, monkeypatch)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    handle = client.post('/api/v1/create_protocol_runner').json()['handle']
+    handle = client.post('/api/v1/protocol_runner').json()['handle']
     try:
         poster, answers = _posted(
             client,
@@ -380,7 +380,7 @@ def _scans_held_at_their_first_step(session, monkeypatch):
     UI dispatcher, as the server is, so the run waits in it.
     """
     reached, release = threading.Event(), threading.Event()
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     real = runner.start_single_scan
 
     def held(*args, events, **kwargs):
@@ -401,7 +401,7 @@ def test_a_run_job_deleted_while_it_runs_is_stopped_and_ends_aborted(client, ses
     reached, release = _scans_held_at_their_first_step(session, monkeypatch)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    runner = client.post('/api/v1/protocol_runner').json()['handle']
     try:
         job = client.post(
             f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
@@ -437,7 +437,7 @@ def test_a_runs_job_names_its_files_job_which_ends_once_they_are_written(client,
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     for _ in range(2):
         assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    runner = client.post('/api/v1/protocol_runner').json()['handle']
     start = f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan'
 
     run = client.post(start, json={'protocol': protocol}).json()
@@ -472,7 +472,7 @@ def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
     reached, release = _scans_held_at_their_first_step(session, monkeypatch)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    runner = client.post('/api/v1/protocol_runner').json()['handle']
     try:
         run = client.post(
             f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',

@@ -38,7 +38,7 @@ def main():
         session.update_settings('zstack.position', 'center')
         session.update_settings('BF.illumination_ma', 5)
 
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         stacking = runner.start_zstack('BF', sequence_name='example_stack')
         outcome = stacking.result(timeout=120)
         files = stacking.files.result(timeout=60)

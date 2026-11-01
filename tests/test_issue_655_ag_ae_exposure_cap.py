@@ -243,7 +243,7 @@ def test_a_run_arms_the_camera_at_the_ceiling_the_settings_hold(tmp_path, monkey
 
         monkeypatch.setattr(camera, 'auto_gain', record_auto_gain)
         done = threading.Event()
-        started = session.create_protocol_runner().start_single_scan(
+        started = session.protocol_runner().start_single_scan(
             protocol=_build_real_protocol([dict(step)]),
             sequence_name='ag_ae_ceiling',
             parent_dir=str(tmp_path),

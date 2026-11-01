@@ -176,7 +176,7 @@ def test_every_event_of_a_home_and_a_run_matches_its_component(session):
         home_sim_scope(session.scope)
         protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
         assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
-        runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+        runner = client.post('/api/v1/protocol_runner').json()['handle']
         assert (
             client.post(
                 f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',

@@ -914,7 +914,7 @@ when the file is read, and refused when a run starts.
 ```python
 from modules.run_outcome import RunStatus
 
-runner = session.create_protocol_runner()
+runner = session.protocol_runner()
 started = runner.start_single_scan(protocol, sequence_name='guide')
 outcome = started.result(timeout=120)
 assert outcome.status is RunStatus.COMPLETED, outcome.message
@@ -1217,7 +1217,7 @@ curl -s -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire 
 PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
 curl -s -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
 curl -s --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200: ["custom0000_BF"]
-RUNNER=$(curl -s --json '{}' $API/create_protocol_runner | jq -r .handle)         # 200
+RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\"}" $API/handles/ProtocolRunner/$RUNNER/start_single_scan | jq -r .id)   # 202
 curl -s -H 'Prefer: respond-async' $API/jobs/$JOB           # 200: the job as it stands, its "progress" where the run has got
 FILES=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r .files.id)   # 200: "status": "completed", "result" the RunOutcome

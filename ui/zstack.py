@@ -172,7 +172,7 @@ class ZStack(FloatLayout):
             )
             return
 
-        runner = ctx.session.create_protocol_runner()
+        runner = ctx.session.protocol_runner()
         layer = ctx.session.shown_channel.channel
         enable_image_saving = not ctx.motion_settings.ids['protocol_settings_id'].saving_disabled
         events = RunEvents(

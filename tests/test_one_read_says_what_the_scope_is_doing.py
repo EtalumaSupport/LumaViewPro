@@ -91,9 +91,7 @@ def test_a_held_scope_locks_the_controls_and_names_the_refusal_a_start_raises(
     with sim_session.diagnostic_claim():
         status = sim_session.status
         with pytest.raises(ProtocolRunRefusedError) as refused:
-            sim_session.create_protocol_runner().start_single_scan(
-                protocol, parent_dir=str(tmp_path)
-            )
+            sim_session.protocol_runner().start_single_scan(protocol, parent_dir=str(tmp_path))
 
     assert status.lock.run_named == 'A diagnostic is in progress.'
     assert (status.lock.run_lockout, status.lock.controls_locked) == (True, True)

@@ -52,7 +52,7 @@ def _told_stopped(centre_posts):
 
 def test_stop_pressed_mid_move_ends_the_run_and_tells_it_once(session, tmp_path, centre_posts):
     held = session.scope.simulation.hold_axis('X')
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
@@ -76,7 +76,7 @@ def test_stop_pressed_with_nothing_moving_ends_the_run_before_its_next_step(
             pressed.append(True)
             session.scope.motion.stop_motion()
 
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(40.0, 60.0, 80.0)),
         parent_dir=str(tmp_path),
         events=RunEvents(frame_captured=on_frame),
@@ -96,7 +96,7 @@ def test_stop_pressed_between_scans_ends_the_protocol(session, tmp_path, centre_
     protocol.modify_time_params(
         period=datetime.timedelta(seconds=60), duration=datetime.timedelta(seconds=180)
     )
-    run = session.create_protocol_runner().start_protocol(
+    run = session.protocol_runner().start_protocol(
         protocol,
         parent_dir=str(tmp_path),
         events=RunEvents(scan_ended=lambda *_args: first_scan_ended.set()),
@@ -166,7 +166,7 @@ def test_stop_pressed_during_a_steps_turret_change_ends_the_run_with_z_parked(
     and the step's X and Y never driven."""
     session = turret_session
     held = session.scope.simulation.hold_axis('T')
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([{**_steps(60.0)[0], 'Objective': '4x Oly'}]),
         parent_dir=str(tmp_path),
     )
@@ -200,7 +200,7 @@ def test_stop_pressed_during_grease_redistribution_ends_the_protocol(
     monkeypatch.setattr(SequencedCaptureRunner, '_reset_vars', _reset_one_short)
     # After the frame, the first Z move is the grease's move to 0.
     grease = _HoldAfterFrame(session, 'Z', nth=1)
-    run = session.create_protocol_runner().start_protocol(
+    run = session.protocol_runner().start_protocol(
         _every_minute_for_three(_build_real_protocol([{**_steps(60.0)[0], 'Auto_Focus': True}])),
         parent_dir=str(tmp_path),
         events=RunEvents(frame_captured=grease),
@@ -224,7 +224,7 @@ def test_stop_pressed_during_the_return_between_scans_ends_the_protocol(
     that return leaves X where it stopped."""
     # After the last step's frame, the first X move is the return.
     back = _HoldAfterFrame(session, 'X', nth=2)
-    run = session.create_protocol_runner().start_protocol(
+    run = session.protocol_runner().start_protocol(
         _every_minute_for_three(_build_real_protocol(_steps(40.0, 80.0))),
         parent_dir=str(tmp_path),
         events=RunEvents(frame_captured=back),
@@ -244,7 +244,7 @@ def test_stop_pressed_during_the_return_between_scans_ends_the_protocol(
 
 def test_a_fault_that_ended_the_run_first_keeps_its_ending(session, tmp_path):
     held = session.scope.simulation.hold_axis('X')
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     run = runner.start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
@@ -263,7 +263,7 @@ def test_a_stop_the_board_fails_still_ends_the_run(session, tmp_path, monkeypatc
     from tests.test_a_failed_motor_stop_is_raised import _stop_fails
 
     held = session.scope.simulation.hold_axis('X')
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
@@ -280,7 +280,7 @@ def test_a_stop_the_board_fails_still_ends_the_run(session, tmp_path, monkeypatc
 
 def test_a_run_started_after_stop_runs(session, tmp_path):
     session.scope.motion.stop_motion()
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
@@ -298,7 +298,7 @@ def start_an_autofocus_held_mid_sweep(session):
     # Mid-travel, so the sweep's window lies inside Z's travel.
     session.scope.motion.move_z(5000.0)
     to_the_step = session.scope.simulation.hold_axis('Z')
-    run = session.create_protocol_runner().start_autofocus('BF')
+    run = session.protocol_runner().start_autofocus('BF')
     assert to_the_step.wait(_HOLD_WAIT_S), "the autofocus run's go-to-step never started"
     session.scope.simulation.clear()
     in_the_sweep = session.scope.simulation.hold_axis('Z')

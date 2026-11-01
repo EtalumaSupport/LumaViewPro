@@ -1190,7 +1190,7 @@ class ProtocolSettings(FloatLayout):
         calls; this panel passes its protocol and its own event handlers.
         """
         ctx = _app_ctx.ctx
-        member = ctx.session.create_protocol_runner()
+        member = ctx.session.protocol_runner()
         button = 'autofocus_scan'
         protocol = self._protocol
 
@@ -1227,7 +1227,7 @@ class ProtocolSettings(FloatLayout):
     def _scan_start(self) -> typing.Callable[[], None]:
         ctx = _app_ctx.ctx
         return self._sequenced_capture_start(
-            start_run=ctx.session.create_protocol_runner().start_single_scan,
+            start_run=ctx.session.protocol_runner().start_single_scan,
             button='scan',
             protocol=self._protocol.copy_for_execution(),
             scan_started=lambda *_scan: self._run_scan_pre_callback(),
@@ -1253,7 +1253,7 @@ class ProtocolSettings(FloatLayout):
             self._run_scan_pre_callback()
 
         return self._sequenced_capture_start(
-            start_run=ctx.session.create_protocol_runner().start_protocol,
+            start_run=ctx.session.protocol_runner().start_protocol,
             button='protocol',
             protocol=protocol,
             scan_started=_scan_started,

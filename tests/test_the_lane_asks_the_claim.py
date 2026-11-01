@@ -604,7 +604,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
                 'Step Index': 1,
             }
             protocol = _build_real_protocol([af_step, video_step])
-            runner = session.create_protocol_runner()
+            runner = session.protocol_runner()
             files_written = threading.Event()
             run = runner.start_single_scan(
                 protocol=protocol,

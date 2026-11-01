@@ -136,7 +136,7 @@ def test_a_step_without_x_and_y_is_refused_by_every_door_on_a_stage_scope(make_s
     protocol = stage.load_protocol(path)
 
     doors = {
-        'run': lambda: stage.create_protocol_runner().start_single_scan(protocol),
+        'run': lambda: stage.protocol_runner().start_single_scan(protocol),
         'go to step': lambda: stage.scope.protocols.step_targets(protocol, 0),
         'tile': lambda: stage.scope.protocols.apply_tiling(
             protocol,
@@ -175,7 +175,7 @@ def test_steps_without_x_and_y_at_one_place_run_on_a_scope_without_a_stage(make_
     protocol = session.load_protocol(path)
 
     outcome = (
-        session.create_protocol_runner()
+        session.protocol_runner()
         .start_single_scan(protocol, parent_dir=str(tmp_path / 'run'), enable_image_saving=False)
         .result(timeout=120)
     )
@@ -190,7 +190,7 @@ def test_steps_without_x_and_y_naming_different_wells_are_refused_without_a_stag
     session = make_session('LS820')
     protocol = session.load_protocol(path)
 
-    refusal = _refused(lambda: session.create_protocol_runner().start_single_scan(protocol))
+    refusal = _refused(lambda: session.protocol_runner().start_single_scan(protocol))
 
     assert refusal.reason == 'positions_unreachable'
     assert 'name different wells or tiles' in str(refusal)
@@ -209,7 +209,7 @@ def test_a_step_at_a_position_and_one_named_for_another_well_are_refused_without
     session = make_session('LS820')
     protocol = session.load_protocol(path)
 
-    refusal = _refused(lambda: session.create_protocol_runner().start_single_scan(protocol))
+    refusal = _refused(lambda: session.protocol_runner().start_single_scan(protocol))
 
     assert refusal.reason == 'positions_unreachable'
     assert 'name different wells or tiles' in str(refusal)
@@ -260,7 +260,7 @@ def test_a_composite_runs_on_a_scope_without_a_stage(make_session, tmp_path, mod
     for layer in ('BF', LED0):
         session.set_channel_acquire(layer, 'image')
 
-    outcome = session.create_protocol_runner().run_composite(
+    outcome = session.protocol_runner().run_composite(
         parent_dir=str(tmp_path / 'composite'), timeout_s=120
     )
 
@@ -276,7 +276,7 @@ def test_channels_added_together_without_a_stage_are_one_composite(make_session,
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
 
-    pending = session.create_protocol_runner().start_single_scan(
+    pending = session.protocol_runner().start_single_scan(
         protocol, parent_dir=str(tmp_path / 'runs')
     )
     assert pending.result(timeout=120).status == 'completed'
@@ -332,7 +332,7 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
     )
     # Mid-travel: homed Z sits at 0, where a stack's lower slices fall outside.
     session.scope.motion.move_z(5000.0)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     focused = runner.run_autofocus('BF', parent_dir=str(tmp_path / 'af'), timeout_s=180)
     stacked = runner.run_zstack('BF', parent_dir=str(tmp_path / 'zs'), timeout_s=180)

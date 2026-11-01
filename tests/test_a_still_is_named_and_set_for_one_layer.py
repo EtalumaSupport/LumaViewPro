@@ -123,7 +123,7 @@ def test_a_still_after_a_run_is_one_layers(session, tmp_path):
     protocol = session.new_protocol()
     while protocol.num_steps() > 1:
         session.delete_step(protocol, protocol.num_steps() - 1)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     runner.start_single_scan(
         protocol=protocol,
         sequence_name='scan',

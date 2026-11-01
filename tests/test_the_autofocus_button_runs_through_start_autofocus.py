@@ -226,7 +226,7 @@ def test_a_protocols_autofocus_is_not_this_buttons_to_show(homed):
     """Another run is live -- an autofocus this button did not start -- and
     this button started nothing: it draws idle."""
     reached = homed.session.scope.simulation.hold_axis('Z')
-    homed.session.create_protocol_runner().start_autofocus(channel='BF')
+    homed.session.protocol_runner().start_autofocus(channel='BF')
     assert reached.wait(_HOLD_WAIT_S)
     homed.button.button.state = 'normal'
 

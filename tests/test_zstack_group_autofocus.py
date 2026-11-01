@@ -268,7 +268,7 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(one_position_session,
 
     session.scope.illumination.add_led_listener(on_led)
     outcome = (
-        session.create_protocol_runner()
+        session.protocol_runner()
         .start_single_scan(protocol, parent_dir=tmp_path, enable_image_saving=False)
         .result(timeout=60)
     )

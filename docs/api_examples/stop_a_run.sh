@@ -19,7 +19,7 @@ curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B4"}' $API/scope/motion/m
 curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200
 curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"period_s\": 60.0, \"duration_s\": 3600.0}" $API/set_protocol_schedule   # 200
 
-RUNNER=$(curl -s --json '{}' $API/create_protocol_runner | jq -r .handle)         # 200
+RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\", \"sequence_name\": \"stopped\"}" $API/handles/ProtocolRunner/$RUNNER/start_protocol | jq -r .id)   # 202
 curl -s -w '\n' $API/jobs/$JOB                                      # 200: running, its progress
 # DELETE on a running job is its stop: it only asks, and the run ends on its own.

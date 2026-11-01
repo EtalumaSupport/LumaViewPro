@@ -1118,28 +1118,6 @@ carry the objective they were taken with.
 
 - 422: [`ProtocolScheduleRefusedError`](#ProtocolScheduleRefusedError): `schedule_not_runnable`
 
-<a id="ScopeSession.create_protocol_runner"></a>
-### `ScopeSession.create_protocol_runner`
-
-```python
-def create_protocol_runner(self) -> ProtocolRunner
-```
-
-Route: `POST /api/v1/create_protocol_runner`.
-
-The session's one ProtocolRunner (memoized).
-
-Wraps the session-composed sequenced-capture engine; repeated
-calls return the same instance. The accessor takes no
-arguments: every dependency (engine, executors, autofocus
-pair) is session composition, so there is nothing per-call to
-configure -- and nothing for a second caller's differing
-configuration to silently lose.
-
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.current_slot_objective_question"></a>
 ### `ScopeSession.current_slot_objective_question`
 
@@ -2244,6 +2222,28 @@ protocol_files_stuck_write: str  # property
 Route: `GET /api/v1/protocol_files_stuck_write`.
 
 The write in flight on the file lane, named for a stall report.
+
+**Raises**
+
+Nothing.
+
+<a id="ScopeSession.protocol_runner"></a>
+### `ScopeSession.protocol_runner`
+
+```python
+def protocol_runner(self) -> ProtocolRunner
+```
+
+Route: `POST /api/v1/protocol_runner`.
+
+The session's one ProtocolRunner (memoized).
+
+Wraps the session-composed sequenced-capture engine; repeated
+calls return the same instance. The accessor takes no
+arguments: every dependency (engine, executors, autofocus
+pair) is session composition, so there is nothing per-call to
+configure -- and nothing for a second caller's differing
+configuration to silently lose.
 
 **Raises**
 
@@ -11288,7 +11288,7 @@ Nothing.
 ## `ProtocolRunner`
 
 A wire client holds one as a handle: `/api/v1/handles/ProtocolRunner/{handle_id}/`.  
-Returned by: [`ScopeSession.create_protocol_runner`](#ScopeSession.create_protocol_runner).
+Returned by: [`ScopeSession.protocol_runner`](#ScopeSession.protocol_runner).
 
 GUI-independent protocol runner wrapping the session's
 SequencedCaptureRunner.
@@ -17290,7 +17290,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/confirm_objective` | [`ScopeSession.confirm_objective`](#ScopeSession.confirm_objective) |
 | `GET` | `/api/v1/control` | [`ScopeSession.control`](#ScopeSession.control) |
 | `POST` | `/api/v1/create_empty_protocol` | [`ScopeSession.create_empty_protocol`](#ScopeSession.create_empty_protocol) |
-| `POST` | `/api/v1/create_protocol_runner` | [`ScopeSession.create_protocol_runner`](#ScopeSession.create_protocol_runner) |
 | `GET` | `/api/v1/current_slot_objective_question` | [`ScopeSession.current_slot_objective_question`](#ScopeSession.current_slot_objective_question) |
 | `POST` | `/api/v1/delete_step` | [`ScopeSession.delete_step`](#ScopeSession.delete_step) |
 | `POST` | `/api/v1/discard_close_drain` | [`ScopeSession.discard_close_drain`](#ScopeSession.discard_close_drain) |
@@ -17365,6 +17364,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/post_processing/stitch_modes` | [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes) |
 | `GET` | `/api/v1/protocol_files_stalled` | [`ScopeSession.protocol_files_stalled`](#ScopeSession.protocol_files_stalled) |
 | `GET` | `/api/v1/protocol_files_stuck_write` | [`ScopeSession.protocol_files_stuck_write`](#ScopeSession.protocol_files_stuck_write) |
+| `POST` | `/api/v1/protocol_runner` | [`ScopeSession.protocol_runner`](#ScopeSession.protocol_runner) |
 | `GET` | `/api/v1/protocol_size_advisory` | [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory) |
 | `POST` | `/api/v1/rename_step` | [`ScopeSession.rename_step`](#ScopeSession.rename_step) |
 | `POST` | `/api/v1/retire_rejected_settings` | [`ScopeSession.retire_rejected_settings`](#ScopeSession.retire_rejected_settings) |

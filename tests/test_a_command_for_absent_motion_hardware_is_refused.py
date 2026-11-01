@@ -323,7 +323,7 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
 
     monkeypatch.setattr(step_runner.ProtocolStepRunner, 'default_move', default_move)
     session = make_session(model)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     run = runner.start_protocol(
         protocol=_protocol(n_scans=3),
@@ -339,7 +339,7 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
 @pytest.mark.parametrize('model', MANUAL)
 def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, tmp_path, model):
     session = make_session(model, acquiring=('BF', LED0, LED1))
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     run = runner.start_single_scan(
         protocol=_protocol(),
@@ -357,7 +357,7 @@ def test_a_z_stack_on_a_z_only_scope_returns_z_to_its_start(make_session, tmp_pa
     )
     scope = session.scope
     scope.motion.move_z(3000.0)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
 
     assert _wait(runner.start_zstack(channel='BF', parent_dir=str(tmp_path))) == (
         'completed',
@@ -393,7 +393,7 @@ def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_ses
 
 def test_an_unhomed_z_only_scope_with_an_xy_protocol_is_told_it_has_no_xy(make_session, tmp_path):
     session = make_session('LS820', homed=False)
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     a = {**_make_single_step_protocol().step_row(step_index=0), 'Label': 'a', 'X': 10.0, 'Y': 10.0}
     b = {**a, 'Label': 'b', 'X': 30.0, 'Y': 30.0}
 

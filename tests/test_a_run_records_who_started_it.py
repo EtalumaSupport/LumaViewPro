@@ -45,7 +45,7 @@ def _start_held(session, tmp_path):
     """Start a one-step scan held part of the way along its X move: live until stopped."""
     held = session.scope.simulation.hold_axis('X')
     step = {**_make_single_step_protocol().step_row(step_index=0), 'X': 60.0, 'Y': 20.0}
-    run = session.create_protocol_runner().start_single_scan(
+    run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]), parent_dir=str(tmp_path)
     )
     assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
@@ -61,7 +61,7 @@ class TestTheRunRecordsTheStampOnItsStartersThread:
             run = _start_held(session, tmp_path)
         try:
             with pytest.raises(ProtocolRunRefusedError) as refused:
-                session.create_protocol_runner().start_single_scan(
+                session.protocol_runner().start_single_scan(
                     protocol=_build_real_protocol(
                         [_make_single_step_protocol().step_row(step_index=0)]
                     ),

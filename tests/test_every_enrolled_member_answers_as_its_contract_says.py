@@ -308,7 +308,7 @@ def run_folders(tmp_path_factory):
     session = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
     try:
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         session.set_channel_acquire('BF', 'image')
         session.set_channel_acquire(LED0, 'image')
 

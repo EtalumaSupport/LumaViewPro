@@ -16,7 +16,7 @@ curl -s -w '\n' --json '{"path": "zstack.position", "value": "center"}' $API/upd
 curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings     # 200
 
 # A z-stack is a run: its job, then its files' job once the slices are on disk.
-RUNNER=$(curl -s --json '{}' $API/create_protocol_runner | jq -r .handle)         # 200
+RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json '{"channel": "BF", "sequence_name": "example_stack"}' $API/handles/ProtocolRunner/$RUNNER/start_zstack | jq -r .id)   # 202
 FILES=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r .files.id)   # 200: "result" the RunOutcome
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$FILES               # 200: "result" the RunFiles, once the slices are on disk

@@ -100,7 +100,7 @@ def _record_moves(session):
 
 
 def _run(session, tmp_path, protocol=None, scans=1):
-    runner = session.create_protocol_runner()
+    runner = session.protocol_runner()
     done = threading.Event()
     kwargs = {
         'protocol': protocol or _make_single_step_protocol(),

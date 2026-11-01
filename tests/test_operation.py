@@ -379,7 +379,7 @@ def test_a_holder_cannot_settle_a_run_a_recording_or_a_move_it_was_handed(tmp_pa
         session.set_channel_acquire('BF', 'image')
         protocol = session.create_empty_protocol()
         session.add_step(protocol)
-        run = session.create_protocol_runner().start_single_scan(
+        run = session.protocol_runner().start_single_scan(
             protocol=protocol, enable_image_saving=False, events=RunEvents(run_ended=run_ended)
         )
         assert ending.wait(BOUND_S)

@@ -152,7 +152,7 @@ def test_a_name_is_refused_whatever_the_scope_is_doing(tmp_path):
 
     def check(member, name, reason):
         s = _session(tmp_path, 'LS850')
-        runner = s.create_protocol_runner()
+        runner = s.protocol_runner()
         s.shutdown()
         if member in RUNNERS:
             _refused(lambda: RUNNERS[member](runner, name), reason)

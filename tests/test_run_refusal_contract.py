@@ -359,7 +359,7 @@ class TestHeadlessRefusalDoesNotHang:
         # A headless session does not home: an unhomed scope refuses every
         # XY move, and the run would end on its three-strike ceiling instead.
         home_sim_scope(session.scope)
-        runner = session.create_protocol_runner()
+        runner = session.protocol_runner()
         try:
             # First: a valid run that completes.
             done = threading.Event()
