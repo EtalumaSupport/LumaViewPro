@@ -2127,9 +2127,8 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
     caller-supplied buffers, so ProtocolImageWriter no longer pre-allocates
     them -- it passes None and the downstream save lazily allocates only when
     actually needed. The write_tiff / save_image false_color_buf + rgb_buf
-    params are retained as the color-audit enforcement surface (cv2_channel_tiff_write
-    whitelist); only the dead pre-allocation in the protocol writer was
-    removed.
+    params are retained; only the dead pre-allocation in the protocol writer
+    was removed.
     """
 
     def test_write_tiff_signature_includes_buffers(self):
@@ -8414,7 +8413,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             )
 
             # Read both back and compare. tifffile imread returns
-            # the exact array that was written (LZW is lossless).
+            # the exact array that was written (the codec is lossless).
             manual_read = tf.imread(str(manual_tiff))
             protocol_read = tf.imread(str(protocol_tiff))
 

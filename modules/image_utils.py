@@ -1962,7 +1962,7 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
 
     Args:
         image: 2D (grayscale) or 3D (color) numpy array.
-        fmt: Output format -- 'png', 'jpeg', or 'tiff'.
+        fmt: Output format -- 'png' or 'jpeg'.
         jpeg_quality: JPEG quality (1-100), only used for JPEG format.
 
     Returns:
@@ -1978,9 +1978,6 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     elif fmt == 'png':
         params = [cv2.IMWRITE_PNG_COMPRESSION, 1]  # fast compression
         ext = '.png'
-    elif fmt in ('tiff', 'tif'):
-        params = []
-        ext = '.tiff'
     else:
         raise ValueError(f'Unsupported image format: {fmt}')
 
@@ -2240,6 +2237,15 @@ def _written_whole(file_loc: pathlib.Path | str) -> Iterator[pathlib.Path]:
         tmp_loc.unlink(missing_ok=True)
 
 
+# Every TIFF LVP writes is compressed this one way, by the two writers below;
+# no caller chooses it. Deflate at its default level: smaller than LZW on
+# nearly every real frame, and its slower encode only changes when a queued
+# recording's files land, never whether they do, so file size wins.
+# 'adobe_deflate' stamps the standard Deflate code (8); tifffile's 'deflate'
+# stamps the obsolete pre-standard one (32946) on the same stream.
+TIFF_COMPRESSION = 'adobe_deflate'
+
+
 def write_hyperstack_tiff(
     planes: Iterator[np.ndarray],
     file_loc: pathlib.Path,
@@ -2270,7 +2276,9 @@ def write_hyperstack_tiff(
     color travels solely as OME Channel.Color (FIJI applies it via the
     Bio-Formats Importer in Composite mode; plain File>Open shows default
     LUTs). The caller (stack_builder) supplies the full OME dict + write
-    options + resolution and they pass through verbatim. Keeping these
+    options + resolution and they pass through verbatim; the compression
+    is this writer's, and options that name one are refused by tifffile's
+    duplicate keyword (``TypeError``). Keeping these
     apart lets write_tiff demand significant_bits as a required argument,
     which this path carries inside its OME dict rather than as a scalar.
 
@@ -2303,6 +2311,7 @@ def write_hyperstack_tiff(
                 metadata=tiff_metadata,
                 software=f'LumaViewPro {version}',
                 datetime=record['datetime'].strftime(_TIFF_DATETIME),
+                compression=TIFF_COMPRESSION,
                 **hyperstack_options,
             )
         _splice_ome_additions(
@@ -2474,6 +2483,7 @@ def write_tiff(
                     datetime=tiff_datetime,
                     software=f'LumaViewPro {version}',
                     extratags=support_data['extratags'],
+                    compression=TIFF_COMPRESSION,
                     **support_data['options'],
                 )
 
@@ -2485,6 +2495,7 @@ def write_tiff(
                     datetime=tiff_datetime,
                     software=f'LumaViewPro {version}',
                     extratags=support_data['extratags'],
+                    compression=TIFF_COMPRESSION,
                     **support_data['options'],
                 )
 
@@ -2507,6 +2518,7 @@ def write_tiff(
                     software=f'LumaViewPro {version}',
                     colormap=colormap_array,
                     extratags=support_data['extratags'],
+                    compression=TIFF_COMPRESSION,
                     **support_data['options'],
                 )
         if image_type == 'ome':
@@ -2661,7 +2673,6 @@ def generate_tiff_data(
         tiff_metadata['Info'] = _view_lines(_readable_view(metadata), ascii_only=False)
         options = {
             'photometric': photometric,
-            'compression': 'deflate',
         }
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (
@@ -2673,7 +2684,6 @@ def generate_tiff_data(
         # ome and default use same options.
         options = {
             'photometric': photometric,
-            'compression': 'lzw',
             # tifffile always emits an XResolution tag, defaulting to 1/1. Under
             # CENTIMETER that reads as one pixel per centimetre -- a concrete and
             # wildly wrong scale claim. NONE is the TIFF convention for "ratio

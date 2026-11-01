@@ -295,7 +295,6 @@ class StackBuilder(ProtocolPostProcessor):
 
         options = {
             'photometric': 'minisblack',
-            'compression': 'lzw',
             # tifffile always emits an XResolution tag, defaulting to 1/1. Under
             # CENTIMETER that reads as one pixel per centimetre -- a concrete and
             # wildly wrong scale claim. NONE is the TIFF convention for "ratio

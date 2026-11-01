@@ -50,10 +50,9 @@ LumaViewPro-only (kv_ascii + cv2_channel + rule_37 families):
     cv2_channel_io          -- bare cv2.imread/imwrite/VideoWriter
     cv2_channel_false_color -- add_false_color outside the display/encode
                                boundary
-    cv2_channel_tiff_write  -- bare tifffile.imwrite in post-processors
-                               without a paired false-color helper
-    cv2_channel_tiff_read   -- bare tifffile.imread outside
-                               image_utils.load_pixels
+    tifffile_one_importer   -- tifffile imported outside image_utils, whose
+                               writers own the codec and record and whose
+                               load_pixels owns the depth
 
 Firmware-only (doc_status family):
     rule_45  -- plan/audit docs (AUDIT_*.md, *_PLAN*.md in docs/) carry a
@@ -510,24 +509,7 @@ def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
-_POST_PROCESSOR_WRITE_PATHS = frozenset(
-    {
-        'modules/zprojector.py',
-        'modules/stitcher.py',
-        'modules/composite_generation.py',
-        'modules/stack_builder.py',
-    }
-)
-
-_TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})
-
-_FALSE_COLOR_HELPER_NAMES = frozenset(
-    {
-        'maybe_apply_false_color',
-        'write_tiff',
-        'write_hyperstack_tiff',
-    }
-)
+_TIFFFILE_OWNER = 'modules/image_utils.py'
 
 _CV2_CHANNEL_IO_PATH_SCOPE = ('modules/', 'ui/')
 _CV2_CHANNEL_IO_FILE_EXEMPT = frozenset(
@@ -545,17 +527,6 @@ _CV2_CHANNEL_IO_FILE_EXEMPT = frozenset(
     }
 )
 _CV2_CHANNEL_IO_BANNED_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
-
-_CV2_CHANNEL_TIFF_READ_PATH_SCOPE = ('modules/', 'ui/')
-_CV2_CHANNEL_TIFF_READ_FILE_EXEMPT = frozenset(
-    {
-        # image_utils.py owns load_pixels -- the one reader that returns the
-        # pixels AND their significant-bit depth together -- plus the
-        # read_tiff_with_legacy_collapse helper it calls. tifffile.imread here
-        # is the boundary implementation, so the depth cannot be dropped.
-        'modules/image_utils.py',
-    }
-)
 
 _CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS = frozenset(
     {
@@ -577,64 +548,48 @@ _CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS = frozenset(
 )
 
 
-def _check_cv2_channel_tiff_write(tree: ast.AST, path: str) -> list[Violation]:
-    """Block bare ``tf.imwrite`` / ``tifffile.imwrite`` in post-processor
-    modules whose canonical save path is the false-color-aware
-    ``image_utils.write_tiff`` (or its extracted helper
-    ``image_utils.maybe_apply_false_color`` called before a bare
-    imwrite).
+def _check_tifffile_one_importer(tree: ast.AST, path: str) -> list[Violation]:
+    """Block any import of tifffile in production code outside
+    ``modules/image_utils.py``.
 
-    Bug shape this prevents: post-processor functions that compute a
-    fluorescence-shaped output and save via bare tifffile.imwrite
-    bypass the false-color RGB widening. Symptom: greyscale projection
-    / stitched / composite outputs even with the false-color image
-    mode selected.
+    Bug shape this prevents: a module that reaches tifffile itself can
+    write a TIFF that bypasses ``write_tiff`` / ``write_hyperstack_tiff``
+    (another codec or none, no false-color gate, none of the record the
+    reader expects), or read one through a bare ``imread`` that hands back
+    pixels with no significant-bit depth, so a right-aligned 12-bit frame
+    scales ~16x dark. ``image_utils`` owns both sides: the two writers and
+    ``load_pixels``, which returns the pixels and their depth together.
+    Without the import, neither bypass can be written.
 
-    Per-function pairing rule: a function may call tifffile.imwrite IF
-    the same function also calls one of the false-color helpers. A
-    function with bare imwrite and no paired helper call fires.
-
-    Path scope: only fires on the modules listed in
-    ``_POST_PROCESSOR_WRITE_PATHS`` -- the sinks where the canonical
-    route is established. Expand the set as other post-processors
-    migrate.
+    Every import form is seen at any nesting depth. Test files are exempt
+    via ``_is_test_path``: fixtures write their inputs directly.
     """
+    if _is_test_path(path):
+        return []
     norm = path.replace('\\', '/')
-    if not any(norm.endswith(p) for p in _POST_PROCESSOR_WRITE_PATHS):
+    if norm == _TIFFFILE_OWNER:
         return []
     violations: list[Violation] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.ImportFrom):
+            names = [node.module] if node.level == 0 and node.module else []
+        elif isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        else:
             continue
-        bare_imwrite_calls: list[ast.Call] = []
-        helper_seen = False
-        for sub in ast.walk(node):
-            if not isinstance(sub, ast.Call):
-                continue
-            f = sub.func
-            if isinstance(f, ast.Attribute):
-                if (
-                    f.attr == 'imwrite'
-                    and isinstance(f.value, ast.Name)
-                    and f.value.id in _TIFFFILE_NAMES
-                ):
-                    bare_imwrite_calls.append(sub)
-                elif f.attr in _FALSE_COLOR_HELPER_NAMES:
-                    helper_seen = True
-        if bare_imwrite_calls and not helper_seen:
-            for c in bare_imwrite_calls:
+        for name in names:
+            if name == 'tifffile' or name.startswith('tifffile.'):
                 violations.append(
                     Violation(
                         path,
-                        c.lineno,
-                        c.col_offset,
-                        'cv2_channel_tiff_write',
-                        'bare tifffile.imwrite without a paired '
-                        'image_utils.maybe_apply_false_color (or '
-                        'image_utils.write_tiff) call in the same '
-                        'function. Post-processor outputs must apply '
-                        'the false-color gate before the bare imwrite, '
-                        'or fluorescence saves grayscale.',
+                        node.lineno,
+                        node.col_offset,
+                        'tifffile_one_importer',
+                        f'imports {name}; only {_TIFFFILE_OWNER} may import '
+                        f'tifffile. Write through image_utils.write_tiff / '
+                        f'write_hyperstack_tiff and read through '
+                        f'image_utils.load_pixels, which own the codec, the '
+                        f'record and the depth.',
                     )
                 )
     return violations
@@ -692,58 +647,6 @@ def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
                     f'canonical modules.video_writer.VideoWriter class. '
                     f'cv2 is BGR-native and bare calls swap channels at '
                     f'the file boundary.',
-                )
-            )
-    return violations
-
-
-def _check_cv2_channel_tiff_read(tree: ast.AST, path: str) -> list[Violation]:
-    """Block bare ``tf.imread`` / ``tifffile.imread`` in production
-    ``modules/`` and ``ui/`` outside the canonical depth-carrying reader.
-
-    Bug shape this prevents: a caller reads saved pixels via
-    ``tifffile.imread`` and gets the array with no significant-bit depth.
-    The depth then has to be read separately (a second open) and threaded
-    by hand -- and a caller who forgets scales a right-aligned 12-bit frame
-    as a full 16-bit value, reading it back ~16x dark. The canonical route
-    is ``image_utils.load_pixels``, which returns ``(image,
-    significant_bits)`` in one call so the pixels and their depth cannot be
-    obtained apart.
-
-    Path scope: only fires on ``modules/`` and ``ui/`` sources. File-level
-    exempt for the reader owner in ``_CV2_CHANNEL_TIFF_READ_FILE_EXEMPT``.
-    Test files exempt via ``_is_test_path``. The write side (depth-less
-    ``write_tiff``) is already impossible by signature --
-    ``significant_bits`` is a required positional -- so this guard covers
-    the read side; cv2_channel_io covers the cv2 read side;
-    cv2_channel_tiff_write covers the false-color-aware write side.
-    """
-    if _is_test_path(path):
-        return []
-    norm = path.replace('\\', '/')
-    if not any(norm.startswith(scope) for scope in _CV2_CHANNEL_TIFF_READ_PATH_SCOPE):
-        return []
-    if norm in _CV2_CHANNEL_TIFF_READ_FILE_EXEMPT:
-        return []
-    violations: list[Violation] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        if not isinstance(f, ast.Attribute):
-            continue
-        if isinstance(f.value, ast.Name) and f.value.id in _TIFFFILE_NAMES and f.attr == 'imread':
-            violations.append(
-                Violation(
-                    path,
-                    node.lineno,
-                    node.col_offset,
-                    'cv2_channel_tiff_read',
-                    f'bare {f.value.id}.imread in modules/ or ui/; route '
-                    f'through image_utils.load_pixels, which returns '
-                    f'(image, significant_bits) together. A bare read hands '
-                    f'back pixels with no depth; a right-aligned 12-bit frame '
-                    f'read without its depth scales ~16x dark.',
                 )
             )
     return violations
@@ -1384,8 +1287,7 @@ def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[V
         if cv2_channel:
             violations.extend(_check_cv2_channel_io(tree, path))
             violations.extend(_check_cv2_channel_false_color(tree, path))
-            violations.extend(_check_cv2_channel_tiff_write(tree, path))
-            violations.extend(_check_cv2_channel_tiff_read(tree, path))
+            violations.extend(_check_tifffile_one_importer(tree, path))
         violations.extend(_check_rule_35d(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))
