@@ -56,7 +56,7 @@ def held():
 
 @pytest.fixture
 def display(gui_ctx):
-    gui_ctx.session.engineering_mode = True
+    gui_ctx.session.set_engineering_mode(True)
     # a stand-in by design: the layer panel is a Kivy widget tree, which
     # never runs here; with no layer open the stats have nowhere to show.
     gui_ctx.image_settings = SimpleNamespace(layer_lookup=lambda layer: None)

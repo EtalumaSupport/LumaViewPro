@@ -504,21 +504,11 @@ class LiveFolderEntry:
     modified: datetime.datetime
 
 
-@api_fields('engineering_mode', 'manual_capture', 'manual_recording', 'post_processing', 'scope')
+@api_fields('manual_capture', 'manual_recording', 'post_processing', 'scope')
 class ScopeSession:
-    """Owns the shared, GUI-independent state for one microscope session.
-
-    Attributes:
-        engineering_mode: Whether the session runs in engineering mode: a
-            saved still or run image on a scope with a turret names the
-            slot it was taken at, and the system metrics are sampled more
-            often unless the settings name an interval. It begins as
-            ``create`` was given; a plugin may turn it on when the host
-            loads plugins.
-    """
+    """Owns the shared, GUI-independent state for one microscope session."""
 
     # What the session holds, set during construction.
-    engineering_mode: bool
     manual_capture: ManualCaptureController
     manual_recording: ManualRecordingController
     post_processing: 'PostProcessingAPI'
@@ -601,11 +591,12 @@ class ScopeSession:
         # so each is said once (_save_settings_file).
         self._unsaved_told: set[str] = set()
         # The one store for engineering mode. Set from what the host was
-        # built in; the engineering plugin turns it on when it loads.
-        # no_engineering is the host's word that the engineering plugin is
-        # not loaded at all (load_plugins leaves it out). Every reader --
-        # a run, a still, the metrics cadence, the GUI -- reads it here.
-        self.engineering_mode = engineering_mode
+        # built in; the engineering plugin turns it on when it loads, through
+        # set_engineering_mode, its one writer. no_engineering is the host's
+        # word that the engineering plugin is not loaded at all (load_plugins
+        # leaves it out). Every reader -- a run, a still, the metrics
+        # cadence, the GUI -- reads it through engineering_mode.
+        self._engineering_mode = engineering_mode
         self.no_engineering = no_engineering
         # The session stops the bundle it holds at shutdown(), whoever built
         # it: a caller that hands one to the constructor hands it over. The
@@ -1003,6 +994,42 @@ class ScopeSession:
                 did not run.
         """
         return write()
+
+    @api(reads=True)
+    @property
+    def engineering_mode(self) -> bool:
+        """Whether the session runs in engineering mode, as ``create`` began it
+        or ``set_engineering_mode`` last set it.
+
+        In engineering mode a saved still or run image on a scope with a
+        turret names the slot it was taken at, and the system metrics are
+        sampled more often unless the settings name an interval. A run reads
+        it once, when it is prepared; a still, when it is asked for.
+
+        Raises:
+            Nothing.
+        """
+        return self._engineering_mode
+
+    @api(sets='engineering_mode', admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
+    def set_engineering_mode(self, enabled: bool) -> None:
+        """Turn engineering mode on or off; the one writer of ``engineering_mode``.
+
+        A plugin may turn it on when the host loads plugins. A run already
+        prepared keeps the mode it was prepared with.
+
+        Args:
+            enabled: True turns engineering mode on, False off.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_held'``, a control
+                session is held by someone else. Nothing is written.
+        """
+        if enabled == self._engineering_mode:
+            return
+        self._engineering_mode = enabled
+        logger.info(f'[Session  ] Engineering mode {"on" if enabled else "off"}')
 
     @api
     @property

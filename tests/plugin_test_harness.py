@@ -21,7 +21,7 @@ and has only what a session has:
     ctx.plugins              -- real PluginRegistry
     ctx.scope                -- mocked Lumascope; attribute access does not raise
     ctx.post_processing      -- mocked post-processing builds
-    ctx.engineering_mode     -- False
+    ctx.engineering_mode     -- False, a read; ctx.set_engineering_mode(enabled) writes it
     ctx.no_engineering       -- False
     ctx.get_settings_snapshot() -- a copy of the settings, the shipped template to begin with
     ctx.update_settings      -- the Session's own check against the shipped template, then the
@@ -60,13 +60,26 @@ __all__ = [
 ]
 
 
-def _make_ctx() -> types.SimpleNamespace:
+class _HarnessSession(types.SimpleNamespace):
+    """The session's shape where a plain namespace would differ: its engineering
+    mode is a read, so a plugin storing to it fails here as in LumaViewPro."""
+
+    _engineering_mode = False
+
+    @property
+    def engineering_mode(self) -> bool:
+        return self._engineering_mode
+
+    def set_engineering_mode(self, enabled: bool) -> None:
+        self._engineering_mode = enabled
+
+
+def _make_ctx() -> _HarnessSession:
     """Build a fresh session-shaped ctx with a real PluginRegistry."""
-    ctx = types.SimpleNamespace()
+    ctx = _HarnessSession()
     ctx.scope = MagicMock(name='scope')
     ctx.plugins = PluginRegistry(ctx.scope)
     ctx.post_processing = MagicMock(name='post_processing')
-    ctx.engineering_mode = False
     ctx.no_engineering = False
     settings = complete_settings()
     ctx.get_settings_snapshot = lambda: copy.deepcopy(settings)
@@ -75,7 +88,7 @@ def _make_ctx() -> types.SimpleNamespace:
 
 
 @pytest.fixture
-def harness_ctx() -> types.SimpleNamespace:
+def harness_ctx() -> _HarnessSession:
     """Fresh ctx per test. Plugin registrations do not leak across tests."""
     return _make_ctx()
 

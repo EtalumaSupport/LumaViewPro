@@ -391,7 +391,7 @@ class TestTheSessionIsThePluginsHost:
 class TestOneEngineeringMode:
     def test_a_plugin_that_turns_engineering_mode_on_turns_it_on_for_the_session(self, tmp_path):
         def turn_on(session):
-            session.engineering_mode = True
+            session.set_engineering_mode(True)
 
         settings = headless_settings(tmp_path)
         # Where a still is saved: the one key a still reads that a run does not.

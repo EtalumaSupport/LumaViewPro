@@ -168,7 +168,6 @@ Owns the shared, GUI-independent state for one microscope session.
 
 **Fields**
 
-- <a id="ScopeSession.engineering_mode"></a>`engineering_mode`: `bool` -- Whether the session runs in engineering mode: a saved still or run image on a scope with a turret names the slot it was taken at, and the system metrics are sampled more often unless the settings name an interval. It begins as `create` was given; a plugin may turn it on when the host loads plugins.
 - <a id="ScopeSession.manual_capture"></a>`manual_capture`: `ManualCaptureController` -- (no description)
 - <a id="ScopeSession.manual_recording"></a>`manual_recording`: `ManualRecordingController` -- (no description)
 - <a id="ScopeSession.post_processing"></a>`post_processing`: `PostProcessingAPI` -- (no description)
@@ -1324,6 +1323,28 @@ The session ended.
 **Refusals by REST status**
 
 - 422: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_ended`
+
+<a id="ScopeSession.engineering_mode"></a>
+### `ScopeSession.engineering_mode`
+
+```python
+engineering_mode: bool  # property
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/engineering_mode`.
+
+Whether the session runs in engineering mode, as `create` began it
+or `set_engineering_mode` last set it.
+
+In engineering mode a saved still or run image on a scope with a
+turret names the slot it was taken at, and the system metrics are
+sampled more often unless the settings name an interval. A run reads
+it once, when it is prepared; a still, when it is asked for.
+
+**Raises**
+
+Nothing.
 
 <a id="ScopeSession.get_current_plate_position"></a>
 ### `ScopeSession.get_current_plate_position`
@@ -2892,6 +2913,33 @@ The lock when turning off (its `state` is None when no arm stood), so a caller c
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `layers_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+
+<a id="ScopeSession.set_engineering_mode"></a>
+### `ScopeSession.set_engineering_mode`
+
+```python
+def set_engineering_mode(self, enabled: bool) -> None
+```
+
+Marks: sets [`engineering_mode`](#ScopeSession.engineering_mode); enters: `guarded_write`.  
+Route: `PUT /api/v1/engineering_mode`.
+
+Turn engineering mode on or off; the one writer of `engineering_mode`.
+
+A plugin may turn it on when the host loads plugins. A run already
+prepared keeps the mode it was prepared with.
+
+**Args**
+
+- `enabled`: True turns engineering mode on, False off.
+
+**Raises**
+
+- `ControlSessionRefusedError`: `'control_session_held'`, a control session is held by someone else. Nothing is written.
+
+**Refusals by REST status**
+
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 
 <a id="ScopeSession.set_live_folder"></a>
 ### `ScopeSession.set_live_folder`
@@ -17186,6 +17234,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/discard_close_drain` | [`ScopeSession.discard_close_drain`](#ScopeSession.discard_close_drain) |
 | `POST` | `/api/v1/end_control` | [`ScopeSession.end_control`](#ScopeSession.end_control) |
 | `GET` | `/api/v1/engineering_mode` | [`ScopeSession.engineering_mode`](#ScopeSession.engineering_mode) |
+| `PUT` | `/api/v1/engineering_mode` | [`ScopeSession.set_engineering_mode`](#ScopeSession.set_engineering_mode) |
 | `GET` | `/api/v1/get_current_plate_position` | [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position) |
 | `GET` | `/api/v1/get_setting` | [`ScopeSession.get_setting`](#ScopeSession.get_setting) |
 | `POST` | `/api/v1/go_to_bookmark` | [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark) |
