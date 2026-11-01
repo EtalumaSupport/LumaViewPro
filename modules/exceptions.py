@@ -1303,6 +1303,51 @@ class LedBoardUnavailableError(Fault, BringUpError):
         super().__init__(f'{self._ADVICE[reason]} The rest of the microscope is working.', reason)
 
 
+class MotorBoardUnavailableError(Fault, BringUpError):
+    """The motor controller did not come up on a scope whose model has one.
+
+    Said once at bring-up, with the advice its cause needs: without it the
+    first symptom is a stage that does not move and a home refused.
+
+    Attributes:
+        reason: The hardware registry's cause, as ``LedBoardUnavailableError``
+            explains them.
+    """
+
+    title = 'Motor Controller Unavailable'
+
+    _ADVICE: ClassVar[dict[str, str]] = {
+        'not_detected': (
+            'The motor controller was not found on USB, so the stage cannot move this '
+            'session. Check the USB cable and 24V power, then restart LumaViewPro.'
+        ),
+        'port_in_use': (
+            'The motor controller was found but its port could not be opened, so the '
+            'stage cannot move this session. Close other programs holding the port (a '
+            'serial monitor, Thonny), then restart LumaViewPro.'
+        ),
+        'not_responding': (
+            'The motor controller did not respond, so the stage cannot move this '
+            'session. Power-cycle the microscope and restart LumaViewPro.'
+        ),
+        'connect_failed': (
+            'Could not connect to the motor controller, so the stage cannot move this '
+            'session. Check the USB cable and 24V power, then restart LumaViewPro.'
+        ),
+        'no_driver': (
+            'No motor controller driver is installed, so the stage cannot move this '
+            'session. Reinstall LumaViewPro.'
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
+    # The registry's causes are one fact for every board; the LED board's
+    # notice carries all five.
+    same_fact_as = (LedBoardUnavailableError,)
+
+    def __init__(self, reason: str):
+        super().__init__(f'{self._ADVICE[reason]} The rest of the microscope is working.', reason)
+
+
 class LedSafetyOffNotTakenError(Fault, BringUpError):
     """The LED board connected but did not confirm the LEDs-off sent on connect.
 
@@ -1322,26 +1367,6 @@ class LedSafetyOffNotTakenError(Fault, BringUpError):
             f'({detail}). If the LEDs are stuck on, turn off illumination manually '
             'before placing a sample.',
             'safety_off_failed',
-        )
-
-
-class PartialHardwareError(Fault, BringUpError):
-    """Parts this scope's model has did not come up; the rest of the scope runs.
-
-    Attributes:
-        reason: ``'partial_hardware'``.
-        missing: Each missing part with its cause, as ``PartStatus.describe``
-            writes it.
-    """
-
-    title = 'Partial Hardware Detected'
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'partial_hardware': None}
-
-    def __init__(self, missing: Iterable[str]):
-        self.missing = tuple(missing)
-        super().__init__(
-            f'Not connected: {", ".join(self.missing)}. Some features will be unavailable.',
-            'partial_hardware',
         )
 
 

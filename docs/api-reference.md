@@ -15681,6 +15681,28 @@ API's stop generation to say, never this type.
 |---|---|---|
 | `motion_not_completed` | -- | 500 |
 
+<a id="MotorBoardUnavailableError"></a>
+### `MotorBoardUnavailableError`
+
+A fault; bases `Fault`, `BringUpError`.
+
+The motor controller did not come up on a scope whose model has one.
+
+Said once at bring-up, with the advice its cause needs: without it the
+first symptom is a stage that does not move and a home refused.
+
+**Attributes**
+
+- `reason`: The hardware registry's cause, as `LedBoardUnavailableError` explains them.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `connect_failed` | -- | 500 |
+| `no_driver` | -- | 500 |
+| `not_detected` | -- | 500 |
+| `not_responding` | -- | 500 |
+| `port_in_use` | -- | 500 |
+
 <a id="MotorStopFailedError"></a>
 ### `MotorStopFailedError`
 
@@ -15931,22 +15953,6 @@ lacks before the driver is asked (`axis_absent`, `not_on_this_scope`,
 | Reason | Cause | REST status |
 |---|---|---|
 | `part_absent` | -- | 500 |
-
-<a id="PartialHardwareError"></a>
-### `PartialHardwareError`
-
-A fault; bases `Fault`, `BringUpError`.
-
-Parts this scope's model has did not come up; the rest of the scope runs.
-
-**Attributes**
-
-- `reason`: `'partial_hardware'`.
-- `missing`: Each missing part with its cause, as `PartStatus.describe` writes it.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `partial_hardware` | -- | 500 |
 
 <a id="PluginError"></a>
 ### `PluginError`

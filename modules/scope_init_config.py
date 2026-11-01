@@ -49,7 +49,7 @@ class ScopeInitConfig:
 
         scope_config: the active scope's model record (``ScopeModel``),
         None for a model the catalogue does not list. Drives
-        expects_motion for the partial-hardware notification filter.
+        expects_motion, which says whether a missing motor board is reported.
 
         channel_identity: the scope's resolved layer identity snapshot.
         When resolved, drives expects_led: identity carrying at least one

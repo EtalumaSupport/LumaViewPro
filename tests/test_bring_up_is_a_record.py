@@ -30,8 +30,8 @@ from modules.exceptions import (
     CameraNotAvailableError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
+    MotorBoardUnavailableError,
     NoHardwareDetectedNotice,
-    PartialHardwareError,
 )
 from modules.lumascope_api.bring_up import (
     CAUSE_PHRASES,
@@ -118,7 +118,7 @@ class TestEachPartNamesItsCause:
             'Camera (firmware file missing)'
         )
 
-    def test_a_motor_board_whose_port_is_held_is_on_the_record_and_in_the_one_report(
+    def test_a_motor_board_whose_port_is_held_is_on_the_record_and_told_once_with_its_remedy(
         self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
@@ -132,9 +132,63 @@ class TestEachPartNamesItsCause:
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
-            assert [n.reason for n in faults] == [PartialHardwareError('').reason]
-            assert 'Motor Controller (port in use)' in faults[0].message
+            assert [(n.title, n.reason, n.category) for n in faults] == [
+                (MotorBoardUnavailableError.title, 'port_in_use', 'Motion')
+            ]
+            assert 'Close other programs holding the port' in faults[0].message
             assert faults[0].shown
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_each_board_is_told_once_for_every_cause_with_that_cause_s_advice(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # One walk over the registry's causes, the LED's table naming all
+        # five, for both boards: an offender is a board and cause told other
+        # than once, by its own type, in its own words.
+        boards = (
+            ('led', LedBoardUnavailableError, 'LEDBoard'),
+            ('motor', MotorBoardUnavailableError, 'MotorBoard'),
+        )
+        offenders = []
+        for part, notice, driver in boards:
+            for cause in sorted(LedBoardUnavailableError.causes):
+                centre_posts.clear()
+                s = _bring_up(
+                    monkeypatch,
+                    tmp_path,
+                    microscope='LS850T',
+                    **{part: DriverFallback(cause, (driver,))},
+                )
+                try:
+                    told = [
+                        (n.title, n.reason, n.message)
+                        for n in _outcomes(centre_posts, OutcomeKind.FAULT)
+                    ]
+                finally:
+                    s.shutdown()
+                    s.scope.disconnect()
+                if told != [(notice.title, cause, str(notice(cause)))]:
+                    offenders.append((part, cause, told))
+        assert offenders == []
+
+    def test_two_boards_missing_are_two_notices_one_each(self, monkeypatch, tmp_path, centre_posts):
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            led=DriverFallback('port_in_use', ('LEDBoard',)),
+            motor=DriverFallback('port_in_use', ('MotorBoard',)),
+            microscope='LS850T',
+        )
+        try:
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
+            assert sorted((n.title, n.category) for n in faults) == sorted(
+                [
+                    (LedBoardUnavailableError.title, 'Illumination'),
+                    (MotorBoardUnavailableError.title, 'Motion'),
+                ]
+            )
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -177,6 +231,10 @@ class TestEachPartNamesItsCause:
             led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
             assert led in s.bring_up_record().missing
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
+            assert [(n.title, n.reason) for n in faults] == [
+                (LedBoardUnavailableError.title, 'port_in_use')
+            ]
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -194,17 +252,15 @@ class TestEachPartNamesItsCause:
             led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
-            by_reason = {n.reason: n for n in faults}
-            assert set(by_reason) == {'not_responding', 'partial_hardware'}
-            unavailable = by_reason['not_responding']
-            assert unavailable.title == LedBoardUnavailableError.title
-            assert 'Power-cycle' in unavailable.message
-            assert 'LED Board (not responding)' in by_reason['partial_hardware'].message
+            assert [(n.title, n.reason) for n in faults] == [
+                (LedBoardUnavailableError.title, 'not_responding')
+            ]
+            assert 'Power-cycle' in faults[0].message
         finally:
             s.shutdown()
             s.scope.disconnect()
 
-    def test_a_camera_that_raised_keeps_its_own_heading_and_its_cause(
+    def test_a_camera_that_raised_is_told_once_under_its_own_heading_and_its_cause(
         self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
@@ -218,10 +274,9 @@ class TestEachPartNamesItsCause:
             assert (camera.up, camera.cause) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
-            by_reason = {n.reason: n for n in faults}
-            assert by_reason['port_in_use'].title == 'Camera port in use'
-            assert by_reason['port_in_use'].category == 'Camera'
-            assert 'Camera (port in use)' in by_reason['partial_hardware'].message
+            assert [(n.title, n.reason, n.category) for n in faults] == [
+                ('Camera port in use', 'port_in_use', 'Camera')
+            ]
         finally:
             s.shutdown()
             s.scope.disconnect()

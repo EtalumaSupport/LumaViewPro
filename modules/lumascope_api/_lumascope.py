@@ -78,8 +78,8 @@ from modules.exceptions import (
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     MissingPart,
+    MotorBoardUnavailableError,
     NoHardwareDetectedNotice,
-    PartialHardwareError,
     ScopeDisconnectError,
 )
 from modules.lumascope_api.bring_up import (
@@ -1557,9 +1557,11 @@ class Lumascope:
         The model's expectations arrive with the config: an LS620 with no
         motor board is the manual scope it is, not a failure, so only a part
         the model has is missing. A camera that failed is reported whatever
-        the model (``_report_camera``). When nothing came up the person is
-        told once, not once per part. A simulated part is never reported:
-        the simulator is what it stands in for.
+        the model (``_report_camera``). Each missing board is told once, by
+        its own notice with the advice its cause needs; a client wanting the
+        whole list reads the record's ``missing``. When nothing came up the
+        person is told once, not once per part. A simulated board is never
+        reported: the simulator is what it stands in for.
         """
         parts = self._bring_up_parts
         parts[Part.MOTOR] = dataclasses.replace(parts[Part.MOTOR], expected=config.expects_motion)
@@ -1575,7 +1577,7 @@ class Lumascope:
         if self._simulated:
             return
         led = parts[Part.LED]
-        if not led.up:
+        if led.missing:
             notifications.report_outcome(
                 LedBoardUnavailableError(led.cause), solicited=False, category='Illumination'
             )
@@ -1583,12 +1585,10 @@ class Lumascope:
             notifications.report_outcome(
                 LedSafetyOffNotTakenError(led.detail), solicited=False, category='Illumination'
             )
-        missing = self.bring_up_record().missing
-        if missing:
+        motor = parts[Part.MOTOR]
+        if motor.missing:
             notifications.report_outcome(
-                PartialHardwareError(status.describe() for status in missing),
-                solicited=False,
-                category='Hardware',
+                MotorBoardUnavailableError(motor.cause), solicited=False, category='Motion'
             )
 
     def _report_camera(self) -> None:
