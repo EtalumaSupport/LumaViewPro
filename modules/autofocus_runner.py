@@ -3,14 +3,17 @@
 import datetime
 import concurrent.futures
 import logging
+import math
 import pathlib
 import threading
 import time
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
 
 from lib.lumascope_error import LumascopeError
 from lvp_logger import logger
@@ -66,6 +69,121 @@ class FocusPick(NamedTuple):
 
     position: float
     untrusted: str | None
+
+
+# The final pass sweeps this many of its steps either side of the earlier
+# passes' best: 7 points, enough for the four-parameter fit that places the
+# focus. Whether each objective needs that many is a parameter to tune on
+# real images, not a property of the step table.
+FINAL_PASS_STEPS_EACH_SIDE = 3
+
+
+class SweepPass(NamedTuple):
+    """One pass of an autofocus sweep: the half-width of its window and its step."""
+
+    half_window_um: float
+    step_um: float
+
+    @property
+    def targets(self) -> int:
+        """The targets the pass asks for, counted from its start.
+
+        ``floor``, not ``round``: a window that is not a whole number of
+        steps (2x's first, 2000 / 350) would otherwise ask a target past the
+        window its travel was checked for. The tolerance keeps a window that
+        is a whole number of steps from losing its last target to float
+        division.
+        """
+        return math.floor(2 * self.half_window_um / self.step_um + 1e-6) + 1
+
+
+def sweep_passes(
+    half_range_um: float, step_max_um: float, step_min_um: float
+) -> tuple[SweepPass, ...]:
+    """Every pass an autofocus with an objective's three numbers makes, in order.
+
+    The first pass sweeps the whole range at the coarse step; each later one
+    sweeps the previous step either side of the best so far at a third of
+    it, until the step reaches ``step_min_um``; the final pass sweeps
+    ``FINAL_PASS_STEPS_EACH_SIDE`` fine steps either side. The runner sweeps
+    these and the time estimator counts them, so the two cannot disagree.
+
+    Raises:
+        ValueError: a number that is not positive, which sweeps no window or
+            never reaches the fine step.
+    """
+    for name, value in (
+        ('AF_range', half_range_um),
+        ('AF_max', step_max_um),
+        ('AF_min', step_min_um),
+    ):
+        if value <= 0:
+            raise ValueError(f'{name} must be positive, got {value}')
+    passes = [SweepPass(half_range_um, step_max_um)]
+    step = step_max_um
+    while True:
+        previous = step
+        step = max(step_min_um, previous / 3)
+        if step == step_min_um:
+            passes.append(SweepPass(FINAL_PASS_STEPS_EACH_SIDE * step_min_um, step_min_um))
+            return tuple(passes)
+        passes.append(SweepPass(previous, step))
+
+
+def _floor_gaussian(z, floor, height, mu, sigma):
+    return floor + height * np.exp(-((z - mu) ** 2) / (2 * sigma**2))
+
+
+def focus_of_the_final_pass(
+    positions: Sequence[float], scores: Sequence[float], step_um: float
+) -> float:
+    """Where the final pass's own points put the focus.
+
+    The centre of a Gaussian on a floor fitted to that pass alone: points
+    at one Z in different passes disagree by a few percent of the peak, and
+    a curve's tails sit on a floor, so one model across every pass wanders
+    from run to run on the same field where this one holds. A fit that
+    cannot run or does not converge leaves the pass's raw maximum, logged
+    as such. The log line says when that raw maximum is the pass's first or
+    last point: the summit may then lie outside the window, and the fit is
+    held to it.
+    """
+    z = np.asarray(positions, dtype=float)
+    s = np.asarray(scores, dtype=float)
+    finite = np.isfinite(s)
+    z, s = z[finite], s[finite]
+    order = np.argsort(z)
+    z, s = z[order], s[order]
+    peak = int(np.argmax(s))
+    raw = float(z[peak])
+    at_edge = (
+        ", the pass's first point: the summit may lie below the window"
+        if peak == 0
+        else ", the pass's last point: the summit may lie above the window"
+        if peak == len(z) - 1
+        else ''
+    )
+    if len(z) < 4:
+        _af_log.info(f'  FINAL FIT: {len(z)} finite points, too few; raw max {raw:.2f}um{at_edge}')
+        return raw
+    span = float(z[-1] - z[0])
+    lower = [0.0, 0.0, float(z[0]), step_um / 4]
+    upper = [np.inf, np.inf, float(z[-1]), span]
+    # The optimizer starts inside its bounds: a score below zero would put
+    # the floor's start outside them.
+    start = np.clip([s.min(), s.max() - s.min(), raw, span / 6], lower, upper)
+    try:
+        (floor, height, mu, sigma), _ = curve_fit(
+            _floor_gaussian, z, s, p0=start, bounds=(lower, upper), maxfev=5000
+        )
+    except RuntimeError as ex:
+        _af_log.info(f'  FINAL FIT: did not converge ({ex}); raw max {raw:.2f}um{at_edge}')
+        return raw
+    _af_log.info(
+        f'  FINAL FIT: {mu:.2f}um floor={floor:.1f} height={height:.1f} '
+        f'sigma={sigma:.2f}um (raw max {raw:.2f}um{at_edge})'
+    )
+    return float(mu)
 
 
 def _describe_restore(restore: dict) -> str:
@@ -136,26 +254,29 @@ class AutofocusRunner:
     def _calculate_params(self):
         center = self._scope.motion.get_current_position('Z')
 
-        range = self._objective.autofocus_half_range_um
-
-        if range <= 0:
-            raise ValueError(f'AF_range must be positive, got {range}')
-
-        z_min = center - range
-        z_max = center + range
+        self._passes = sweep_passes(
+            self._objective.autofocus_half_range_um,
+            self._objective.autofocus_step_max_um,
+            self._objective.autofocus_step_min_um,
+        )
+        first = self._passes[0]
+        z_min = center - first.half_window_um
+        z_max = center + first.half_window_um
         if self._past_travel(z_min, z_max, 'the first window'):
             raise AutofocusOutOfTravelError()
-        resolution = self._objective.autofocus_step_max_um
         exposure = self._scope.camera.exposure_ms
 
         self._params = {
             'center': center,
-            'range': range,
+            'range': first.half_window_um,
             'z_min': z_min,
             'z_max': z_max,
-            'resolution': resolution,
+            'resolution': first.step_um,
+            'targets': first.targets,
             'exposure': exposure,
         }
+        # Which of the pass's targets the stage was last sent to.
+        self._target_index = 0
 
     def _past_travel(self, low: float, high: float, what: str) -> bool:
         """Whether a sweep window reaches past Z's travel, judged before any move into it.
@@ -812,11 +933,12 @@ class AutofocusRunner:
             return
 
         resolution = self._params['resolution']
-        next_target = self._scope.motion.get_target_positions()['Z'] + resolution
-
-        if self._abort_event is not None and self._abort_event.is_set():
-            self._is_focusing_event.clear()
-            return
+        # Each target is counted from the pass's start, never added to the
+        # last one: the stage's target carries the motor's microstep
+        # rounding, and a sum of them drifted past the window's top and
+        # lost the pass's last point.
+        next_index = self._target_index + 1
+        next_target = self._params['z_min'] + next_index * resolution
 
         # INTENTIONAL: No early termination on the coarse pass. Real
         # samples have multiple focal planes (cells + debris, thick
@@ -826,7 +948,7 @@ class AutofocusRunner:
         # Extend scan if peak is at the edge -- we need both sides
         # of the peak for a reliable Gaussian fit. Keep going until
         # we see 2 consecutive drops below 50% of peak.
-        if next_target > self._params['z_max'] and len(self._af_data_pass) >= 3:
+        if next_index >= self._params['targets'] and len(self._af_data_pass) >= 3:
             pass_scores = [d['score'] for d in self._af_data_pass if np.isfinite(d['score'])]
             if pass_scores:
                 pass_max = max(pass_scores)
@@ -837,20 +959,23 @@ class AutofocusRunner:
                     if not all(s < pass_max * 0.5 for s in recent):
                         if self._past_travel(
                             self._params['z_min'],
-                            self._params['z_max'] + resolution,
+                            next_target,
                             'the extended window',
                         ):
                             raise AutofocusFailedError('travel_exhausted')
-                        self._params['z_max'] += resolution
+                        self._params['targets'] += 1
+                        self._params['z_max'] = next_target
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
                         )
-                        self._move_relative_position(distance=resolution)
+                        self._target_index = next_index
+                        self._move_absolute_position(position=next_target)
                         return
 
         # Measure next step?
-        if next_target <= self._params['z_max']:
-            self._move_relative_position(distance=resolution)
+        if next_index < self._params['targets']:
+            self._target_index = next_index
+            self._move_absolute_position(position=next_target)
             return
 
         # Pass is complete
@@ -862,14 +987,8 @@ class AutofocusRunner:
             f'  PASS {self._af_pass_num} complete: {n_pts} pts, '
             f'step={resolution:.2f}, peak={peak:.1f}'
         )
-
-        # Adjust the resolution
-        prev_resolution = self._params['resolution']
-        next_resolution = prev_resolution / 3
-
-        # Bound the resolution to AF_min
-        af_min = self._objective.autofocus_step_min_um
-        self._params['resolution'] = max(af_min, next_resolution)
+        last_pass = self._af_pass_num == len(self._passes)
+        final_pass_points = self._af_data_pass
 
         # Add the scores for the pass to the full dataset and then reset
         # the pass list
@@ -888,13 +1007,20 @@ class AutofocusRunner:
 
         best_focus_position, untrusted = self._find_best(df=df)
 
-        if self._last_pass:
+        if last_pass:
             # The final pass is the dense one: a curve that still gives no
             # peak the fit trusts has no focus, and its raw maximum is a
             # made-up one. Before the final approach moves the stage.
             if untrusted is not None:
                 _af_log.warning(f'--- AF ABORT: no peak the fit trusts ({untrusted}) ---')
                 raise AutofocusFailedError('flat_focus_curve')
+            # Whether the curve has a peak is every point's question; where
+            # the peak is, the final pass's alone.
+            best_focus_position = focus_of_the_final_pass(
+                [d['position'] for d in final_pass_points],
+                [d['score'] for d in final_pass_points],
+                resolution,
+            )
             # Move just below the best position so the final approach
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
@@ -938,19 +1064,22 @@ class AutofocusRunner:
             self._best_focus_position = float(best_focus_position)
             return
 
+        following = self._passes[self._af_pass_num]
         if self._past_travel(
-            best_focus_position - prev_resolution,
-            best_focus_position + prev_resolution,
+            best_focus_position - following.half_window_um,
+            best_focus_position + following.half_window_um,
             'the refined window',
         ):
             raise AutofocusFailedError('travel_exhausted')
-        self._params['z_min'] = best_focus_position - prev_resolution
-        self._params['z_max'] = best_focus_position + prev_resolution
+        self._params['z_min'] = best_focus_position - following.half_window_um
+        self._params['z_max'] = best_focus_position + following.half_window_um
+        self._params['resolution'] = following.step_um
+        self._params['targets'] = following.targets
+        self._target_index = 0
 
         self._move_absolute_position(position=self._params['z_min'])
 
-        if self._params['resolution'] == af_min:
-            self._last_pass = True
+        if self._af_pass_num == len(self._passes) - 1:
             # Enable precision mode for the fine pass -- accurate
             # motor stopping for reliable focus measurements.
             self._scope.motion.set_precision_mode(True)
@@ -995,9 +1124,6 @@ class AutofocusRunner:
         # Started, not waited: _iterate holds the next frame while the
         # scope reports motion.
         self._scope.motion.start_move_z(position)
-
-    def _move_relative_position(self, distance):
-        self._scope.motion.start_move_z_by(distance)
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
@@ -1155,7 +1281,8 @@ class AutofocusRunner:
         self._saved_data_path = None
         self._data_write_future = None
         self._write_batch = None
-        self._last_pass = False
+        self._passes = ()
+        self._target_index = 0
         self._params = {}
         self._led_color = None
         self._led_illumination = 0

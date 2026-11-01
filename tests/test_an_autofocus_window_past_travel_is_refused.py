@@ -120,11 +120,13 @@ def reported(monkeypatch):
 
 
 def test_a_final_approach_past_the_travel_minimum_is_refused(sim_scope, monkeypatch):
-    # A curve peaking 2 um above the floor, swept from 123 um above it:
-    # the first window's samples (step 36) start at floor + 48, its nearest
-    # to the peak; the refined window (+-36, step 12) starts at floor + 12;
-    # the last window (+-12, step 8) finds the peak at the floor, and the
-    # approach from one step below it would leave travel.
+    # A curve peaking 2 um above the floor, swept from 135 um above it:
+    # the first window's samples (step 36) start at floor + 60, its nearest
+    # to the peak; the refined window (+-36, step 12) starts at floor + 24;
+    # the final window (+-24, step 8) opens just inside the floor and finds
+    # the peak there, and the approach from one step below it would leave
+    # travel. Started lower, the final window itself reaches past the floor
+    # and is refused before the approach is asked.
     runner = af_runner_on(sim_scope)
     floor = sim_scope.motion.get_axis_limits('Z').min_um
     peak = floor + 2.0
@@ -134,7 +136,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(sim_scope, monkeypa
             1e6 * math.exp(-(((sim_scope.motion.get_current_position('Z') - peak) / 15.0) ** 2))
         ),
     )
-    park_z(sim_scope, floor + 123.0)
+    park_z(sim_scope, floor + 135.0)
     asked = z_asked(sim_scope, monkeypatch)
 
     with pytest.raises(AutofocusFailedError) as refused:
@@ -142,6 +144,8 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(sim_scope, monkeypa
 
     assert refused.value.reason == 'travel_exhausted'
     assert all(z >= floor for z in asked), asked
+    # The final pass was swept: the refusal is the approach's, not a window's.
+    assert sum(1 for z in asked if z < floor + 48.0) >= 7, asked
 
 
 def test_a_refusal_is_reported_once_as_itself(sim_scope, reported):

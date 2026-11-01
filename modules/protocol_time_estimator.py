@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 from modules import common_utils
 from modules.acquire_mode import AcquireMode
+from modules.autofocus_runner import sweep_passes
 from modules.exceptions import ConfigError
 from modules.objectives_loader import Objective, ObjectiveLoader
 
@@ -270,20 +271,8 @@ class ProtocolTimeEstimator:
         if af_max <= 0 or af_min <= 0:
             return 0.0
 
-        # Count total steps across all passes
-        total_steps = 0
-        resolution = af_max
-        sweep_range = 2 * af_range  # first pass covers full range
-
-        while resolution > af_min:
-            n_steps = int(sweep_range / resolution) + 1
-            total_steps += n_steps
-            sweep_range = 2 * resolution
-            resolution = resolution / 3.0
-
-        # Final pass at af_min
-        n_steps = int(sweep_range / af_min) + 1
-        total_steps += n_steps
+        # The passes the runner sweeps, counted as it asks for them.
+        total_steps = sum(p.targets for p in sweep_passes(af_range, af_max, af_min))
 
         # Time per AF step: Z move + frame grab + overhead
         frame_time = max(exposure_s, 0.075)
