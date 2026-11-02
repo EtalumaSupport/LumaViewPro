@@ -874,6 +874,11 @@ even count), the top of a top stack, the bottom of a bottom stack. Every slice k
 distance from that slice, its record's `z_stack_offset_um`, whichever of its
 slices a caller turned autofocus on or moved.
 
+A protocol read to run gives each tile of a z-stack its own group, so a file
+in which one group spans several tiles (saved by a build that tiled an
+already-stacked protocol) reads as one stack per tile, with a warning in the
+log.
+
 A protocol is edited only through the session (`add_step`, `update_step`,
 `rename_step`, `delete_step`, `apply_tiling`, `apply_zstacking`,
 `set_protocol_schedule`, ...), and each edit is a guarded write, refused under

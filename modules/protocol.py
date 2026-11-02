@@ -3523,6 +3523,61 @@ class Protocol:
         return steps_df
 
     @staticmethod
+    def _with_one_tile_per_zstack_group(
+        protocol_df: pd.DataFrame, file_path: pathlib.Path
+    ) -> pd.DataFrame:
+        """``protocol_df`` with each tile of a z-stack group in a group of its own.
+
+        A z-stack group is the slices taken at one place. Tiling a protocol
+        already stacked once copied the stack's group onto every tile, and a
+        file saved then still says so: read as written, its LED is held lit
+        while the stage travels between tiles, and one focus places every
+        tile. Each (group, tile) of a group holding several tiles takes a new
+        id, minted as ``apply_tiling`` mints them, and each file so read is
+        warned of once. The tile, not the position, says which slices are one
+        place: a scope without X and Y records no position, and a slice
+        updated at a nudged stage sits apart from its stack. A blank group
+        cell is left for the constructor to refuse.
+        """
+        groups = protocol_df['Z-Stack Group ID']
+        stacked = protocol_df.index[groups.map(lambda group: group != '' and group != -1)]
+        tiles_per_group = protocol_df.loc[stacked].groupby('Z-Stack Group ID', sort=False)['Tile']
+        spanning = [group for group, tiles in tiles_per_group if tiles.nunique() > 1]
+        if not spanning:
+            return protocol_df
+
+        next_group_id = int(groups[stacked].max()) + 1
+        minted: dict[tuple[int, str], int] = {}
+
+        def one_place(group, tile):
+            if group not in spanning:
+                return group
+            key = (int(group), tile)
+            if key not in minted:
+                nonlocal next_group_id
+                minted[key] = next_group_id
+                next_group_id += 1
+            return minted[key]
+
+        # A whole column, as the offset inference writes its own: the
+        # constructor types every cell of the frame the read hands it.
+        protocol_df['Z-Stack Group ID'] = pd.Series(
+            [
+                one_place(group, tile)
+                for group, tile in zip(groups, protocol_df['Tile'], strict=True)
+            ],
+            index=protocol_df.index,
+            dtype=object,
+        )
+        logger.warning(
+            f'Protocol {file_path.name}: z-stack group(s) '
+            f'{", ".join(str(group) for group in spanning)} each spanned several tiles, '
+            f'as tiling an already-stacked protocol saved them; each tile is now a z-stack '
+            f'of its own ({len(minted)} in all), so each is lit and focused at its own place.'
+        )
+        return protocol_df
+
+    @staticmethod
     def _with_inferred_zstack_offsets(
         protocol_df: pd.DataFrame, file_path: pathlib.Path
     ) -> pd.DataFrame:
@@ -4053,6 +4108,8 @@ class Protocol:
             # A file from before the column named only each step's objective;
             # the protocols API fills the slot where only one slot can mean it.
             protocol_df['Turret Slot'] = _typed_column((-1 for _ in protocol_df.index), int)
+        if runnable:
+            protocol_df = cls._with_one_tile_per_zstack_group(protocol_df, file_path)
         if 'Z-Stack Offset' not in protocol_df.columns:
             protocol_df = cls._with_inferred_zstack_offsets(protocol_df, file_path)
 
