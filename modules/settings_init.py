@@ -138,13 +138,11 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     generator falls back to other directories, the GUI asks the user), so
     this classifies and they choose.
 
-    No `encoding=` argument, deliberately. Every reader and the writer,
-    `settings_saver.write_whole`, use the platform default, which is
-    cp1252 on Windows. Reading as UTF-8 here would make a config that
-    Windows wrote with any non-ASCII byte -- a live_folder under an
-    accented user directory is the everyday case -- suddenly unparseable,
-    and the caller would then offer to reset it. Changing this means
-    migrating the read and the write together.
+    Read as UTF-8 on every platform, as `settings_saver.write_whole`
+    writes it. Every file LVP writes is ASCII anyway (`json.dump` escapes
+    non-ASCII), so only a hand edit saved in another encoding fails to
+    decode, and it is refused as any unreadable file is: never decoded a
+    second way.
 
     `logger` is optional because `load_debug_setting` runs during logger
     bootstrap, before there is a logger to pass.
@@ -160,7 +158,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
             AttributeError deep in validation and kill startup).
     """
     try:
-        with open(path) as read_file:
+        with open(path, encoding='utf-8') as read_file:
             parsed = json.load(read_file)
     except FileNotFoundError:
         raise

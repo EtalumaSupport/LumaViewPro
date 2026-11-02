@@ -21,6 +21,7 @@ from modules.exceptions import InstallationFileError
 from modules.layer_record import release_old_names
 from modules.zstack_config import ZStackReference
 from tests.installation_fixtures import copy_installation_files
+from tests.locale_fixtures import a_latin1_locale
 from tests.stock_channels import LED1, STOCK_FLUORESCENCE
 
 logger = logging.getLogger('test_settings_preparation')
@@ -173,6 +174,31 @@ def test_an_unusable_current_json_surfaces_to_a_headless_caller(tmp_path):
 
     with pytest.raises(settings_init.SettingsFileError):
         settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=False)
+
+
+def test_a_settings_file_is_read_as_utf8_whatever_the_locale(tmp_path):
+    """A hand edit saved as UTF-8 reads back as written on a machine whose
+    locale encoding is not UTF-8, as on Windows."""
+    path = tmp_path / 'current.json'
+    path.write_bytes('{"live_folder": "C:/Users/Jos\u00e9/\u00b5m"}'.encode())
+
+    with a_latin1_locale():
+        read = settings_init.read_settings_json(str(path))
+
+    assert read['live_folder'] == 'C:/Users/Jos\u00e9/\u00b5m'
+
+
+def test_a_settings_file_not_in_utf8_is_refused_whatever_the_locale(tmp_path):
+    """A hand edit saved as cp1252 is refused as an unreadable file is, even
+    where the locale would decode it: never decoded a second way."""
+    path = tmp_path / 'current.json'
+    path.write_bytes('{"live_folder": "C:/Users/Jos\u00e9"}'.encode('cp1252'))
+
+    with (
+        a_latin1_locale(),
+        pytest.raises(settings_init.SettingsFileError, match='could not be read'),
+    ):
+        settings_init.read_settings_json(str(path))
 
 
 def test_a_template_lacking_a_needed_key_is_the_installations_refusal_naming_it(tmp_path):

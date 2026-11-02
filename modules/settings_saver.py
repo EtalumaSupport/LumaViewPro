@@ -72,8 +72,8 @@ def write_whole(file: str, settings: dict) -> None:
 
     Written beside the file, flushed to the drive, then moved over it, so a
     crash or a power cut mid-save leaves the previous file whole: it is the
-    user's only copy of their configuration. No ``encoding=``, as every
-    reader of the file has none (``settings_init.read_settings_json``).
+    user's only copy of their configuration. UTF-8, as its one reader
+    (``settings_init.read_settings_json``) reads it.
 
     Raises:
         OSError: the write or the replace failed; the file is unchanged and
@@ -81,7 +81,7 @@ def write_whole(file: str, settings: dict) -> None:
     """
     temporary = f'{file}.saving'
     try:
-        with open(temporary, 'w') as f:
+        with open(temporary, 'w', encoding='utf-8') as f:
             json.dump(settings, f, indent=4)
             f.flush()
             os.fsync(f.fileno())
