@@ -68,7 +68,6 @@ def _during_the_first_grab(scope, monkeypatch, action, frame=None):
     """
     driver = scope._camera_driver
     real_grab_new_capture = driver.grab_new_capture
-    validity = scope.imaging.frame_validity
     landed = threading.Event()
 
     def write():
@@ -76,7 +75,7 @@ def _during_the_first_grab(scope, monkeypatch, action, frame=None):
         landed.set()
 
     def grab_new_capture(timeout_s):
-        if not landed.is_set() and validity.frames_until_valid() == 0:
+        if not landed.is_set() and scope.imaging.changes_in_force():
             writer = threading.Thread(target=write, name='mid-window-write')
             writer.start()
             writer.join(5.0)

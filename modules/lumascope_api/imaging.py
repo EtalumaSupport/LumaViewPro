@@ -1070,9 +1070,14 @@ class ImagingAPI:
                     self.frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
                     drain_iterations += 1
                 else:
-                    remaining = self.frame_validity.owed(
+                    owed = self.frame_validity.owed(
                         exclude_sources=exclude_sources, uncertainty_ns=uncertainty_ns
-                    ).frames
+                    )
+                    instant_ms = (
+                        f'{(owed.until_ns - host_clock.steady_ns()) / 1e6:.1f}'
+                        if owed.until_ns is not None
+                        else 'none'
+                    )
                     # The removal latch is set the moment a removal is seen;
                     # ``active`` is released later, off-thread.
                     removed = self._camera.camera_removed or not self._driver.active
@@ -1080,7 +1085,8 @@ class ImagingAPI:
                         f'[SCOPE API ] capture_still: frame drain failed -- '
                         f'grab_new_capture returned status=False after '
                         f'{grab_timeout_s:.1f}s timeout '
-                        f'(drained={drain_iterations}, frames_until_valid={remaining}, '
+                        f'(drained={drain_iterations}, frames_owed={owed.frames}, '
+                        f'ms_to_clock_instant={instant_ms}, '
                         f'device_removed={removed}); {drain_mark.account(self._driver)}'
                     )
                     _record_capture_info()
@@ -1403,24 +1409,28 @@ class ImagingAPI:
         )
         return self._settle_limit(exclude_sources, frame_cost_s)[1]
 
-    @api(in_process=True)
+    @api(reads=True, in_process_arguments=('mapping',))
     def changes_in_force(
         self,
-        mapping: ClockMapping | None,
+        mapping: ClockMapping | None = None,
         exclude_sources: tuple[FrameValiditySource, ...] = (),
     ) -> bool:
         """Whether every change recorded is in force, so a frame starting now counts.
 
-        A capture's drain ends on this, and a recording waits on it before
-        its first frame, so the two cannot wait on different things: no
-        frame is owed under the credit rule (``FrameValidity.owed``), and
-        the host's steady clock has passed the instant a frame must start
-        after under the clock rule, taken with ``mapping``'s uncertainty.
-        It latches nothing: the caller passes the mapping its frames are
-        judged by (``map_camera_clock``), None for a camera without a clock.
+        The one answer to whether a frame would count: a capture's drain
+        ends on it, a recording waits on it before its first frame, and the
+        live view, a REST client and a plugin ask it, so none waits on
+        anything else: no frame is owed under the credit rule
+        (``FrameValidity.owed``), and the host's steady clock has passed the
+        instant a frame must start after under the clock rule, taken with
+        ``mapping``'s uncertainty. It latches nothing, so asking it is never
+        a camera command: a capture or a recording passes the mapping its
+        frames are judged by (``map_camera_clock``); a caller with no frame
+        to judge passes none and is answered without the uncertainty.
 
         Args:
-            mapping: The camera's clock mapping the caller judges by, or None.
+            mapping: The camera's clock mapping the caller judges by, or
+                None; in-process only, never on the wire.
             exclude_sources: Sources whose changes are not waited for.
 
         Returns:
@@ -2478,27 +2488,6 @@ class ImagingAPI:
             self._focusing_event.set()
         else:
             self._focusing_event.clear()
-
-    # --- Frame validity ---
-    @api(reads=True)
-    def frames_until_valid(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> int:
-        """Number of frames that must be grabbed before the next valid frame.
-
-        Delegates to frame_validity.
-
-        Args:
-            exclude_sources: Sources to exclude from the validity check.
-
-        Returns:
-            int: Number of additional frames to drain before validity. 0 if
-                already valid.
-
-        Raises:
-            Nothing.
-        """
-        return self.frame_validity.frames_until_valid(
-            exclude_sources=exclude_sources,
-        )
 
     @api(in_process=True, engineering=True)
     @property

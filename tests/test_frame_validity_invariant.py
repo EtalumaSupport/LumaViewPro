@@ -1,6 +1,6 @@
 """Regression: the frame-validity invariant -- any camera/illumination/
-motion state change must turn the validity marker RED, and the marker
-must not be suppressed by a stale software cache.
+motion state change must record its change with frame validity, and the
+record must not be suppressed by a stale software cache.
 
 Bug shape (gain axis): a pre-scan live-mode auto-gain cycle drove
 hardware gain to ~10.8 dB while the API-layer ``_camera_cache`` still
@@ -25,8 +25,15 @@ from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motion_moves import axis_move, axis_move_by
+from tests.stock_channels import LED0
 
 _MOTION_SOURCES = ('xy_move', 'z_move', 'turret')
+
+
+def _recorded_once(fv, before, source) -> bool:
+    """Whether ``source`` was invalidated exactly once more since the
+    ``invalidation_counts`` snapshot ``before``: a change recorded."""
+    return fv.invalidation_counts.get(source, 0) == before.get(source, 0) + 1
 
 
 @pytest.fixture
@@ -64,20 +71,18 @@ class TestSetGainAlwaysInvalidatesDespiteStaleCache:
             f'when the cache already reads it; got {cam.get_gain()}'
         )
 
-    def test_desynced_cache_still_turns_marker_red(self, sim_camera):
+    def test_desynced_cache_still_records_the_change(self, sim_camera):
         camera, cam = sim_camera
         camera.set_gain_db(0.0)
-        camera.frame_validity.reset()  # GREEN baseline
-        assert camera.frame_validity.is_valid
+        before = camera.frame_validity.invalidation_counts
         # Fault injection, as above: hardware drifted behind the cache.
         with cam._lock:
             cam._gain = 10.8
         camera.set_gain_db(0.0)
-        assert not camera.frame_validity.is_valid, (
-            'set_gain_db must invalidate frame validity (marker RED) even '
+        assert _recorded_once(camera.frame_validity, before, 'gain'), (
+            'set_gain_db must record its change with frame validity even '
             'when the cache already reads the requested value'
         )
-        assert 'gain' in camera.frame_validity.pending_sources
 
 
 class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
@@ -95,20 +100,18 @@ class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
             f'already reads the requested value; got {cam.get_exposure_t()}'
         )
 
-    def test_desynced_cache_still_turns_marker_red(self, sim_camera):
+    def test_desynced_cache_still_records_the_change(self, sim_camera):
         camera, cam = sim_camera
         camera.set_exposure_ms(0.1)
-        camera.frame_validity.reset()
-        assert camera.frame_validity.is_valid
+        before = camera.frame_validity.invalidation_counts
         # Fault injection, as above.
         with cam._lock:
             cam._exposure_us = 14.0
         camera.set_exposure_ms(0.1)
-        assert not camera.frame_validity.is_valid, (
-            'set_exposure_ms must invalidate frame validity even when '
-            'the cache already reads the requested value'
+        assert _recorded_once(camera.frame_validity, before, 'exposure'), (
+            'set_exposure_ms must record its change with frame validity even '
+            'when the cache already reads the requested value'
         )
-        assert 'exposure' in camera.frame_validity.pending_sources
 
 
 class TestAutoGainOnceInvalidates:
@@ -117,7 +120,7 @@ class TestAutoGainOnceInvalidates:
     could grab before the converged values flushed the pipeline. The SDK
     chooses the converged values, so the manual chunk targets are dropped."""
 
-    def test_auto_gain_once_turns_marker_red(self, sim_camera):
+    def test_auto_gain_once_records_its_changes(self, sim_camera):
         camera, _cam = sim_camera
         fv = camera.frame_validity
         camera.set_gain_db(5.0)
@@ -140,8 +143,6 @@ class TestAutoGainOnceInvalidates:
         assert {s: c for s, c in after.items() if s not in ('gain', 'exposure')} == {
             s: c for s, c in before.items() if s not in ('gain', 'exposure')
         }
-        pending = fv.pending_sources
-        assert 'gain' in pending and 'exposure' in pending
         assert fv.target('gain') is None and fv.target('exposure') is None
 
 
@@ -232,30 +233,30 @@ class TestMotionValiditySources:
 
 class TestGeometryFormatInvalidates:
     """Pixel-format, frame-size, and binning changes realloc the camera
-    buffer / restart the grab engine; each must turn the marker RED so a
+    buffer / restart the grab engine; each must record its change so a
     capture waits for the old geometry to flush."""
 
-    def test_set_frame_size_turns_marker_red(self, sim_camera):
+    def test_set_frame_size_records_its_change(self, sim_camera):
         camera, _cam = sim_camera
-        camera.frame_validity.reset()
+        before = camera.frame_validity.invalidation_counts
         camera.set_frame_size(640, 480)
-        assert 'frame_size' in camera.frame_validity.pending_sources
+        assert _recorded_once(camera.frame_validity, before, 'frame_size')
 
-    def test_set_pixel_format_turns_marker_red(self, sim_camera):
+    def test_set_pixel_format_records_its_change(self, sim_camera):
         camera, _cam = sim_camera
-        camera.frame_validity.reset()
+        before = camera.frame_validity.invalidation_counts
         # A pixel format is set only through the image mode; 12-bit
         # scientific selects Mono12 on the simulated camera.
         camera.set_image_mode('12bit_scientific')
         assert camera.pixel_format == 'Mono12'
-        assert 'pixel_format' in camera.frame_validity.pending_sources
+        assert _recorded_once(camera.frame_validity, before, 'pixel_format')
 
-    def test_set_binning_turns_marker_red(self, sim_camera):
+    def test_set_binning_records_its_change(self, sim_camera):
         camera, _cam = sim_camera
-        camera.frame_validity.reset()
+        before = camera.frame_validity.invalidation_counts
         camera.set_binning(2)
         assert camera.read_binning() == 2
-        assert 'binning' in camera.frame_validity.pending_sources
+        assert _recorded_once(camera.frame_validity, before, 'binning')
 
 
 class TestSaturationGuard:
@@ -337,4 +338,30 @@ class TestRejectedSettingRaisesAndKeepsCache:
         assert not captured, 'A confirmed exposure rejection is shown by its reporter, not the API'
         assert camera.exposure_ms == 20.0, (
             'A rejected exposure write must not be recorded in the cache'
+        )
+
+
+class TestEveryLedWriteRecordsItsChange:
+    """The three public LED writes on IlluminationAPI -- ``led_on``,
+    ``led_off`` and ``leds_off`` -- each record an 'led' change with the
+    scope's frame validity, so a capture after any of them waits past it."""
+
+    def test_each_led_mutator_records_an_led_change(self, sim_scope):
+        illum = sim_scope.illumination
+        validity = sim_scope.imaging.frame_validity
+        mutator_calls = {
+            'led_on': lambda: illum.led_on(channel=LED0, illumination_ma=10),
+            'led_off': lambda: illum.led_off(channel=LED0),
+            'leds_off': lambda: illum.leds_off(),
+        }
+        missing = []
+        for name, call in mutator_calls.items():
+            before = validity.invalidation_counts
+            call()
+            if not _recorded_once(validity, before, 'led'):
+                missing.append(name)
+        assert not missing, (
+            'LED mutator coverage: each IlluminationAPI LED state-mutator must '
+            "record an 'led' change with frame validity so a capture waits "
+            f'past the transition. Missing: {missing!r}.'
         )

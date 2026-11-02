@@ -35,17 +35,18 @@ Usage:
     fv = FrameValidity(lambda: camera.frames_delivered)
     fv.set_settle_check(my_axis_check_fn)  # Register motion completion callback
     fv.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)  # Z axis started moving
-    fv.frames_until_valid()                # Returns >0 (motion not complete)
-    # ... frames are grabbed by live view, counter increments ...
-    fv.frames_until_valid()                # Still >0 if Z still moving
-    # ... Z arrives at target, settle check returns True ...
-    fv.frames_until_valid()                # Returns 0 -- next frame is valid
+    fv.owed()          # frames > 0, moving={z_move}: the axis is not settled
+    # ... Z arrives at target, settle check returns True, the stop is stamped ...
+    fv.owed()          # frames owed from the stop, or the instant a frame must start after
+    # ... frames are counted, or the instant passes ...
+    fv.owed()          # frames=0, and until_ns passed -- a frame starting now counts
 
-Excluding a source asks whether the frame is valid ignoring that change,
-so the frame can predate it: fit for showing a frame during motion, never
-for one that is measured or recorded (autofocus waits out each Z move, or a
-step's score would be the previous step's):
-    fv.is_valid_for(exclude_sources=(FrameValiditySource.Z_MOVE,))
+``ImagingAPI.changes_in_force`` is the one reading of it as yes or no.
+Excluding a source asks whether a frame counts ignoring that change, so the
+frame can predate it: fit for showing a frame during motion, never for one
+that is measured or recorded (autofocus waits out each Z move, or a step's
+score would be the previous step's):
+    fv.owed(exclude_sources=(FrameValiditySource.Z_MOVE,))
 """
 
 from __future__ import annotations
@@ -492,13 +493,13 @@ class FrameValidity:
         # measured record.
         self._rules = self.credit_rules()
         # Monotone per-source invalidation history. Unlike _pending, entries
-        # are never consumed by frames -- count_frame and reset() leave this
-        # map untouched -- so a capture can snapshot it before its grab and
+        # are never consumed by frames -- count_frame leaves this map
+        # untouched -- so a capture can snapshot it before its grab and
         # compare after to detect an invalidation that frames have already
         # settled. Pending-state snapshots cannot do that: a poller frame
         # plus the capture's own final grab can consume a 2-skip source's
-        # entry exactly, leaving pending/frames_until_valid bit-identical
-        # around a real mid-window invalidation.
+        # entry exactly, leaving the pending state bit-identical around a
+        # real mid-window invalidation.
         self._invalidation_counts = {}  # source -> total invalidate() calls
 
     def set_settle_check(self, fn: Callable[[FrameValiditySource], bool]) -> None:
@@ -847,55 +848,13 @@ class FrameValidity:
             tolerance = self.DEFAULT_CHUNK_TOLERANCE.get(source, 0.0)
         return abs(float(chunk_value) - target) <= tolerance
 
-    @property
-    def is_valid(self) -> bool:
-        """True if all pending state changes have settled."""
-        with self._lock:
-            return all(self._is_source_settled_unlocked(s, self._changes[s]) for s in self._pending)
-
-    def is_valid_for(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> bool:
-        """True if valid, ignoring specified sources.
-
-        The frame can predate an excluded change: see the module docstring.
-            fv.is_valid_for(exclude_sources=(FrameValiditySource.Z_MOVE,))
-        """
-        with self._lock:
-            return all(
-                self._is_source_settled_unlocked(s, self._changes[s])
-                for s in self._pending
-                if s not in exclude_sources
-            )
-
-    def frames_until_valid(self, exclude_sources: tuple[FrameValiditySource, ...] = ()) -> int:
-        """Number of frames that must be grabbed before the next valid frame.
-
-        Returns 0 if already valid. A move counts its frames from its stop,
-        so while its axis moves it returns the move's whole count; a move
-        whose count is met while the settle check says moving returns 1
-        (keep draining).
-        """
-        with self._lock:
-            max_remaining = 0
-            for source in self._pending:
-                if source in exclude_sources:
-                    continue
-                pending = self._changes[source]
-                if pending.remaining > 0:
-                    max_remaining = max(max_remaining, pending.remaining)
-                elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:  # noqa: SIM102
-                    # Frame count met but axis still moving -- keep draining
-                    if not self._settle_check_fn(source):
-                        max_remaining = max(max_remaining, 1)
-            return max(0, max_remaining)
-
     def owed(
         self, exclude_sources: tuple[FrameValiditySource, ...] = (), uncertainty_ns: int = 0
     ) -> Owed:
         """What a capture waits on, each change by its own rule.
 
-        A change judged by the credit rule is owed its count, as
-        ``frames_until_valid`` counts it: with every source on the credit
-        rule the two are the same number. A change judged by the clock rule
+        A change judged by the credit rule is owed what remains of its count
+        while its source is pending. A change judged by the clock rule
         is owed time instead -- its anchor plus its delay plus
         ``uncertainty_ns``, on the host's clock -- whether or not frames have
         been counted toward it, since a frame counts only once it started
@@ -904,8 +863,8 @@ class FrameValidity:
         time is stamped: its anchor is not known before.
 
         Args:
-            exclude_sources: Sources a frame may predate, as for
-                ``frames_until_valid``.
+            exclude_sources: Sources a frame may predate: their changes are
+                not owed.
             uncertainty_ns: The clock mapping's uncertainty, which the clock
                 rule adds (``ClockMapping.uncertainty_ns``); 0 without one.
         """
@@ -936,18 +895,6 @@ class FrameValidity:
                     elif moving:
                         frames = max(frames, 1)
             return Owed(frames=frames, until_ns=until_ns, moving=frozenset(moving_sources))
-
-    @property
-    def pending_sources(self) -> dict[FrameValiditySource, int]:
-        """Current pending sources and the frames each still needs (for debugging).
-
-        Zero means the frame count is met, NOT that the source has settled:
-        a motion source's count starts at its stop, and the settle check is
-        not read here. Read
-        is_valid, frames_until_valid() or owed() for settledness.
-        """
-        with self._lock:
-            return {s: self._changes[s].remaining for s in self._pending}
 
     @property
     def frame_counter(self) -> int:
@@ -1188,21 +1135,3 @@ class FrameValidity:
         missing = [k for k in needed if not provenance.get(k)]
         if missing:
             raise ValueError(f'{where} has no provenance for {missing}')
-
-    def reset(self) -> None:
-        """Clear all pending invalidations and reset frame counter.
-
-        Deliberately leaves invalidation_counts and each source's last change
-        untouched: the change is what a later frame is judged against, and
-        the counts are
-        a monotone history, not pending state, and a capture comparing
-        snapshots across a reset must still see any invalidation the reset
-        would otherwise erase. Clearing them here would let an
-        invalidate-then-reset sequence hide a real state change from an
-        in-flight capture.
-        """
-        with self._lock:
-            self._pending.clear()
-            self._frame_counter = 0
-            self._target_values.clear()
-            self._last_counted_seq = None

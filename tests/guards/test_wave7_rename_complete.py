@@ -320,7 +320,6 @@ IMAGING_ONLY_METHODS = MemberNames(
     {
         'add_frame_listener',
         'capture_still',
-        'frames_until_valid',
         'get_image',
         'get_image_from_buffer',
         'is_focusing',

@@ -257,7 +257,7 @@ def test_live_view_arm_resumes_after_capture():
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     assert imaging._capture_still_impl(timeout_s=1.0, member='capture_still').image is not None
     assert cam._auto_gain_enabled is True
-    assert imaging.frame_validity.frames_until_valid() == 20
+    assert imaging.frame_validity.owed().frames == 20
 
     imaging, camera, cam = _build(ae_lands_on_ms=62.0)
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)

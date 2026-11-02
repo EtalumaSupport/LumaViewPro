@@ -567,12 +567,12 @@ class ScopeDisplay(Image):
         """Whether every camera-side change (exposure, gain, LED, frame size,
         ...) has finished switching over.
 
-        Read from the API's frame validity, the one record of which hardware
-        changes are still switching over. Stage motion is left out: a move
-        leaves the frame cadence alone, so the slow-frame check keeps judging
-        while the stage jogs.
+        Read from the API's ``changes_in_force``, the capture's own answer to
+        whether a frame starting now counts. Stage motion is left out: a
+        move leaves the frame cadence alone, so the slow-frame check keeps
+        judging while the stage jogs.
         """
-        return imaging.frames_until_valid(exclude_sources=tuple(FrameValidity.MOTION_SOURCES)) == 0
+        return imaging.changes_in_force(exclude_sources=tuple(FrameValidity.MOTION_SOURCES))
 
     def _spike_median(self, now):
         """Median of the recent OK-frame-interval window, cached.
@@ -790,7 +790,7 @@ class ScopeDisplay(Image):
         proc_ms = 0.0
         if ctx.session.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
-            fv_valid = ctx.scope.imaging.frames_until_valid() == 0
+            fv_valid = ctx.scope.imaging.changes_in_force()
             schedule_ui_latest(
                 (self, 'validity_dot'), lambda dt, v=fv_valid: self._update_validity_dot(v)
             )

@@ -6490,26 +6490,30 @@ name are kept).
 ```python
 def changes_in_force(
     self,
-    mapping: ClockMapping | None,
+    mapping: ClockMapping | None = None,
     exclude_sources: tuple[FrameValiditySource, ...] = (),
 ) -> bool
 ```
 
-Marks: in-process.
+Marks: reads (changes nothing); in-process arguments: `mapping`.  
+Route: `GET /api/v1/scope/imaging/changes_in_force`.
 
 Whether every change recorded is in force, so a frame starting now counts.
 
-A capture's drain ends on this, and a recording waits on it before
-its first frame, so the two cannot wait on different things: no
-frame is owed under the credit rule (`FrameValidity.owed`), and
-the host's steady clock has passed the instant a frame must start
-after under the clock rule, taken with `mapping`'s uncertainty.
-It latches nothing: the caller passes the mapping its frames are
-judged by (`map_camera_clock`), None for a camera without a clock.
+The one answer to whether a frame would count: a capture's drain
+ends on it, a recording waits on it before its first frame, and the
+live view, a REST client and a plugin ask it, so none waits on
+anything else: no frame is owed under the credit rule
+(`FrameValidity.owed`), and the host's steady clock has passed the
+instant a frame must start after under the clock rule, taken with
+`mapping`'s uncertainty. It latches nothing, so asking it is never
+a camera command: a capture or a recording passes the mapping its
+frames are judged by (`map_camera_clock`); a caller with no frame
+to judge passes none and is answered without the uncertainty.
 
 **Args**
 
-- `mapping`: The camera's clock mapping the caller judges by, or None.
+- `mapping`: The camera's clock mapping the caller judges by, or None; in-process only, never on the wire.
 - `exclude_sources`: Sources whose changes are not waited for.
 
 **Returns**
@@ -6615,35 +6619,6 @@ near 11 s on a Pylon body.
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraStreamStartFailedError`](#CameraStreamStartFailedError): `camera_stream_start_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="ImagingAPI.frames_until_valid"></a>
-### `ImagingAPI.frames_until_valid`
-
-```python
-def frames_until_valid(
-    self,
-    exclude_sources: tuple[FrameValiditySource, ...] = (),
-) -> int
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/imaging/frames_until_valid`.
-
-Number of frames that must be grabbed before the next valid frame.
-
-Delegates to frame_validity.
-
-**Args**
-
-- `exclude_sources`: Sources to exclude from the validity check.
-
-**Returns**
-
-int: Number of additional frames to drain before validity. 0 if already valid.
-
-**Raises**
-
-Nothing.
 
 <a id="ImagingAPI.get_delivered_rate"></a>
 ### `ImagingAPI.get_delivered_rate`
@@ -13374,7 +13349,7 @@ A chunk the simulated camera's frames carry, which a fault can withhold.
 
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
 Held in: [`CaptureFailedError.source`](#CaptureFailedError.source), [`Change.source`](#Change.source), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).  
-Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.changes_in_force_limit_s`](#ImagingAPI.changes_in_force_limit_s), [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
+Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.changes_in_force_limit_s`](#ImagingAPI.changes_in_force_limit_s), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
 What changed, for a capture to wait out: each a key of `FrameValidity.SKIP_FRAMES`.
 
@@ -17595,9 +17570,9 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/illumination/led_on` | [`IlluminationAPI.led_on`](#IlluminationAPI.led_on) |
 | `POST` | `/api/v1/scope/illumination/leds_off` | [`IlluminationAPI.leds_off`](#IlluminationAPI.leds_off) |
 | `POST` | `/api/v1/scope/illumination/restore_led_state` | [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state) |
+| `GET` | `/api/v1/scope/imaging/changes_in_force` | [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force) |
 | `POST` | `/api/v1/scope/imaging/disable_streaming` | [`ImagingAPI.disable_streaming`](#ImagingAPI.disable_streaming) |
 | `POST` | `/api/v1/scope/imaging/enable_streaming` | [`ImagingAPI.enable_streaming`](#ImagingAPI.enable_streaming) |
-| `GET` | `/api/v1/scope/imaging/frames_until_valid` | [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid) |
 | `GET` | `/api/v1/scope/imaging/get_delivered_rate` | [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate) |
 | `GET` | `/api/v1/scope/imaging/is_streaming` | [`ImagingAPI.is_streaming`](#ImagingAPI.is_streaming) |
 | `GET` | `/api/v1/scope/imaging/significant_bits` | [`ImagingAPI.significant_bits`](#ImagingAPI.significant_bits) |

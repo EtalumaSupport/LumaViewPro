@@ -237,13 +237,12 @@ class TestTheHeldLayer:
     def test_applying_the_held_layer_again_writes_nothing(self, session):
         imaging = session.scope.imaging
         session.apply_layer_camera(LED0)
-        # The capture drains the apply's writes, so the frames are valid after it.
         imaging.capture_still(timeout_s=5.0)
-        assert imaging.frame_validity.frames_until_valid() == 0
+        before = imaging.frame_validity.invalidation_counts
 
         session.apply_layer_camera(LED0)
 
-        assert imaging.frame_validity.frames_until_valid() == 0
+        assert imaging.frame_validity.invalidation_counts == before
 
     def test_a_store_change_is_written_although_the_layer_is_held(self, session):
         session.apply_layer_camera(LED0)

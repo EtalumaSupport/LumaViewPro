@@ -231,42 +231,52 @@ class TestLumascopeHome:
             assert scope.motion.get_axis_state(ax) == AxisState.IDLE
 
 
+def _grew(before, during, source) -> bool:
+    """Whether ``source`` was invalidated between the ``invalidation_counts``
+    snapshot ``before`` and the one ``during``."""
+    return during.get(source, 0) > before.get(source, 0)
+
+
 class TestFrameValidityDuringHoming:
     """Issue #609: the frame valid marker was showing green during homing
     because the homing bodies never called frame_validity.invalidate().
-    The settle-check callback correctly rejects HOMING state, but only if
-    the source is actually pending -- which requires invalidate().
 
-    These tests capture scope.imaging.frame_validity.is_valid at the moment the
-    motion driver method is executing (axis state is HOMING, motion is in
-    progress). They fail before the fix and pass after.
+    Each test reads, at the moment the motion driver's home is executing
+    (axis state HOMING), which sources the home recorded a change for
+    (``invalidation_counts`` against a snapshot before it) and whether a
+    frame would count (``changes_in_force``). The record is what the
+    contract asks: under the clock rule an earlier change of the source
+    already reads owed while the axis moves, so the answer alone would
+    pass with the invalidate gone.
     """
 
     def test_zhome_marks_frame_invalid_during_motion(self):
         scope = build_scope(simulate=True)
+        validity = scope.imaging.frame_validity
         captured = {}
 
         def fake_zhome():
-            captured['is_valid'] = scope.imaging.frame_validity.is_valid
+            captured['in_force'] = scope.imaging.changes_in_force()
             captured['z_state'] = scope.motion.get_axis_state('Z')
-            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
+            captured['counts'] = validity.invalidation_counts
 
         scope._motion_driver.zhome = fake_zhome
+        before = validity.invalidation_counts
 
         scope.motion.home(axis='Z')
 
         assert captured['z_state'] == AxisState.HOMING
-        assert 'z_move' in captured['pending'], (
-            "home(axis='Z') must invalidate 'z_move' so frame_validity "
-            'can consult the settle-check callback (#609)'
+        assert _grew(before, captured['counts'], 'z_move'), (
+            "home(axis='Z') must invalidate 'z_move' so a capture waits for the home (#609)"
         )
-        assert captured['is_valid'] is False, (
-            'frame_validity.is_valid must be False while Z is homing -- '
+        assert captured['in_force'] is False, (
+            'a frame must not count while Z is homing -- '
             'the frame valid marker should not be green during homing'
         )
 
     def test_home_marks_frame_invalid_during_motion_full_xyz(self):
         scope = build_scope(simulate=True)
+        validity = scope.imaging.frame_validity
         present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present and 'Z' in present
         captured = {}
@@ -274,23 +284,22 @@ class TestFrameValidityDuringHoming:
         original_home = scope._motion_driver.home
 
         def spy_home():
-            captured['is_valid'] = scope.imaging.frame_validity.is_valid
-            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
+            captured['in_force'] = scope.imaging.changes_in_force()
+            captured['counts'] = validity.invalidation_counts
             captured['x_state'] = scope.motion.get_axis_state('X')
             captured['z_state'] = scope.motion.get_axis_state('Z')
             return original_home()
 
         scope._motion_driver.home = spy_home
+        before = validity.invalidation_counts
 
         scope.motion.home()
 
         assert captured['x_state'] == AxisState.HOMING
         assert captured['z_state'] == AxisState.HOMING
-        assert 'xy_move' in captured['pending']
-        assert 'z_move' in captured['pending']
-        assert captured['is_valid'] is False, (
-            'frame_validity.is_valid must be False while XYZ are homing'
-        )
+        assert _grew(before, captured['counts'], 'xy_move')
+        assert _grew(before, captured['counts'], 'z_move')
+        assert captured['in_force'] is False, 'a frame must not count while XYZ are homing'
 
     def test_home_marks_frame_invalid_z_only_board(self):
         """LS820: only Z present. home() must invalidate z_move only,
@@ -298,6 +307,7 @@ class TestFrameValidityDuringHoming:
         from modules.scope_capabilities import ScopeCapabilities
 
         scope = build_scope(simulate=True)
+        validity = scope.imaging.frame_validity
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Rebuild the capability snapshot after patching the driver --
         # post-B7, `axes_present()` reads from `capabilities.axes` (a
@@ -314,22 +324,24 @@ class TestFrameValidityDuringHoming:
         captured = {}
 
         def fake_home(*args, **kwargs):
-            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
-            captured['is_valid'] = scope.imaging.frame_validity.is_valid
+            captured['counts'] = validity.invalidation_counts
+            captured['in_force'] = scope.imaging.changes_in_force()
 
         scope._motion_driver.home = fake_home
+        before = validity.invalidation_counts
 
         scope.motion.home()
 
-        assert 'z_move' in captured['pending']
-        assert 'xy_move' not in captured['pending']
-        assert 'turret' not in captured['pending']
-        assert captured['is_valid'] is False
+        assert _grew(before, captured['counts'], 'z_move')
+        assert not _grew(before, captured['counts'], 'xy_move')
+        assert not _grew(before, captured['counts'], 'turret')
+        assert captured['in_force'] is False
 
     def test_thome_marks_frame_invalid_during_motion(self):
         # A turret-equipped sim (LS850T): an LS850 has no T axis, and
         # `home(axis='T')` correctly no-ops there.
         scope = build_scope(simulate=True, sim_model='LS850T')
+        validity = scope.imaging.frame_validity
         assert 'T' in scope._motion_driver.detect_present_axes()
         # Homed first: a turret home is refused while any axis is unhomed.
         home_sim_scope(scope)
@@ -338,21 +350,22 @@ class TestFrameValidityDuringHoming:
         original_thome = scope._motion_driver.thome
 
         def spy_thome():
-            captured['is_valid'] = scope.imaging.frame_validity.is_valid
+            captured['in_force'] = scope.imaging.changes_in_force()
             captured['t_state'] = scope.motion.get_axis_state('T')
-            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
+            captured['counts'] = validity.invalidation_counts
             return original_thome()
 
         scope._motion_driver.thome = spy_thome
+        before = validity.invalidation_counts
 
         scope.motion.home(axis='T')
 
         assert captured['t_state'] == AxisState.HOMING
-        assert 'turret' in captured['pending'], (
+        assert _grew(before, captured['counts'], 'turret'), (
             "home(axis='T') must invalidate 'turret' so the frame valid marker "
             'goes red while the turret is rotating (#609)'
         )
-        assert captured['is_valid'] is False
+        assert captured['in_force'] is False
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
 

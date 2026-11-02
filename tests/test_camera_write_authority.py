@@ -9,10 +9,9 @@ the capture path drains until the count is met.
 
 The behavioural tests drive the public setters on a simulated scope and read
 the owner through its public reads: ``invalidation_counts`` (which sources a
-setter invalidated, and that it invalidated no other), ``pending_sources``
-and ``target(source)`` (the value a frame's chunk is checked against). Nothing
-grabs a frame in these tests, so nothing the setters left pending can clear
-before it is read. The AST guards below make the omission unrepresentable.
+setter invalidated, and that it invalidated no other) and ``target(source)``
+(the value a frame's chunk is checked against). The AST guards below make the
+omission unrepresentable.
 
 The two SDK-perf setters (conversion gain mode, line noise reduction) are
 Pylon-only; SimulatedCamera does not implement them, so a capable subclass adds
@@ -215,7 +214,6 @@ class TestGeometrySetterSequences:
             camera.set_frame_size(1200, 800)
         assert caught.value.setting == 'frame_size'
         assert fv.invalidation_counts == _grown_by_one(before, 'frame_size')
-        assert 'frame_size' in fv.pending_sources
         assert camera.frame_size.to_dict() == {'width': 624, 'height': 480}
 
     def test_binning_read_failure_sentinel_not_committed(self, camera_plain):
@@ -281,13 +279,19 @@ class TestSdkPerfSetterSequences:
     its source; a refusal, of either kind, invalidates nothing."""
 
     def test_set_high_conversion_gain_success_sequence(self, camera_capable):
+        before = camera_capable.frame_validity.invalidation_counts
         camera_capable.set_high_conversion_gain(True)
-        assert 'conversion_gain_mode' in camera_capable.frame_validity.pending_sources
+        assert camera_capable.frame_validity.invalidation_counts == _grown_by_one(
+            before, 'conversion_gain_mode'
+        )
         assert camera_capable._driver._conversion_gain_mode == 'High'
 
     def test_set_line_noise_reduction_success_sequence(self, camera_capable):
+        before = camera_capable.frame_validity.invalidation_counts
         camera_capable.set_line_noise_reduction(True)
-        assert 'line_noise_reduction' in camera_capable.frame_validity.pending_sources
+        assert camera_capable.frame_validity.invalidation_counts == _grown_by_one(
+            before, 'line_noise_reduction'
+        )
         assert camera_capable._driver._line_noise_reduction is True
 
     def test_conversion_gain_on_without_the_mode_is_refused(self, camera_plain):
@@ -409,8 +413,11 @@ class TestBlackLevelSetterSequence:
     reaching the camera."""
 
     def test_set_black_level_success_sequence(self, camera_plain):
+        before = camera_plain.frame_validity.invalidation_counts
         assert camera_plain.set_black_level(4.0) == 4.0
-        assert 'black_level' in camera_plain.frame_validity.pending_sources
+        assert camera_plain.frame_validity.invalidation_counts == _grown_by_one(
+            before, 'black_level'
+        )
 
     def test_an_out_of_range_black_level_invalidates_nothing(self, camera_plain):
         before = camera_plain.frame_validity.invalidation_counts

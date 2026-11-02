@@ -166,7 +166,7 @@ def test_a_stop_during_a_turret_changes_park_closes_the_command(scope):
     # Held open, the capture would drain until its wall bound and fail.
     scope.imaging.capture_still()
 
-    assert scope.imaging.frames_until_valid() == 0
+    assert scope.imaging.changes_in_force()
 
 
 def _slot_when_the_turret_came_into_force(scope, monkeypatch, command) -> int | None:

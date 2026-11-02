@@ -39,9 +39,9 @@ def test_an_exclusion_takes_a_members_plain_string_and_refuses_any_other_word(se
     imaging = session.scope.imaging
     session.scope.illumination.led_on(LED2, 10.0)
 
-    imaging.frames_until_valid(exclude_sources=('led',))
+    imaging.changes_in_force(exclude_sources=('led',))
     with pytest.raises(ArgumentRefusedError) as refused:
-        imaging.frames_until_valid(exclude_sources=('led', 'flash'))
+        imaging.changes_in_force(exclude_sources=('led', 'flash'))
     assert (refused.value.reason, refused.value.argument) == ('not_offered', 'exclude_sources[1]')
     assert refused.value.offered == tuple(FrameValiditySource)
 

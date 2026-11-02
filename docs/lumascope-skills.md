@@ -712,8 +712,8 @@ by that change's rule: the **clock rule**, where the camera stamps when each
 frame started exposing, counts a frame that started after the change was in
 force; the **credit rule** counts a frame once enough frames have arrived since
 the change. `scope.capabilities.frame_rules` answers each source's rule, and
-`scope.imaging.frames_until_valid()` how many frames the capture would still
-wait. A capture never infers validity from pixel content; when the scope keeps
+`scope.imaging.changes_in_force()` whether a frame starting now would count
+(`GET /api/v1/scope/imaging/changes_in_force`). A capture never infers validity from pixel content; when the scope keeps
 changing longer than its budget, it raises `CaptureFailedError`
 (`'deadline_expired'`). A recording, manual or a run's video step, waits the
 same before its first frame, so it keeps no frame made before a change was in

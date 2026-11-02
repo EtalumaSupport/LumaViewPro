@@ -225,12 +225,12 @@ class TestThePreviewPollCanRetireASettleCount:
         try:
             fv = FrameValidity(lambda: cam.frames_delivered)
             fv.invalidate('gain', began_ns=None)
-            assert not fv.is_valid
+            assert fv.owed().frames > 0
             for _ in range(12):
                 grab_a_frame_made_after_now(cam)
                 fv.count_frame(cam.grab().seq, by=Counter.GRAB)
-                if fv.is_valid:
+                if fv.owed().frames == 0:
                     break
         finally:
             cam.stop_grabbing()
-        assert fv.is_valid, 'preview frames never retired the skip count'
+        assert fv.owed().frames == 0, 'preview frames never retired the skip count'

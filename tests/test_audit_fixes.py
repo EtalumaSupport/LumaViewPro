@@ -2753,34 +2753,6 @@ def _function_source(source: str, func_name: str) -> str:
     raise AssertionError(f'function {func_name!r} not found in source')
 
 
-class TestFrameValidity_AllLedMutatorsInvalidate:
-    """The three public LED writes on IlluminationAPI -- ``led_on``,
-    ``led_off`` and ``leds_off`` -- each leave 'led' pending in the scope's
-    frame validity, so a capture after any of them drains past the change.
-    Read through the owner's public ``is_valid`` and ``pending_sources``."""
-
-    def test_each_led_mutator_invalidates_validity(self, sim_scope):
-        illum = sim_scope.illumination
-        validity = sim_scope.imaging.frame_validity
-        mutator_calls = {
-            'led_on': lambda: illum.led_on(channel=LED0, illumination_ma=10),
-            'led_off': lambda: illum.led_off(channel=LED0),
-            'leds_off': lambda: illum.leds_off(),
-        }
-        missing = []
-        for name, call in mutator_calls.items():
-            validity.reset()
-            assert validity.is_valid, f'reset must yield a valid baseline before {name}'
-            call()
-            if validity.is_valid or 'led' not in validity.pending_sources:
-                missing.append(name)
-        assert not missing, (
-            'LED mutator coverage: each IlluminationAPI LED state-mutator must '
-            "invalidate frame validity with the 'led' source so the settle-check "
-            f'sees the transition. Missing: {missing!r}.'
-        )
-
-
 def _sim_backed_imaging():
     """ImagingAPI and CameraAPI on a connected SimulatedCamera with a minimal scope stub.
 
@@ -7609,35 +7581,6 @@ class TestConnectionCheckShapeUniformOnLumascope:
         the property gracefully degrades regardless)."""
         sim_scope._camera_driver = None
         assert sim_scope.camera_connected is False
-
-
-class TestFrameValidityIsL2Stable:
-    """Freeze audit Finding #40 -- scope.imaging.frame_validity was
-    publicly accessible (no underscore prefix) but the guide said
-    "internal diagnostic and not part of L2-stable API surface." Two
-    options: prefix as _frame_validity OR formally promote. Promoted:
-    L2 callers (plugin authors, diagnostic tooling, custom capture
-    loops) can rely on the FrameValidity surface."""
-
-    L2_STABLE_FRAME_VALIDITY_SURFACE = (
-        'is_valid',
-        'is_valid_for',
-        'frames_until_valid',
-        'pending_sources',
-        'invalidation_counts',
-        'invalidate',
-        'count_frame',
-    )
-
-    def test_frame_validity_exposes_l2_surface(self, sim_scope):
-        """Every documented L2 method/property is present on the
-        FrameValidity instance. Promoting locks the contract; this test
-        catches accidental retirement."""
-        fv = sim_scope.imaging.frame_validity
-        for name in self.L2_STABLE_FRAME_VALIDITY_SURFACE:
-            assert hasattr(fv, name), (
-                f'FrameValidity.{name} must exist per audit #40 promotion; L2 callers depend on it.'
-            )
 
 
 class TestCreateDiagnosticSharesInitMinimal:
