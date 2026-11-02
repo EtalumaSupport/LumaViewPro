@@ -29,7 +29,9 @@ class ScriptedLink:
     with no entry is answered with nothing. ``write_fault`` and
     ``read_fault``, when set, are raised by every write or every read, as
     pyserial raises a write timeout or a failed link. ``write_takes_s`` is
-    how long every write takes to return, as a USB write does.
+    how long every write takes to return, as a USB write does. ``written_at``
+    is the ``time.perf_counter()`` at which each of ``written`` was handed to
+    the port, the clock the drivers' steady stamps read.
     """
 
     def __init__(self, answers: dict[str, list[str]] | None = None):
@@ -38,6 +40,7 @@ class ScriptedLink:
         self.write_fault: Exception | None = None
         self.read_fault: Exception | None = None
         self.written: list[bytes] = []
+        self.written_at: list[float] = []
         self.opens = 0
         self._lock = threading.Lock()
 
@@ -58,12 +61,14 @@ class ScriptedPort:
         self.is_open = True
 
     def write(self, data: bytes) -> int:
+        handed_at = time.perf_counter()
         if self._link.write_fault is not None:
             raise self._link.write_fault
         if self._link.write_takes_s:
             time.sleep(self._link.write_takes_s)
         with self._link._lock:
             self._link.written.append(bytes(data))
+            self._link.written_at.append(handed_at)
             answer = self._link.answers.get(data.strip().decode('utf-8', 'ignore'), [])
         for line in answer:
             self._buffer += line.encode() + b'\r\n'

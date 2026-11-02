@@ -709,14 +709,18 @@ class TestTheDurationsSerialLogStates:
         monkeypatch.setattr(
             serialboard, 'time', SimpleNamespace(monotonic=lambda: now[0], sleep=time.sleep)
         )
-        board = _connected(ScriptedLink(_ANSWERING))
+        board = _connected(link := ScriptedLink(_ANSWERING))
         # A board sets its gap here; no shipped board sets one yet.
         board._min_command_interval = 0.05
-        board.exchange_command('PING')
-        now[0] += 1.0
+        # The gap runs from inside the first exchange to the second send, so
+        # the span from before the first exchange to the second write is
+        # never less than it, however loaded the host; a driver that kept no
+        # gap sends the second about one exchange (25 ms) after the first.
         began = time.perf_counter()
         board.exchange_command('PING')
-        assert time.perf_counter() - began >= 0.045
+        now[0] += 1.0
+        board.exchange_command('PING')
+        assert link.written_at[-1] - began >= 0.05
 
 
 # ---------------------------------------------------------------------------
