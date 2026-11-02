@@ -75,11 +75,13 @@ class ClockMapping:
         latch and ``ticks``. One wall read anchors every tick mapped through
         it, so intervals between ticks are the camera's."""
         wall_ns = self.wall_ns + (ticks - self.camera_ticks) * 1_000_000_000 // self.tick_hz
-        seconds, ns = divmod(wall_ns, 1_000_000_000)
-        # To the nearest microsecond, a datetime's resolution.
-        return datetime.datetime.fromtimestamp(seconds) + datetime.timedelta(
-            microseconds=(ns + 500) // 1000
-        )
+        # To the nearest microsecond, a datetime's resolution. The local time
+        # is made from the whole second and given its microsecond, never moved
+        # by a timedelta: arithmetic on a naive time drops its fold, so in the
+        # hour a clock change repeats it would name the first pass of that hour
+        # and state an instant an hour from the frame's.
+        seconds, microseconds = divmod((wall_ns + 500) // 1000, 1_000_000)
+        return datetime.datetime.fromtimestamp(seconds).replace(microsecond=microseconds)
 
 
 class SettingSource(enum.StrEnum):

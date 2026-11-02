@@ -19,6 +19,9 @@ from __future__ import annotations
 import datetime
 import logging
 import threading
+import time
+
+import pytest
 
 from drivers import host_clock
 from modules.lumascope_api.frame_record import ClockMapping, TimestampSource
@@ -52,6 +55,37 @@ def test_a_mapping_converts_a_tick_to_the_wall_time_it_was_latched_beside():
     assert mapping.wall_time_at(500 + 25_000_000) == latched + datetime.timedelta(seconds=1)
     assert mapping.wall_time_at(475) == latched - datetime.timedelta(microseconds=1)
     assert mapping.wall_time_at(499) == latched
+
+
+@pytest.fixture
+def pacific_time(monkeypatch):
+    """The host's local zone set to one with a fall-back hour, then restored."""
+    if not hasattr(time, 'tzset'):
+        # Windows sets no process zone from TZ; the mapping's code has no
+        # platform branch, so the POSIX hosts pin it for every host.
+        pytest.skip('the local zone cannot be set in-process on this platform')
+    monkeypatch.setenv('TZ', 'America/Los_Angeles')
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_a_tick_in_the_hour_a_clock_change_repeats_maps_to_its_own_instant(pacific_time):
+    # 2026-11-01 01:30:00.123456 happens twice in Los Angeles: at 08:30 UTC
+    # (daylight time) and an hour later at 09:30 UTC (standard time). A
+    # recording keeps a frame by comparing its time's instant with its own
+    # start, so a time that names the wrong pass drops or keeps a whole hour.
+    for utc_hour in (8, 9):
+        instant = datetime.datetime(2026, 11, 1, utc_hour, 30, tzinfo=datetime.UTC)
+        wall_ns = int(instant.timestamp()) * 1_000_000_000 + 123_456_000
+        mapping = ClockMapping(
+            host_ns=0, camera_ticks=0, tick_hz=1_000_000_000, uncertainty_ns=0, wall_ns=wall_ns
+        )
+
+        at = mapping.wall_time_at(0)
+
+        assert round(at.timestamp() * 1_000_000) == wall_ns // 1000, f'{utc_hour}:30 UTC'
 
 
 def _capture_lines(caplog):
