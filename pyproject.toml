@@ -70,7 +70,16 @@ extend-exclude = [
 # auto-sort risks a test-invisible runtime regression for purely cosmetic
 # gain. Rule 26's stdlib / third-party / first-party grouping stays a
 # human-review norm; it does not mandate alphabetical order within a group.
-select = ["E", "F", "W", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
+select = ["E", "F", "W", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM", "PLW1514"]
+
+# PLW1514 (a text open with no encoding) fails the build: without one, a
+# file's bytes are the platform's (cp1252 on Windows, UTF-8 elsewhere), and
+# every text file LVP reads or writes is UTF-8. It is a preview rule, so
+# preview is on; explicit-preview-rules enables only preview rules named by
+# their full code, but the stable rules take their preview behaviour too
+# (F401 reads a dotted import), which is why a ruff bump is a lint pass.
+preview = true
+explicit-preview-rules = true
 
 # Unused-import handling: F401 stays in `select` so ruff still flags genuinely
 # dead imports for human review, but it is REMOVED from autofix. ruff cannot

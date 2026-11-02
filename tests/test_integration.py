@@ -17,7 +17,6 @@ import dataclasses
 import datetime
 import json
 import logging
-import logging.handlers
 import os
 import threading
 from unittest.mock import MagicMock

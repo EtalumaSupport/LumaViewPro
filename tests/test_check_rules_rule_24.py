@@ -62,7 +62,7 @@ class TestRule24Triggers:
         assert vs
 
     def test_micro_sign_in_notifications(self):
-        src = 'notifications.error("Title", "5 µm offset")\n'
+        src = 'notifications.error("Title", "5 \u00b5m offset")\n'
         vs = _rule24_violations(src, 'x.py')
         assert vs
 

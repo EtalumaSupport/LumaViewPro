@@ -103,9 +103,9 @@ class TestHeadlessImports:
         with _kivy_purged():
             # Re-import the protocol chain (modules already in sys.modules will
             # be a no-op, so reload their state by dropping them first if needed)
-            import modules.lumascope_api
-            import modules.sequenced_capture_runner
-            import modules.protocol
+            import modules.lumascope_api  # noqa: F401 -- loaded for the no-kivy assertion below
+            import modules.sequenced_capture_runner  # noqa: F401 -- loaded for the no-kivy assertion below
+            import modules.protocol  # noqa: F401 -- loaded for the no-kivy assertion below
             import modules.kivy_utils  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
 
             # Verify no kivy module is in sys.modules
