@@ -52,12 +52,6 @@ _IOTASK_TRACE_HEADER = (
     'queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception'
 )
 
-# Sentinel returned from protocol_put when a bounded protocol_queue
-# is full. Distinct from None (which means "protocol not running");
-# callers that care about overflow check for `is PROTOCOL_QUEUE_FULL`
-# so a frame can be marked capture_failed in the execution record
-# instead of silently dropped.
-PROTOCOL_QUEUE_FULL = object()
 # Sentinel returned from protocol_put when a fire-and-forget task (return_future
 # False) DID enter the queue. Distinct from None: a no-future enqueue used to
 # return None too, so a caller could not tell a successful enqueue from a
@@ -573,7 +567,6 @@ class SequentialIOExecutor:
         self,
         max_workers: int = 1,
         name: str | None = None,
-        protocol_queue_maxsize: int = 0,
         priority_aware: bool = False,
         lane: bool = True,
         *,
@@ -593,12 +586,16 @@ class SequentialIOExecutor:
             self.queue = _PriorityFifoQueue()
         else:
             self.queue = queue.Queue()
-        # protocol_queue_maxsize=0 (every lane today) leaves the run-mode
-        # queue unbounded; a bound makes protocol_put refuse with a sentinel
-        # return rather than let the queue grow without limit.
-        self.protocol_queue = queue.Queue(maxsize=protocol_queue_maxsize)
-        self.protocol_queue_maxsize = protocol_queue_maxsize
-        self._protocol_queue_dropped_count = 0
+        self.protocol_queue = queue.Queue()
+        # The lane's state -- closing, in a run, a run finishing -- switches
+        # under this lock, and every decision that reads that state and then
+        # puts a task on a queue, or empties one, is made under it, so no
+        # task lands on a queue the state has just stopped serving.
+        # Re-entrant: submit holds it across its choice of door and the
+        # door it calls. Held for no callback, waiter's settling or blocking
+        # get. Taken after the runner's run lock and before each queue's
+        # mutex and the caller-futures lock.
+        self._state_lock = threading.RLock()
         # Makes "nothing ahead" and the put one step, so two submitters
         # cannot both be put first in line.
         self._first_in_line_lock = threading.Lock()
@@ -984,18 +981,15 @@ class SequentialIOExecutor:
         task.member = member
         # The run's own call goes through the door its protocol mode keeps
         # for it; anyone else's, and the run's once the mode has ended, through
-        # put. Asked twice: a fence or its end can land between the question
-        # and the submit, and both doors answer a closed lane with None.
+        # put. The choice and the door's enqueue are one step under the state
+        # lock, so the mode cannot turn between them.
         fut = None
         overriding = override is not None and override is self._override_key
-        if self._is_protocol_door_holder() or (overriding and self.is_protocol_running()):
-            fut = self.protocol_put(task, return_future=True, override=override, waiter=waiter)
-        if fut is None:
-            fut = (
-                self.put(task, return_future=True, override=override, waiter=waiter)
-                if self.accepts_work()
-                else None
-            )
+        with self._state_lock:
+            if self._is_protocol_door_holder() or (overriding and self.is_protocol_running()):
+                fut = self.protocol_put(task, return_future=True, override=override, waiter=waiter)
+            elif self.accepts_work():
+                fut = self.put(task, return_future=True, override=override, waiter=waiter)
         if fut is None:
             if self.pending_shutdown:
                 raise self._closed_answer(member)
@@ -1170,14 +1164,7 @@ class SequentialIOExecutor:
         # renames its worker thread to the empty string.
         self._stamp(task, override)
         if not self.accepts_work():
-            # accepts_work stays the single written-down copy of the gate; the
-            # flag is read again only to attribute the cause, not to re-derive
-            # the condition.
-            if self.pending_shutdown:
-                cause = 'the lane is shut down'
-            else:
-                cause = 'a protocol run has this lane fenced'
-            return self._refuse_submit(_LANE_DEFAULT, cause, task)
+            return self._refuse_submit(_LANE_DEFAULT, self._why_put_refuses(), task)
         refusal = self._claim_refusal(task)
         if refusal is not None:
             return self._refused_at_submit(task, refusal, return_future, waiter)
@@ -1212,53 +1199,60 @@ class SequentialIOExecutor:
         fut = None
         if return_future:
             fut = waiter if waiter is not None else _claim_waiter()
-            if not self._register_waiter(task, fut):
-                if task.droppable_live:
-                    with self._live_lock:
-                        self._live_inflight -= 1
-                return self._refuse_submit(_LANE_DEFAULT, 'the lane is shut down', task)
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = 'default'
-        with self._first_in_line_lock:
-            # A task the worker has dequeued but not yet recorded as running
-            # is missed here, so a task put in that instant is first in line
-            # beside it: erring kept costs a hold at most one task's wait.
-            task.first_in_line = self.queue.empty() and self.running_task is None
-            self.queue.put(task)
+        # The gate asked again, the waiter registered and the task put, in one
+        # step no switch can land inside: a run started or a close begun since
+        # the first ask refuses it here, before anyone waits on it.
+        with self._state_lock:
+            admitted = self.accepts_work()
+            if admitted:
+                if fut is not None:
+                    self._register_waiter(task, fut)
+                with self._first_in_line_lock:
+                    # A task the worker has dequeued but not yet recorded as
+                    # running is missed here, so a task put in that instant is
+                    # first in line beside it: erring kept costs a hold at
+                    # most one task's wait.
+                    task.first_in_line = self.queue.empty() and self.running_task is None
+                    self.queue.put(task)
+        if not admitted:
+            if task.droppable_live:
+                with self._live_lock:
+                    self._live_inflight -= 1
+            return self._refuse_submit(_LANE_DEFAULT, self._why_put_refuses(), task)
         self._accept_submit(_LANE_DEFAULT)
         return fut if return_future else ENQUEUED
 
-    def _register_waiter(self, task: IOTask, fut) -> bool:
-        """Register ``fut`` as ``task``'s waiter, unless the lane has closed.
+    def _why_put_refuses(self) -> str:
+        """The cause ``put`` names for a task its gate refused.
 
-        Asked under the lock the close's sweep takes, after the close has
-        marked the lane closing: a waiter registered first is the sweep's to
-        answer, and one asked for after is refused here, so none is
-        registered behind the sweep and left waiting.
+        ``accepts_work`` stays the single written-down copy of the gate; the
+        flag is read again only to attribute the cause, not to re-derive the
+        condition.
+        """
+        if self.pending_shutdown:
+            return 'the lane is shut down'
+        return 'a protocol run has this lane fenced'
+
+    def _register_waiter(self, task: IOTask, fut) -> None:
+        """Register ``fut`` as ``task``'s waiter, for the epilogue or the close to settle.
+
+        Called under the state lock, after the door's gate is asked again
+        and before the task is put: a close takes that lock to mark the lane
+        closing, so a waiter registered here is on a lane still open, and
+        the close's sweep answers it; a task the close beat is refused by
+        the gate and registers none.
         """
         with self._caller_futures_lock:
-            if self.pending_shutdown:
-                return False
             self.caller_futures[task] = fut
             self._caller_futures_alloc_count += 1
-        return True
-
-    def _discard_protocol_future(self, task: IOTask, return_future: bool) -> None:
-        """Drop a claimed waiter for a task that never entered the queue, so
-        the caller isn't left holding a never-completed future that pins
-        memory."""
-        if not return_future:
-            return
-        with self._caller_futures_lock:
-            if self.caller_futures.pop(task, None) is not None:
-                self._caller_futures_pop_count += 1
 
     def _finish_protocol_enqueue(self, task: IOTask, fut, return_future: bool):
-        """Success tail shared by the drop-on-full and blocking enqueues."""
-        # Early warning that file writes are falling behind, before the
-        # bound is reached.
+        """Success tail of ``protocol_put``'s enqueue."""
+        # Early warning that file writes are falling behind.
         self._accept_submit(_LANE_PROTOCOL)
         depth = self.protocol_queue.qsize()
         if depth > 20 and depth % 10 == 0:
@@ -1268,8 +1262,7 @@ class SequentialIOExecutor:
             )
         # A return_future caller needs the future back to await it; a
         # fire-and-forget caller gets PROTOCOL_ENQUEUED so it can distinguish
-        # this real enqueue from a dropped task -- not-running and queue-full
-        # both return a non-PROTOCOL_ENQUEUED value.
+        # this real enqueue from a dropped task -- not-running returns None.
         if return_future:
             return fut
         return PROTOCOL_ENQUEUED
@@ -1290,8 +1283,7 @@ class SequentialIOExecutor:
 
         - return_future True, enqueued: the task's Future (await its result).
         - return_future False, enqueued: PROTOCOL_ENQUEUED.
-        - queue full (bounded queue at cap): PROTOCOL_QUEUE_FULL.
-        - protocol not running: None (task dropped).
+        - protocol not running, or the lane shut down: None (task dropped).
         - the scope is held and the task is not the holder's: the refusal
           (a waiter already carrying it, when return_future).
 
@@ -1299,8 +1291,8 @@ class SequentialIOExecutor:
         not enter the queue and will never run.
         """
         self._stamp(task, override)
-        if not self.protocol_running.is_set():
-            return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
+        if not self._run_door_open():
+            return self._refuse_submit(_LANE_PROTOCOL, self._why_run_door_refuses(), task)
 
         refusal = self._claim_refusal(task, door=True)
         if refusal is not None:
@@ -1309,40 +1301,40 @@ class SequentialIOExecutor:
         fut = None
         if return_future:
             fut = waiter if waiter is not None else _claim_waiter()
-            if not self._register_waiter(task, fut):
-                return self._refuse_submit(_LANE_PROTOCOL, 'the lane is shut down', task)
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (
                 1 if self._running_task else 0
             )
             task._queue_kind = 'protocol'
-
-        # Bounded queues use put_nowait so an overflowing save thread
-        # surfaces a drop signal instead of blocking the caller. Unbounded
-        # queues (default, backwards compat) never raise Full, so put_nowait
-        # is identical to put().
-        try:
-            self.protocol_queue.put_nowait(task)
-        except queue.Full:
-            self._protocol_queue_dropped_count += 1
-            depth = self.protocol_queue.qsize()
-            # Throttle the warning to avoid log inflation on a sustained
-            # overflow (per drop would mirror the queue depth growth we're
-            # already trying to bound).
-            if (
-                self._protocol_queue_dropped_count == 1
-                or self._protocol_queue_dropped_count % 10 == 0
-            ):
-                logger.warning(
-                    f'[{self.executor_name}] PROTOCOL QUEUE FULL '
-                    f'(maxsize={self.protocol_queue_maxsize}, depth={depth}) -- '
-                    f'dropping task; total drops this run: '
-                    f'{self._protocol_queue_dropped_count}'
-                )
-            self._discard_protocol_future(task, return_future)
-            return PROTOCOL_QUEUE_FULL
+        # As in put: the run asked again, the waiter registered and the task
+        # put in one step, so a run's end or a close since the first ask
+        # refuses it here rather than leaving it on a queue nobody serves.
+        with self._state_lock:
+            admitted = self._run_door_open()
+            if admitted:
+                if fut is not None:
+                    self._register_waiter(task, fut)
+                self.protocol_queue.put(task)
+        if not admitted:
+            return self._refuse_submit(_LANE_PROTOCOL, self._why_run_door_refuses(), task)
         return self._finish_protocol_enqueue(task, fut, return_future)
+
+    def _run_door_open(self) -> bool:
+        """Whether a task put through ``protocol_put`` right now would be queued.
+
+        ``accepts_work``'s counterpart for the run's door, whose fence runs
+        the other way: open only in a run. A closed lane is shut whatever its
+        mode -- a run started after the close sets the mode again, and its
+        work would wait on a queue no worker serves and no close answers.
+        """
+        return not self.pending_shutdown and self.protocol_running.is_set()
+
+    def _why_run_door_refuses(self) -> str:
+        """The cause ``protocol_put`` names for a task its gate refused."""
+        if self.pending_shutdown:
+            return 'the lane is shut down'
+        return 'no protocol run is in session'
 
     def _stall_threshold_s(self, floor_s: float) -> float:
         """Seconds an in-flight task may run before it counts as stuck.
@@ -1403,22 +1395,22 @@ class SequentialIOExecutor:
                 f'{self.executor_name}: protocol_start on a lane that asks the claim needs the '
                 "run's taking"
             )
-        self._protocol_taking = taking
-        # Clear stale finish flag from previous run. If protocol_finish is
-        # still set (dispatcher hasn't processed it yet), clear it now so
-        # the dispatcher doesn't asynchronously call protocol_end() during
-        # the new run -- that would clear protocol_running mid-execution.
-        if self.protocol_finish.is_set():
+        with self._state_lock:
+            self._protocol_taking = taking
+            # Clear stale finish flag from previous run. If protocol_finish is
+            # still set (the worker hasn't ended the old run's mode yet), clear
+            # it now so the worker doesn't end protocol mode during the new run
+            # -- that would clear protocol_running mid-execution. The worker
+            # ends a finishing run's mode under this lock, re-asking the flag.
+            stale_finish = self.protocol_finish.is_set()
             self.protocol_finish.clear()
+            self.protocol_running.set()
+            # After the mode is set: an override call put from here on goes on
+            # the run's queue itself, and one already waiting on the default
+            # queue, which protocol mode does not serve, is carried there.
+            self._carry_overrides_to_protocol_queue()
+        if stale_finish:
             logger.info(f'{self.name} Cleared stale protocol_finish flag')
-        # Reset per run so the "this run" line in the overflow warning
-        # reflects only this run, not every run since the app launched.
-        self._protocol_queue_dropped_count = 0
-        self.protocol_running.set()
-        # After the mode is set: an override call put from here on goes on
-        # the run's queue itself, and one already waiting on the default
-        # queue, which protocol mode does not serve, is carried there.
-        self._carry_overrides_to_protocol_queue()
         logger.info(f'{self.name} Protocol Started')
 
     def _carry_overrides_to_protocol_queue(self) -> None:
@@ -1453,9 +1445,19 @@ class SequentialIOExecutor:
                     self._live_inflight -= 1
             self.protocol_queue.put(task)
 
-    def protocol_end(self):
+    def protocol_end(self) -> None:
+        with self._state_lock:
+            was_running = self._end_protocol_mode_locked()
+        self._log_protocol_ended(was_running)
+
+    def _end_protocol_mode_locked(self) -> bool:
+        """End protocol mode, under the state lock; returns whether it was on."""
         was_running = self.protocol_running.is_set()
         self.protocol_running.clear()
+        return was_running
+
+    def _log_protocol_ended(self, was_running: bool) -> None:
+        """Say a protocol mode ended, after the state lock is released."""
         if was_running:
             logger.info(f'{self.name} Protocol Ended')
 
@@ -1527,13 +1529,23 @@ class SequentialIOExecutor:
                 if self._claim is not None and not self.queue.empty():
                     self._refuse_queued()
                 try:
-                    in_protocol = self.protocol_running.is_set() or self.protocol_finish.is_set()
-                    if in_protocol and not self._first_in_line_waiting():
+                    # The mode is read, and an ended run's queue taken, under
+                    # the state lock; the get waits after its release, so a
+                    # switch landing during the wait is the next pass's to see.
+                    ended = None
+                    with self._state_lock:
+                        in_protocol = (
+                            self.protocol_running.is_set() or self.protocol_finish.is_set()
+                        )
+                        from_run = in_protocol and not self._first_in_line_waiting()
+                        if not in_protocol and not self.protocol_queue.empty():
+                            ended = self._take_protocol_pending()
+                    if ended is not None:
+                        self._answer_protocol_pending(*ended)
+                        continue
+                    if from_run:
                         task = self.protocol_queue.get(block=True, timeout=0.2)
                         task.protocol = True
-                    elif not in_protocol and not self.protocol_queue.empty():
-                        self.clear_protocol_pending()
-                        continue
                     else:
                         task = self.queue.get(block=True, timeout=0.2)
                         task.protocol = False
@@ -1560,16 +1572,26 @@ class SequentialIOExecutor:
                 except queue.Empty:
                     if self.pending_shutdown:
                         return
-                    if self.protocol_finish.is_set():
-                        self.protocol_end()
-                        self.protocol_finish.clear()
+                    # A finishing run's mode ends once its queue is drained,
+                    # asked under the lock the next run's start takes: a start
+                    # that has cleared the flag is a new run, not this one.
+                    ended_mode = False
+                    with self._state_lock:
+                        if self.protocol_finish.is_set() and self.protocol_queue.empty():
+                            ended_mode = self._end_protocol_mode_locked()
+                            self.protocol_finish.clear()
+                    self._log_protocol_ended(ended_mode)
                     continue
 
-                if (
-                    not (self.protocol_running.is_set() or self.protocol_finish.is_set())
-                    and not self.protocol_queue.empty()
-                ):
-                    self.clear_protocol_pending()
+                ended = None
+                with self._state_lock:
+                    if (
+                        not (self.protocol_running.is_set() or self.protocol_finish.is_set())
+                        and not self.protocol_queue.empty()
+                    ):
+                        ended = self._take_protocol_pending()
+                if ended is not None:
+                    self._answer_protocol_pending(*ended)
 
                 # Asked again as it leaves the queue: a hold can begin while
                 # the task waits, and the holder's restore must not be run
@@ -1851,10 +1873,19 @@ class SequentialIOExecutor:
             )
 
     def shutdown(self, wait: bool = True) -> None:
-        self.pending_shutdown = True
-        self.protocol_end()
-        self._answer_queued_as_closed()
-        self.clear_protocol_pending()
+        # The close and its taking of what is queued are one step under the
+        # state lock, so a put that passed its first ask before the close
+        # re-asks after it and is refused, never left on a swept queue.
+        with self._state_lock:
+            self.pending_shutdown = True
+            was_running = self._end_protocol_mode_locked()
+            queued = self._take_queued()
+            pending = self._take_protocol_pending()
+        self._log_protocol_ended(was_running)
+        for task in queued:
+            task.protocol = False
+            self._answer_unrun(task, self._closed_answer(_member_of(task)), asked=False)
+        self._answer_protocol_pending(*pending)
         if self.worker_alive and wait:
             # Worker polls pending_shutdown on every queue.get timeout
             # (0.2s); bound the join so a hung task does not block
@@ -1885,11 +1916,11 @@ class SequentialIOExecutor:
         # Block until all queued tasks processed (or until timeout)
         pass
 
-    def _answer_queued_as_closed(self) -> None:
-        """Empty the default queue as the lane closes, answering each task with the closed answer.
+    def _take_queued(self) -> list[IOTask]:
+        """Empty the default queue as the lane closes, under the state lock; returns what it held.
 
-        For priority_aware executors the answers go HIGH-first, the order
-        the queue would have served them in.
+        For priority_aware executors the tasks come HIGH-first, the order
+        the queue would have served them in, and are answered in that order.
         """
         taken = []
         while True:
@@ -1902,9 +1933,7 @@ class SequentialIOExecutor:
                 with self._live_lock:
                     self._live_inflight -= 1
             taken.append(task)
-        for task in taken:
-            task.protocol = False
-            self._answer_unrun(task, self._closed_answer(_member_of(task)), asked=False)
+        return taken
 
     def clear_protocol_pending(self) -> None:
         """Empty the run's queue as its protocol mode ends, answering what it held.
@@ -1913,6 +1942,17 @@ class SequentialIOExecutor:
         in order, and served after the run; every other task on the run's
         queue is the run's own and is answered ``activity_ended``. As the
         lane closes, every task is answered with the closed answer instead.
+        """
+        with self._state_lock:
+            taken = self._take_protocol_pending()
+        self._answer_protocol_pending(*taken)
+
+    def _take_protocol_pending(self) -> tuple[bool, list[IOTask]]:
+        """Empty the run's queue under the state lock, carrying its overrides back.
+
+        Returns whether the lane is closing and every task taken, for
+        ``_answer_protocol_pending`` to answer once the lock is released: an
+        answer settles a waiter whose done-callbacks run on this thread.
         """
         closing = self.pending_shutdown
         pq = self.protocol_queue
@@ -1925,6 +1965,10 @@ class SequentialIOExecutor:
             if task.override and not closing:
                 task.first_in_line = False
                 self.queue.put(task)
+        return closing, left
+
+    def _answer_protocol_pending(self, closing: bool, left: list[IOTask]) -> None:
+        """Answer the run's tasks ``_take_protocol_pending`` took, all but the overrides it carried."""
         for task in left:
             if task.override and not closing:
                 continue

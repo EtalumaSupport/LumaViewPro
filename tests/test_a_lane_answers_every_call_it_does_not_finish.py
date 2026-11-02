@@ -280,10 +280,17 @@ class TestTheScopeLanesClosing:
         ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         ex.start()
         ex.shutdown()
-        # a stand-in by design: opens the window between the put's fence
-        # check and its waiter's registration, which a close can land in;
-        # no timing holds it open long enough to close the lane in.
-        ex.accepts_work = lambda: True
+        # a stand-in by design: the first ask of the gate answers as it would
+        # have before the close, the window a close can land in; no timing
+        # holds it open long enough to close the lane in. Every later ask is
+        # the real one.
+        real_gate = ex.accepts_work
+
+        def open_once():
+            ex.accepts_work = real_gate
+            return True
+
+        ex.accepts_work = open_once
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
             ex.submit(IOTask(action=lambda: None), 'set_gain_db')

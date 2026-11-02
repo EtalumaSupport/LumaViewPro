@@ -10023,40 +10023,21 @@ class TestGreaseRedistributionGateAlwaysReleased:
         finally:
             io.shutdown()
 
-    def test_enqueue_failure_releases_gate(self):
+    def test_enqueue_dropped_releases_gate(self):
         from modules.protocol_step_runner import ProtocolStepRunner
-        from modules.sequential_io_executor import PROTOCOL_QUEUE_FULL
 
+        # protocol_put returns None when no run is in session or the lane has
+        # closed. The task is not enqueued, so its finally-set() never runs --
+        # perform_grease_redistribution must release the gate itself.
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
-        runner._io_executor.protocol_put.return_value = PROTOCOL_QUEUE_FULL
+        runner._io_executor.protocol_put.return_value = None
         runner._grease_redistribution_event.set()
 
         step.perform_grease_redistribution()
         assert runner._grease_redistribution_event.is_set(), (
-            'a grease task that could not be queued must not leave the gate clear'
+            'a grease task that was not enqueued left the scan gate clear (deadlock)'
         )
-
-    def test_enqueue_dropped_releases_gate_for_every_non_enqueue_return(self):
-        from modules.protocol_step_runner import ProtocolStepRunner
-        from modules.sequential_io_executor import PROTOCOL_QUEUE_FULL
-
-        # protocol_put returns None when the protocol is not running, and
-        # PROTOCOL_QUEUE_FULL when the bounded queue is at cap. Neither
-        # enqueues the task, so the task's finally-set() never runs --
-        # perform_grease_redistribution must release the gate itself for
-        # both, not just the queue-full leg.
-        for dropped in (None, PROTOCOL_QUEUE_FULL):
-            runner = self._make_runner()
-            step = ProtocolStepRunner(runner)
-            runner._io_executor.protocol_put.return_value = dropped
-            runner._grease_redistribution_event.set()
-
-            step.perform_grease_redistribution()
-            assert runner._grease_redistribution_event.is_set(), (
-                f'grease task not enqueued (protocol_put -> {dropped!r}) '
-                'left the scan gate clear (deadlock)'
-            )
 
     def test_enqueue_success_leaves_gate_to_the_task(self):
         from modules.protocol_step_runner import ProtocolStepRunner
