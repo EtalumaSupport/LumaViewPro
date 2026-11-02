@@ -2291,6 +2291,30 @@ class Protocol:
             self._typed_value('Auto_Focus', enabled)
         )
 
+    # A step's columns that one channel's slices of a z-stack hold as one,
+    # and those every slice of the stack holds as one (``modify_step``).
+    _STACK_CHANNEL_COLUMNS = (
+        'Auto_Focus',
+        'False_Color',
+        'Illumination',
+        'Gain',
+        'Auto_Gain',
+        'Exposure',
+        'Sum',
+        'Acquire',
+        'Video Config',
+        'Stim_Config',
+    )
+    _STACK_PLACE_COLUMNS = ('X', 'Y', 'Objective', 'Turret Slot')
+
+    def _stack_slices(self, step_index: int) -> pd.Index:
+        """The steps of ``step_index``'s z-stack, every channel; the step alone outside one."""
+        steps = self._config['steps']
+        group_id = steps.at[step_index, 'Z-Stack Group ID']
+        if group_id == -1:
+            return pd.Index([step_index])
+        return steps.index[steps['Z-Stack Group ID'] == group_id]
+
     def _stack_channel_slices(self, step_index: int) -> pd.Index:
         """The steps of ``step_index``'s channel in its z-stack; the step alone outside one."""
         steps = self._config['steps']
@@ -2552,11 +2576,16 @@ class Protocol:
         change updates exactly the channel token while the label -- user text
         or auto base -- rides along untouched.
 
-        For a slice of a z-stack, the Auto_Focus written is its channel's in
-        that stack, so every slice of the channel there takes it, and its
-        channel cannot change: the slice's offset is measured from its
-        channel's reference slice, so another channel would place it from a
-        plane it was never built against.
+        For a slice of a z-stack, the light and camera written are its
+        channel's in that stack, so every slice of the channel there takes
+        them: the stack is one acquisition of the channel at several heights.
+        The X, Y and objective written are the stack's place, so every slice
+        of every channel there takes them: a run visits a stack as one place,
+        and a slice elsewhere would move the stage or the turret mid-stack.
+        The Z and the label are the slice's own. Its channel cannot change:
+        the slice's offset is measured from its channel's reference slice, so
+        another channel would place it from a plane it was never built
+        against.
 
         Raises:
             StepNotFoundError: ``step_index`` is not a step of this protocol.
@@ -2600,9 +2629,15 @@ class Protocol:
         if label is not None:
             typed['Label'] = Protocol._sanitized_label(label)
             typed['Auto_Named'] = False
-        steps.loc[self._stack_channel_slices(step_index), 'Auto_Focus'] = typed.pop('Auto_Focus')
+        written_to = {
+            **dict.fromkeys(
+                Protocol._STACK_CHANNEL_COLUMNS, self._stack_channel_slices(step_index)
+            ),
+            **dict.fromkeys(Protocol._STACK_PLACE_COLUMNS, self._stack_slices(step_index)),
+        }
         for column, value in typed.items():
-            steps.at[step_index, column] = _read_only(value)
+            for idx in written_to.get(column, (step_index,)):
+                steps.at[idx, column] = _read_only(value)
         self._regenerate_step_name(step_index=step_index)
 
     def new_channel_group_id(self) -> int:

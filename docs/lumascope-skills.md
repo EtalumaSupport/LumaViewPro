@@ -874,6 +874,12 @@ even count), the top of a top stack, the bottom of a bottom stack. Every slice k
 distance from that slice, its record's `z_stack_offset_um`, whichever of its
 slices a caller turned autofocus on or moved.
 
+`update_step` on a slice of a z-stack writes the channel's light and camera
+to every slice of that channel in the stack, and the live X, Y and objective
+to every slice of the stack, every channel; the slice keeps its own Z and
+label. So a caller that updates a slice without first going to it
+(`go_to_step`) moves the whole stack to where the stage is.
+
 A protocol read to run gives each tile of a z-stack its own group, so a file
 in which one group spans several tiles (saved by a build that tiled an
 already-stacked protocol) reads as one stack per tile, with a warning in the

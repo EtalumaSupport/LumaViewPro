@@ -442,11 +442,15 @@ class ProtocolsAPI:
         An add's steps are one composite with one image per channel, so a
         second step of one channel would leave the composite two images for
         one plane, refused only after the run has captured both. A step
-        recorded before adds were (group -1) has no add to check.
+        recorded before adds were (group -1) has no add to check. An edit
+        that keeps the step's channel writes no second step of it: the
+        slices of a stacked channel share their add and their channel, and
+        are not one another's duplicates.
         """
-        group = protocol.step_row(step_index=step_index)['Channel Group ID']
-        if group == -1:
+        step = protocol.step_row(step_index=step_index)
+        if step['Channel Group ID'] == -1 or layer == step['Color']:
             return
+        group = step['Channel Group ID']
         steps = protocol.steps().reset_index(drop=True)
         same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_index)]
         if layer in set(same_add['Color']):
