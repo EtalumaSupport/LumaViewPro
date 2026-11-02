@@ -98,6 +98,19 @@ class TestDegenerateCurveReportsFailure:
         )
         assert settled_z(scope) == pytest.approx(PARKED_Z_UM, abs=0.01)
 
+    def test_a_sweep_centred_away_from_the_stage_returns_it_where_it_stood(self, flat, monkeypatch):
+        """A z-stack's sweep starts at its first slice, centred on its reference
+        slice; a failure puts the stage back at the slice, not at the centre."""
+        runner, scope = flat
+        asked = z_asked(scope, monkeypatch)
+
+        _sweep_flat(runner, scope, center_um=PARKED_Z_UM + 100.0)
+
+        assert asked[-1] == PARKED_Z_UM, (
+            f'a failed sweep centred at {PARKED_Z_UM + 100.0} must restore the Z '
+            f'it found, {PARKED_Z_UM}; got {asked[-1]} (all: {asked})'
+        )
+
     def test_the_channel_led_is_handed_back_not_held(self, flat):
         """A failure, like every failure, restores the pre-autofocus LED
         state even when the step asked to keep the channel lit: the
@@ -116,16 +129,16 @@ class TestDegenerateCurveReportsFailure:
         """One value, one store.
 
         The restore used to read `_saved_z_position`, a second snapshot of
-        the same quantity taken fourteen lines after `_params['center']`,
-        inside a try whose except swallowed the failure to a debug line
-        and assigned None -- which silently switched the restore OFF. The
-        field is deleted rather than guarded.
+        the pre-autofocus Z taken fourteen lines after the sweep's
+        parameters, inside a try whose except swallowed the failure to a
+        debug line and assigned None -- which silently switched the restore
+        OFF. The field is deleted rather than guarded.
         """
         runner = AutofocusRunner(scope=sim_scope)
 
         assert not hasattr(runner, '_saved_z_position'), (
             'the duplicate pre-AF Z snapshot must be gone; the restore reads '
-            "_params['center'], which cannot be missing"
+            "_params['found_z'], which cannot be missing"
         )
 
 

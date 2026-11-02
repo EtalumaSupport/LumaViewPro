@@ -54,6 +54,7 @@ def _autofocus_from(scope, z, monkeypatch, peak):
         return thread.run_autofocus(
             run=run_identity(),
             objective_id='10x Oly',
+            center_um=scope.motion.get_current_position('Z'),
             led_color='BF',
             led_illumination=5.0,
             camera_gain=1.0,

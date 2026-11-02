@@ -870,12 +870,13 @@ plate = session.new_protocol(tiling='2x2', use_zstacking=True)
 print(plate.num_steps(), plate.tiling())
 ```
 
-A z-stack whose channel autofocuses is focused once, at its first slice, and
-the found focus lands on its reference slice -- the slice built at the
-channel's focus: the middle slice of a centre stack (the lower middle of an
-even count), the top of a top stack, the bottom of a bottom stack. Every slice keeps its
-distance from that slice, its record's `z_stack_offset_um`, whichever of its
-slices a caller turned autofocus on or moved.
+A z-stack whose channel autofocuses is focused once, by a sweep fired at its
+first slice and centred on its reference slice, and the found focus lands on
+that reference slice -- the slice built at the channel's focus: the middle
+slice of a centre stack (the lower middle of an even count), the top of a
+top stack, the bottom of a bottom stack. Every slice keeps its distance from
+that slice, its record's `z_stack_offset_um`, whichever of its slices a
+caller turned autofocus on or moved.
 
 `update_step` on a slice of a z-stack writes the channel's light and camera
 to every slice of that channel in the stack, and the live X, Y and objective

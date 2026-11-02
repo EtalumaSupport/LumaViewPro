@@ -34,6 +34,7 @@ def _autofocus(session) -> float:
         future = thread.run_autofocus(
             run=run_identity(),
             objective_id=next(iter(session.scope.objectives)),
+            center_um=session.scope.motion.get_current_position('Z'),
             led_color='BF',
             led_illumination=5.0,
             led_lease=session.scope.illumination.acquire_led_lease(

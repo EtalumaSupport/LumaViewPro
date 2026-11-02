@@ -235,12 +235,14 @@ class ProtocolStepRunner:
             if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return
 
-            # A group's sweep runs in its reference slice's light. The first
-            # slice fires it, and may be another channel's: a group holds
-            # every channel at the position, in Z order.
+            # A group's sweep runs in its reference slice's light, centred on
+            # its Z, the user's focus. The first slice fires it, and may be
+            # another channel's: a group holds every channel at the position,
+            # in Z order.
             sweep_step = p._protocol.step_row(step_index=sweep_step_index)
             p._af_future = p.autofocus_thread.run_autofocus(
                 objective_id=sweep_step['Objective'],
+                center_um=float(sweep_step['Z']),
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
                 write_batch=p._write_batch,

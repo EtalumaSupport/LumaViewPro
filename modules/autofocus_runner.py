@@ -251,8 +251,11 @@ class AutofocusRunner:
             )
         self._reset_state()
 
-    def _calculate_params(self):
-        center = self._scope.motion.get_current_position('Z')
+    def _calculate_params(self, center: float):
+        # Where the run found the stage, which a sweep that chooses no focus
+        # puts it back to. Not the centre: a z-stack sweeps from its first
+        # slice, centred on its reference slice.
+        found_z = self._scope.motion.get_current_position('Z')
 
         self._passes = sweep_passes(
             self._objective.autofocus_half_range_um,
@@ -268,6 +271,7 @@ class AutofocusRunner:
 
         self._params = {
             'center': center,
+            'found_z': found_z,
             'range': first.half_window_um,
             'z_min': z_min,
             'z_max': z_max,
@@ -308,6 +312,7 @@ class AutofocusRunner:
         abort_event: threading.Event | None = None,
         keep_led_on: bool = False,
         *,
+        center_um: float,
         stay_put: threading.Event | None = None,
         led_color: str | None,
         led_illumination: float,
@@ -322,6 +327,11 @@ class AutofocusRunner:
 
         Args:
             objective_id: which objective profile to use.
+            center_um: the Z the first pass is centred on: the Z of the
+                step whose light the sweep runs in, which for a z-stack is
+                its reference slice, the slice built at the user's focus,
+                not the first slice, where the stage stands when the sweep
+                starts.
             save_results_to_file: if True, save the AF results to
                 results_dir at AF end, as one of the run's writes.
             results_dir: required when save_results_to_file=True.
@@ -431,7 +441,7 @@ class AutofocusRunner:
                 objective_id=objective_id
             )
 
-            self._calculate_params()
+            self._calculate_params(center_um)
             self._af_start_time = time.monotonic()
             self._af_pass_num = 0
             _af_log.info(
@@ -659,13 +669,13 @@ class AutofocusRunner:
                 # that chose none -- degenerate curve, abort, exception, refused
                 # lease -- puts the stage back where the run found it. The result
                 # IS that question, so the restore asks it rather than a separate
-                # flag, and reads the scan centre: the same pre-AF Z, written once
-                # before the sweep and never mutated, so there is no absent value
-                # to guard against.
+                # flag, and reads the pre-AF Z, written once with the sweep's
+                # parameters and never mutated, so there is no absent value to
+                # guard against.
                 # A person's stop leaves Z where it stopped it: putting it back
                 # is a move made after they pressed STOP.
                 if self._best_focus_position is None and self._params and not self._ended_by_a_stop:
-                    pre_af_z = self._params['center']
+                    pre_af_z = self._params['found_z']
                     try:
                         self._scope.motion.move_z(pre_af_z)
                         _af_log.info(

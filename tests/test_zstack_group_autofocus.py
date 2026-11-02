@@ -3,13 +3,13 @@
 
 The contract (``Protocol.apply_zstacking``, ``focus_sweep_step``,
 ``apply_zstack_group_focus``): a z-stack group at one position is focused
-by one sweep, in the light of a channel the user asked to focus; the found
-focus lands on that channel's reference slice -- the slice built at the
-user's focus: the middle for a centre stack (the lower middle for an even
-count), the top for top, the bottom for bottom -- and every slice sits at
-its built distance from it, the ``Z-Stack Offset`` each slice records. This
-holds in a run and in Autofocus All Steps, whatever wrote the steps'
-autofocus settings.
+by one sweep, in the light of a channel the user asked to focus and centred
+on that channel's reference slice; the found focus lands on that reference
+slice -- the slice built at the user's focus: the middle for a centre
+stack (the lower middle for an even count), the top for top, the bottom for
+bottom -- and every slice sits at its built distance from it, the
+``Z-Stack Offset`` each slice records. This holds in a run and in Autofocus
+All Steps, whatever wrote the steps' autofocus settings.
 
 Bug history: the reference had no store. ``apply_zstacking`` marked it by
 setting Auto_Focus on that one slice, and every other writer of Auto_Focus
@@ -17,6 +17,10 @@ erased the mark; Autofocus All Steps turned every slice's on, so the first
 flagged slice -- the floor -- took the found focus, and the scan wrote that
 ladder into the user's protocol (field, 2026-09-11: ``AF DONE
 best=6380.91um``, slices at 6380.9 / 6580.9 / 6780.9 on a centre stack).
+And the sweep, fired at the stack's first slice, centred where the stage
+stood, the floor, not on the reference slice: a top stack's sweep could
+miss the user's focus entirely (CI, 2026-11-02: ``AF START center=4900.0
+z=[4825.0, 4975.0]`` for a reference at 5000).
 
 The runs are real scans on the simulated scope, whose sample comes into
 focus at ``FOCAL_Z_UM``, away from the layer focus the stack is built
@@ -44,7 +48,8 @@ from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
 _WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=100_000.0)}
 LAYER_FOCUS_UM = 5000.0
-# Inside the 10x objective's first sweep around the layer focus, and far
+# Inside the 10x objective's first sweep (75 um either side) centred on the
+# reference slice, which a stack is built with at the layer focus, and far
 # enough from it that a stack left where it was built is told apart.
 FOCAL_Z_UM = 5030.0
 STEP_UM = 50.0
@@ -146,7 +151,9 @@ def _off_the_ladder(z: list[float], offsets: list[float]) -> str | None:
     ('reference', 'range_um', 'offsets'),
     [
         ('center', 100.0, CENTRE),
-        ('top', 100.0, [-100.0, -50.0, 0.0]),
+        # The first slice 300 um below the reference: a sweep centred on it
+        # reaches 225 um short of the sample's focus.
+        ('top', 300.0, [-300.0, -250.0, -200.0, -150.0, -100.0, -50.0, 0.0]),
         ('bottom', 100.0, [0.0, 50.0, 100.0]),
         ('center', 150.0, [-50.0, 0.0, 50.0, 100.0]),
     ],
@@ -154,6 +161,7 @@ def _off_the_ladder(z: list[float], offsets: list[float]) -> str | None:
 def test_a_scan_places_the_found_focus_on_the_reference_slice(
     focusing_session, tmp_path, reference, range_um, offsets
 ):
+    """The sweep is centred on the reference slice, wherever the stack's first slice is."""
     protocol = _stack(focusing_session, reference=reference, range_um=range_um)
     z = _captured_z(focusing_session, protocol, tmp_path)
     assert _off_the_ladder(z, offsets) is None

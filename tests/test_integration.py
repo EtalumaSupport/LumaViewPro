@@ -596,6 +596,7 @@ class TestIntegrationAutofocus:
             future = thread.run_autofocus(
                 run=run_identity(),
                 objective_id='10x Oly',
+                center_um=scope.motion.get_current_position('Z'),
                 led_color='BF',
                 led_illumination=5.0,
                 camera_gain=1.0,
@@ -978,6 +979,7 @@ class TestRestAPIPrep:
                 future = thread.run_autofocus(
                     run=run_identity(),
                     objective_id=objectives[0],
+                    center_um=session.scope.motion.get_current_position('Z'),
                     # Lit, because a sweep in the dark has no focus to find.
                     # The production caller supplies the step's channel and
                     # current; driving the engine directly skips that, and
@@ -1019,6 +1021,7 @@ class TestRestAPIPrep:
                 future = thread.run_autofocus(
                     run=run_identity(),
                     objective_id=objectives[0],
+                    center_um=session.scope.motion.get_current_position('Z'),
                     led_color='BF',
                     led_illumination=100.0,
                     led_lease=session.scope.illumination.acquire_led_lease(
@@ -1072,6 +1075,7 @@ class TestAbortedAutofocusRestoresLeds:
         with pytest.raises(AutofocusAborted):
             af.run(
                 objective_id='10x Oly',
+                center_um=scope.motion.get_current_position('Z'),
                 led_color='BF',
                 led_illumination=20.0,
                 abort_event=abort,

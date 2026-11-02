@@ -51,6 +51,7 @@ def test_abort_path_restores_precision_on():
         with pytest.raises(AutofocusAborted):
             af.run(
                 objective_id='4x Oly',
+                center_um=scope.motion.get_current_position('Z'),
                 abort_event=abort_event,
                 led_color=None,
                 led_illumination=0.0,

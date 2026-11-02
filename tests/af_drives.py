@@ -80,6 +80,9 @@ def af_runner_on(scope, pattern: str = 'focus_target'):
 def sweep(runner, scope, **overrides):
     """Call runner.run() on ``scope`` as a run calls it: BF lit, under the run's lease.
 
+    Centred, as a run centres a step in no z-stack, on the step's Z, where
+    the stage stands.
+
     A lease the caller does not pass is taken here and released when the
     sweep ends, leaving lit what the sweep left lit, as a run's end does;
     so a later sweep on the same scope can take its own.
@@ -88,6 +91,7 @@ def sweep(runner, scope, **overrides):
 
     kwargs = {
         'objective_id': AF_OBJECTIVE,
+        'center_um': scope.motion.get_current_position('Z'),
         'abort_event': threading.Event(),
         'led_color': 'BF',
         'led_illumination': 5.0,

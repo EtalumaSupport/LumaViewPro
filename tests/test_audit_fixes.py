@@ -957,6 +957,7 @@ class TestIssue602_AFExecutorLED:
             with pytest.raises(AutofocusAborted):
                 af.run(
                     objective_id='4x Oly',
+                    center_um=scope.motion.get_current_position('Z'),
                     abort_event=abort_event,
                     led_color='BF',
                     led_illumination=100.0,

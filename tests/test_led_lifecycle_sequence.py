@@ -648,9 +648,10 @@ def _af_runner(scope):
     return r
 
 
-def _drive_af(runner, **overrides):
+def _drive_af(runner, scope, **overrides):
     kwargs = {
         'objective_id': '4x Oly',
+        'center_um': scope.motion.get_current_position('Z'),
         'abort_event': threading.Event(),
     }
     kwargs.update(overrides)
@@ -668,6 +669,7 @@ def test_s5_protocol_af_same_channel_holds_to_capture(scope):
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
+        scope,
         led_color=LED1,
         led_illumination=250.0,
         keep_led_on=True,
@@ -693,6 +695,7 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
+        scope,
         led_color=LED1,
         led_illumination=250.0,
         keep_led_on=True,
@@ -726,6 +729,7 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     # Interactive AF runs as a one-step run, so it nests under that run's lease.
     _drive_af(
         _af_runner(scope),
+        scope,
         led_color=LED1,
         led_illumination=250.0,
         keep_led_on=False,
