@@ -23,6 +23,26 @@ from lvp_logger import logger
 VFR_TIME_BASE = Fraction(1, 90000)
 
 
+def overlay_text(timestamp: datetime.datetime | float | None) -> str | None:
+    """A frame's time as the overlay prints it, to the millisecond, with the
+    UTC offset the time states; None for a frame that states no time.
+
+    ``timestamp`` is a datetime (a saved frame's) or epoch seconds (a live
+    recording's), the latter printed in host local time with the offset in
+    force at that instant. In the hour a clock change repeats, the offset is
+    what tells the two passes apart. A time written before times stated an
+    offset prints without one, as it was written; no offset is guessed, and
+    no other time (the build's own) is printed in a frame's place.
+    """
+    if timestamp is None:
+        return None
+    if not isinstance(timestamp, datetime.datetime):
+        timestamp = wall_time.local_time(round(float(timestamp) * 1e9))
+    text = timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+    offset = timestamp.strftime('%z')
+    return f'{text} {offset[:3]}:{offset[3:]}' if offset else text
+
+
 class VideoWriter:
     def __init__(
         self,
@@ -139,16 +159,6 @@ class VideoWriter:
             f'exists; saving as {candidate.name} instead.'
         )
         self._output_path = candidate
-
-    @staticmethod
-    def _get_timestamp_str(timestamp=None):
-        if timestamp is None:
-            ts = wall_time.now()
-        elif isinstance(timestamp, datetime.datetime):
-            ts = timestamp
-        else:
-            ts = wall_time.local_time(round(float(timestamp) * 1e9))
-        return ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
     @staticmethod
     def _timestamp_seconds(timestamp) -> float:
@@ -325,8 +335,9 @@ class VideoWriter:
             # Timestamp last -- after false-color -- so the text stays
             # neutral white instead of being tinted by the layer color map.
             if self._include_timestamp_overlay:
-                ts = self._get_timestamp_str(timestamp)
-                image = image_utils.add_timestamp(image=image, timestamp_str=ts)
+                text = overlay_text(timestamp)
+                if text is not None:
+                    image = image_utils.add_timestamp(image=image, timestamp_str=text)
 
             # Per-frame failure policy: an encode error costs exactly that
             # frame -- counted as dropped and surfaced by the caller --

@@ -329,7 +329,7 @@ def test_overlay_build_opens_each_tiff_once(sim_scope, tmp_path, monkeypatch):
     )
 
 
-def _overlay_frame(folder, cells):
+def _overlay_frame(folder, cells, *, overlay=True):
     """The first frame of a video built over frames that state no time of
     their own, each row's record time one of ``cells``. Wide enough that the
     overlay's whole time is drawn: on a narrow frame only its first
@@ -349,7 +349,7 @@ def _overlay_frame(folder, cells):
         path=folder,
         df=df,
         frame_rate_fps=5,
-        enable_timestamp_overlay=True,
+        enable_timestamp_overlay=overlay,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
         total_groups=1,
@@ -380,6 +380,16 @@ def test_a_frame_with_no_time_of_its_own_is_overlaid_with_its_record_rows_time(t
 
     assert np.array_equal(from_datetime, from_timestamp)
     assert not np.array_equal(from_timestamp, from_later)
+
+
+def test_a_frame_that_states_no_time_is_overlaid_with_none(tmp_path):
+    """With the overlay on, a frame whose file and record row state no time
+    is drawn as it would be with the overlay off: no other time, the
+    build's own, is printed in its place."""
+    assert np.array_equal(
+        _overlay_frame(tmp_path / 'on', ['', '']),
+        _overlay_frame(tmp_path / 'off', ['', ''], overlay=False),
+    )
 
 
 def test_create_video_missing_timestamp_no_crash(tmp_path):

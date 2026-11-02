@@ -6,6 +6,7 @@ per-frame drop accounting, thread capping, and true sub-1-fps rates --
 against a fake av module so no real encode runs.
 """
 
+import datetime
 from unittest import mock
 
 import numpy as np
@@ -466,3 +467,24 @@ class TestSubOneFpsRate:
 
         assert fake_container.rate != 0, 'sub-1 fps must not open the encoder at rate 0'
         assert float(fake_container.rate) == pytest.approx(0.3)
+
+
+def test_the_overlay_prints_a_frames_own_time_with_its_offset(pacific_time):
+    """A saved frame's time prints with the offset it states; a live
+    recording's epoch seconds print in local time with the offset in force
+    then, so the two passes through the repeated hour print apart; a time
+    written before times stated one prints as written; no time prints
+    nothing."""
+    daylight = datetime.datetime(2026, 11, 1, 8, 30, 0, 125000, tzinfo=datetime.UTC)
+    standard = daylight + datetime.timedelta(hours=1)
+
+    assert video_writer_module.overlay_text(daylight.astimezone()) == (
+        '2026-11-01 01:30:00.125 -07:00'
+    )
+    assert video_writer_module.overlay_text(standard.timestamp()) == (
+        '2026-11-01 01:30:00.125 -08:00'
+    )
+    assert video_writer_module.overlay_text(datetime.datetime(2026, 9, 29, 12, 0, 0, 5000)) == (
+        '2026-09-29 12:00:00.005'
+    )
+    assert video_writer_module.overlay_text(None) is None
