@@ -4112,7 +4112,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 
 **Raises**
 
-- `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret, frame or light change is under way; `'other_led_lit'`, an LED other than the shown layer's is lit; `'camera_holds_another_layer'`, the camera holds another layer's settings than the shown one's; `'camera_exposure_unknown'`, the camera has no known exposure; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
+- `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret, frame or light change is under way; `'other_led_lit'`, an LED other than the shown layer's is lit; `'camera_holds_another_layer'`, the camera holds another layer's settings than the shown one's; `'camera_exposure_unknown'`, the camera has no known exposure; `'changes_not_in_force'`, a change the scope recorded did not come into force within a capture's limit, whether the feed is dead or the change never settles; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
 - `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. Nothing is committed.
@@ -4120,7 +4120,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 
 **Refusals by REST status**
 
-- 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_layer`, `camera_exposure_unknown`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`
+- 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_layer`, `camera_exposure_unknown`, `changes_not_in_force`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
@@ -16601,7 +16601,7 @@ asked for the recording reports it where its flight ends.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'insufficient_disk'` -- free disk at the save location is below the floor a recording needs to start. `'falsifying_change_in_flight'` -- an objective, camera frame or light change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown layer's is lit, and the recording is named for the shown layer. `'camera_holds_another_layer'` -- the camera holds another layer's settings than the shown layer's, which the recording is named for.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'insufficient_disk'` -- free disk at the save location is below the floor a recording needs to start. `'falsifying_change_in_flight'` -- an objective, camera frame or light change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown layer's is lit, and the recording is named for the shown layer. `'camera_holds_another_layer'` -- the camera holds another layer's settings than the shown layer's, which the recording is named for. `'changes_not_in_force'` -- a change the scope recorded (a setting, the light, a move) did not come into force within a capture's limit, so the first frame would have been made before it.
 - `title`: Short user-facing refusal title, the reason's.
 - `message`: One-sentence user-facing refusal body; the same text as the exception's message.
 - `holder`: The exclusive-activity claim owner at refusal time, or None when the refusal is not claim-shaped.
@@ -16619,6 +16619,7 @@ asked for the recording reports it where its flight ends.
 | `camera_exposure_unknown` | state | 409 |
 | `camera_holds_another_layer` | state | 409 |
 | `capture_location_unusable` | state | 409 |
+| `changes_not_in_force` | state | 409 |
 | `exclusive_activity_running` | state | 409 |
 | `falsifying_change_in_flight` | state | 409 |
 | `insufficient_disk` | state | 409 |

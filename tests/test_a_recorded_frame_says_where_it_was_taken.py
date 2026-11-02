@@ -523,6 +523,10 @@ class TestARecordingStatesEachFramesStart:
         settings = complete_settings(live_folder=str(tmp_path), video_as_frames=video_as_frames)
         session = ScopeSession.create(settings, simulate=True)
         started = {}
+        # The recording's start waits out the exposure change below, taking
+        # frames the listener sees too, so six frames are counted from the
+        # moment the recording is open.
+        enough = {'n': None}
         six = threading.Event()
         try:
             scope = session.scope
@@ -534,12 +538,13 @@ class TestARecordingStatesEachFramesStart:
                 steady_ns = exposure.started_ticks - offset_ns
                 wall_ns = host_clock.wall_ns() + steady_ns - host_clock.steady_ns()
                 started[frame.chunks['FrameID']] = datetime.datetime.fromtimestamp(wall_ns / 1e9)
-                if len(started) >= 6:
+                if enough['n'] is not None and len(started) >= enough['n']:
                     six.set()
 
             scope.imaging.add_frame_listener(_truth, name='the true starts')
             before = datetime.datetime.now()
             operation = session.manual_recording.start()
+            enough['n'] = len(started) + 6
             assert six.wait(timeout=20), 'the simulated camera delivered no frames'
             operation.stop()
             operation.result(timeout=60)

@@ -2180,7 +2180,10 @@ class RecordingRefusedError(Refusal, CaptureError):
             the shown layer's is lit, and the recording is named for the
             shown layer. ``'camera_holds_another_layer'`` -- the camera
             holds another layer's settings than the shown layer's, which
-            the recording is named for.
+            the recording is named for. ``'changes_not_in_force'`` -- a
+            change the scope recorded (a setting, the light, a move) did
+            not come into force within a capture's limit, so the first
+            frame would have been made before it.
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body; the same text as
             the exception's message.
@@ -2207,6 +2210,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         'falsifying_change_in_flight': 'Microscope Changing',
         'other_led_lit': 'Another Light Is On',
         'camera_holds_another_layer': 'Camera On Another Layer',
+        'changes_not_in_force': 'Microscope Not Settled',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
     same_fact_as = (ProtocolRunRefusedError,)

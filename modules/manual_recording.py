@@ -89,8 +89,10 @@ from modules.recording_manifest import gather_host_provenance
 from modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from modules.video_recording import (
     END_REASON_START_FAILED,
+    PreRollEnd,
     RecordingConfig,
     VideoRecordingEngine,
+    wait_for_changes_in_force,
 )
 from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
@@ -339,7 +341,10 @@ class ManualRecordingController:
                 lit; ``'camera_holds_another_layer'``, the camera holds
                 another layer's settings than the shown one's;
                 ``'camera_exposure_unknown'``, the camera has no known
-                exposure; ``'capture_location_unusable'``, the save
+                exposure; ``'changes_not_in_force'``, a change the scope
+                recorded did not come into force within a capture's limit,
+                whether the feed is dead or the change never settles;
+                ``'capture_location_unusable'``, the save
                 location cannot be used; ``'names_exhausted'``, the recording's
                 name and every numbered variant are taken there;
                 ``'insufficient_disk'``, free disk is
@@ -510,6 +515,25 @@ class ManualRecordingController:
             claimed['plate'] = scope.runtime_state.get_labware() if video_as_frames else None
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
             claimed['camera'] = recording_camera(scope) if video_as_frames else None
+            # A change made just before Record (a gain, an exposure, a move)
+            # comes into force first, as it would for a capture, and within
+            # a capture's limit: a dead feed or a change that never comes
+            # into force refuses the start, with nothing committed. No stop
+            # can reach it, since the start has not returned its operation.
+            ended = wait_for_changes_in_force(
+                scope.imaging,
+                clock=time.monotonic,
+                limit_s=scope.imaging.changes_in_force_limit_s(),
+            )
+            if ended != PreRollEnd.READY:
+                raise RecordingRefusedError(
+                    reason='changes_not_in_force',
+                    message=(
+                        'A change to the camera, the light or the stage did not take '
+                        'effect in time, so the recording was not started. Check the '
+                        'live view, then record again.'
+                    ),
+                )
             # The camera's clock, taken last before the engine's start: every
             # frame's time is its start through this one mapping, so a frame
             # that started before the recording did falls before its start

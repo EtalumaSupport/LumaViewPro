@@ -14,8 +14,12 @@ frame (its rate above the camera's), so the first frame kept is the first
 frame after its start, not a later cadence slot that would hide an early one.
 """
 
+import pathlib
 import threading
 
+import pytest
+
+from modules.exceptions import RecordingRefusedError
 from modules.frame_validity import FrameValiditySource
 from modules.image_utils import read_file_record
 from tests.video_step_drives import video_step_on
@@ -36,6 +40,17 @@ class _Delivered:
     def _on_frame(self, frame):
         with self._lock:
             self.by_id[int(frame.chunks['FrameID'])] = frame
+            if self._awaited is not None and len(self.by_id) >= self._awaited[0]:
+                self._awaited[1].set()
+
+    _awaited = None
+
+    def await_more(self, n, timeout=10.0):
+        """Wait until ``n`` more frames than now have been delivered."""
+        event = threading.Event()
+        with self._lock:
+            self._awaited = (len(self.by_id) + n, event)
+        assert event.wait(timeout), f'the camera delivered fewer than {n} frames'
 
     def close(self):
         self._imaging.remove_frame_listener(self._on_frame)
@@ -77,6 +92,71 @@ def test_a_video_steps_first_frame_counts_for_a_black_level_change_just_before_i
     )
 
     assert judged[FrameValiditySource.BLACK_LEVEL].counts
+
+
+def _first_manual_frame_is_judged(session, live_folder, change):
+    """Start a manual recording right after ``change``; the judgments of its first kept frame."""
+    scope = session.scope
+    delivered = _Delivered(scope.imaging)
+    try:
+        change()
+        operation = session.manual_recording.start()
+        delivered.await_more(5)
+        operation.stop()
+        operation.result(timeout=30)
+    finally:
+        delivered.close()
+    first = sorted(pathlib.Path(live_folder).rglob('*_0000_*.tif*'))
+    assert first, 'the recording saved no frame'
+    frame = delivered.by_id[read_file_record(first[0])['frame_id']]
+    return {
+        j.change.source: j
+        for j in scope.imaging.judge_frame(frame, scope.imaging.map_camera_clock())
+    }
+
+
+FRAMES_LEG = {'video_as_frames': True}
+
+
+@pytest.mark.parametrize('sim_session', [FRAMES_LEG], indirect=True)
+@pytest.mark.parametrize(
+    ('source', 'before', 'after'),
+    [
+        (FrameValiditySource.GAIN, ('set_gain_db', 0.0), ('set_gain_db', 6.0)),
+        (FrameValiditySource.EXPOSURE, ('set_exposure_ms', 30.0), ('set_exposure_ms', 10.0)),
+        (FrameValiditySource.BLACK_LEVEL, ('set_black_level', 2.0), ('set_black_level', 4.0)),
+    ],
+)
+def test_a_manual_recordings_first_frame_counts_for_a_change_just_before_record(
+    sim_session, tmp_path, source, before, after
+):
+    """Live view off, as a headless start is: no preview counts a frame."""
+    # parametrize-justified: three sources, each its own clock rule's delay.
+    camera = sim_session.scope.camera
+    getattr(camera, before[0])(before[1])
+    sim_session.scope.imaging.capture_still()
+
+    judged = _first_manual_frame_is_judged(
+        sim_session, tmp_path, lambda: getattr(camera, after[0])(after[1])
+    )
+
+    assert judged[source].counts
+
+
+@pytest.mark.parametrize('sim_session', [FRAMES_LEG], indirect=True)
+def test_a_manual_recording_whose_change_never_comes_into_force_is_refused(
+    sim_session, monkeypatch
+):
+    # a stand-in by design: a change that never comes into force while frames
+    # arrive is a settle check that never ends, a fault no simulated part makes.
+    monkeypatch.setattr(sim_session.scope.imaging, 'changes_in_force', lambda *a, **k: False)
+
+    with pytest.raises(RecordingRefusedError) as refused:
+        sim_session.manual_recording.start()
+
+    assert refused.value.reason == 'changes_not_in_force'
+    assert not sim_session.manual_recording.is_recording
+    assert not sim_session.manual_recording.is_busy
 
 
 def test_a_video_steps_first_frame_counts_for_the_gain_and_exposure_its_auto_gain_arm_set(

@@ -117,6 +117,15 @@ class _FakeImaging:
     def map_camera_clock(self):
         return self.mapping
 
+    def changes_in_force(self, mapping, exclude_sources=()):
+        # This scope records no change, so a recording's wait before its
+        # first frame ends at once; the wait itself is pinned on the
+        # simulated scope (test_a_recording_keeps_no_frame_from_before_a_change.py).
+        return True
+
+    def changes_in_force_limit_s(self, exclude_sources=()):
+        return 3.0
+
     def add_frame_listener(self, cb, name=None):
         self.listener = cb
 

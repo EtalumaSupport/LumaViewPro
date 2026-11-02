@@ -715,7 +715,10 @@ the change. `scope.capabilities.frame_rules` answers each source's rule, and
 `scope.imaging.frames_until_valid()` how many frames the capture would still
 wait. A capture never infers validity from pixel content; when the scope keeps
 changing longer than its budget, it raises `CaptureFailedError`
-(`'deadline_expired'`).
+(`'deadline_expired'`). A recording, manual or a run's video step, waits the
+same before its first frame, so it keeps no frame made before a change was in
+force; a manual start whose change does not come into force within a capture's
+limit is refused, `RecordingRefusedError` (`'changes_not_in_force'`).
 
 **Which channel a still is.** A still is named for the shown channel, and the
 camera holds that channel's stored gain, exposure and auto-gain for the frame
