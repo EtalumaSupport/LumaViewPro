@@ -13,10 +13,13 @@ the grab.
 A capture and a build never overlap (W4 E3, Eric 2026-10-21): the runner
 refuses B while A holds the scope, while A's images drain, and while A's
 builds are on the post-processing lane (``'post_processing_running'``). The
-checks are that every run completed with every file written, that B met
-only those refusals, and that B started only once A's build had ended; the
-figures -- the refusals, when B was admitted, the intervals -- are printed
-for a person to judge. Measured before the rule (E0), B overlapped A's
+checks are that every run completed with every file written and that B met
+only those refusals; the figures -- the refusals, when B was admitted, the
+intervals -- are printed for a person to judge. When B is admitted is the
+runner's to decide and its test's to pin
+(``tests/test_a_capture_does_not_start_while_a_build_runs.py``): the lane
+lets a build go before the callbacks that report it run, so no stamp taken
+here marks that moment. Measured before the rule (E0), B overlapped A's
 build by 22.6 s on an 8-core Windows host at no cost to its captures
 (LVP 300768f4).
 
@@ -210,15 +213,9 @@ def main():
         start_a = time.monotonic()
         if args.first == 'hyperstack':
             pending_a = _start(runner, protocol, live / 'A', 'probe_A')
-            # The files settle when the run's hyperstack build ends.
-            build_of_a = pending_a.files
         else:
             (live / 'A').mkdir(parents=True, exist_ok=True)
             pending_a = runner.start_composite(sequence_name='probe_A', parent_dir=str(live / 'A'))
-            # A composite run's outcome settles when its merge ends.
-            build_of_a = pending_a
-        built = {}
-        build_of_a.add_done_callback(lambda _op: built.setdefault('a', time.monotonic()))
 
         pending_b, start_b, refused = _start_when_admitted(runner, protocol, live / 'B', 'probe_B')
         steps_at_b = _post_run_steps(session)
@@ -237,11 +234,6 @@ def main():
         outcome_b, _, end_b, record_b = _finish(pending_b, start_b, live / 'B')
         _report_run('B', outcome_b, start_b, end_b, record_b)
         figure('B.refused_for_post_processing', refused.count('post_processing_running'))
-        check(
-            "B started only once A's build had ended",
-            start_b >= built['a'],
-            f"B started {round(start_b - built['a'], 3)} s after A's build ended",
-        )
 
         start_c = time.monotonic()
         pending_c = _start(runner, protocol, live / 'C', 'probe_C')
