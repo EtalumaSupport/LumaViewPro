@@ -197,7 +197,13 @@ class TestOverRest:
     def test_a_move_of_both_axes_moves_both(self, client):
         client, motion = client
 
-        answer = client.post('/api/v1/scope/motion/move_xy', json={'x_um': 61_000, 'y_um': 41_000})
+        # The server's longest wait, so the move's own answer comes back on a
+        # loaded runner rather than its job after the 2 s default.
+        answer = client.post(
+            '/api/v1/scope/motion/move_xy',
+            json={'x_um': 61_000, 'y_um': 41_000},
+            headers={'Prefer': 'wait=60'},
+        )
 
         assert answer.status_code == 200, answer.text
         assert {a: motion.get_target_positions()[a] for a in ('X', 'Y')} == {
