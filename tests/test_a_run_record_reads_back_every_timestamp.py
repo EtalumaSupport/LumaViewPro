@@ -1,10 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A run's records read back every timestamp they wrote, a whole second included.
+"""A run's records read back every timestamp they wrote, as each row states it.
 
 Post-processing reads a run's frames through its record, and its outputs
 through the post-processing record. A time that falls on a whole second is
-a row like any other: each record is read back whole, and each row carries
-the time it was written with.
+a row like any other, and so is a row that states its UTC offset beside rows
+that state another (a run across a daylight-saving change) or none (rows
+written before an upgrade): each record is read back whole, and each row
+carries the instant it was written with, its offset as stated, and none
+given to a row that states none.
 """
 
 import datetime
@@ -17,6 +20,18 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 # A stitched output's derivation, as a Quality stitch of raw tiles records it.
 _STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()
+
+_PDT = datetime.timezone(datetime.timedelta(hours=-7))
+_PST = datetime.timezone(datetime.timedelta(hours=-8))
+
+# A naive row from before the upgrade, then the two passes through the hour
+# the fall-back repeats: 01:50 daylight time, then 01:10 standard time,
+# twenty minutes later.
+MIXED = (
+    datetime.datetime(2026, 11, 1, 0, 30, 0, 125000),
+    datetime.datetime(2026, 11, 1, 1, 50, 0, 0, tzinfo=_PDT),
+    datetime.datetime(2026, 11, 1, 1, 10, 0, 500000, tzinfo=_PST),
+)
 
 WRITTEN = (
     datetime.datetime(2026, 10, 18, 9, 30, 0),
@@ -70,3 +85,78 @@ def test_a_post_record_row_written_on_a_whole_second_reads_back_with_its_time(tm
     read = ProtocolPostRecord.from_file(outfile)
 
     assert list(read.records()['Timestamp']) == list(WRITTEN)
+
+
+def _as_stated(when: datetime.datetime) -> str:
+    """A row's time as a record states it: the one form, with the offset
+    when the time has one."""
+    return when.strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT + '%z')
+
+
+def _restate_times(outfile: pathlib.Path, times) -> None:
+    """Rewrite each naive row time the file holds as the same wall time
+    stating the offset its counterpart in ``times`` states. The writer
+    writes no offset until the producers state one, so the record holding
+    rows that do is made here, in the form those rows take."""
+    text = outfile.read_text()
+    for when in times:
+        naive = when.replace(tzinfo=None).strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT)
+        assert text.count(naive) == 1
+        text = text.replace(naive, _as_stated(when))
+    outfile.write_text(text)
+
+
+def _instants(times) -> list[tuple]:
+    """Each time with the offset it states, so two times that name one
+    instant through different offsets are told apart."""
+    return [(when, when.utcoffset()) for when in times]
+
+
+def test_a_run_record_reads_back_rows_that_state_different_offsets_or_none(tmp_path):
+    outfile = tmp_path / ProtocolExecutionRecord.DEFAULT_FILENAME
+    record = ProtocolExecutionRecord(protocol_file_loc=tmp_path / 'protocol.tsv', outfile=outfile)
+    for index, timestamp in enumerate(MIXED):
+        record.add_step(
+            capture_result_file_name=f'frame_{index}.tiff',
+            step_name='S1',
+            step_index=0,
+            scan_count=index,
+            timestamp=timestamp.replace(tzinfo=None),
+        )
+    _restate_times(outfile, MIXED)
+
+    read = ProtocolExecutionRecord.from_file(outfile)
+
+    assert _instants(entry['Timestamp'] for entry in read.saved_entries()) == _instants(MIXED)
+
+
+def test_a_post_record_reads_back_rows_that_state_different_offsets_or_none(tmp_path):
+    outfile = tmp_path / ProtocolPostRecord.DEFAULT_FILENAME
+    record = ProtocolPostRecord(file_loc=outfile)
+    for index, timestamp in enumerate(MIXED):
+        record.add_record(
+            root_path=tmp_path,
+            file_path=pathlib.Path(f'stitched_{index}.tiff'),
+            timestamp=timestamp.replace(tzinfo=None),
+            name=f'A1_BF_stitched_{index}',
+            label='',
+            scan_count=index,
+            x=1.0,
+            y=2.0,
+            z=3.0,
+            z_slice=-1,
+            well='A1',
+            color='BF',
+            objective='10x',
+            tile_group_id=-1,
+            tile='',
+            custom_step=False,
+            channel_group_id=-1,
+            derivation=_STITCHED,
+        )
+    record.complete()
+    _restate_times(outfile, MIXED)
+
+    read = ProtocolPostRecord.from_file(outfile)
+
+    assert _instants(read.records()['Timestamp']) == _instants(MIXED)

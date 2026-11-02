@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import datetime
 import json
 import pathlib
 
@@ -291,16 +292,13 @@ class VideoBuilder(ProtocolPostProcessor):
             image_path = path / row['Filepath']
             # The step time is only the fallback the overlay uses when a frame
             # carries no timestamp of its own, so with the overlay off it is never
-            # read -- skip the per-frame conversion entirely. Guard the dataframe
-            # Timestamp: the loader fills missing values with the empty string (no
-            # to_pydatetime) rather than a pandas Timestamp.
+            # read. Guard the dataframe Timestamp: the loader fills missing
+            # values with the empty string, and a time is a datetime whether
+            # pandas kept the cell as its own Timestamp (one offset through the
+            # run) or as the record's datetime (offsets that differ).
             fallback_ts = None
-            if enable_timestamp_overlay:
-                fallback_ts = (
-                    row['Timestamp'].to_pydatetime()
-                    if hasattr(row['Timestamp'], 'to_pydatetime')
-                    else None
-                )
+            if enable_timestamp_overlay and isinstance(row['Timestamp'], datetime.datetime):
+                fallback_ts = row['Timestamp']
             if not self._add_source_frame(
                 video,
                 image_path,

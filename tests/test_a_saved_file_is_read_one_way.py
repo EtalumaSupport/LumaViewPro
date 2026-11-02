@@ -102,12 +102,11 @@ def test_an_ome_still_with_no_position_or_exposure_states_its_scale_and_objectiv
     )
 
 
-def test_a_hyperstack_built_from_ome_stills_states_its_plane_times(tmp_path):
-    """Each plane's DeltaT is its frame's time from the earliest; an OME
-    still's time is read as an ImageJ still's is."""
+def _plane_times(tmp_path, times) -> list[float]:
+    """The DeltaT each plane of a hyperstack states, built from one OME still
+    per time in ``times``, each recording that time as its frame's."""
     rows = []
-    for t in range(2):
-        when = _A_TIME + datetime.timedelta(seconds=5 * t)
+    for t, when in enumerate(times):
         name = f'frame_t{t}.ome.tiff'
         _write(
             tmp_path / name,
@@ -127,18 +126,51 @@ def test_a_hyperstack_built_from_ome_stills_states_its_plane_times(tmp_path):
             }
         )
 
-    StackBuilder._create_stack(
+    result = StackBuilder._create_stack(
         path=tmp_path,
         df=pd.DataFrame(rows),
         output_file_loc=pathlib.Path('out.ome.tiff'),
         save_encoding='8bit',
         channel_colors=release_colors(),
     )
+    assert result['status'], result.get('error')
 
     with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
         xml = tif.ome_metadata
-    delta_t = [float(v) for v in re.findall(r'DeltaT="([^"]+)"', xml)]
-    assert delta_t == [0.0, 5.0]
+    return [float(v) for v in re.findall(r'DeltaT="([^"]+)"', xml)]
+
+
+def test_a_hyperstack_built_from_ome_stills_states_its_plane_times(tmp_path):
+    """Each plane's DeltaT is its frame's time from the earliest; an OME
+    still's time is read as an ImageJ still's is."""
+    times = [_A_TIME + datetime.timedelta(seconds=5 * t) for t in range(2)]
+    assert _plane_times(tmp_path, times) == [0.0, 5.0]
+
+
+_PDT = datetime.timezone(datetime.timedelta(hours=-7))
+_PST = datetime.timezone(datetime.timedelta(hours=-8))
+
+
+def test_plane_times_that_state_their_offsets_are_measured_between_instants(tmp_path):
+    """Frames taken in the two passes through the hour a fall-back repeats
+    (01:50 daylight time, then 01:10 standard time) are twenty minutes
+    apart, which is what the planes state, not the wall times' difference."""
+    times = [
+        datetime.datetime(2026, 11, 1, 1, 50, tzinfo=_PDT),
+        datetime.datetime(2026, 11, 1, 1, 10, tzinfo=_PST),
+    ]
+    assert _plane_times(tmp_path, times) == [0.0, 1200.0]
+
+
+def test_plane_times_mixing_a_stated_offset_with_none_state_no_time(tmp_path):
+    """A frame whose time states no offset cannot be measured against one
+    that does without guessing its zone, so the stack states no plane time,
+    as it does for a frame that states no time."""
+    times = [
+        _A_TIME,
+        (_A_TIME + datetime.timedelta(seconds=5)).replace(tzinfo=_PDT),
+    ]
+    assert _plane_times(tmp_path, times) == []
 
 
 def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_path):

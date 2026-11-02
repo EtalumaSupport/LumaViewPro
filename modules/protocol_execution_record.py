@@ -14,9 +14,9 @@ class ProtocolExecutionRecord:
     FILE_HEADER = 'LumaViewPro Protocol Execution Record'
     CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
-    # A row's time is written and read in this one form. Written with
-    # microseconds always: the text a datetime gives on its own drops them on
-    # a whole second, and the reader then refuses the record.
+    # A row's time is written in this one form, with microseconds always: the
+    # text a datetime gives on its own drops them on a whole second, which a
+    # reader of one fixed form refuses. read_timestamp reads it back.
     TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f'
     # The Filename of a capture taken with saving off: no file, by request.
     UNSAVED = 'unsaved'
@@ -174,6 +174,22 @@ class ProtocolExecutionRecord:
         except Exception as e:
             logger.error(f'ProtocolExecutionRecord: Failed to write step {step_name}: {e}')
 
+    @staticmethod
+    def read_timestamp(stated: str) -> datetime.datetime:
+        """The time a record row states, as written: with its offset when the
+        row states one, naive when it does not.
+
+        Read cell by cell, so rows that state different offsets (a run across
+        a daylight-saving change), or an offset beside none (rows from either
+        side of an upgrade), each keep their own instant; a time a row wrote
+        without an offset is never given one. A whole second's time without
+        microseconds reads too, as older records wrote it.
+
+        Raises:
+            ValueError: the cell is not a time in ISO 8601 form.
+        """
+        return datetime.datetime.fromisoformat(stated)
+
     def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
         record = self._records.loc[self._records['Filename'] == str(file_path)]
         if len(record) != 1:
@@ -252,7 +268,7 @@ class ProtocolExecutionRecord:
                     'Step Name': row[1],
                     'Step Index': int(row[2]),
                     'Scan Count': int(row[3]),
-                    'Timestamp': datetime.datetime.strptime(row[4], cls.TIMESTAMP_FORMAT),
+                    'Timestamp': cls.read_timestamp(row[4]),
                 }
 
                 # Handle version 3 additions

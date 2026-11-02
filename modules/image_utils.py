@@ -1371,6 +1371,24 @@ def stated_frame_time(record: dict | None) -> datetime.datetime | None:
     return datetime.datetime.fromisoformat(stated) if stated else None
 
 
+def comparable_times(
+    times: Iterable[datetime.datetime | None],
+) -> list[datetime.datetime] | None:
+    """The times, when every one is stated and they can be compared; else None.
+
+    Times compare only when all state their UTC offset or none does. A time
+    that states none is never given one: read as the host's zone it would be
+    a guess, wrong for a file from another host and in the hour a clock
+    change repeats. So a mix states no comparison, as a missing time does.
+    """
+    times = list(times)
+    if any(t is None for t in times):
+        return None
+    if len({t.utcoffset() is None for t in times}) > 1:
+        return None
+    return times
+
+
 def _parsed_tiff_datetime(stated: str) -> datetime.datetime | None:
     """The time a file's DateTime tag states, or None when it states none LVP can read.
 

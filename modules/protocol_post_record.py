@@ -421,11 +421,14 @@ class ProtocolPostRecord:
                 # whole record file.
                 df = cls._create_empty_df()
             else:
-                # ISO 8601 per cell: records written before the one time
-                # format carry a whole second's time without microseconds
-                # beside rows with them, and one inferred format refuses
-                # the mix.
-                df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='ISO8601')
+                # Per cell, by the run record's one reader: a column-wide
+                # conversion refuses rows that state different offsets, or an
+                # offset beside none, and the caller would then move the whole
+                # record aside. The column's dtype is left to pandas; every
+                # cell is a datetime either way.
+                df['Timestamp'] = [
+                    ProtocolExecutionRecord.read_timestamp(cell) for cell in df['Timestamp']
+                ]
 
                 # Convert filename to pathlib type
                 df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)

@@ -437,11 +437,13 @@ class StackBuilder(ProtocolPostProcessor):
         }
 
         # Timing is all-or-nothing: DeltaT is the measured list only when
-        # EVERY plane carries a readable capture time, else None (no timing
-        # claim). A partial list would misalign planes against times, and
-        # None is the honest state for inputs that predate per-frame
-        # timestamps. The key is always present so consumers index it.
-        if all(ts is not None for ts in timestamps):
+        # EVERY plane carries a capture time comparable with the others, else
+        # None (no timing claim). A partial list would misalign planes against
+        # times, and None is the honest state for inputs that predate
+        # per-frame timestamps or mix times with and without an offset. The
+        # key is always present so consumers index it.
+        timestamps = image_utils.comparable_times(timestamps)
+        if timestamps is not None:
             t0 = min(timestamps)
             plane_metadata['DeltaT'] = [round((ts - t0).total_seconds(), 6) for ts in timestamps]
         else:

@@ -329,64 +329,25 @@ def test_overlay_build_opens_each_tiff_once(sim_scope, tmp_path, monkeypatch):
     )
 
 
-class _SpyTimestamp:
-    """Stand-in for a pandas Timestamp that counts to_pydatetime conversions."""
-
-    def __init__(self, counter, when):
-        self._counter = counter
-        self._when = when
-
-    def to_pydatetime(self):
-        self._counter['n'] += 1
-        return self._when
-
-
-def _spy_timestamp_df(folder, counter, n_frames):
-    for i in range(n_frames):
-        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 64), 12000, dtype=np.uint16))
-    return pd.DataFrame(
+def _overlay_frame(folder, cells):
+    """The first frame of a video built over frames that state no time of
+    their own, each row's record time one of ``cells``. Wide enough that the
+    overlay's whole time is drawn: on a narrow frame only its first
+    characters are."""
+    folder.mkdir()
+    for i in range(len(cells)):
+        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 512), 12000, dtype=np.uint16))
+    df = pd.DataFrame(
         {
-            'Filepath': [f'frame_{i:04}.tiff' for i in range(n_frames)],
-            'Scan Count': range(n_frames),
-            'Timestamp': [_SpyTimestamp(counter, _ts(i)) for i in range(n_frames)],
+            'Filepath': [f'frame_{i:04}.tiff' for i in range(len(cells))],
+            'Scan Count': range(len(cells)),
+            'Timestamp': pd.Series(cells, dtype=object),
             'Color': None,
         }
     )
-
-
-def test_overlay_off_skips_to_pydatetime(tmp_path):
-    # The frames carry no readable timestamp, so with the overlay ON the fallback
-    # step time is converted per frame; with the overlay OFF that conversion is
-    # never needed and must be skipped entirely.
-    builder = VideoBuilder(has_turret=False)
-
-    off_folder = tmp_path / 'off'
-    off_folder.mkdir()
-    off_counter = {'n': 0}
-    off_df = _spy_timestamp_df(off_folder, off_counter, n_frames=3)
-    result_off = builder._create_video(
-        path=off_folder,
-        df=off_df,
-        frame_rate_fps=5,
-        enable_timestamp_overlay=False,
-        output_file_loc=pathlib.Path('out.mp4'),
-        on_progress=None,
-        total_groups=1,
-        current_group=1,
-        channel_colors=release_colors(),
-    )
-    assert result_off['status'] is True
-    assert off_counter['n'] == 0, f'overlay OFF must convert no Timestamp, got {off_counter["n"]}'
-
-    # Sanity that the spy actually fires when the overlay is ON, so the zero above
-    # is a real skip and not a dead probe.
-    on_folder = tmp_path / 'on'
-    on_folder.mkdir()
-    on_counter = {'n': 0}
-    on_df = _spy_timestamp_df(on_folder, on_counter, n_frames=3)
-    result_on = builder._create_video(
-        path=on_folder,
-        df=on_df,
+    result = VideoBuilder(has_turret=False)._create_video(
+        path=folder,
+        df=df,
         frame_rate_fps=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
@@ -395,10 +356,30 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         current_group=1,
         channel_colors=release_colors(),
     )
-    assert result_on['status'] is True
-    assert on_counter['n'] == 3, (
-        f'overlay ON must convert the fallback per frame, got {on_counter["n"]}'
-    )
+    assert result['status'] is True
+    return _first_frame(_find_video(folder, 'out'))
+
+
+def test_a_frame_with_no_time_of_its_own_is_overlaid_with_its_record_rows_time(tmp_path):
+    """The overlay prints the record row's time whether pandas holds the
+    cell as its own Timestamp (a run with one offset) or as the record's
+    datetime (a run across a daylight-saving change): the same time prints
+    the same either way, and another time prints differently."""
+    pdt = datetime.timezone(datetime.timedelta(hours=-7))
+    pst = datetime.timezone(datetime.timedelta(hours=-8))
+    across_the_change = [
+        datetime.datetime(2026, 11, 1, 1, 50, tzinfo=pdt),
+        datetime.datetime(2026, 11, 1, 1, 10, tzinfo=pst),
+    ]
+    as_timestamps = [pd.Timestamp(when) for when in across_the_change]
+    an_hour_later = [pd.Timestamp(when + datetime.timedelta(hours=1)) for when in across_the_change]
+
+    from_datetime = _overlay_frame(tmp_path / 'datetime', across_the_change)
+    from_timestamp = _overlay_frame(tmp_path / 'timestamp', as_timestamps)
+    from_later = _overlay_frame(tmp_path / 'later', an_hour_later)
+
+    assert np.array_equal(from_datetime, from_timestamp)
+    assert not np.array_equal(from_timestamp, from_later)
 
 
 def test_create_video_missing_timestamp_no_crash(tmp_path):
