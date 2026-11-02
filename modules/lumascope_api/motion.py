@@ -1750,8 +1750,8 @@ class MotionAPI:
         capture asked during it waits until its last move is under way and
         then for that move: it never returns a frame from between two of
         its moves, such as Z parked during a turret change or the new X at
-        the old Y. A capture asked before the command's first move may
-        return the frame from before it, which is true.
+        the old Y. A capture asked before the command's first move waits
+        with the command, as one asked during it does.
 
         A seam for the session's and the GUI's gestures, not part of the L2
         API surface, as ``refuse_unknown_positions`` is not.

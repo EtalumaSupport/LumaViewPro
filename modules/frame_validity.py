@@ -361,10 +361,15 @@ class Owed:
             which a frame can start late enough for every change judged by the
             clock rule (its anchor, its delay and the mapping's uncertainty);
             None when no such change has one.
+        moving: The motion sources owed a frame because their axis reads
+            moving, under either rule. A capture's deadline pauses while
+            this is non-empty: motion has its own completion signal, and a
+            frame budget must not out-vote it.
     """
 
     frames: int
     until_ns: int | None
+    moving: frozenset[FrameValiditySource]
 
 
 class FrameValidity:
@@ -907,6 +912,7 @@ class FrameValidity:
         with self._lock:
             frames = 0
             until_ns = None
+            moving_sources = set()
             for source, change in self._changes.items():
                 if source in exclude_sources:
                     continue
@@ -915,6 +921,8 @@ class FrameValidity:
                     and self._settle_check_fn is not None
                     and not self._settle_check_fn(source)
                 )
+                if moving and (change.rule.rule == Rule.CLOCK or source in self._pending):
+                    moving_sources.add(source)
                 if change.rule.rule == Rule.CLOCK:
                     anchor = change.in_force_ns if change.needs_in_force else change.written_ns
                     if moving or anchor is None:
@@ -927,7 +935,7 @@ class FrameValidity:
                         frames = max(frames, change.remaining)
                     elif moving:
                         frames = max(frames, 1)
-            return Owed(frames=frames, until_ns=until_ns)
+            return Owed(frames=frames, until_ns=until_ns, moving=frozenset(moving_sources))
 
     @property
     def pending_sources(self) -> dict[FrameValiditySource, int]:
@@ -936,8 +944,7 @@ class FrameValidity:
         Zero means the frame count is met, NOT that the source has settled:
         a motion source's count starts at its stop, and the settle check is
         not read here. Read
-        is_valid, frames_until_valid() or unsettled_motion_sources() for
-        settledness.
+        is_valid, frames_until_valid() or owed() for settledness.
         """
         with self._lock:
             return {s: self._changes[s].remaining for s in self._pending}
@@ -1096,28 +1103,6 @@ class FrameValidity:
             pending_count = len(self._pending)
         if profile_trace.ENABLE_PROFILE_TRACE:
             self._trace_rows([('in_force', source, '', at_seq, change.skip, pending_count)])
-
-    def unsettled_motion_sources(
-        self, exclude_sources: tuple[FrameValiditySource, ...] = ()
-    ) -> tuple[FrameValiditySource, ...]:
-        """Pending motion sources whose settle-check says still moving.
-
-        The capture deadline suspends while this is non-empty: motion has
-        an authoritative completion signal, and a frame-budget clock must
-        not out-vote it. Calling the settle-check under the lock follows
-        the ordering frames_until_valid already established (validity lock,
-        then the axis-state lock inside the callback).
-        """
-        with self._lock:
-            if self._settle_check_fn is None:
-                return ()
-            return tuple(
-                s
-                for s in self._pending
-                if s in self.MOTION_SOURCES
-                and s not in exclude_sources
-                and not self._settle_check_fn(s)
-            )
 
     @classmethod
     def check_timing_record(cls, record: dict) -> None:

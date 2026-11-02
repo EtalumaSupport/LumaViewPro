@@ -586,41 +586,61 @@ class TestInvalidationCounts:
         assert fv.invalidation_counts == {'led': 2}
 
 
-class TestUnsettledMotionSources:
-    """The capture deadline's suspension predicate: pending motion sources
-    whose settle-check still reports movement."""
+class TestOwedMoving:
+    """``owed().moving``, the capture deadline's pause: the motion sources
+    owed a frame because their axis reads moving."""
 
     def test_empty_without_callback(self):
         fv = FrameValidity(_frames)
         fv.invalidate('z_move', began_ns=None)
-        assert fv.unsettled_motion_sources() == ()
+        assert fv.owed().moving == frozenset()
 
     def test_reports_pending_unsettled_motion(self):
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: False)
         fv.invalidate('z_move', began_ns=None)
-        assert fv.unsettled_motion_sources() == ('z_move',)
+        assert fv.owed().moving == {'z_move'}
 
     def test_settled_motion_not_reported(self):
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: True)
         fv.invalidate('z_move', began_ns=None)
-        assert fv.unsettled_motion_sources() == ()
+        assert fv.owed().moving == frozenset()
 
     def test_non_motion_sources_never_reported(self):
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: False)
         fv.invalidate('led', began_ns=None)
-        assert fv.unsettled_motion_sources() == ()
+        assert fv.owed().moving == frozenset()
 
     def test_exclude_sources_honored(self):
         """A source the caller excludes from readiness is not reported as
-        unsettled motion either: the capture deadline never suspends on a
-        move the caller left out of its wait."""
+        moving either: the capture deadline never pauses on a move the
+        caller left out of its wait."""
         fv = FrameValidity(_frames)
         fv.set_settle_check(lambda source: False)
         fv.invalidate('z_move', began_ns=None)
-        assert fv.unsettled_motion_sources(exclude_sources=('z_move',)) == ()
+        assert fv.owed(exclude_sources=('z_move',)).moving == frozenset()
+
+    def test_a_clock_move_in_force_is_moving_again_while_its_axis_reads_moving(self):
+        """Under the clock rule a move is owed a frame whenever its axis
+        reads moving, its count met or not, so the pause is read from the
+        same changes: a move in force with its count met, then a
+        several-move command opened, which reads every axis as moving."""
+        fv = FrameValidity(_frames)
+        fv.use_rules(FrameValidity.rules_from_record(None, has_clock_latch=True))
+        settled = {'now': True}
+        fv.set_settle_check(lambda source: settled['now'])
+        fv.invalidate('z_move', began_ns=None)
+        fv.motion_settled('z_move', host_clock.steady_ns(), moving_seen_ns=None)
+        for _ in range(FrameValidity.SKIP_FRAMES['z_move'] + 1):
+            fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.owed().moving == frozenset()
+
+        settled['now'] = False
+
+        assert fv.owed().moving == {'z_move'}
+        assert fv.owed().frames == 1
 
 
 class TestFramesOlderThanTheWriteDoNotCount:

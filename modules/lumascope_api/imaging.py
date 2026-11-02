@@ -976,7 +976,7 @@ class ImagingAPI:
 
         def _deadline_expired() -> bool:
             now = time.monotonic()
-            if not self.frame_validity.unsettled_motion_sources(exclude_sources=exclude_sources):
+            if not self.frame_validity.owed(exclude_sources=exclude_sources).moving:
                 _clock['active'] += now - _clock['last']
             _clock['last'] = now
             return _clock['active'] > deadline_s

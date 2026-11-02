@@ -57,7 +57,7 @@ def test_every_reader_sees_the_leg_as_the_move(session):
         assert leg_written.wait(5.0)
         seen['state'] = motion.get_axis_state('Z')
         seen['position_state'] = motion.axis_positions()['Z'].state
-        seen['z_move_unsettled'] = 'z_move' in validity.unsettled_motion_sources()
+        seen['z_move_unsettled'] = 'z_move' in validity.owed().moving
         seen['stage_in_leg'] = driver.current_pos('Z')
         motion.wait_until_finished_moving(timeout_s=10.0)
         seen['state_after_wait'] = motion.get_axis_state('Z')

@@ -215,3 +215,28 @@ def test_a_turret_change_is_in_force_only_once_the_turret_answers_its_slot(
     )
 
     assert answered == slot
+
+
+def test_a_capture_asked_before_a_commands_first_move_waits_with_the_command(scope, monkeypatch):
+    """While a command is open every move reads as moving, so a capture
+    asked before its first move waits with the command, as one asked
+    during it does, and its deadline pauses as it does for any move: it
+    does not run out while the body is slow to make its first move, or
+    makes none."""
+    # A stand-in by design: the deadline's 3 s floor shortened, so a body
+    # held well past the deadline costs a second, not five.
+    monkeypatch.setattr(scope.imaging, '_CAPTURE_DEADLINE_FLOOR_S', 0.1)
+    # The moves before the command in force, their frames counted.
+    scope.imaging.capture_still()
+    held_s = 1.0
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        with scope.motion.one_command(('Z',), then='capture'):
+            capture = pool.submit(scope.imaging.capture_still)
+            # The body before its first move, slow: the scenario, not a wait.
+            time.sleep(held_s)
+            assert not capture.done(), 'the capture ended while the command was open'
+        capture.result(timeout=_WAIT_S)
+
+    info = scope.imaging.last_capture_info
+    assert info['hold_ms'] / 1000.0 > info['deadline_s'], 'the body was not held past the deadline'
+    assert info['active_s'] < info['deadline_s']
