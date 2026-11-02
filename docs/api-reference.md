@@ -6484,6 +6484,74 @@ name are kept).
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
+<a id="ImagingAPI.changes_in_force"></a>
+### `ImagingAPI.changes_in_force`
+
+```python
+def changes_in_force(
+    self,
+    mapping: ClockMapping | None,
+    exclude_sources: tuple[FrameValiditySource, ...] = (),
+) -> bool
+```
+
+Marks: in-process.
+
+Whether every change recorded is in force, so a frame starting now counts.
+
+A capture's drain ends on this, and a recording waits on it before
+its first frame, so the two cannot wait on different things: no
+frame is owed under the credit rule (`FrameValidity.owed`), and
+the host's steady clock has passed the instant a frame must start
+after under the clock rule, taken with `mapping`'s uncertainty.
+It latches nothing: the caller passes the mapping its frames are
+judged by (`map_camera_clock`), None for a camera without a clock.
+
+**Args**
+
+- `mapping`: The camera's clock mapping the caller judges by, or None.
+- `exclude_sources`: Sources whose changes are not waited for.
+
+**Returns**
+
+bool: True when a frame starting now counts for every change.
+
+**Raises**
+
+Nothing.
+
+<a id="ImagingAPI.changes_in_force_limit_s"></a>
+### `ImagingAPI.changes_in_force_limit_s`
+
+```python
+def changes_in_force_limit_s(
+    self,
+    exclude_sources: tuple[FrameValiditySource, ...] = (),
+) -> float
+```
+
+Marks: in-process.
+
+How long the changes now recorded may take to come into force, in seconds.
+
+The capture's own limit for its wait (`capture_still`), so a
+recording that waits for `changes_in_force` gives up when a capture
+would: the frames owed under the credit rule, each at the exposure in
+force or the slowest frame period, with a margin; the time until the
+clock rule's instant; and a floor for one grab's timeout.
+
+**Args**
+
+- `exclude_sources`: Sources whose changes are not waited for.
+
+**Returns**
+
+float: Seconds, measured from now.
+
+**Raises**
+
+Nothing.
+
 <a id="ImagingAPI.disable_streaming"></a>
 ### `ImagingAPI.disable_streaming`
 
@@ -9661,7 +9729,7 @@ never by this record.
 A record: it crosses the wire as its data.  
 Returned by: [`ImagingAPI.map_camera_clock`](#ImagingAPI.map_camera_clock).  
 Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).  
-Taken by: [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).
+Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).
 
 The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
@@ -13306,7 +13374,7 @@ A chunk the simulated camera's frames carry, which a fault can withhold.
 
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
 Held in: [`CaptureFailedError.source`](#CaptureFailedError.source), [`Change.source`](#Change.source), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).  
-Taken by: [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
+Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.changes_in_force_limit_s`](#ImagingAPI.changes_in_force_limit_s), [`ImagingAPI.frames_until_valid`](#ImagingAPI.frames_until_valid), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
 What changed, for a capture to wait out: each a key of `FrameValidity.SKIP_FRAMES`.
 
