@@ -37,7 +37,7 @@ class _Unreachable:
 def _record(illumination_ma=None):
     """A frame's record; ``illumination_ma`` maps LED address to mA."""
     return frame_record(
-        captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456),
+        captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456).astimezone(),
         exposure_ms=12.5,
         gain_db=3.0,
         black_level=4.0,
@@ -78,7 +78,9 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
     assert metadata['illumination_ma'] == 40.0
     assert metadata['frames_summed'] == 2
     assert metadata['plate']['well_label'] == 'A1'
-    assert metadata['timestamp_iso'] == '2026-09-29T12:00:00.123456'
+    assert metadata['timestamp_iso'] == (
+        datetime.datetime(2026, 9, 29, 12, 0, 0, 123456).astimezone().isoformat()
+    )
     assert metadata['frame_id'] == 7
     assert metadata['instrument']['camera_model'] == 'simulated'
 

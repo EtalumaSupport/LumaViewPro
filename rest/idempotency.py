@@ -25,8 +25,8 @@ from collections.abc import Awaitable, Callable
 
 import fastapi
 
+from modules import wall_time
 from modules.exceptions import ServerRefusedError
-from rest import problems
 
 KEY_LIMIT = 10_000
 KEY_AGE = datetime.timedelta(hours=24)
@@ -108,7 +108,7 @@ class IdempotencyKeys:
                     'a key names one request, sent again only to retry it.',
                 )
             return False, held.answer
-        held = _Held(asked, asyncio.get_running_loop().create_future(), problems.now())
+        held = _Held(asked, asyncio.get_running_loop().create_future(), wall_time.now())
         self._held[key] = held
         return True, held.answer
 
@@ -160,7 +160,7 @@ class IdempotencyKeys:
             del self._held[key]
 
     def _prune(self) -> None:
-        oldest = problems.now() - KEY_AGE
+        oldest = wall_time.now() - KEY_AGE
         while self._held:
             key, held = next(iter(self._held.items()))
             if len(self._held) <= KEY_LIMIT and held.claimed >= oldest:

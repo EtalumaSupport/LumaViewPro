@@ -9,7 +9,6 @@ read one after another, so a capture could return one frame's pixels with a
 newer frame's chunks in its saved record.
 """
 
-import datetime
 import threading
 
 import numpy as np
@@ -21,7 +20,6 @@ from drivers.camera import ImageHandlerBase
 def _store(handler, value, *, chunks=None, handed_over=None):
     return handler._store_frame(
         np.full((4, 4), value, dtype=np.uint8),
-        datetime.datetime.now(),
         chunks=chunks,
         handed_over=handed_over if handed_over is not None else handler.hand_over(),
         significant_bits=8,
@@ -113,11 +111,11 @@ def test_a_capture_records_the_frame_it_returns_when_a_newer_one_arrives_during_
     store = type(handler)._store_frame
     stamped = iter(range(1, 1_000_000))
 
-    def store_with_an_id(self, image, timestamp, chunks=None, **kwargs):
+    def store_with_an_id(self, image, chunks=None, **kwargs):
         frame_id = next(stamped)
         image = image.copy()
         image.flat[0] = frame_id % 200 + 1
-        return store(self, image, timestamp, {'FrameID': frame_id}, **kwargs)
+        return store(self, image, {'FrameID': frame_id}, **kwargs)
 
     monkeypatch.setattr(type(handler), '_store_frame', store_with_an_id)
     measure = type(sim_scope.imaging).saturated_fraction

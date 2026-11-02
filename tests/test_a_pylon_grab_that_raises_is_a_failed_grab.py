@@ -51,7 +51,7 @@ class TestStageB:
     def test_a_get_array_that_raises_is_counted_and_keeps_the_camera(self):
         worker, base, parent, result = self._worker(trips=False)
 
-        worker._process_frame(result, 0.0, 0)
+        worker._process_frame(result, 0)
 
         assert not parent.is_device_removed()
         base._record_failure.assert_called_once()
@@ -59,7 +59,7 @@ class TestStageB:
     def test_the_failure_that_trips_the_cascade_removes_and_tears_down(self):
         worker, _, parent, result = self._worker(trips=True)
 
-        worker._process_frame(result, 0.0, 0)
+        worker._process_frame(result, 0)
 
         assert parent.is_device_removed()
         parent._schedule_async_teardown.assert_called_once()

@@ -110,7 +110,7 @@ class TestTheOrdinalAdvancesWithTheFrame:
         second_frame = threading.Event()
 
         def on_frame(frame):
-            seen.append(frame.timestamp)
+            seen.append(frame.seq)
             if len(seen) >= 2:
                 second_frame.set()
 

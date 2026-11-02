@@ -10,7 +10,8 @@ streaming path still delivers, a sum included.
 from __future__ import annotations
 
 import dataclasses
-import datetime
+
+from drivers import host_clock
 
 
 def test_capture_still_succeeds_while_streaming(sim_scope):
@@ -33,7 +34,7 @@ def test_a_summed_capture_survives_a_backwards_clock_step(sim_scope):
     driver = sim_scope.imaging._driver
     real_grab_new_capture = driver.grab_new_capture
     stamped = {'n': 0}
-    origin = datetime.datetime.now()
+    origin_ns = host_clock.wall_ns()
 
     def grab_with_a_clock_that_runs_backwards(timeout_s):
         frame = real_grab_new_capture(timeout_s)
@@ -42,9 +43,7 @@ def test_a_summed_capture_survives_a_backwards_clock_step(sim_scope):
         stamped['n'] += 1
         # Every frame is stamped EARLIER than the one before it. The ordinal
         # the driver minted is passed through untouched.
-        return dataclasses.replace(
-            frame, timestamp=origin - datetime.timedelta(seconds=stamped['n'])
-        )
+        return dataclasses.replace(frame, wall_ns=origin_ns - stamped['n'] * 1_000_000_000)
 
     driver.grab_new_capture = grab_with_a_clock_that_runs_backwards
     try:

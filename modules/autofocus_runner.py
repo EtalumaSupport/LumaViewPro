@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import datetime
 import concurrent.futures
 import logging
 import math
@@ -19,6 +18,7 @@ from lib.lumascope_error import LumascopeError
 from lvp_logger import logger
 
 import modules.path_utils as path_utils
+import modules.wall_time as wall_time
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
@@ -1356,7 +1356,7 @@ class AutofocusRunner:
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:
         results_dir.mkdir(exist_ok=True, parents=True)
-        now = datetime.datetime.now()
+        now = wall_time.now()
         return now.strftime('%Y%m%d_%H%M%S')
 
     def _allocate_results_dir(self, parent_dir: pathlib.Path) -> pathlib.Path:
@@ -1372,5 +1372,5 @@ class AutofocusRunner:
         # capture location usually means an unplugged drive. An autofocus
         # results folder is ours to make under a location the caller chose.
         parent_dir.mkdir(parents=True, exist_ok=True)
-        base = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        base = wall_time.now().strftime('%Y%m%d_%H%M%S')
         return path_utils.allocate_directory(parent_dir / base)

@@ -2957,39 +2957,36 @@ class TestPylonPayloadDiscardedClassification:
         cause at info (distribution stays visible) and does NOT count it
         toward MAX_CONSECUTIVE_FAILURES -- counting would falsely trip
         the auto-disconnect during AF-heavy protocols."""
-        import datetime
 
         from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
         worker, base = _bare_grab_worker()
         gr = MagicMock()
         gr.GetErrorCode.return_value = _PYLON_ERR_PAYLOAD_DISCARDED
-        worker._process_failure(gr, datetime.datetime.now())
+        worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_cancelled_buffer_not_counted(self):
         """Cancelled buffers (StopGrabbing mid-flight) are SDK lifecycle
         events, not transport failures."""
-        import datetime
 
         from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
 
         worker, base = _bare_grab_worker()
         gr = MagicMock()
         gr.GetErrorCode.return_value = _PYLON_ERR_BUFFER_CANCELED
-        worker._process_failure(gr, datetime.datetime.now())
+        worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_generic_transport_failure_is_counted(self):
         """Unclassified err_codes (USB CRC, partial frame, underrun)
         count toward the consecutive-failure cascade so a wedged
         transport eventually trips auto-disconnect."""
-        import datetime
 
         worker, base = _bare_grab_worker()
         gr = MagicMock()
         gr.GetErrorCode.return_value = 0xDEAD
-        worker._process_failure(gr, datetime.datetime.now())
+        worker._process_failure(gr)
         base._record_failure.assert_called_once()
 
 
@@ -6865,12 +6862,8 @@ class TestSequencedCaptureRunnerRunDirCollision:
         # machine and the third run gets a new timestamp instead of _002 --
         # the test then fails with nothing wrong. The clock is fixed so the
         # three calls share a second by construction.
-        class _OneSecond(datetime.datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return cls(2026, 9, 23, 15, 54, 57)
-
-        monkeypatch.setattr(scr, 'datetime', types.SimpleNamespace(datetime=_OneSecond))
+        one_second = datetime.datetime(2026, 9, 23, 15, 54, 57).astimezone()
+        monkeypatch.setattr(scr, 'wall_time', types.SimpleNamespace(now=lambda: one_second))
         exc = self._make_executor(tmp_path)
         r1 = exc._create_run_dir()
         r2 = exc._create_run_dir()

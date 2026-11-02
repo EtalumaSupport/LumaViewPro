@@ -8,7 +8,6 @@ Runs on the **protocol-executor** thread.  Extracted from
 
 from __future__ import annotations
 
-import datetime
 import time
 from typing import TYPE_CHECKING
 
@@ -18,6 +17,7 @@ from lvp_logger import logger
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
+from modules import wall_time
 from modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
@@ -286,9 +286,9 @@ class ProtocolRunLoop:
                 # once per step (scan_iterate keys the one-shot on curr_step).
                 p._auto_gain_armed_step = -1
 
-                start_scan_time = datetime.datetime.now()
+                start_scan_time = wall_time.now()
                 p._step_executor.scan_loop()
-                end_scan_time = datetime.datetime.now()
+                end_scan_time = wall_time.now()
                 scan_duration = end_scan_time - start_scan_time
 
                 scan_aborted = p._aborted.is_set()

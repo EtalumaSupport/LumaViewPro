@@ -4,7 +4,6 @@ import concurrent.futures
 import contextlib
 import copy
 import dataclasses
-import datetime
 import functools
 import pathlib
 import time
@@ -16,6 +15,7 @@ from modules.protocol_state_machine import (
     validate_transition,
 )
 from modules.run_events import RunEvents
+import modules.wall_time as wall_time
 from modules.live_work import WorkKind
 from modules.protocol_image_writer import ProtocolImageWriter, RunWriteBatch, WRITE_STALL_FATAL_S
 from modules.protocol_cleanup import run_cleanup, send_files_written, send_run_ended
@@ -616,7 +616,7 @@ class SequencedCaptureRunner:
         # same-second collision retry lives in path_utils with the reason
         # it cannot be a check-then-create, and one copy of it means a
         # capture-location failure is diagnosed in one place.
-        now = datetime.datetime.now()
+        now = wall_time.now()
         base_time_string = now.strftime('%Y%m%d_%H%M%S')
         try:
             self._run_dir = path_utils.allocate_directory(self._parent_dir / base_time_string)

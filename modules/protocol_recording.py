@@ -45,6 +45,7 @@ from modules.common_utils import (
     estimate_step_write_mb,
 )
 import modules.image_utils as image_utils
+import modules.wall_time as wall_time
 import modules.layer_record as layer_record
 from modules.coord_transformations import PlatePosition
 from modules.labware import Labware
@@ -316,7 +317,7 @@ class ProtocolVideoStep:
         # falls before its start and is not kept. A failed latch fails the
         # step, as a failed frame-size read does.
         self._mapping = scope.imaging.map_camera_clock()
-        self._start_dt = datetime.datetime.now()
+        self._start_dt = wall_time.now()
 
         if self._video_as_frames:
             self._output_dir = self._save_folder / self._name

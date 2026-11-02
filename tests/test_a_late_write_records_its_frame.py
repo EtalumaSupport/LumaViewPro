@@ -116,7 +116,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
 
         def _held(scope, **kwargs):
             time.sleep(WRITE_HELD_S)
-            write_started[kwargs['append']] = datetime.datetime.now()
+            write_started[kwargs['append']] = datetime.datetime.now().astimezone()
             return real_save(scope, **kwargs)
 
         monkeypatch.setattr(protocol_image_writer, 'save_image', _held)

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+import modules.wall_time as wall_time
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
@@ -954,7 +955,7 @@ class ProtocolImageWriter:
             step=step,
             step_index=curr_step,
             scan_count=scan_count,
-            capture_time=datetime.datetime.now(),
+            capture_time=wall_time.now(),
             name=name,
         )
         self._leds_off()
@@ -1642,7 +1643,7 @@ class ProtocolImageWriter:
                     )
 
             else:
-                _not_saving_capture_time = datetime.datetime.now()
+                _not_saving_capture_time = wall_time.now()
                 if not self._submit_write(
                     kwargs={
                         'enable_image_saving': enable_image_saving,

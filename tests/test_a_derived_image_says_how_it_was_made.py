@@ -25,6 +25,7 @@ import tifffile
 
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError
+from modules.protocol_post_record import ProtocolPostRecord
 from modules.layer_record import release_color, stored_key
 from tests.stock_channels import LED0
 
@@ -257,7 +258,7 @@ def _as_written_by_release_3(folder) -> None:
         rows.append(cells + [str(f'{kind}(' in made) for kind in kinds])
     header = columns[:derivation_at] + columns[derivation_at + 1 :] + kinds
     record.write_text(
-        head.replace('Version\t4', 'Version\t3')
+        head.replace(f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', 'Version\t3')
         + 'Images\n'
         + '\n'.join('\t'.join(row) for row in [header, *rows])
         + '\n'
@@ -280,8 +281,30 @@ def test_a_projection_an_earlier_release_made_is_stitched_and_named_for_no_metho
         f'custom0001_{LED0}_0000_zproj_stitched.tiff',
     ]
     record = (run_folder / 'protocol_post_record.tsv').read_text()
-    assert 'Version\t4' in record
+    assert 'Version\t5' in record
     assert 'ZProject(?)>Stitched(mode=quality)' in record
+
+
+def test_a_folder_saved_before_times_stated_their_offset_builds_and_keeps_its_times(
+    session, run_folder
+):
+    """A run saved before every time stated its offset (a version 3 run
+    record), whose outputs a version 4 post record lists, still builds a
+    mosaic; the post record is upgraded in place, and every row's
+    time reads back as it was written, with no offset given to it."""
+    session.post_processing.zproject(run_folder, method='Max')
+    record = run_folder / 'protocol_post_record.tsv'
+    record.write_text(
+        record.read_text().replace(f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', 'Version\t4')
+    )
+
+    stitched = session.post_processing.stitch(run_folder)
+
+    assert stitched.new_count > 0
+    assert f'Version\t{ProtocolPostRecord.CURRENT_VERSION}' in record.read_text()
+    times = list(ProtocolPostRecord.from_file(record).records()['Timestamp'])
+    assert times
+    assert all(time.utcoffset() is None for time in times)
 
 
 def test_two_projections_an_earlier_release_made_are_not_stitched_into_one(session, run_folder):

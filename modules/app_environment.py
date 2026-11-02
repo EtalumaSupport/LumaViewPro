@@ -10,6 +10,8 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 
+from modules import wall_time
+
 _logger = logging.getLogger('LVP.app_environment')
 
 
@@ -376,7 +378,7 @@ def capture_installer_logs(
     captured_before = {
         path.name: path for folder in _capture_folders(install_dir) for path in folder.iterdir()
     }
-    this_capture = install_dir / datetime.datetime.now().strftime(_CAPTURE_FOLDER_FORMAT)
+    this_capture = install_dir / wall_time.now().strftime(_CAPTURE_FOLDER_FORMAT)
     candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     for source in candidates[:max_files]:
         target = captured_before.get(source.name, this_capture / source.name)
@@ -435,8 +437,8 @@ def _fold_flat_captures(install_dir: pathlib.Path) -> None:
     flat = [path for path in install_dir.iterdir() if path.is_file()]
     if not flat:
         return
-    newest = max(path.stat().st_mtime for path in flat)
-    folder = install_dir / datetime.datetime.fromtimestamp(newest).strftime(_CAPTURE_FOLDER_FORMAT)
+    newest = max(path.stat().st_mtime_ns for path in flat)
+    folder = install_dir / wall_time.local_time(newest).strftime(_CAPTURE_FOLDER_FORMAT)
     folder.mkdir(exist_ok=True)
     for path in flat:
         path.replace(folder / path.name)

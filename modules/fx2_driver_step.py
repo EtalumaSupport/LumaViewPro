@@ -32,7 +32,6 @@ The app's Repair runs install as an administrator from the installed build
 
 from __future__ import annotations
 
-import datetime
 import enum
 import logging
 import os
@@ -54,6 +53,7 @@ from drivers.usb_driver_binding import (
 )
 from modules.exceptions import CameraDriverRepairFailedError
 from modules.log_stamp import make_formatter
+import modules.wall_time as wall_time
 from modules.path_utils import AppRuntime, app_runtime, launch_root, read_version
 
 log = logging.getLogger('LVP.fx2_driver_step')
@@ -415,7 +415,7 @@ def main(argv: list[str]) -> int:
     version, _ = read_version(install_dir)
     logs = install_dir / 'logs'
     logs.mkdir(exist_ok=True)
-    stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    stamp = wall_time.now().strftime('%Y%m%d_%H%M%S')
     handler = logging.FileHandler(
         logs / f'driver_{argv[0]}_{version}_{stamp}.log', encoding='utf-8'
     )

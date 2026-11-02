@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from modules.coord_transformations import PlatePosition, StageOffset
+from modules import wall_time
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.common_utils import Light
@@ -50,7 +51,7 @@ from tests.stock_channels import LED0, LED1
 A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False)
 A_LIGHT = Light(channel=LED1, illumination_by_channel_ma={LED1: 100.0})
 A_TIME = FrameTime(
-    at=datetime.datetime.fromtimestamp(1755000000.0), source=TimestampSource.HOST_ARRIVAL
+    at=wall_time.local_time(1_755_000_000_000_000_000), source=TimestampSource.HOST_ARRIVAL
 )
 A_CAMERA = RecordingCamera(binning_size=2, camera_model='simulated', camera_tick_hz=1_000_000_000)
 
@@ -226,10 +227,10 @@ class TestTheFramesTime:
     """A recorded frame's time says what it is: its start on the camera's
     clock through the recording's mapping, or the host's arrival time."""
 
-    _ARRIVED = datetime.datetime.fromtimestamp(1755000009.0)
+    _ARRIVED_NS = 1_755_000_009_000_000_000
 
     def _frame(self, chunks):
-        return delivered_frame(np.zeros((2, 2), dtype=np.uint8), self._ARRIVED, chunks)
+        return delivered_frame(np.zeros((2, 2), dtype=np.uint8), chunks, wall_ns=self._ARRIVED_NS)
 
     def test_a_frame_with_ticks_takes_its_start_through_the_mapping(self):
         # Latched at 5 s of ticks, at 1755000000 s on the wall; ticks a
@@ -246,7 +247,7 @@ class TestTheFramesTime:
         stated = camera_frame_time(self._frame({'Timestamp': 5_250_000_000}), mapping)
 
         assert stated == FrameTime(
-            at=datetime.datetime.fromtimestamp(1755000000.25),
+            at=wall_time.local_time(1_755_000_000_250_000_000),
             source=TimestampSource.CAMERA_FRAME_START,
         )
 
@@ -260,7 +261,7 @@ class TestTheFramesTime:
 
     def test_a_frames_arrival_is_its_arrival(self):
         assert arrival_time(self._frame({'Timestamp': 5})) == FrameTime(
-            at=self._ARRIVED, source=TimestampSource.HOST_ARRIVAL
+            at=wall_time.local_time(self._ARRIVED_NS), source=TimestampSource.HOST_ARRIVAL
         )
 
 
@@ -537,12 +538,12 @@ class TestARecordingStatesEachFramesStart:
                 exposure = scope.simulation.exposed_under(frame)
                 steady_ns = exposure.started_ticks - offset_ns
                 wall_ns = host_clock.wall_ns() + steady_ns - host_clock.steady_ns()
-                started[frame.chunks['FrameID']] = datetime.datetime.fromtimestamp(wall_ns / 1e9)
+                started[frame.chunks['FrameID']] = wall_time.local_time(wall_ns)
                 if enough['n'] is not None and len(started) >= enough['n']:
                     six.set()
 
             scope.imaging.add_frame_listener(_truth, name='the true starts')
-            before = datetime.datetime.now()
+            before = wall_time.now()
             operation = session.manual_recording.start()
             enough['n'] = len(started) + 6
             assert six.wait(timeout=20), 'the simulated camera delivered no frames'
@@ -568,7 +569,7 @@ class TestARecordingStatesEachFramesStart:
 
         manifest = json.loads(next(manual.glob('*_manifest.json')).read_text())
         first = manifest['frame_index'][0]
-        stated = datetime.datetime.fromtimestamp(first['ts_s'])
+        stated = wall_time.local_time(round(first['ts_s'] * 1e9))
         assert manifest['timestamp_grade'] == 'camera_frame_start'
         assert abs(stated - started[first['chunks']['FrameID']]) <= self._WITHIN
         assert stated >= before, 'a frame started before the recording was kept'

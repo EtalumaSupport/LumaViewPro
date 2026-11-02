@@ -1896,7 +1896,8 @@ def test_a_still_shows_its_whole_record_where_fiji_reads_its_container(
 def test_a_hyperstack_shows_its_record_and_its_build_time(sim_scope, tmp_path):
     """A hyperstack's record is built from its frames' and its time is its
     build's: Display metadata lists both, the one channel it is of among
-    them, at the second its DateTime tag states."""
+    them, the time with its offset, and the DateTime tag states the same
+    time to the second, in the form that has no offset."""
     _, still = _a_full_still(
         sim_scope,
         tmp_path,
@@ -1933,8 +1934,10 @@ def test_a_hyperstack_shows_its_record_and_its_build_time(sim_scope, tmp_path):
 
     view = _the_view(hyperstack)
 
-    built_at = datetime.datetime.strptime(stamped, '%Y:%m:%d %H:%M:%S')
-    assert view == _flattened_record({**metadata['record'], 'datetime': built_at})
+    built_at = metadata['record']['datetime']
+    assert built_at.utcoffset() is not None
+    assert stamped == built_at.strftime('%Y:%m:%d %H:%M:%S')
+    assert view == _flattened_record(metadata['record'])
     assert ('channel', 'BF') in view
     assert ('plate.well_label', 'A1') in view
 

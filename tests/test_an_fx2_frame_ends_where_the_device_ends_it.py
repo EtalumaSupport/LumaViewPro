@@ -227,7 +227,7 @@ def _grab_loop_on(stream, w, h):
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, handed_over, significant_bits, wire_bytes: stored.append(
+        _store_frame=lambda image, handed_over, significant_bits, wire_bytes: stored.append(
             image.shape
         )
     )

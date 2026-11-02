@@ -28,7 +28,7 @@ from modules.layer_record import release_color
 
 LIVE_EXPOSURE_MS = 33.0
 LIVE_GAIN_DB = 4.5
-GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0)
+GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0).astimezone()
 
 
 def _imaging(chunk_reads=None):

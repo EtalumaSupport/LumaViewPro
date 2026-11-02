@@ -13,6 +13,7 @@ import av
 import numpy as np
 
 import modules.image_utils as image_utils
+import modules.wall_time as wall_time
 from modules.layer_record import GREY, Color
 from lvp_logger import logger
 
@@ -142,11 +143,11 @@ class VideoWriter:
     @staticmethod
     def _get_timestamp_str(timestamp=None):
         if timestamp is None:
-            ts = datetime.datetime.now()
+            ts = wall_time.now()
         elif isinstance(timestamp, datetime.datetime):
             ts = timestamp
         else:
-            ts = datetime.datetime.fromtimestamp(float(timestamp))
+            ts = wall_time.local_time(round(float(timestamp) * 1e9))
         return ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
     @staticmethod

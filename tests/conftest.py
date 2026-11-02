@@ -1189,6 +1189,24 @@ def sim_scope():
 
 
 @pytest.fixture
+def pacific_time(monkeypatch):
+    """The host's local zone set to one with a fall-back hour, then restored.
+
+    Los Angeles: 2026-11-01 01:00 to 02:00 happens twice, daylight time
+    (-07:00) and then standard time (-08:00).
+    """
+    if not hasattr(time, 'tzset'):
+        # Windows sets no process zone from TZ; the code these tests pin has
+        # no platform branch, so the POSIX hosts pin it for every host.
+        pytest.skip('the local zone cannot be set in-process on this platform')
+    monkeypatch.setenv('TZ', 'America/Los_Angeles')
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.fixture
 def sim_camera(sim_scope):
     """(the camera API, the simulated camera under it) of ``sim_scope``.
 

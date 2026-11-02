@@ -53,7 +53,7 @@ def test_the_grab_loop_stores_every_frame_a_reader_hands_on_after_its_first_take
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, handed_over, significant_bits, wire_bytes: stored.append(
+        _store_frame=lambda image, handed_over, significant_bits, wire_bytes: stored.append(
             image.shape
         )
     )

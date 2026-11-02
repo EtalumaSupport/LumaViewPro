@@ -12,12 +12,16 @@ from modules.exceptions import RecordIncompleteError
 
 class ProtocolExecutionRecord:
     FILE_HEADER = 'LumaViewPro Protocol Execution Record'
-    CURRENT_VERSION = 3
+    # v4 states each row's time with its UTC offset (``TIMESTAMP_FORMAT``);
+    # a v2 or v3 row's time states none and is read as written.
+    CURRENT_VERSION = 4
     DEFAULT_FILENAME = 'protocol_record.tsv'
     # A row's time is written in this one form, with microseconds always: the
     # text a datetime gives on its own drops them on a whole second, which a
-    # reader of one fixed form refuses. read_timestamp reads it back.
-    TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f'
+    # reader of one fixed form refuses. The offset is the time's own: a time
+    # that states none, an older run's carried into a later record, is
+    # written as it was. read_timestamp reads it back.
+    TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f%z'
     # The Filename of a capture taken with saving off: no file, by request.
     UNSAVED = 'unsaved'
     # 'Scan Count' is the CONTRACT for the temporal ordinal everywhere a
@@ -250,7 +254,7 @@ class ProtocolExecutionRecord:
             if version[0] != 'Version':
                 raise ValueError('Version key not found')
 
-            if int(version[1]) not in (2, 3):  # Add 3 to supported versions
+            if int(version[1]) not in (2, 3, 4):
                 raise ValueError('Unsupported protocol execution record version')
 
             protocol_file_loc_row = next(csvreader)

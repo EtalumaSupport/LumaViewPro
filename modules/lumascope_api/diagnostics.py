@@ -30,6 +30,8 @@ from modules.exceptions import (
     MissingPart,
 )
 from modules.axes import Axis
+from drivers import host_clock
+from modules import wall_time
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -773,7 +775,7 @@ class DiagnosticsAPI:
             sdk = results['pylon_version'] or 'unknown_sdk'
             safe_model = str(model).replace(' ', '_').replace('/', '_')
             safe_sdk = str(sdk).replace(' ', '_').replace('/', '_')
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            ts = wall_time.now().strftime('%Y%m%d_%H%M%S_%f')
             timing_dir = pathlib.Path(log_dir) / 'camera_timing'
             timing_dir.mkdir(parents=True, exist_ok=True)
             out_path = timing_dir / (
@@ -939,12 +941,16 @@ class DiagnosticsAPI:
             'camera_sdk': self._scope._camera_driver.get_sdk_info(),
         }
 
-        now_utc = datetime.datetime.now(datetime.UTC)
-        end_iso = now_utc.isoformat()
-        start_iso = (
-            now_utc - datetime.timedelta(seconds=snapshot.get('duration_s_actual', duration_s))
-        ).isoformat()
-        snapshot['timestamps'] = {'start_iso': start_iso, 'end_iso': end_iso}
+        # Each instant is made from its own wall time, so a clock change
+        # inside the snapshot gives the start and the end each the offset in
+        # force at it; an aware end less a duration would carry the end's
+        # offset to the start.
+        end_ns = host_clock.wall_ns()
+        start_ns = end_ns - round(snapshot.get('duration_s_actual', duration_s) * 1e9)
+        snapshot['timestamps'] = {
+            'start_iso': wall_time.local_time(start_ns).isoformat(),
+            'end_iso': wall_time.local_time(end_ns).isoformat(),
+        }
 
         # Filter-by-load top-level keys (per v4 author request: easier
         # to grep across many files than parsing camera.firmware_version
@@ -977,7 +983,9 @@ class DiagnosticsAPI:
             # Microseconds, and an exclusive create: two probes of one camera
             # inside one second would otherwise share a name, and the later
             # would overwrite the earlier.
-            ts_t = now_utc.strftime('%Y%m%dT%H%M%S%fZ')
+            ts_t = (
+                wall_time.local_time(end_ns).astimezone(datetime.UTC).strftime('%Y%m%dT%H%M%S%fZ')
+            )
 
             fname = f'{model_t}__sn{serial_t}__fw{fw_t}__{host_t}__{dltl_token}__{ts_t}.json'
             out_path = out_dir / fname

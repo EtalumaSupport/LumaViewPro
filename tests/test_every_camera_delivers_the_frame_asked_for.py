@@ -11,7 +11,6 @@ any other size, from a window no longer set, is not stored.
 
 from __future__ import annotations
 
-import datetime
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -25,7 +24,6 @@ from tests.camera_fakes import bare_pylon_camera, grab_a_frame_made_after_now
 def _store(handler, w, h):
     handler._store_frame(
         np.zeros((h, w), dtype=np.uint8),
-        datetime.datetime.now(),
         handed_over=handler.hand_over(),
         significant_bits=8,
         wire_bytes=0,

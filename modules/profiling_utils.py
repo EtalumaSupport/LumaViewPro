@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import cProfile
-import datetime
 import pathlib
 import pstats
 
 from modules.path_utils import get_log_dir
+import modules.wall_time as wall_time
 
 
 class ProfilingHelper:
@@ -28,7 +28,7 @@ class ProfilingHelper:
         self._profile_artifact_path.mkdir(exist_ok=True, parents=True)
 
     def _get_timestamp(self):
-        return datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        return wall_time.now().strftime('%Y%m%d_%H%M%S')
 
     def enable(self):
         self._profile = cProfile.Profile()

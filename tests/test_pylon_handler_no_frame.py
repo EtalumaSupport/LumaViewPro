@@ -10,7 +10,6 @@ before the device left is not reported as current, and that ``grab`` stays
 quiet on the way.
 """
 
-import datetime
 import logging
 
 import numpy as np
@@ -33,7 +32,6 @@ def detached_camera():
     handler, parent = bare_image_handler()
     handler._store_frame(
         np.zeros((4, 4), dtype=np.uint16),
-        datetime.datetime.now(),
         chunks=None,
         handed_over=handler.hand_over(),
         significant_bits=12,

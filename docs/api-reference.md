@@ -6743,7 +6743,7 @@ Copy budget (per frame):
 
 **Returns**
 
-tuple: (image, timestamp) where image is numpy.ndarray and timestamp is from the camera SDK, or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
+tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-over ordinal (`Frame.seq`), the same for every read of one frame, or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
 
 **Raises**
 
@@ -9512,7 +9512,6 @@ long after the change its frame came.
 - <a id="Change.rule"></a>`rule`: `FrameRule` -- The rule the change is judged by, as its source's stood when it was recorded.
 - <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
 - <a id="Change.source"></a>`source`: `FrameValiditySource` -- What changed.
-- <a id="Change.written_at"></a>`written_at`: `datetime.datetime` -- Host wall-clock time of the same moment, for a reader.
 - <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
 
 <a id="ChannelIdentity"></a>
@@ -10046,7 +10045,7 @@ records are equal only when they are the same delivery (identity).
 - <a id="Frame.image"></a>`image`: `ndarray` -- The pixels, cropped to the camera's window, read-only.
 - <a id="Frame.seq"></a>`seq`: `int` -- Hand-over ordinal: how many frames this camera's handler had been handed when the driver first had this one (`HandOver`). Only goes up, whatever the clocks do, and may skip a number for a frame handed over and never stored.
 - <a id="Frame.significant_bits"></a>`significant_bits`: `int` -- Payload depth of these pixels (12 for Mono12 in a uint16 container), from the frame's own format.
-- <a id="Frame.timestamp"></a>`timestamp`: `datetime` -- Host wall-clock time at arrival, for what a person reads (file names, logs). It can step backwards; order by `seq`.
+- <a id="Frame.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at the hand-over, the arrival a saved file states. It can step backwards; order by `seq`.
 
 <a id="FrameCaptured"></a>
 ## `FrameCaptured`
@@ -10158,9 +10157,13 @@ When a frame was taken, with what that time is.
 One value, so a time is never stated without its source: two clocks
 give a frame its time, and a reader comparing frames must know which.
 
+**Raises**
+
+- `ValueError`: `at` states no offset. A time without one names no instant in the hour a clock change repeats, and cannot be compared with one that states one.
+
 **Fields**
 
-- <a id="FrameTime.at"></a>`at`: `datetime` -- The frame's time, host local.
+- <a id="FrameTime.at"></a>`at`: `datetime` -- The frame's time, host local with its UTC offset.
 - <a id="FrameTime.source"></a>`source`: `TimestampSource` -- What `at` is (`TimestampSource`).
 
 <a id="GainChanged"></a>

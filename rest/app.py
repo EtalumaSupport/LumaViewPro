@@ -37,7 +37,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from modules import image_utils, wire_encoding
+from modules import image_utils, wall_time, wire_encoding
 from modules.api_surface import api
 from modules.exceptions import ConfigurationDefectError, ServerRefusedError, UnfitArgument
 from modules.operation import Operation
@@ -635,7 +635,7 @@ async def _identify_and_log(
     """
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
-    request.state.requested = problems.now()
+    request.state.requested = wall_time.now()
     started = time.perf_counter()
     response = await call_next(request)
     response.headers['X-Request-ID'] = request_id

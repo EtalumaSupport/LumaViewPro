@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import threading
 
 import cv2
@@ -120,6 +121,18 @@ def test_a_snapshot_is_the_newest_frame_at_half_its_width(session):
     assert image.ndim == 2  # grey, as the screen shows it
     assert image.shape[1] == width // 2
     assert _decoded(narrow.content).shape[1] == 64
+
+
+def test_a_frames_time_states_its_offset(session):
+    """``X-Frame-Timestamp`` is the frame's arrival, host local with its UTC
+    offset, so a client can compare it with any other time LVP states."""
+    _frame_width(session)
+    with _serving(session) as (_app, _server, client):
+        shot = client.get('/api/v1/live.jpg')
+
+    assert shot.status_code == 200
+    arrived = datetime.datetime.fromisoformat(shot.headers['x-frame-timestamp'])
+    assert arrived.utcoffset() is not None, shot.headers['x-frame-timestamp']
 
 
 def test_a_snapshot_with_no_frame_is_refused_until_one_comes(session):

@@ -33,8 +33,6 @@ class TestABufferedFrameKeepsItsDepth:
     its own depth even after the camera's format changes."""
 
     def test_buffered_frame_keeps_depth_when_format_later_changes(self):
-        import datetime
-
         from drivers.camera import ImageHandlerBase
 
         # A 12-bit frame is buffered; the camera then switches to Mono8. The
@@ -43,7 +41,6 @@ class TestABufferedFrameKeepsItsDepth:
         h = ImageHandlerBase()
         h._store_frame(
             np.zeros((4, 4), dtype=np.uint16),
-            datetime.datetime.now(),
             handed_over=h.hand_over(),
             significant_bits=12,
             wire_bytes=0,

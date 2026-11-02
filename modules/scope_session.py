@@ -40,6 +40,7 @@ from modules import (
     live_work,
     path_utils,
     settings_paths,
+    wall_time,
 )
 from modules.layer_record import ChannelSliderMaxima, refuse_unknown_layer
 from modules.activity_claim import (
@@ -4512,7 +4513,7 @@ class ScopeSession:
                     name=child.relative_to(root).as_posix(),
                     kind=EntryKind.FOLDER if stat.S_ISDIR(found.st_mode) else EntryKind.FILE,
                     size_bytes=found.st_size,
-                    modified=datetime.datetime.fromtimestamp(found.st_mtime).astimezone(),
+                    modified=wall_time.local_time(found.st_mtime_ns),
                 )
             )
         return tuple(entries)

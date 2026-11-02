@@ -31,6 +31,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import rest.jobs
+from modules import wall_time
 from modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
 from modules.scope_session import ScopeSession
 from rest import problems
@@ -109,7 +110,7 @@ def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
         jobs = rest.jobs.JobRegistry(ended=lambda job: None)
         answered = asyncio.get_running_loop().create_future()
         job = jobs.adopt(
-            answered, member='scope/illumination/leds_off', requested=problems.now(), progress=None
+            answered, member='scope/illumination/leds_off', requested=wall_time.now(), progress=None
         )
         await asyncio.sleep(0)
         answer = problems.result(None)

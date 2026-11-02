@@ -345,7 +345,6 @@ def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypat
     store.frame_window = FrameWindow(1920, 1900, (10, 0, 1900, 1900))
     store._store_frame(
         array,
-        'TS',
         handed_over=store.hand_over(),
         significant_bits=significant_bits,
         wire_bytes=0,

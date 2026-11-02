@@ -829,7 +829,6 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         frame = grab_a_frame_made_after_now(cam)
-        assert frame.timestamp is not None
         assert isinstance(frame.image, np.ndarray)
         assert frame.image.shape == (2160, 3840)
         assert frame.image.dtype == np.uint8
@@ -842,7 +841,6 @@ class TestSimulatedCamera:
         cam.open_and_start()
         frame = cam.grab_new_capture(timeout_s=5.0)
         assert frame is not None
-        assert frame.timestamp is not None
         assert isinstance(frame.image, np.ndarray)
 
     def test_grab_respects_binning(self):

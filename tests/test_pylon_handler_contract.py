@@ -13,7 +13,6 @@ These tests pin the contract at the class level, so a handler that stops
 inheriting the base fails the suite rather than the first bench launch.
 """
 
-import datetime
 import importlib
 
 import numpy as np
@@ -26,7 +25,6 @@ from tests.camera_fakes import bare_image_handler
 def _store_one(handler, chunks=None):
     handler._store_frame(
         np.zeros((4, 4), dtype=np.uint16),
-        datetime.datetime.now(),
         chunks=chunks,
         handed_over=handler.hand_over(),
         significant_bits=12,

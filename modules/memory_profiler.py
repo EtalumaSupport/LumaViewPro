@@ -4,9 +4,9 @@ import gc
 import os
 import time
 import threading
-from datetime import datetime
 
 from modules.log_stamp import now_stamp
+import modules.wall_time as wall_time
 
 
 class MemoryLeakProfiler:
@@ -16,7 +16,7 @@ class MemoryLeakProfiler:
     # for multi-hour leak hunts.
     INTERVAL = 60  # Take a snapshot every 60s
     TRACE_DEPTH = 25  # How many stack frames to record
-    LOG_DIR = datetime.now().strftime('%Y%m%d_%H%M%S') + '_memory_logs'
+    LOG_DIR = wall_time.now().strftime('%Y%m%d_%H%M%S') + '_memory_logs'
 
     _first_snapshot = None
 
@@ -45,7 +45,7 @@ class MemoryLeakProfiler:
         # Force GC to ensure we only see 'true' leaks, not pending cleanup
         gc.collect()
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = wall_time.now().strftime('%Y%m%d_%H%M%S')
         current_snapshot = tracemalloc.take_snapshot()
 
         # Binary Save: Preserves 100% of the data for offline analysis

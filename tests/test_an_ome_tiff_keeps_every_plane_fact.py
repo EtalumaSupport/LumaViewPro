@@ -115,8 +115,11 @@ def test_the_ome_file_keeps_the_plane_an_imagej_file_keeps(tmp_path):
         imagej_plane = ast.literal_eval(tif.imagej_metadata['plane'])
 
     schema = ome_root.find(f'{_OME_NS}Image/{_OME_NS}Pixels/{_OME_NS}Plane').attrib
+    # The annotation's Plane names; a record key (the file's time) is no Plane fact.
     annotated = {
-        m.get('K'): json.loads(m.text) for m in _lvp_annotation(ome_root).iter(f'{_OME_NS}M')
+        m.get('K'): json.loads(m.text)
+        for m in _lvp_annotation(ome_root).iter(f'{_OME_NS}M')
+        if m.get('K') not in image_utils.FILE_FACTS
     }
 
     ome_plane = {key: float(schema[key]) for key in _SCHEMA_NUMBERS if key in schema}

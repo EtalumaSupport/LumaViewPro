@@ -48,7 +48,7 @@ def test_the_grab_loop_counts_a_frame_it_waited_on_once():
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, handed_over, significant_bits, wire_bytes: stored.append(
+        _store_frame=lambda image, handed_over, significant_bits, wire_bytes: stored.append(
             image.shape
         )
     )

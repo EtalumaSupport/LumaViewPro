@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 import contextlib
 from dataclasses import dataclass
-import datetime
 import re
 import threading
 import time
@@ -80,7 +79,7 @@ class FrameWindow:
 
 @dataclass(frozen=True, slots=True)
 class HandOver:
-    """Where a driver first had a frame: its ordinal and its steady time, taken together.
+    """Where a driver first had a frame: its ordinal, its steady time and its wall time, taken together.
 
     A driver takes it from its handler (``ImageHandlerBase.hand_over``) at the
     point the frame leaves the camera's side -- the SDK callback, the poll
@@ -95,10 +94,15 @@ class HandOver:
             skip a number for a frame handed over but never stored.
         arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
             the hand-over.
+        wall_ns: The host's wall clock (``host_clock.wall_ns``) at the
+            hand-over: the arrival a saved file states, taken at the same
+            moment as ``arrived_ns`` so the two name one arrival on every
+            camera.
     """
 
     seq: int
     arrived_ns: int
+    wall_ns: int
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -118,11 +122,12 @@ class Frame:
             been handed when the driver first had this one (``HandOver``).
             Only goes up, whatever the clocks do, and may skip a number for a
             frame handed over and never stored.
-        timestamp: Host wall-clock time at arrival, for what a person reads
-            (file names, logs). It can step backwards; order by ``seq``.
         arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
             the hand-over, where the driver first had the frame: a steady time
             to set against when a change was made.
+        wall_ns: The host's wall clock (``host_clock.wall_ns``) at the
+            hand-over, the arrival a saved file states. It can step
+            backwards; order by ``seq``.
         significant_bits: Payload depth of these pixels (12 for Mono12 in a
             uint16 container), from the frame's own format.
         chunks: The camera's per-frame metadata (``ExposureTime``, ``Gain``,
@@ -132,8 +137,8 @@ class Frame:
 
     image: np.ndarray
     seq: int
-    timestamp: datetime.datetime
     arrived_ns: int
+    wall_ns: int
     significant_bits: int
     chunks: Mapping[str, int | float] | None
 
@@ -197,7 +202,8 @@ class ImageHandlerBase:
         self._last_arrival_t = None
 
     def hand_over(self) -> HandOver:
-        """Number a frame the driver has just had from the camera, and time it.
+        """Number a frame the driver has just had from the camera, and time it
+        on the steady clock and the wall clock.
 
         Called once per frame where the driver first has it, before any queue
         between there and ``_store_frame``. A frame handed over and then
@@ -206,7 +212,7 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             self._frames_handed_over += 1
-            return HandOver(self._frames_handed_over, host_clock.steady_ns())
+            return HandOver(self._frames_handed_over, host_clock.steady_ns(), host_clock.wall_ns())
 
     @property
     def frames_delivered(self) -> int:
@@ -304,7 +310,6 @@ class ImageHandlerBase:
     def _store_frame(
         self,
         image,
-        timestamp: datetime.datetime,
         chunks: dict[str, int | float] | None = None,
         *,
         handed_over: HandOver,
@@ -315,13 +320,12 @@ class ImageHandlerBase:
 
         Args:
             image: numpy array (already copied from SDK buffer).
-            timestamp: datetime when the frame arrived host-side.
             chunks: optional per-frame chunk metadata dict. None for cameras
                 without chunk support.
             handed_over: The frame's ``hand_over()``, taken where the driver
                 first had it -- REQUIRED, so no frame is stored without the
                 ordinal and steady time a change is set against, and none is
-                numbered by when a host queue let it through.
+                numbered or timed by when a host queue let it through.
             significant_bits: payload depth of THIS frame -- REQUIRED, so a frame
                 can never be buffered without the depth needed to interpret it.
                 The subclass derives it from the frame itself (the grab result's
@@ -378,8 +382,8 @@ class ImageHandlerBase:
             frame = Frame(
                 image=image,
                 seq=handed_over.seq,
-                timestamp=timestamp,
                 arrived_ns=handed_over.arrived_ns,
+                wall_ns=handed_over.wall_ns,
                 significant_bits=significant_bits,
                 chunks=chunks,
             )

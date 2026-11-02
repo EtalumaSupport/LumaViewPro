@@ -12,7 +12,6 @@ grouping (T = scan), and a well holding both stills and video steps
 yields both artifact families.
 """
 
-import datetime
 import pathlib
 import re
 
@@ -21,7 +20,7 @@ import pandas as pd
 import tifffile as tf
 
 from modules import post_derivation
-from modules import recording_frames
+from modules import recording_frames, wall_time
 from modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_colors
@@ -188,7 +187,7 @@ class TestVideoWellStackBuild:
                 loc,
                 record=recorded_record(
                     captured_at=FrameTime(
-                        at=datetime.datetime.fromtimestamp(base_s + n * 0.5),
+                        at=wall_time.local_time(round((base_s + n * 0.5) * 1e9)),
                         source=TimestampSource.HOST_ARRIVAL,
                     ),
                     frame_significant_bits=8,

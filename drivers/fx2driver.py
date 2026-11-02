@@ -85,7 +85,6 @@ import weakref
 from typing import Any, ClassVar, NamedTuple, NoReturn
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
-from datetime import datetime
 
 import numpy as np
 
@@ -2697,7 +2696,6 @@ class FX2Camera(Camera):
                     # the parser skips included, plus the delimiter before it.
                     self.cam_image_handler._store_frame(
                         image,
-                        datetime.now(),
                         handed_over=handed_over,
                         significant_bits=image.dtype.itemsize * 8,
                         wire_bytes=len(FRAME_DELIM) + len(frame_data),

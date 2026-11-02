@@ -166,12 +166,10 @@ def test_integration_basic_fanout_via_simulated_camera():
 
     # The simulated camera stamps chunks as a Basler body does.
     assert all({'FrameID', 'Timestamp'} <= set(r.chunks) for r in received)
-    # Payload shape: image is a numpy array, ts is a datetime.
-    import datetime
+    # Payload shape: image is a numpy array.
     import numpy as np
 
     assert isinstance(received[0].image, np.ndarray)
-    assert isinstance(received[0].timestamp, datetime.datetime)
 
 
 def test_integration_drop_policy_via_simulated_camera():

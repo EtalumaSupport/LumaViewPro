@@ -20,7 +20,7 @@ from typing import NamedTuple
 import numpy as np
 
 from drivers.camera import Frame
-from modules import image_utils
+from modules import image_utils, wall_time
 from modules.api_surface import api_fields
 from modules.frame_validity import Judgment
 from modules.lumascope_api.camera import AutoGainConvergence
@@ -69,19 +69,14 @@ class ClockMapping:
         return self.camera_ticks + round((host_ns - self.host_ns) * self.tick_hz / 1e9)
 
     def wall_time_at(self, ticks: int) -> datetime.datetime:
-        """The host's wall time, local and naive as every saved time is, at
-        the camera's clock ``ticks``, through this mapping: off by
+        """The host's wall time, local with its offset as every saved time
+        is, at the camera's clock ``ticks``, through this mapping: off by
         ``uncertainty_ns`` and by whatever the clocks drifted between the
         latch and ``ticks``. One wall read anchors every tick mapped through
         it, so intervals between ticks are the camera's."""
-        wall_ns = self.wall_ns + (ticks - self.camera_ticks) * 1_000_000_000 // self.tick_hz
-        # To the nearest microsecond, a datetime's resolution. The local time
-        # is made from the whole second and given its microsecond, never moved
-        # by a timedelta: arithmetic on a naive time drops its fold, so in the
-        # hour a clock change repeats it would name the first pass of that hour
-        # and state an instant an hour from the frame's.
-        seconds, microseconds = divmod((wall_ns + 500) // 1000, 1_000_000)
-        return datetime.datetime.fromtimestamp(seconds).replace(microsecond=microseconds)
+        return wall_time.local_time(
+            self.wall_ns + (ticks - self.camera_ticks) * 1_000_000_000 // self.tick_hz
+        )
 
 
 class SettingSource(enum.StrEnum):
@@ -128,18 +123,29 @@ class FrameTime:
     give a frame its time, and a reader comparing frames must know which.
 
     Attributes:
-        at: The frame's time, host local.
+        at: The frame's time, host local with its UTC offset.
         source: What ``at`` is (``TimestampSource``).
+
+    Raises:
+        ValueError: ``at`` states no offset. A time without one names no
+            instant in the hour a clock change repeats, and cannot be
+            compared with one that states one.
     """
 
     at: datetime.datetime
     source: TimestampSource
 
+    def __post_init__(self) -> None:
+        if self.at.utcoffset() is None:
+            raise ValueError(
+                f'a frame time states its UTC offset; {self.at.isoformat()} states none'
+            )
+
 
 def arrival_time(frame: Frame) -> FrameTime:
     """``frame``'s arrival from the camera on the host's wall clock: the one
     builder of an arrival time."""
-    return FrameTime(at=frame.timestamp, source=TimestampSource.HOST_ARRIVAL)
+    return FrameTime(at=wall_time.local_time(frame.wall_ns), source=TimestampSource.HOST_ARRIVAL)
 
 
 def camera_frame_time(frame: Frame, mapping: ClockMapping) -> FrameTime | None:

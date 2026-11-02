@@ -7,7 +7,6 @@ the live display worker.
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import pathlib
@@ -20,7 +19,7 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
-from modules import image_mode, image_utils
+from modules import image_mode, image_utils, wall_time
 from modules.layer_record import GREY, ChannelColors, Color, stored_key
 from modules.exceptions import (
     PostProcessingFailedError,
@@ -303,7 +302,7 @@ class QuickEnhancer:
             'derived_filename': output_path.name,
             'pipeline': 'Quick Enhance',
             'pipeline_version': PIPELINE_VERSION,
-            'timestamp': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+            'timestamp': wall_time.now().isoformat(timespec='seconds'),
             'input_dtype': np.dtype(input_dtype).name,
             'output_dtype': np.dtype(output_dtype).name,
             'significant_bits': int(significant_bits),

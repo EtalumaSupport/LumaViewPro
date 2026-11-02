@@ -84,6 +84,48 @@ def test_one_frame_in_every_container_reads_back_as_one_record(tmp_path):
     assert times == {'imagej': _A_TIME, 'ome': _A_TIME}
 
 
+def test_a_frames_time_reads_back_with_its_offset_from_every_container(tmp_path):
+    """The file's time is its record's, with the UTC offset the TIFF DateTime
+    tag has no field for: 01:10 standard time, in the hour a fall-back
+    repeats, reads back as that instant and not the daylight pass."""
+    when = datetime.datetime(
+        2026, 11, 1, 1, 10, 0, 250000, tzinfo=datetime.timezone(datetime.timedelta(hours=-8))
+    )
+    record = _a_record(datetime=when, timestamp_iso=when.isoformat(timespec='microseconds'))
+    for name, path in (
+        ('shaped', _write(tmp_path / 's.tiff', record, dtype=np.uint8)),
+        ('imagej', _write(tmp_path / 'ij.tiff', record)),
+        ('ome', _write(tmp_path / 'o.ome.tiff', record, ome=True)),
+    ):
+        stated = image_utils.read_file_record(path)['datetime']
+        assert (stated, stated.utcoffset()) == (when, when.utcoffset()), name
+
+
+def test_a_file_whose_record_states_no_time_reads_its_tags_time_as_written(tmp_path):
+    """A file written before the record carried its time states it only in
+    the DateTime tag, with no offset, and reads back with none: no offset is
+    guessed for it."""
+    path = tmp_path / 'older.tiff'
+    tf.imwrite(
+        str(path),
+        np.zeros((8, 8), dtype=np.uint8),
+        metadata={'Channel': {'Name': [LED1]}, 'Plane': {}},
+        datetime='2026:09:29 12:00:00',
+    )
+
+    stated = image_utils.read_file_record(path)['datetime']
+
+    assert (stated, stated.utcoffset()) == (datetime.datetime(2026, 9, 29, 12, 0, 0), None)
+
+
+def test_a_derived_files_time_states_its_offset():
+    """A post-processing output's time is its build's, host local with its offset."""
+    metadata = image_utils.build_postproc_output_metadata(
+        [_a_record()], LED1, significant_bits=8, adds_frames=False
+    )
+    assert metadata['datetime'].utcoffset() is not None
+
+
 def test_an_ome_still_with_no_position_or_exposure_states_its_scale_and_objective(tmp_path):
     """With no schema Plane attribute to write, tifffile writes no Plane
     element; the file still states its scale, channel and objective."""

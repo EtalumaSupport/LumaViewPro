@@ -29,7 +29,7 @@ import numpy as np
 from starlette.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
-from modules import image_utils
+from modules import image_utils, wall_time
 from modules.lumascope_api import Frame as CameraFrame
 from modules.scope_session import ScopeSession
 
@@ -191,7 +191,10 @@ class LiveView:
         with self._lock:
             self._ordinal += 1
             self._newest = Frame(
-                self._ordinal, frame.image, frame.significant_bits, frame.timestamp
+                self._ordinal,
+                frame.image,
+                frame.significant_bits,
+                wall_time.local_time(frame.wall_ns),
             )
         self._loop.call_soon_threadsafe(self._woken)
 

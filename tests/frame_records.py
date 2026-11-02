@@ -18,15 +18,16 @@ from modules.lumascope_api.frame_record import (
 )
 from modules.recording_frames import FrameFact
 
+# A frame's time, host local with its offset as every frame time is.
+A_FRAME_TIME = datetime.datetime(2026, 9, 29, 12, 0, 0).astimezone()
+
 
 def frame_record(**overrides) -> FrameRecord:
     """A plausible single-frame still's record with no LED lit, from a camera
     without a latch, so its time is the frame's arrival; override any field
     by name. A ``captured_at`` given as a datetime is that arrival."""
     fields = {
-        'captured_at': FrameTime(
-            at=datetime.datetime(2026, 9, 29, 12, 0, 0), source=TimestampSource.HOST_ARRIVAL
-        ),
+        'captured_at': FrameTime(at=A_FRAME_TIME, source=TimestampSource.HOST_ARRIVAL),
         'exposure_ms': 10.0,
         'exposure_source': SettingSource.FRAME,
         'gain_db': 1.0,
@@ -71,9 +72,7 @@ def recorded_record(**overrides) -> FrameRecord:
     its time the host's arrival, its LEDs read on arrival, never judged and
     no black level; override any field by name."""
     fields = {
-        'captured_at': FrameTime(
-            at=datetime.datetime(2026, 9, 29, 12, 0, 0), source=TimestampSource.HOST_ARRIVAL
-        ),
+        'captured_at': FrameTime(at=A_FRAME_TIME, source=TimestampSource.HOST_ARRIVAL),
         'illumination_timing': LightTiming.ON_ARRIVAL,
         'judgments': None,
         **overrides,

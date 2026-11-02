@@ -32,6 +32,7 @@ import time
 import weakref
 from collections.abc import Callable
 
+from modules import wall_time
 from modules.caller import Caller, calling
 from modules.exceptions import ServerRefusedError
 from modules.operation import Operation
@@ -303,7 +304,7 @@ class JobRegistry:
             if known is None:
                 answered: asyncio.Future[Answer] = loop.create_future()
                 job = self._add_locked(
-                    member, problems.now(), answered, progress, operation=future, files=files
+                    member, wall_time.now(), answered, progress, operation=future, files=files
                 )
                 self._of_future[future] = job
         if known is not None:
@@ -363,7 +364,7 @@ class JobRegistry:
             (j for j in self._jobs.values() if j.finished),
             key=lambda j: j.ended,
         )
-        oldest = problems.now() - FINISHED_AGE
+        oldest = wall_time.now() - FINISHED_AGE
         excess = len(finished) - FINISHED_LIMIT
         for i, job in enumerate(finished):
             if i < excess or job.ended < oldest:

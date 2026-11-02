@@ -52,7 +52,6 @@ score would be the previous step's):
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import enum
 import math
 import threading
@@ -205,7 +204,6 @@ def at_the_stop(count: int) -> FrameRule:
     'at_seq',
     'written_ns',
     'earliest_ns',
-    'written_at',
     'skip',
     'rule',
     'credits',
@@ -246,7 +244,6 @@ class Change:
             ``written_ns``. A delay measured from here is never short; the rule
             judges from ``written_ns`` or ``in_force_ns``, the latest, so the
             pair never accepts a frame early.
-        written_at: Host wall-clock time of the same moment, for a reader.
         skip: The frames the change needed, its rule's count when it was
             recorded.
         rule: The rule the change is judged by, as its source's stood when
@@ -265,7 +262,6 @@ class Change:
     at_seq: int
     written_ns: int
     earliest_ns: int
-    written_at: datetime.datetime
     skip: int
     rule: FrameRule
     credits: tuple[Credit, ...]
@@ -656,7 +652,6 @@ class FrameValidity:
                 at_seq=self._frames_delivered(),
                 written_ns=written_ns,
                 earliest_ns=written_ns if began_ns is None else began_ns,
-                written_at=datetime.datetime.now(),
                 skip=skip,
                 rule=rule,
                 credits=(),

@@ -19,13 +19,22 @@ from __future__ import annotations
 import datetime
 import logging
 import threading
-import time
 
 import pytest
 
 from drivers import host_clock
-from modules.lumascope_api.frame_record import ClockMapping, TimestampSource
-from tests.camera_fakes import chunk_config_pylon_camera, init_configurable_pylon_camera
+from modules import wall_time
+from modules.lumascope_api.frame_record import (
+    ClockMapping,
+    FrameTime,
+    TimestampSource,
+    arrival_time,
+)
+from tests.camera_fakes import (
+    chunk_config_pylon_camera,
+    grab_a_frame_made_after_now,
+    init_configurable_pylon_camera,
+)
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
@@ -45,9 +54,9 @@ def test_a_mapping_converts_a_tick_to_the_wall_time_it_was_latched_beside():
     mapping = ClockMapping(
         host_ns=1_000, camera_ticks=500, tick_hz=25_000_000, uncertainty_ns=0, wall_ns=wall_ns
     )
-    latched = datetime.datetime.fromtimestamp(1_755_000_000) + datetime.timedelta(
-        microseconds=123_456
-    )
+    latched = datetime.datetime.fromtimestamp(
+        1_755_000_000, datetime.UTC
+    ).astimezone() + datetime.timedelta(microseconds=123_456)
 
     assert mapping.wall_time_at(500) == latched
     # A second of ticks later is a second later; 25 ticks are a microsecond,
@@ -57,26 +66,14 @@ def test_a_mapping_converts_a_tick_to_the_wall_time_it_was_latched_beside():
     assert mapping.wall_time_at(499) == latched
 
 
-@pytest.fixture
-def pacific_time(monkeypatch):
-    """The host's local zone set to one with a fall-back hour, then restored."""
-    if not hasattr(time, 'tzset'):
-        # Windows sets no process zone from TZ; the mapping's code has no
-        # platform branch, so the POSIX hosts pin it for every host.
-        pytest.skip('the local zone cannot be set in-process on this platform')
-    monkeypatch.setenv('TZ', 'America/Los_Angeles')
-    time.tzset()
-    yield
-    monkeypatch.undo()
-    time.tzset()
-
-
 def test_a_tick_in_the_hour_a_clock_change_repeats_maps_to_its_own_instant(pacific_time):
     # 2026-11-01 01:30:00.123456 happens twice in Los Angeles: at 08:30 UTC
     # (daylight time) and an hour later at 09:30 UTC (standard time). A
     # recording keeps a frame by comparing its time's instant with its own
-    # start, so a time that names the wrong pass drops or keeps a whole hour.
-    for utc_hour in (8, 9):
+    # start, so a time that names the wrong pass drops or keeps a whole hour;
+    # and a saved time states the offset in force, so a reader can tell the
+    # two passes apart.
+    for utc_hour, offset_h in ((8, -7), (9, -8)):
         instant = datetime.datetime(2026, 11, 1, utc_hour, 30, tzinfo=datetime.UTC)
         wall_ns = int(instant.timestamp()) * 1_000_000_000 + 123_456_000
         mapping = ClockMapping(
@@ -86,6 +83,25 @@ def test_a_tick_in_the_hour_a_clock_change_repeats_maps_to_its_own_instant(pacif
         at = mapping.wall_time_at(0)
 
         assert round(at.timestamp() * 1_000_000) == wall_ns // 1000, f'{utc_hour}:30 UTC'
+        assert at.utcoffset() == datetime.timedelta(hours=offset_h), f'{utc_hour}:30 UTC'
+
+
+def test_a_frame_time_without_an_offset_is_refused():
+    with pytest.raises(ValueError, match='states its UTC offset'):
+        FrameTime(at=datetime.datetime(2026, 11, 1, 1, 30), source=TimestampSource.HOST_ARRIVAL)
+
+
+def test_a_frames_arrival_is_its_hand_overs_on_both_clocks(sim_camera):
+    """The wall time a frame states it arrived at is read with its steady
+    arrival, at the hand-over, so the two name one moment: their difference
+    is the host's own wall-minus-steady, to the two reads' skew."""
+    frame = grab_a_frame_made_after_now(sim_camera[1])
+    wall_now, steady_now = host_clock.wall_ns(), host_clock.steady_ns()
+
+    skew_ns = abs((frame.wall_ns - frame.arrived_ns) - (wall_now - steady_now))
+
+    assert skew_ns < 2_000_000, f'{skew_ns} ns apart'
+    assert arrival_time(frame).at == wall_time.local_time(frame.wall_ns)
 
 
 def _capture_lines(caplog):
@@ -147,7 +163,9 @@ def _wall_time_of_steady(steady_ns: int) -> datetime.datetime:
     """The host's wall time at the steady instant ``steady_ns``, through a
     wall/steady pair this test reads itself, never the production mapping."""
     wall_now, steady_now = host_clock.wall_ns(), host_clock.steady_ns()
-    return datetime.datetime.fromtimestamp((wall_now + steady_ns - steady_now) / 1e9)
+    return datetime.datetime.fromtimestamp(
+        (wall_now + steady_ns - steady_now) / 1e9, datetime.UTC
+    ).astimezone()
 
 
 def test_a_summed_still_states_its_first_frames_start_and_its_facts(sim_scope, sim_camera):
@@ -155,7 +173,7 @@ def test_a_summed_still_states_its_first_frames_start_and_its_facts(sim_scope, s
     camera.set_exposure_ms(20.0)
 
     still = sim_scope.imaging.capture_still(sum_count=3)
-    returned = datetime.datetime.now()
+    returned = datetime.datetime.now().astimezone()
     record = still.record
 
     # The simulator's own account of the frame the record names: its
@@ -180,9 +198,9 @@ def test_a_summed_still_states_its_first_frames_start_and_its_facts(sim_scope, s
 def test_a_still_whose_frame_came_without_its_tick_states_its_arrival(sim_scope):
     sim_scope.simulation.withhold_chunk('Timestamp', 1_000)
     try:
-        before = datetime.datetime.now()
+        before = datetime.datetime.now().astimezone()
         record = sim_scope.imaging.capture_still().record
-        returned = datetime.datetime.now()
+        returned = datetime.datetime.now().astimezone()
     finally:
         sim_scope.simulation.clear()
 

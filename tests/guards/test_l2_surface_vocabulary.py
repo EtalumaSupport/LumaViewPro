@@ -156,6 +156,8 @@ def test_the_unit_string_is_untouched():
     every image this application writes carries a wrong unit. Read from what
     the writer writes, whatever form its source takes.
     """
+    import datetime
+
     import numpy as np
 
     from modules import image_utils
@@ -167,6 +169,7 @@ def test_the_unit_string_is_untouched():
             'pixel_size_um': None,
             'channel': 'BF',
             'significant_bits': 8,
+            'datetime': datetime.datetime(2026, 9, 29, 12, 0, 0).astimezone(),
             'illumination_ma': 50.0,
             'illumination_by_channel_ma': {'BF': 50.0},
         },

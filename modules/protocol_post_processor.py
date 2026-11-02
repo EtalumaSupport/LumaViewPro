@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import abc
-import datetime
 import pathlib
 import time
 from collections.abc import Callable
@@ -11,6 +10,7 @@ import pandas as pd
 import modules.image_utils as image_utils
 import modules.post_derivation as post_derivation
 import modules.path_utils as path_utils
+import modules.wall_time as wall_time
 import modules.recording_frames as recording_frames
 from modules.acquire_mode import AcquireMode
 from modules.api_surface import ProgressCallback
@@ -463,7 +463,7 @@ class ProtocolPostProcessor(abc.ABC):
         select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
     ) -> dict:
-        start_ts = datetime.datetime.now()
+        start_ts = wall_time.now()
         if not path:
             raise self._refuse('invalid_path', 'No folder was given to process.')
 
@@ -935,7 +935,7 @@ class ProtocolPostProcessor(abc.ABC):
                 excluded_inputs=excluded_inputs,
             )
 
-        end_ts = datetime.datetime.now()
+        end_ts = wall_time.now()
         elapsed_time = end_ts - start_ts
         logger.info(
             f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '

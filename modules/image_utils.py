@@ -25,6 +25,7 @@ from modules.layer_record import GREY, Color, stored_key
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.objectives_loader as objectives_loader
+import modules.wall_time as wall_time
 import modules.image_utils as image_utils
 
 from fractions import Fraction
@@ -475,8 +476,11 @@ _ORIGINAL_METADATA_NAMESPACE = 'openmicroscopy.org/OriginalMetadata'
 _OME_NAMESPACE = 'http://www.openmicroscopy.org/Schemas/OME/2016-06'
 ET.register_namespace('', _OME_NAMESPACE)
 
-# The TIFF 6.0 DateTime tag's one form. A record's ``datetime`` is a datetime
-# value, formatted here by the writer and parsed back by the reader.
+# The TIFF 6.0 DateTime tag's one form, which has no field for a UTC offset.
+# A record's ``datetime`` is a datetime value: LVP's own record carries it
+# with its offset (the structured block's ``DateTime``, an OME annotation's
+# record key), and the tag, written for outside readers, is read back only
+# for a file whose record states no time (an older file, another producer's).
 _TIFF_DATETIME = '%Y:%m:%d %H:%M:%S'
 
 
@@ -1055,6 +1059,8 @@ def _read_ome_input_metadata(ome_xml: str) -> dict | None:
     # cannot collide; what is not a record key is the Plane's to read.
     flat |= _plane_facts({key: value for key, value in annotated.items() if key not in FILE_FACTS})
     flat |= {key: value for key, value in annotated.items() if key in FILE_FACTS}
+    if 'datetime' in flat:
+        flat['datetime'] = datetime.datetime.fromisoformat(flat['datetime'])
     if len(channels) == 1 and channels[0].attrib.get('Name'):
         flat['channel'] = channels[0].attrib['Name']
         excitation = _float(channels[0].attrib, 'ExcitationWavelength')
@@ -1139,6 +1145,7 @@ def _imagej_to_structured(imagej_metadata: dict) -> dict:
         ('plate', 'Plate'),
         ('filterset', 'FilterSet'),
         ('algorithm', 'Algorithm'),
+        ('datetime', 'DateTime'),
     ):
         if lower in imagej_metadata:
             structured[canonical] = parsed(lower)
@@ -1241,7 +1248,7 @@ def _record_from_open(tif: 'tf.TiffFile') -> dict | None:
     else:
         record = None
     tag = tif.pages[0].tags.get('DateTime')
-    if record is not None and tag is not None:
+    if record is not None and 'datetime' not in record and tag is not None:
         stated = _parsed_tiff_datetime(tag.value)
         if stated is not None:
             record['datetime'] = stated
@@ -1291,6 +1298,8 @@ def _structured_record(structured: dict) -> dict | None:
         flat['filterset'] = structured['FilterSet']
     if 'Algorithm' in structured:
         flat['algorithm'] = structured['Algorithm']
+    if 'DateTime' in structured:
+        flat['datetime'] = datetime.datetime.fromisoformat(structured['DateTime'])
 
     # The Instrument block also renders the objective, so an Instrument
     # whose microscope and detector state nothing states no instrument.
@@ -1504,7 +1513,7 @@ def build_postproc_output_metadata(
     # The writer's hard key, in its "none" form when the inputs agree on no scale.
     metadata['pixel_size_um'] = agreed.get('pixel_size_um')
     metadata['channel'] = channel
-    metadata['datetime'] = datetime.datetime.now()
+    metadata['datetime'] = wall_time.now()
 
     if plate_pos_mm_override is not None:
         metadata['plate_pos_mm'] = plate_pos_mm_override
@@ -1754,6 +1763,8 @@ def build_hyperstack_output_metadata(
             }
         )
 
+    # The hyperstack's time is its build's.
+    facts['datetime'] = wall_time.now()
     # The hyperstack's exposure and excitation have no schema attribute here:
     # tifffile writes per-plane values only for the keys it is given lists of.
     metadata['MapAnnotation'] = _ome_annotation(
@@ -1762,7 +1773,7 @@ def build_hyperstack_output_metadata(
     instrument = _instrument_and_plate_blocks(facts).get('Instrument')
     if instrument:
         metadata['Instrument'] = instrument
-    # The file's record, for its readable view: the writer adds its time.
+    # The file's record, for its readable view and the writer's DateTime tag.
     record = facts | {'pixel_size_um': pixel_size_um, 'significant_bits': significant_bits}
     if len(channel_names) == 1:
         record['channel'] = channel_names[0]
@@ -2265,8 +2276,8 @@ def write_hyperstack_tiff(
 
     tifffile's OME serializer drops the dict's ``Instrument``, so it is
     spliced into the description once the file is written and before it
-    takes its name, with the view of the dict's ``record`` and the time
-    this writer stamps (``_splice_ome_additions``).
+    takes its name, with the view of the dict's ``record``
+    (``_splice_ome_additions``). The record's time is the TIFF DateTime tag's.
     """
     total_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
     use_bigtiff = total_bytes > 3.8 * 1024 * 1024 * 1024
@@ -2275,10 +2286,7 @@ def write_hyperstack_tiff(
             'write_hyperstack_tiff requires photometric in hyperstack_options; '
             'without it a <=4-wide trailing dimension can be misread as samples'
         )
-    # The hyperstack's time is its build's, to the second the tag states, so
-    # the tag and the view state one time.
-    written_at = datetime.datetime.now().replace(microsecond=0)
-    record = {**hyperstack_metadata['record'], 'datetime': written_at}
+    record = hyperstack_metadata['record']
     tiff_metadata = {
         key: value
         for key, value in hyperstack_metadata.items()
@@ -2294,7 +2302,7 @@ def write_hyperstack_tiff(
                 resolution=hyperstack_resolution,
                 metadata=tiff_metadata,
                 software=f'LumaViewPro {version}',
-                datetime=written_at.strftime(_TIFF_DATETIME),
+                datetime=record['datetime'].strftime(_TIFF_DATETIME),
                 **hyperstack_options,
             )
         _splice_ome_additions(
@@ -2580,6 +2588,8 @@ def generate_tiff_data(
             record_rendered=_OME_STILL_RENDERED,
         )
     else:
+        # The time with its offset, which the TIFF tag cannot state.
+        tiff_metadata['DateTime'] = metadata['datetime'].isoformat()
         # The filterset is a unit-level fact, not per-channel; it rides as
         # its own structured key.
         if 'filterset' in metadata:
@@ -2703,13 +2713,13 @@ def generate_tiff_data(
     }
 
 
-# The facts an OME still or a hyperstack states in a schema attribute or a
-# TIFF tag, whatever their Plane: the annotation carries every other fact its
-# record states. The scale is a hard key, None when the file states none.
-_OME_STILL_RENDERED = frozenset(
-    {'pixel_size_um', 'channel', 'excitation_nm', 'significant_bits', 'datetime'}
-)
-_OME_HYPERSTACK_RENDERED = frozenset({'pixel_size_um', 'channel', 'significant_bits', 'datetime'})
+# The facts an OME still or a hyperstack states in a schema attribute,
+# whatever their Plane: the annotation carries every other fact its record
+# states. The scale is a hard key, None when the file states none. The time
+# is not among them: the DateTime tag states no offset, so the annotation
+# carries the record's.
+_OME_STILL_RENDERED = frozenset({'pixel_size_um', 'channel', 'excitation_nm', 'significant_bits'})
+_OME_HYPERSTACK_RENDERED = frozenset({'pixel_size_um', 'channel', 'significant_bits'})
 
 # The record keys the Plane block renders: its facts, and the position pair.
 _IN_THE_PLANE_BLOCK = frozenset(_PLANE_FACTS) | {'plate_pos_mm'}
@@ -2765,7 +2775,7 @@ def _ome_annotation(
     return {
         'Namespace': _LVP_OME_ANNOTATION_NAMESPACE,
         'Value': {
-            key: json.dumps(value, ensure_ascii=False, default=_numpy_scalar_value)
+            key: json.dumps(value, ensure_ascii=False, default=_annotated_value)
             for key, value in entries.items()
         },
     }
@@ -2805,7 +2815,7 @@ def _flattened(key: str, value) -> list[tuple[str, str]]:
         return [(key, value.isoformat())]
     if isinstance(value, (str, int, float)):
         return [(key, str(value))]
-    # The annotation's own refusal (_numpy_scalar_value): a text made of an
+    # The annotation's own refusal (_annotated_value): a text made of an
     # unknown type's repr would read as a fact.
     raise TypeError(f'a saved file cannot state a {type(value).__name__}')
 
@@ -2904,15 +2914,19 @@ def _insert_instrument(root: ET.Element, images: list[ET.Element], instrument: d
             image.insert(at + offset, reference)
 
 
-def _numpy_scalar_value(value):
-    """A numpy scalar as the Python number it holds, for the JSON of a saved annotation.
+def _annotated_value(value):
+    """A value JSON has no form for, in the form a saved annotation states it.
 
     A producer's value can stay a numpy scalar (a stage position left
     np.float64), and the JSON encoder refuses np.int64 and np.bool_, which
-    would fail a good save over the type of a number.
+    would fail a good save over the type of a number: it is the Python number
+    it holds. A time is its ISO 8601 text, its offset included, which the
+    reader parses back.
     """
     if isinstance(value, np.generic):
         return value.item()
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
     raise TypeError(f'a saved file cannot state a {type(value).__name__}')
 
 

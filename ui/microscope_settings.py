@@ -1,5 +1,4 @@
 # Copyright Etaluma, Inc.
-import datetime
 import logging
 import os
 import threading
@@ -181,7 +180,6 @@ class MicroscopeSettings(BoxLayout):
         # Settings are imported at the very beginning of file
 
         if settings['profiling']['enabled']:
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
             # Joined to the data directory, never CWD-relative: an
             # installed build cannot write beside its executable.
             profiling_save_path = os.path.join(ctx.source_path, 'logs/profiling')

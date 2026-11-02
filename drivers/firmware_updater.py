@@ -787,13 +787,13 @@ def check_update_needed(board_type, uf2_path):
 
 
 def update_firmware(
-    board_type,
-    uf2_path,
-    progress_callback=None,
-    backup_dir=None,
-    skip_config_backup=False,
-    skip_post_test=False,
-):
+    board_type: BoardType,
+    uf2_path: Path | str,
+    progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
+    backup_dir: Path | str | None = None,
+    skip_config_backup: bool = False,
+    skip_post_test: bool = False,
+) -> UpdateResult:
     """Execute the complete firmware update sequence.
 
     This is the main entry point. See module docstring for the full
@@ -816,9 +816,7 @@ def update_firmware(
     result = UpdateResult(success=False, board_type=board_type)
 
     if backup_dir is None:
-        import datetime
-
-        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        ts = time.strftime('%Y%m%d_%H%M%S')
         backup_dir = Path.home() / 'Documents' / 'Etaluma' / 'firmware_backups' / ts
 
     backup_dir = Path(backup_dir)
@@ -1252,13 +1250,13 @@ def nuke_board(
 
 
 def deploy_firmware_file(
-    board_type,
-    firmware_path,
-    progress_callback=None,
-    backup_dir=None,
-    skip_config_backup=False,
-    skip_post_test=False,
-):
+    board_type: BoardType,
+    firmware_path: Path | str,
+    progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
+    backup_dir: Path | str | None = None,
+    skip_config_backup: bool = False,
+    skip_post_test: bool = False,
+) -> UpdateResult:
     """Deploy main.py to a board via raw REPL (no UF2, no BOOTSEL).
 
     This is the primary update method for LED boards (UART-only, no USB
@@ -1292,9 +1290,7 @@ def deploy_firmware_file(
     result = UpdateResult(success=False, board_type=board_type)
 
     if backup_dir is None:
-        import datetime
-
-        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        ts = time.strftime('%Y%m%d_%H%M%S')
         backup_dir = Path.home() / 'Documents' / 'Etaluma' / 'firmware_backups' / ts
 
     backup_dir = Path(backup_dir)

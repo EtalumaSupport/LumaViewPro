@@ -8,7 +8,6 @@ post-drain finish. The engine underneath is the real one; the camera is
 a stub delivering frames straight into the registered listener.
 """
 
-import datetime
 import itertools
 import json
 import sys
@@ -320,14 +319,12 @@ def feed_frames(
             # -- the write lane's own disk-floor breach ends a recording
             # exactly this way, from a thread racing this loop.
             return
-        host_ts = datetime.datetime.fromtimestamp(
-            clock() + (jitter[i % len(jitter)] if jitter else 0.0)
-        )
+        wall_ns = round((clock() + (jitter[i % len(jitter)] if jitter else 0.0)) * 1e9)
         chunks = {'FrameID': start_id + i}
         if stamped:
             chunks['Timestamp'] = int(clock() * TICK_HZ)
         image = np.full((height, width), i % 256, dtype=np.uint8)
-        listener(delivered_frame(image, host_ts, chunks, seq=i + 1))
+        listener(delivered_frame(image, chunks, seq=i + 1, wall_ns=wall_ns))
 
 
 def finish(controller, timeout=15.0):

@@ -12,7 +12,6 @@ constructible in the first place.
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import queue as _queue_mod
 import time
 from types import MappingProxyType
@@ -445,26 +444,27 @@ def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
 
 def delivered_frame(
     image,
-    timestamp=None,
     chunks=None,
     *,
     seq: int = 1,
     significant_bits: int | None = None,
     arrived_ns: int | None = None,
+    wall_ns: int | None = None,
 ) -> Frame:
     """A ``Frame`` as the camera's store hands it to a listener, for a test that delivers by hand.
 
     Built the way ``ImageHandlerBase._store_frame`` builds one: read-only
     pixels (a read-only view, so the caller's array stays its own) and
-    read-only chunks. ``significant_bits`` defaults to the container width.
+    read-only chunks. ``significant_bits`` defaults to the container width;
+    ``arrived_ns`` and ``wall_ns`` to the host's clocks now.
     """
     view = image.view()
     view.flags.writeable = False
     return Frame(
         image=view,
         seq=seq,
-        timestamp=timestamp if timestamp is not None else datetime.datetime.now(),
         arrived_ns=arrived_ns if arrived_ns is not None else host_clock.steady_ns(),
+        wall_ns=wall_ns if wall_ns is not None else host_clock.wall_ns(),
         significant_bits=(
             significant_bits if significant_bits is not None else image.dtype.itemsize * 8
         ),

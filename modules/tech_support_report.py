@@ -36,7 +36,6 @@ Recent protocols list (reusable from GUI):
 
 import contextlib
 import dataclasses
-import datetime
 import enum
 import json
 import logging
@@ -59,6 +58,7 @@ from drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from drivers.usb_driver_binding import DeviceBinding
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
+from modules import wall_time
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
     AxisStateUnknownError,
@@ -237,7 +237,7 @@ def _get_protocol_dir():
 # ---------------------------------------------------------------------------
 
 
-def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
+def get_recent_protocols(n: int = RECENT_PROTOCOL_COUNT) -> list[dict]:
     """Return the N most recently modified protocol files.
 
     Returns list of dicts sorted by mtime descending::
@@ -281,7 +281,7 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
                 protocol_files.append(
                     {
                         'path': proto_file,
-                        'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
+                        'modified': wall_time.local_time(stat.st_mtime_ns),
                         'name': proto_file.stem,
                         'size': stat.st_size,
                     }
@@ -2765,7 +2765,7 @@ class TechSupportReport:
     def _step_metadata(self, tmp, sn):
         meta = {
             'report_version': REPORT_VERSION,
-            'generated_at': datetime.datetime.now().isoformat(),
+            'generated_at': wall_time.now().isoformat(),
             'serial_number': sn,
             'lvp_version': self._get_lvp_version(),
             'generator': 'tech_support_report.py',
@@ -2784,7 +2784,7 @@ class TechSupportReport:
         # writer that landed in whichever log file happened to have the
         # newest mtime -- usually the camera.log firehose, never
         # reliably the main log the marker is meant for.
-        ts = datetime.datetime.now().isoformat()
+        ts = wall_time.now().isoformat()
         logger.info(LOG_DELIMITER.format(timestamp=ts))
 
     def _get_lvp_version(self):
@@ -2954,9 +2954,7 @@ class TechSupportReport:
                 if not sn_tag:
                     sn_tag = 'logs'
                 self._meta['report_type'] = 'logs_only'
-                self._meta['report_generated_at'] = datetime.datetime.now().isoformat(
-                    timespec='seconds'
-                )
+                self._meta['report_generated_at'] = wall_time.now().isoformat(timespec='seconds')
                 (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
 
                 cb(95, 'Creating ZIP file...')
@@ -2976,7 +2974,7 @@ class TechSupportReport:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         clean_sn = ''.join(c for c in str(sn) if c.isalnum() or c in '-_') or 'UNKNOWN'
-        ts = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
+        ts = wall_time.now().strftime('%Y-%m-%d-%H%M%S')
         # Full tech-support reports carry a "TSR" token so support
         # engineers can visually distinguish them from logs-only user
         # dumps (`SNlogs-<ts>.zip`) that ship with manual error reports.

@@ -32,7 +32,7 @@ import math
 
 from fastapi.responses import JSONResponse
 
-from modules import notification_center, wire_encoding
+from modules import notification_center, wall_time, wire_encoding
 from lib.lumascope_error import Fault, LumascopeError, defined_classes
 from modules.activity_claim import ActivityClaim
 from modules.api_surface import Admission, raises_of
@@ -180,11 +180,6 @@ def _status_of(cls: type, reason: str) -> int:
     return _CAUSE_STATUS[getattr(cls, 'causes', {}).get(reason)]
 
 
-def now() -> datetime.datetime:
-    """The local time with its offset, as answers and jobs are stamped."""
-    return datetime.datetime.now().astimezone()
-
-
 @dataclasses.dataclass(frozen=True)
 class Answer:
     """What a request is answered: a result, or a problem.
@@ -204,7 +199,7 @@ class Answer:
     status: int
     body: object
     headers: dict[str, str] = dataclasses.field(default_factory=dict)
-    ended: datetime.datetime = dataclasses.field(default_factory=now)
+    ended: datetime.datetime = dataclasses.field(default_factory=wall_time.now)
 
     @property
     def is_problem(self) -> bool:

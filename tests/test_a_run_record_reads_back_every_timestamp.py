@@ -87,25 +87,6 @@ def test_a_post_record_row_written_on_a_whole_second_reads_back_with_its_time(tm
     assert list(read.records()['Timestamp']) == list(WRITTEN)
 
 
-def _as_stated(when: datetime.datetime) -> str:
-    """A row's time as a record states it: the one form, with the offset
-    when the time has one."""
-    return when.strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT + '%z')
-
-
-def _restate_times(outfile: pathlib.Path, times) -> None:
-    """Rewrite each naive row time the file holds as the same wall time
-    stating the offset its counterpart in ``times`` states. The writer
-    writes no offset until the producers state one, so the record holding
-    rows that do is made here, in the form those rows take."""
-    text = outfile.read_text()
-    for when in times:
-        naive = when.replace(tzinfo=None).strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT)
-        assert text.count(naive) == 1
-        text = text.replace(naive, _as_stated(when))
-    outfile.write_text(text)
-
-
 def _instants(times) -> list[tuple]:
     """Each time with the offset it states, so two times that name one
     instant through different offsets are told apart."""
@@ -121,9 +102,8 @@ def test_a_run_record_reads_back_rows_that_state_different_offsets_or_none(tmp_p
             step_name='S1',
             step_index=0,
             scan_count=index,
-            timestamp=timestamp.replace(tzinfo=None),
+            timestamp=timestamp,
         )
-    _restate_times(outfile, MIXED)
 
     read = ProtocolExecutionRecord.from_file(outfile)
 
@@ -137,7 +117,7 @@ def test_a_post_record_reads_back_rows_that_state_different_offsets_or_none(tmp_
         record.add_record(
             root_path=tmp_path,
             file_path=pathlib.Path(f'stitched_{index}.tiff'),
-            timestamp=timestamp.replace(tzinfo=None),
+            timestamp=timestamp,
             name=f'A1_BF_stitched_{index}',
             label='',
             scan_count=index,
@@ -155,7 +135,6 @@ def test_a_post_record_reads_back_rows_that_state_different_offsets_or_none(tmp_
             derivation=_STITCHED,
         )
     record.complete()
-    _restate_times(outfile, MIXED)
 
     read = ProtocolPostRecord.from_file(outfile)
 

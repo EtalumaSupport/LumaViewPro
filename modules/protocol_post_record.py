@@ -56,8 +56,10 @@ class ProtocolPostRecord:
     # the output, in order, with their settings (``post_derivation``). The
     # kinds are read from it, so two outputs of the same source made two
     # ways are told apart, and a v1-v3 row's kinds become its derivation
-    # with each setting unknown.
-    CURRENT_VERSION = 4
+    # with each setting unknown. v5 states each row's time with its UTC
+    # offset (``ProtocolExecutionRecord.TIMESTAMP_FORMAT``); an older row's
+    # time states none and is kept as written when the file is upgraded.
+    CURRENT_VERSION = 5
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
     def __del__(self):
@@ -385,7 +387,7 @@ class ProtocolPostRecord:
                 raise Exception('Version key not found')
 
             file_version = int(version[1])
-            if file_version not in (1, 2, 3, 4):
+            if file_version not in (1, 2, 3, 4, 5):
                 raise Exception('Unsupported protocol post-processing record version')
 
             # Search for "Images" to indicate start of images data

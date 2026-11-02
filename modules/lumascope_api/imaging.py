@@ -2280,8 +2280,9 @@ class ImagingAPI:
                 overwrites it.
 
         Returns:
-            tuple: (image, timestamp) where image is numpy.ndarray and timestamp
-                   is from the camera SDK, or (None, None) if unavailable.
+            tuple: (image, seq) where image is numpy.ndarray and seq is the
+                   frame's hand-over ordinal (``Frame.seq``), the same for every
+                   read of one frame, or (None, None) if unavailable.
                    Per the Sentinel-return contract: `if image is None: ...`.
 
         Raises:
@@ -2322,7 +2323,7 @@ class ImagingAPI:
         if force_to_8bit and tmp.dtype != np.uint8:
             tmp = image_utils.convert_to_8bit(tmp, frame.significant_bits, out=out_8bit)
 
-        return tmp, frame.timestamp
+        return tmp, frame.seq
 
     @api
     @property

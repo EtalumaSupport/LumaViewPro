@@ -8,6 +8,7 @@ used by LumaViewPro, the REST API, or standalone scripts.
 """
 
 import pathlib
+import time
 import typing
 
 import psutil
@@ -15,6 +16,7 @@ import psutil
 import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
+import modules.wall_time as wall_time
 from lvp_logger import logger, metrics_logger
 from modules.acquire_mode import AcquireMode
 from modules.api_surface import api
@@ -405,7 +407,7 @@ def _on_plate(
 # ---------------------------------------------------------------------------
 
 
-def log_environment_once():
+def log_environment_once() -> None:
     """Log fixed environment fingerprint -- system boot time, uptime, OS build,
     Pylon SDK version, Defender state. Once-per-startup pairs with the
     per-tick log_system_metrics surface so post-mortem can correlate a
@@ -416,13 +418,12 @@ def log_environment_once():
     exhaustion at 632h that contaminated one perf-investigation run); without recording boot time, that contamination is
     invisible in post-hoc log analysis.
     """
-    import datetime as _dt
     import platform as _platform
 
     try:
         boot_ts = psutil.boot_time()
-        boot_dt = _dt.datetime.fromtimestamp(boot_ts).isoformat(timespec='seconds')
-        uptime_hr = (_dt.datetime.now().timestamp() - boot_ts) / 3600.0
+        boot_dt = wall_time.local_time(round(boot_ts * 1e9)).isoformat(timespec='seconds')
+        uptime_hr = (time.time() - boot_ts) / 3600.0
     except Exception:
         boot_dt = 'NA'
         uptime_hr = -1

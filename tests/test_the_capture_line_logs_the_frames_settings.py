@@ -51,7 +51,7 @@ def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_sco
 def _record(**fields):
     return frame_record(
         **{
-            'captured_at': datetime.datetime.now(),
+            'captured_at': datetime.datetime.now().astimezone(),
             'exposure_ms': 62.003,
             'gain_db': 3.5,
             'frame_significant_bits': 12,

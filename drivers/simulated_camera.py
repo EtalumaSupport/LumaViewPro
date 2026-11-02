@@ -9,7 +9,6 @@ supports the full Camera ABC interface.
 
 import collections
 import dataclasses
-import datetime
 from dataclasses import dataclass
 import threading
 import random
@@ -170,11 +169,10 @@ class _SimImageHandler(ImageHandlerBase):
         self._stored = threading.Condition()
 
     def _store_frame(
-        self, image, timestamp, chunks=None, *, handed_over, significant_bits, wire_bytes
+        self, image, chunks=None, *, handed_over, significant_bits, wire_bytes
     ) -> Frame | None:
         frame = super()._store_frame(
             image,
-            timestamp,
             chunks,
             handed_over=handed_over,
             significant_bits=significant_bits,
@@ -984,7 +982,6 @@ class SimulatedCamera(Camera):
         # acquired window in its wire container.
         handler._store_frame(
             image,
-            datetime.datetime.now(),
             chunks,
             handed_over=handed_over,
             significant_bits=bits,

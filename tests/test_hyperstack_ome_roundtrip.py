@@ -13,14 +13,13 @@ timestamps. The ImageJ/Fiji open and the 8/16-bit + BigTIFF permutation
 sweep ride the bench gate; this is the headless half.
 """
 
-import datetime
 import pathlib
 
 import numpy as np
 import ome_types
 import tifffile as tf
 
-from modules import image_utils, recording_frames
+from modules import image_utils, recording_frames, wall_time
 from modules.stack_builder import StackBuilder
 from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
 from modules.lumascope_api.frame_record import FrameTime, TimestampSource
@@ -44,7 +43,7 @@ def _write_timestamped_frames(scope, tmp_path, df, base_s=1_755_000_000.0, spaci
             channel=row['Color'],
             record=recorded_record(
                 captured_at=FrameTime(
-                    at=datetime.datetime.fromtimestamp(base_s + n * spacing_s),
+                    at=wall_time.local_time(round((base_s + n * spacing_s) * 1e9)),
                     source=TimestampSource.HOST_ARRIVAL,
                 ),
                 frame_significant_bits=8,

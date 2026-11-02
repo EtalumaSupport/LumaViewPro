@@ -64,8 +64,8 @@ def _first_frame(video_path):
 
 def _write_manual_frame(scope, folder, frame_num, *, value=20000):
     """Write one frame the way the manual recording path does: through the
-    one recorded-frame writer, its time the host's arrival."""
-    ts = _ts(frame_num)
+    one recorded-frame writer, its time the host's arrival, with its offset."""
+    ts = _ts(frame_num).astimezone()
     record = recorded_record(
         captured_at=FrameTime(at=ts, source=TimestampSource.HOST_ARRIVAL),
         frame_significant_bits=16,

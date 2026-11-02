@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import atexit
-import datetime
 import math
 import re
 import threading
@@ -4015,7 +4014,6 @@ class ImageHandler(ImageHandlerBase):
                 # and pixels stay paired across a later format switch.
                 self._store_frame(
                     array,
-                    datetime.datetime.now(),
                     handed_over=handed_over,
                     significant_bits=significant_bits,
                     wire_bytes=buffer.DeliveredDataSize(),

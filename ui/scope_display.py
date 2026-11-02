@@ -207,7 +207,7 @@ class ScopeDisplay(Image):
         # Counters (were module-level globals in lumaviewpro.py)
 
         # Display loop state owned by ScopeDisplayThread. Widget keeps:
-        self._last_frame_ts = None  # camera timestamp of last displayed frame (dup check)
+        self._last_frame_seq = None  # hand-over ordinal of the last displayed frame (dup check)
         self._last_rendered_frame = (
             None  # (bytes, shape, monotonic_ts) for thread.add_frame_listener fan-out
         )
@@ -740,6 +740,9 @@ class ScopeDisplay(Image):
                 self._bullseye_rgb_buf = None
                 self._bullseye_buf_shape = None
                 self._display_8bit_buf = None
+                # A reconnected camera's handler counts its frames from one
+                # again, so the last ordinal shown names no frame of it.
+                self._last_frame_seq = None
                 schedule_ui_latest(
                     (self, 'camera_indicator'),
                     lambda dt: self.set_camera_disconnected_display(),
@@ -755,7 +758,7 @@ class ScopeDisplay(Image):
         # the next frame overwrites it, so a single slot is safe (same
         # pattern as the bullseye buffer). Only this preview thread owns
         # and passes this buffer; the histogram (main thread) passes none.
-        image, frame_ts = ctx.scope.imaging.get_image_from_buffer(
+        image, frame_seq = ctx.scope.imaging.get_image_from_buffer(
             force_to_8bit=True, out_8bit=self._display_8bit_buf
         )
         if image is None or image.size == 0:
@@ -777,10 +780,12 @@ class ScopeDisplay(Image):
         ):
             self._display_8bit_buf = np.empty(image.shape, dtype=np.uint8)
 
-        # Skip duplicate frames (same camera timestamp = same data)
-        if frame_ts is not None and frame_ts == self._last_frame_ts:
+        # Skip a frame already shown: the buffer hands back the same frame
+        # until the next arrives, and its ordinal names it. Never the wall
+        # time, which can repeat between two frames.
+        if frame_seq == self._last_frame_seq:
             return STATUS_DUPLICATE
-        self._last_frame_ts = frame_ts
+        self._last_frame_seq = frame_seq
         t_grab_end = time.monotonic()
 
         t_eng_stats = 0

@@ -73,11 +73,11 @@ class _ChunkHandler(_SimImageHandler):
         super().__init__()
         self._cam = cam
 
-    def _store_frame(self, image, timestamp, chunks=None, **kwargs):
+    def _store_frame(self, image, chunks=None, **kwargs):
         chunks = {k: v for k, v in (chunks or {}).items() if k not in ('ExposureTime', 'Gain')}
         if not self._cam.chunks_absent:
             chunks.update(ExposureTime=self._cam._exposure_us, Gain=self._cam._gain)
-        return super()._store_frame(image, timestamp, chunks, **kwargs)
+        return super()._store_frame(image, chunks, **kwargs)
 
 
 class _ChunkAeSim(SimulatedCamera):

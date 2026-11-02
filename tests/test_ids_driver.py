@@ -442,16 +442,16 @@ class TestLatestBufferSlot:
 
     def test_put_then_get_returns_buffer_and_its_hand_over_without_requeue(self):
         slot, rq = self._slot()
-        handed_over = HandOver(1, 0)
+        handed_over = HandOver(1, 0, 0)
         slot.put('a', handed_over)
         assert slot.get(timeout=0) == ('a', handed_over)
         assert rq == []  # nothing displaced -> nothing re-queued
 
     def test_newest_wins_requeues_the_displaced_buffer(self):
         slot, rq = self._slot()
-        slot.put('old', HandOver(1, 0))
-        slot.put('new', HandOver(2, 0))
-        assert slot.get(timeout=0) == ('new', HandOver(2, 0))
+        slot.put('old', HandOver(1, 0, 0))
+        slot.put('new', HandOver(2, 0, 0))
+        assert slot.get(timeout=0) == ('new', HandOver(2, 0, 0))
         assert rq == ['old']  # the stale buffer went back to the pool
         assert slot.dropped == 1
         assert slot.get(timeout=0) is None
@@ -472,7 +472,7 @@ class TestLatestBufferSlot:
         from drivers.idscamera import _LatestBufferSlot
 
         slot, rq = self._slot()
-        slot.put('held', HandOver(1, 0))
+        slot.put('held', HandOver(1, 0, 0))
         slot.stop()
         # The held buffer goes back to the pool (not to the worker), then STOP.
         assert rq == ['held']
@@ -488,10 +488,10 @@ class TestLatestBufferSlot:
         t = threading.Thread(target=consume)
         t.start()
         time.sleep(0.05)  # let the consumer park in get()
-        slot.put('arrived', HandOver(1, 0))
+        slot.put('arrived', HandOver(1, 0, 0))
         t.join(timeout=2.0)
         assert not t.is_alive()
-        assert out == [('arrived', HandOver(1, 0))]
+        assert out == [('arrived', HandOver(1, 0, 0))]
 
 
 class _FakeDataStream:
@@ -1773,8 +1773,8 @@ class TestPipelineLifecycle:
         h = _ids_handler(ds)
         stored = []
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda img, ts, *, handed_over, significant_bits, wire_bytes: (
-            stored.append((img, significant_bits, wire_bytes))
+        h._store_frame = lambda img, *, handed_over, significant_bits, wire_bytes: stored.append(
+            (img, significant_bits, wire_bytes)
         )
         h.start()
         self._wait_until(lambda: stored)
@@ -1838,8 +1838,8 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = slow_unpack
-        h._store_frame = lambda img, ts, *, handed_over, significant_bits, wire_bytes: (
-            stored.append(img)
+        h._store_frame = lambda img, *, handed_over, significant_bits, wire_bytes: stored.append(
+            img
         )
         h.start()
         time.sleep(0.3)  # all three drain while the worker is held on b0
@@ -1869,8 +1869,8 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = flaky_unpack
-        h._store_frame = lambda img, ts, *, handed_over, significant_bits, wire_bytes: (
-            stored.append(img)
+        h._store_frame = lambda img, *, handed_over, significant_bits, wire_bytes: stored.append(
+            img
         )
         h.start()
         self._wait_until(lambda: 'good' in stored)

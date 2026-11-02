@@ -22,7 +22,6 @@ arrival time is used and the manifest's timestamp grade reports it.
 """
 
 import concurrent.futures
-import datetime
 import threading
 import time
 from collections.abc import Callable
@@ -38,6 +37,7 @@ import modules.image_mode as image_mode
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+import modules.wall_time as wall_time
 import modules.path_utils as path_utils
 from lvp_logger import logger, version as lvp_version
 from modules.activity_claim import ControlSession, guarded_write
@@ -411,7 +411,7 @@ class ManualRecordingController:
         capture_config = get_image_capture_config_from_settings(settings)
         camera = scope.capabilities
 
-        start_dt = datetime.datetime.now()
+        start_dt = wall_time.now()
         start_time_str = start_dt.strftime('%Y-%m-%d_%H.%M.%S')
         if video_as_frames:
             save_folder = Path(settings['live_folder']) / 'Manual' / f'Video_{start_time_str}'
