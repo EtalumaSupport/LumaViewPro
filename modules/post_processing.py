@@ -4,10 +4,10 @@
 import contextlib
 import dataclasses
 import csv
+import datetime
 import json
 import os
 import re
-import time
 import uuid
 from collections.abc import Mapping
 
@@ -38,8 +38,9 @@ CELL_COUNT_OPERATION = PostProcessingOperation.CELL_COUNT
 # The operation's name for reading a results file back to graph it.
 GRAPHING_OPERATION = PostProcessingOperation.GRAPHING
 
-# The layout time.ctime writes each image's time in, which a results file is
-# read back by. '%d' also reads ctime's space-padded day.
+# The layout results files written before each image's time was its own wrote
+# it in (time.ctime's), which the reader still reads. '%d' also reads ctime's
+# space-padded day.
 RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
 
 # How a number is written in a results file: a column whose every cell is
@@ -253,9 +254,10 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     Every cell is read as the text written. A column whose every cell is a
     number is a column of numbers (whole numbers when every cell is one);
     any other column is text, so a cell such as ``NA`` is never read as a
-    missing number. A ``time`` column of text is parsed by the format the
-    count writes it in, so it reads back as a datetime column. Which columns
-    can be plotted is ``results_axes``'s answer.
+    missing number. A ``time`` column of text is read cell by cell in the
+    forms the count writes (``_results_times``), so it reads back as a
+    datetime column when its times can be compared, and stays text when
+    they cannot. Which columns can be plotted is ``results_axes``'s answer.
 
     Raises:
         PostProcessingRefusedError: reason ``results_unreadable``; the file
@@ -287,12 +289,52 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     )
     if 'time' in table and not pd.api.types.is_numeric_dtype(table['time']):
         try:
-            table['time'] = pd.to_datetime(table['time'], format=RESULTS_TIME_FORMAT)
-        except (TypeError, ValueError) as e:
+            times = _results_times(table['time'])
+        except ValueError as e:
             raise refuse(f'its time column is not in the form the count writes ({e})') from e
+        if times is not None:
+            table['time'] = times
     if not results_axes(table)[1]:
         raise refuse('it has no column of numbers to plot')
     return table
+
+
+def _results_time(cell: str) -> datetime.datetime | None:
+    """One time cell: as the count writes it (ISO 8601, with its UTC offset
+    when the image stated one), or as files written before wrote it
+    (``RESULTS_TIME_FORMAT``); a blank cell states no time.
+
+    Raises:
+        ValueError: the cell is a time in neither form.
+    """
+    if not cell:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(cell)
+    except ValueError:
+        return datetime.datetime.strptime(cell, RESULTS_TIME_FORMAT)
+
+
+def _results_times(cells: pd.Series) -> pd.Series | None:
+    """A results file's time column as datetimes, or None when its times
+    cannot be compared.
+
+    Times compare only when every one states its UTC offset or none does
+    (``image_utils.comparable_times``), so a column mixing the two, or
+    stating no time at all, is no time axis. Times on one offset keep it, so
+    a graph shows them as they were taken; times on more than one, a run
+    across a daylight-saving change, are read in UTC, which keeps every
+    instant and the spacing between them.
+
+    Raises:
+        ValueError: a cell is a time in neither form the count writes.
+    """
+    times = [_results_time(cell) for cell in cells]
+    stated = [t for t in times if t is not None]
+    if not stated or image_utils.comparable_times(stated) is None:
+        return None
+    offsets = {t.utcoffset() for t in stated}
+    return pd.to_datetime(pd.Series(times, dtype=object), utc=len(offsets) > 1)
 
 
 def _results_column(cells: list[str]) -> pd.Series:
@@ -364,7 +406,9 @@ class PostProcessing:
         Each image is measured at ``cell_count_scale``'s answer for it: the
         method's override, else the scale the image states, else pixels. The
         results say each row's area unit (``um2`` or ``px2``), so a folder of
-        mixed images is one file.
+        mixed images is one file. Each row's time is the one its image states
+        it was taken, with its UTC offset when the image states one, and is
+        blank for an image that states none.
 
         Returns:
             ``results_path``; ``counted``, how many images were analysed; and
@@ -403,6 +447,9 @@ class PostProcessing:
                     ),
                     name=filename,
                 )
+                # The time the image states it was taken, never the file
+                # system's: a copied folder's files were all made at the copy.
+                taken = image_utils.stated_frame_time(image_utils.read_file_record(file_path))
             except (PostProcessingRefusedError, LiveFolderPathRefusedError) as e:
                 # Not an image after all, a folder named like one, or gone
                 # since the folder was listed.
@@ -410,13 +457,10 @@ class PostProcessing:
                 not_counted.append(str(e))
                 continue
 
-            time_created_raw = os.path.getctime(file_path)
-            time_created = time.ctime(time_created_raw)
-
             results.append(
                 {
                     'filename': os.path.basename(filename),
-                    'time': time_created,
+                    'time': taken.isoformat() if taken is not None else '',
                     'num_cells': region_info['summary']['num_regions'],
                     'total_object_area_px2': region_info['summary']['total_object_area_px2'],
                     'total_object_area_um2': region_info['summary']['total_object_area_um2'],

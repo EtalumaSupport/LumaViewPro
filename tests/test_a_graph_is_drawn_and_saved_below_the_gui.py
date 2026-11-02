@@ -16,6 +16,8 @@ file holds what the drawing shows and the words of an incomplete save.
 
 from __future__ import annotations
 
+import datetime
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
@@ -68,6 +70,45 @@ def test_a_trendline_is_drawn_as_a_red_dashed_line(table):
     (line,) = figure.axes[0].get_lines()
     assert (line.get_color(), line.get_linestyle()) == ('r', '--')
     assert list(line.get_ydata()) == list(trendline.y)
+
+
+def _time_axis(times) -> tuple[list[str], str]:
+    """The tick labels and the text beside them of a graph whose X is *times*."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    figure = graph_analysis.draw_graph(
+        pd.DataFrame({'time': times, 'count': range(len(times))}),
+        'time',
+        'count',
+        None,
+        x_label='',
+        y_label='',
+        title='',
+    )
+    FigureCanvasAgg(figure).draw()
+    (axes,) = figure.axes
+    labels = [label.get_text() for label in axes.get_xticklabels() if label.get_text()]
+    return labels, axes.xaxis.get_major_formatter().get_offset()
+
+
+def test_a_time_axis_is_labelled_in_its_times_own_zone_and_names_it():
+    """matplotlib labels a time in UTC unless told its zone: captures taken
+    at 09:00 and 11:00 -08:00 were labelled 17:00 and 19:00. Times on one
+    offset are labelled in it, times read in UTC (a run across a
+    daylight-saving change) say UTC, and times that state no zone are
+    labelled as written."""
+    pst = datetime.timezone(datetime.timedelta(hours=-8))
+    local = [datetime.datetime(2026, 3, 1, 9, 0), datetime.datetime(2026, 3, 1, 11, 0)]
+    stated = pd.Series([t.replace(tzinfo=pst) for t in local])
+
+    labels, beside = _time_axis(pd.to_datetime(stated))
+    assert (labels[0], labels[-1], beside) == ('09:00', '11:00', '2026-Mar-01 UTC-08:00')
+
+    labels, beside = _time_axis(pd.to_datetime(stated, utc=True))
+    assert (labels[0], labels[-1], beside) == ('17:00', '19:00', '2026-Mar-01 UTC')
+
+    labels, beside = _time_axis(pd.to_datetime(pd.Series(local)))
+    assert (labels[0], labels[-1], beside) == ('09:00', '11:00', '2026-Mar-01')
 
 
 def test_no_axis_chosen_draws_the_empty_frame(table):

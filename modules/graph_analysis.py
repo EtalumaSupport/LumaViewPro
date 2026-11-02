@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from matplotlib.dates import ConciseDateFormatter
+from matplotlib.dates import AutoDateLocator, ConciseDateFormatter
 from matplotlib.figure import Figure
 
 from modules.closed_sets import refuse_unless_offered
@@ -45,6 +45,11 @@ _DISTINCT_X_NEEDED = {
     Trendline.POWER: 2,
     Trendline.LOGARITHMIC: 2,
 }
+
+# What a time axis states beside its ticks, by how finely they are spaced
+# (ConciseDateFormatter's offset forms, years down to seconds); a zone, when
+# the times state one, is named after it.
+_DATE_OFFSET_FORMATS = ('', '%Y', '%Y-%b', '%Y-%b-%d', '%Y-%b-%d', '%Y-%b-%d %H:%M')
 
 
 @dataclass(frozen=True)
@@ -175,7 +180,23 @@ def draw_graph(
         return figure
     axes.scatter(table[x], table[y])
     if pd.api.types.is_datetime64_any_dtype(table[x]):
-        axes.xaxis.set_major_formatter(ConciseDateFormatter(axes.xaxis.get_major_locator()))
+        # Ticked and labelled in the times' own zone, which matplotlib would
+        # otherwise take to be UTC, labelling a 09:00 -08:00 capture 17:00.
+        # A zone is named beside the date, so times read in UTC say so; times
+        # that state none are labelled as written.
+        zone = table[x].dt.tz
+        locator = AutoDateLocator(tz=zone)
+        axes.xaxis.set_major_locator(locator)
+        axes.xaxis.set_major_formatter(
+            ConciseDateFormatter(
+                locator,
+                tz=zone,
+                offset_formats=[
+                    f'{form} %Z'.strip() if zone is not None else form
+                    for form in _DATE_OFFSET_FORMATS
+                ],
+            )
+        )
     if trendline is not None:
         axes.plot(trendline.x, trendline.y, 'r--')
     return figure
