@@ -39,7 +39,15 @@ def session(live):
     s.shutdown()
 
 
+# 600 ns past a microsecond: the nearest is the next one. A float st_mtime
+# cannot hold this instant and lands on the microsecond below.
+_PLATE_MTIME_NS = 1_793_744_467_348_006_600
+
+
 def test_the_top_level_names_exactly_what_is_on_disk(session, live):
+    """Each entry's name and kind, a file's size, and its modified time to
+    the nearest microsecond as local time with its offset."""
+    os.utime(live / 'plate.tsv', ns=(_PLATE_MTIME_NS, _PLATE_MTIME_NS))
     listing = session.live_folder_listing()
 
     assert [(e.name, e.kind) for e in listing] == [
@@ -48,10 +56,9 @@ def test_the_top_level_names_exactly_what_is_on_disk(session, live):
     ]
     plate = listing[1]
     assert plate.size_bytes == len('steps')
-    assert (
-        plate.modified
-        == datetime.datetime.fromtimestamp(os.stat(live / 'plate.tsv').st_mtime).astimezone()
-    )
+    assert plate.modified == datetime.datetime.fromtimestamp(
+        1_793_744_467, datetime.UTC
+    ).astimezone() + datetime.timedelta(microseconds=348_007)
     assert plate.modified.tzinfo is not None
     assert all(isinstance(e, LiveFolderEntry) for e in listing)
 
