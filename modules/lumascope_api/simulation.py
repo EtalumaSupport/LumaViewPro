@@ -78,6 +78,12 @@ CameraReadNode = enum.StrEnum(
     module=__name__,
 )
 CameraReadNode.__doc__ = """A camera setting whose read a simulated fault can fail."""
+FrameChunk = enum.StrEnum(
+    'FrameChunk',
+    [(chunk.upper(), chunk) for chunk in SimulatedCamera.CHUNKS],
+    module=__name__,
+)
+FrameChunk.__doc__ = """A chunk the simulated camera's frames carry, which a fault can withhold."""
 CameraReadAnswer = enum.StrEnum(
     'CameraReadAnswer',
     [(answer.upper(), answer) for answer in SimulatedCamera.FAILED_READ_ANSWERS],
@@ -858,6 +864,35 @@ class SimulationAPI:
             raise self._not_injectable('delay_delivery', target)
         target.delay_delivery(int(frames))
         self._record('delay_delivery', lambda: target.delay_delivery(0), frames=frames)
+
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
+    def withhold_chunk(self, chunk: FrameChunk, frames: int) -> None:
+        """The camera's next ``frames`` frames arrive without their ``chunk``.
+
+        As a Basler frame arrives whose chunk the driver could not read:
+        the frame is delivered, and only that one fact of it is missing.
+        ``clear`` takes back what no frame has met yet.
+
+        Args:
+            chunk: The chunk withheld.
+            frames: How many frames lose it, 1 or more.
+
+        Raises:
+            ArgumentRefusedError: ``'not_offered'`` for ``chunk``;
+                ``'needs_simulated_scope'``; ``'not_a_number'`` or
+                ``'fault_bound'`` for fewer than 1 frame;
+                ``'not_injectable_on_board'`` on the FX2, whose frames
+                carry no chunks.
+        """
+        target = self._camera_board('withhold_chunk')
+        self._bound('frames', frames, 'a number of frames, 1 or more', frames >= 1)
+        if not isinstance(target, SimulatedCamera):
+            raise self._not_injectable('withhold_chunk', target)
+        target.withhold_chunk(chunk, int(frames))
+        self._record(
+            'withhold_chunk', lambda: target.withhold_chunk(chunk, 0), chunk=chunk, frames=frames
+        )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write

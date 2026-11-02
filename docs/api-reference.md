@@ -9007,6 +9007,36 @@ The board answers again after `silence`.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_injectable_on_board`
 
+<a id="SimulationAPI.withhold_chunk"></a>
+### `SimulationAPI.withhold_chunk`
+
+```python
+def withhold_chunk(self, chunk: FrameChunk, frames: int) -> None
+```
+
+Marks: enters: `guarded_write`.  
+Route: `POST /api/v1/scope/simulation/withhold_chunk`.
+
+The camera's next `frames` frames arrive without their `chunk`.
+
+As a Basler frame arrives whose chunk the driver could not read:
+the frame is delivered, and only that one fact of it is missing.
+`clear` takes back what no frame has met yet.
+
+**Args**
+
+- `chunk`: The chunk withheld.
+- `frames`: How many frames lose it, 1 or more.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_offered'` for `chunk`; `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for fewer than 1 frame; `'not_injectable_on_board'` on the FX2, whose frames carry no chunks.
+
+**Refusals by REST status**
+
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+
 <a id="AppliedAutoGain"></a>
 ## `AppliedAutoGain`
 
@@ -13220,6 +13250,18 @@ given up on by a writer recovery or a shutdown.
 
 - `written`
 - `incomplete`
+
+<a id="FrameChunk"></a>
+### `FrameChunk`
+
+Taken by: [`SimulationAPI.withhold_chunk`](#SimulationAPI.withhold_chunk).
+
+A chunk the simulated camera's frames carry, which a fault can withhold.
+
+- `FrameID` (`FRAMEID`)
+- `Timestamp` (`TIMESTAMP`)
+- `ExposureTime` (`EXPOSURETIME`)
+- `Gain` (`GAIN`)
 
 <a id="FrameValiditySource"></a>
 ### `FrameValiditySource`
@@ -17485,6 +17527,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/simulation/stall_stream` | [`SimulationAPI.stall_stream`](#SimulationAPI.stall_stream) |
 | `POST` | `/api/v1/scope/simulation/unplug` | [`SimulationAPI.unplug`](#SimulationAPI.unplug) |
 | `POST` | `/api/v1/scope/simulation/unsilence` | [`SimulationAPI.unsilence`](#SimulationAPI.unsilence) |
+| `POST` | `/api/v1/scope/simulation/withhold_chunk` | [`SimulationAPI.withhold_chunk`](#SimulationAPI.withhold_chunk) |
 | `GET` | `/api/v1/scope/unconnected_parts` | [`Lumascope.unconnected_parts`](#Lumascope.unconnected_parts) |
 | `POST` | `/api/v1/set_protocol_capture_root` | [`ScopeSession.set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root) |
 | `POST` | `/api/v1/set_protocol_labware` | [`ScopeSession.set_protocol_labware`](#ScopeSession.set_protocol_labware) |

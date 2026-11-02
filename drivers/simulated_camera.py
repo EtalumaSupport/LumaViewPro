@@ -247,6 +247,9 @@ class SimulatedCamera(Camera):
     # write, one or two at this depth.
     SENSOR_PIPELINE_FRAMES = 2
 
+    # The chunks every frame carries, as a Basler body's enabled chunks.
+    CHUNKS: ClassVar[tuple[str, ...]] = ('FrameID', 'Timestamp', 'ExposureTime', 'Gain')
+
     # How long after a change the sensor's exposures show it: a register
     # write, the LED, and the stage's X, Y and Z. An exposure starting
     # sooner is made under the state as it stood this long before it began.
@@ -412,6 +415,9 @@ class SimulatedCamera(Camera):
         # the oldest reaches it: a host backlog (``delay_delivery``). 0
         # stores each frame as it is handed over.
         self._backlog_frames = 0
+        # Chunks the next frames arrive without, each with how many frames
+        # are left to lose it (``withhold_chunk``).
+        self._withheld_chunks: dict[str, int] = {}
         # What each recently delivered frame was exposed under, by its
         # FrameID, oldest first (``exposed_under``).
         self._exposure_records: collections.OrderedDict[int, SensorExposure] = (
@@ -787,6 +793,21 @@ class SimulatedCamera(Camera):
         """
         self._backlog_frames = frames
 
+    def withhold_chunk(self, name: str, frames: int) -> None:
+        """Hand over the next ``frames`` frames without their ``name`` chunk.
+
+        As a Basler frame arrives whose chunk the driver could not read: the
+        frame is delivered, and only that one fact of it is missing. 0 takes
+        back a withholding no frame has met yet.
+        """
+        if name not in self.CHUNKS:
+            raise ValueError(f'{name!r} is not one of {self.CHUNKS}')
+        with self._lock:
+            if frames > 0:
+                self._withheld_chunks[name] = frames
+            else:
+                self._withheld_chunks.pop(name, None)
+
     def exposed_under(self, frame_id: int) -> SensorExposure | None:
         """What the delivered frame ``frame_id`` was exposed under; None for
         one this camera did not deliver or no longer keeps a record of."""
@@ -914,6 +935,12 @@ class SimulatedCamera(Camera):
                     'ExposureTime': self._exposure_us,
                     'Gain': self._gain,
                 }
+                for name, left in list(self._withheld_chunks.items()):
+                    del chunks[name]
+                    if left > 1:
+                        self._withheld_chunks[name] = left - 1
+                    else:
+                        del self._withheld_chunks[name]
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
             # the frame being numbered and made and the host storing it.

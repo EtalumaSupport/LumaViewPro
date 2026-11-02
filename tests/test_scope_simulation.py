@@ -12,6 +12,8 @@ control session refuses another caller's fault, and a real scope refuses
 the fault before the session is asked.
 """
 
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -237,6 +239,8 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),
         ('delay_reply', ('motor', 0.0), 'fault_bound', 'delay_s'),
+        ('withhold_chunk', ('LineStatus', 1), 'not_offered', 'chunk'),
+        ('withhold_chunk', ('Timestamp', 0), 'fault_bound', 'frames'),
     ],
 )
 def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, reason, argument):
@@ -284,6 +288,31 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     scope.camera.set_gain_db(4.0)
     assert scope.imaging.frame_validity.target('gain') == 4.0
     assert scope.camera.read_black_level() is not None
+
+
+def test_a_withheld_chunk_is_missing_from_that_many_frames_and_no_more(sim_scope):
+    seen = []
+    six = threading.Event()
+
+    def arrived(frame):
+        seen.append(dict(frame.chunks))
+        if len(seen) == 6:
+            six.set()
+
+    sim_scope.simulation.withhold_chunk('Timestamp', 2)
+    sim_scope.imaging.add_frame_listener(arrived, name='withheld')
+    try:
+        assert six.wait(10.0), 'six frames never arrived'
+    finally:
+        sim_scope.imaging.remove_frame_listener(arrived)
+
+    stamped = ['Timestamp' in chunks for chunks in seen[:6]]
+    # Two frames lose it, one after the other; a frame handed over before
+    # the fault may come first.
+    assert stamped.count(False) == 2, stamped
+    first = stamped.index(False)
+    assert first <= 1 and stamped[first + 1] is False, stamped
+    assert all({'FrameID', 'ExposureTime', 'Gain'} <= chunks.keys() for chunks in seen[:6])
 
 
 def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
@@ -393,6 +422,7 @@ def test_the_fx2_refuses_what_its_device_cannot_show(ls620):
     for member, args in (
         (ls620.simulation.refuse_camera_write, ('gain', 'false')),
         (ls620.simulation.stall_stream, (0.0, 1.0)),
+        (ls620.simulation.withhold_chunk, ('Timestamp', 1)),
         (ls620.simulation.replug, ('led',)),
     ):
         refused = _refused(member, *args)

@@ -126,8 +126,9 @@ _SIM_ONLY_NAME_BUDGET = {
     'MotorBoard': 18,
     # 34: SENSOR_APPLY_DELAY_US, the simulated sensor's own delay, and
     # set_stage_xy and set_illumination, which tell a camera built with no
-    # scope around it its stage and light.
-    'Camera': 34,
+    # scope around it its stage and light. 36: withhold_chunk and the CHUNKS
+    # it takes, the fault of a frame that arrives without one chunk.
+    'Camera': 36,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -173,6 +174,8 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'allow_read'),
     (_SIMULATION, 'FAILED_READS'),
     (_SIMULATION, 'FAILED_READ_ANSWERS'),
+    (_SIMULATION, 'withhold_chunk'),
+    (_SIMULATION, 'CHUNKS'),
 }
 
 
