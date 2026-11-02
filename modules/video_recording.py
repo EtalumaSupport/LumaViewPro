@@ -37,13 +37,14 @@ the recording belongs to a run the failure must also end.
   ``RecordingRefusedError`` directly to the refused caller.
 """
 
+import enum
 import json
 import pathlib
 import queue
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib import profile_trace
 from lvp_logger import logger
@@ -54,13 +55,85 @@ from modules.activity_claim import (
     FalsifyingChangeInFlightError,
     the_holder_named,
 )
-from modules.exceptions import RecordingRefusedError
+from modules.exceptions import CaptureFailedError, RecordingRefusedError
 from modules.lumascope_api.frame_record import TimestampSource
 from modules.live_work import WorkKind
-from modules.video_cadence import CadenceSelector, frame_budget
+from modules.video_cadence import CadenceSelector, StallWatch, frame_budget
+
+if TYPE_CHECKING:
+    from modules.lumascope_api.imaging import ImagingAPI
 
 
 MANIFEST_FILENAME = 'recording_manifest.json'
+
+
+class PreRollEnd(enum.StrEnum):
+    """What ended a recording's wait before its first frame."""
+
+    READY = 'ready'  # every change is in force; the recording may start
+    STOPPED = 'stopped'  # the caller's stop was asked for
+    DEAD_FEED = 'dead_feed'  # no frame arrived for the stall bound
+    TIMED_OUT = 'timed_out'  # the time limit passed with a change not in force
+
+
+def wait_for_changes_in_force(
+    imaging: 'ImagingAPI',
+    *,
+    clock: Callable[[], float],
+    stop_requested: Callable[[], bool] | None = None,
+    stall_threshold_s: float | None = None,
+    limit_s: float | None = None,
+) -> PreRollEnd:
+    """Take frames until every change recorded is in force, and say what ended the wait.
+
+    A recording's pre-roll, manual or a run's video step: its first kept
+    frame must count for every change, by the condition a capture drains
+    on (``ImagingAPI.changes_in_force``), judged through one clock mapping
+    latched as the wait begins. Each grab counts its frame, so a change
+    under the credit rule is met by the frames taken here even with live
+    view off. The stop is checked first on every pass, so a stop always
+    wins; a dead feed is zero frame ARRIVALS for the stall bound, not a
+    change that stays owed while frames arrive, which would blame the
+    camera for a settle fault. ``clock`` is in seconds, and the stall
+    bound and the limit run on it.
+
+    Args:
+        imaging: The scope's imaging API.
+        clock: The caller's monotonic clock, in seconds.
+        stop_requested: Ends the wait as STOPPED when it answers True, or
+            None for a wait nobody stops.
+        stall_threshold_s: Seconds without an arrival that make the feed
+            dead, or None for no stall bound.
+        limit_s: Seconds the whole wait may take, or None for no limit.
+
+    Returns:
+        PreRollEnd: READY, STOPPED, DEAD_FEED or TIMED_OUT.
+
+    Raises:
+        CameraReadFailedError: The camera did not answer the latch of its clock.
+        HardwareCommandRefusedError: ``'not_connected'``, the camera left
+            during the wait.
+    """
+    mapping = imaging.map_camera_clock()
+    watch = StallWatch(stall_threshold_s) if stall_threshold_s is not None else None
+    deadline = clock() + limit_s if limit_s is not None else None
+    arrivals = 0
+    while not imaging.changes_in_force(mapping):
+        if stop_requested is not None and stop_requested():
+            return PreRollEnd.STOPPED
+        now = clock()
+        if watch is not None and watch.stalled(arrivals, now):
+            return PreRollEnd.DEAD_FEED
+        if deadline is not None and now >= deadline:
+            return PreRollEnd.TIMED_OUT
+        # A grab that got no frame is no arrival, for the stall watch.
+        try:
+            imaging.get_image(force_new_capture=True)
+        except CaptureFailedError:
+            continue
+        arrivals += 1
+    return PreRollEnd.READY
+
 
 # End reason for a recording whose caller failed to finish starting it.
 # No manifest is published for one: nothing was recorded, and a manifest

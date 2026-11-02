@@ -49,7 +49,6 @@ import modules.layer_record as layer_record
 from modules.coord_transformations import PlatePosition
 from modules.labware import Labware
 from modules.exceptions import (
-    CaptureFailedError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
     RecordingFramesUnstampedError,
@@ -81,8 +80,10 @@ from modules.video_cadence import (
 )
 from modules.video_recording import (
     END_REASON_START_FAILED,
+    PreRollEnd,
     RecordingConfig,
     VideoRecordingEngine,
+    wait_for_changes_in_force,
 )
 from modules.video_writer import VideoWriter
 
@@ -444,50 +445,29 @@ class ProtocolVideoStep:
     # ------------------------------------------------------------------
 
     def _prologue(self, step) -> str | None:
-        """Drain stale frames, settle, arm the first-frame autogain.
+        """Arm the first-frame autogain, then wait until every change is in force.
 
         Returns None when the recording may start, or the outcome to
         return when it may not: CANCELLED on a run stop (checked first,
         so Stop always wins), NO_FRAMES when the feed is dead. Dead
-        means zero frame ARRIVALS for the stall threshold -- arrivals,
-        deliberately not validity progress: a stuck settle check pins
-        ``frames_until_valid`` while frames keep arriving, and blaming
-        the camera for a motion fault would send the run's abort message
-        pointing at the wrong hardware.
+        means zero frame ARRIVALS for the stall threshold, not a change
+        that stays owed while frames keep arriving: blaming the camera
+        for a motion fault would send the run's abort message pointing
+        at the wrong hardware. The arm comes first because it records a
+        gain and an exposure change of its own, which the step's first
+        frame must count too.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the camera
-                left during the drain; it leaves the video step, and the run
+                left during the wait; it leaves the video step, and the run
                 loop ends the run on it.
+            CameraReadFailedError: The camera did not answer the latch of
+                its clock.
             CameraSettingRejected: The camera did not take the disarm or
                 the one-shot auto-gain; it leaves the video step, which the
                 writer counts a failed capture.
         """
         scope = self._scope
-        exposure_s = float(step['Exposure']) / 1000.0
-        watch = StallWatch(prologue_stall_threshold_s(exposure_s))
-        arrivals = 0
-        while scope.imaging.frames_until_valid() > 0:
-            if self._stop_requested():
-                return CANCELLED
-            if watch.stalled(arrivals, self._elapsed_clock()):
-                logger.error(
-                    '[PROTOCOL-VIDEO] No camera frames arrived during the '
-                    'pre-recording drain (stall threshold '
-                    f'{prologue_stall_threshold_s(exposure_s):.0f} s); '
-                    'treating the feed as dead'
-                )
-                return NO_FRAMES
-            # A grab that got no frame is no arrival, for the stall watch. A
-            # camera that is gone is refused, and the refusal leaves the step:
-            # the run loop ends the run on it, as for a still.
-            try:
-                scope.imaging.get_image(force_new_capture=True)
-            except CaptureFailedError:
-                continue
-            arrivals += 1
-        time.sleep(max(step['Exposure'] / 1000, 0.05))
-
         # A camera without hardware auto-gain records the step manual, as
         # its layer apply did. A disarm or a one-shot the camera did not take
         # raises out of the step, which then records nothing: the writer
@@ -501,6 +481,21 @@ class ProtocolVideoStep:
                 max_gain_db=self._autogain_settings['max_gain_db'],
                 ae_max_exposure_ms=self._autogain_settings.get('max_exposure_ms'),
             )
+
+        stall_s = prologue_stall_threshold_s(float(step['Exposure']) / 1000.0)
+        ended = wait_for_changes_in_force(
+            scope.imaging,
+            clock=self._elapsed_clock,
+            stop_requested=self._stop_requested,
+            stall_threshold_s=stall_s,
+        )
+        if ended == PreRollEnd.DEAD_FEED:
+            logger.error(
+                '[PROTOCOL-VIDEO] No camera frames arrived during the '
+                f'pre-recording wait (stall threshold {stall_s:.0f} s); '
+                'treating the feed as dead'
+            )
+            return NO_FRAMES
         return CANCELLED if self._stop_requested() else None
 
     def _stop_requested(self) -> bool:

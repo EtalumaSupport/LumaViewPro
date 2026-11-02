@@ -148,12 +148,12 @@ class TestStartFailureEndsTheStep:
 
 
 class TestPrologueFeedDeath:
-    """The pre-recording drain terminates on a dead feed -- and only then.
+    """The pre-recording wait terminates on a dead feed -- and only then.
 
     Dead means zero frame ARRIVALS for the stall threshold. Stop is
     checked first each iteration, so a run stop always wins; and frames
-    arriving with validity pinned (a stuck motion-settle) must never be
-    blamed on the camera.
+    arriving with a change never in force (a stuck motion-settle) must
+    never be blamed on the camera.
 
     A dead feed is the camera's stream stalled past the test. The step's
     clock moves 5 s at each read, the threshold for a 10 ms exposure, so
@@ -171,9 +171,9 @@ class TestPrologueFeedDeath:
         recorder = _make_recorder(scope, tmp_path, clock)
         recorder._elapsed_clock = _advancing
         recorder._is_run_in_progress = lambda: clock['t'] < stop_at_s
-        # a stand-in by design: validity pinned is a settle check that never
-        # ends, a production fault no simulated part makes.
-        monkeypatch.setattr(scope.imaging, 'frames_until_valid', lambda *a, **k: 1)
+        # a stand-in by design: a change never in force is a settle check
+        # that never ends, a production fault no simulated part makes.
+        monkeypatch.setattr(scope.imaging, 'changes_in_force', lambda *a, **k: False)
         if not frame_arrives:
             scope.simulation.stall_stream(0.0, 600.0)
         return recorder._prologue({'Exposure': 10.0, 'Auto_Gain': False})
@@ -195,10 +195,9 @@ class TestPrologueFeedDeath:
         assert result == protocol_recording.CANCELLED
 
     def test_arriving_frames_suppress_the_death_verdict(self, tmp_path, sim_scope, monkeypatch):
-        # Validity pinned while frames arrive is a settle fault, not a
-        # camera fault: the drain must never return NO_FRAMES for it.
-        # (Bounded here by the stop; the pinned-validity hang itself is a
-        # separately recorded finding.)
+        # A change never in force while frames arrive is a settle fault, not
+        # a camera fault: the wait must never return NO_FRAMES for it. A run's
+        # step has no time limit, so its Stop is what ends it.
         result = self._prologue_result(
             sim_scope, tmp_path, monkeypatch, stop_at_s=60.0, frame_arrives=True
         )
