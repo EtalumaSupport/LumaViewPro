@@ -26,6 +26,7 @@ from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, Ref
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from modules.lumascope_api.frame_record import TimestampSource
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
@@ -72,6 +73,7 @@ def _config(tmp_path):
         output_dir=tmp_path,
         filename_template='frame_{index}',
         timestamp_overlay=False,
+        timestamp_source=TimestampSource.HOST_ARRIVAL,
     )
 
 

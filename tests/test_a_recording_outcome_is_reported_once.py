@@ -18,12 +18,13 @@ import modules.protocol_recording as protocol_recording
 from modules.exceptions import (
     HyperstackRefusedError,
     RecordingFinalizeError,
+    RecordingFramesUnstampedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
 )
 from modules.notification_center import outcome_of
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
-from tests.video_step_drives import record_first_frame
+from tests.video_step_drives import record_first_frame, video_step_on
 from tests.video_engine_harness import NotifyRecorder
 
 
@@ -67,16 +68,42 @@ def _record_reports(monkeypatch, module):
             'Frames already written are on disk; check the log.',
         ),
         (
-            VideoFramesDroppedError(2, 9, protocol_step=False),
+            VideoFramesDroppedError(2, 9, unstamped=0, protocol_step=False),
             'Video Frames Dropped',
             '2 of 9 frame(s) could not be written, so the saved video is shorter '
             'than the recording. Check the log for the cause.',
         ),
         (
-            VideoFramesDroppedError(2, 9, protocol_step=True),
+            VideoFramesDroppedError(2, 9, unstamped=0, protocol_step=True),
             'Video Frames Dropped',
             '2 of 9 frame(s) in a video step could not be written, so that video is '
             'shorter than its recording. Check the log for the cause.',
+        ),
+        (
+            VideoFramesDroppedError(2, 9, unstamped=3, protocol_step=False),
+            'Video Frames Dropped',
+            '2 of 9 frame(s) could not be written and 3 frame(s) came from the camera '
+            'without their timestamps and were left out, so the saved video is shorter '
+            'than the recording. Check the log for the cause.',
+        ),
+        (
+            VideoFramesDroppedError(0, 9, unstamped=3, protocol_step=True),
+            'Video Frames Dropped',
+            '3 frame(s) in a video step came from the camera without their timestamps '
+            'and were left out, so that video is shorter than its recording. Check the '
+            'log for the cause.',
+        ),
+        (
+            RecordingFramesUnstampedError(12, protocol_step=False),
+            'Recording Saved No Frames',
+            'The camera sent 12 frame(s) without their timestamps, so the recording '
+            'saved none. Reconnect the camera before recording again.',
+        ),
+        (
+            RecordingFramesUnstampedError(12, protocol_step=True),
+            'Recording Saved No Frames',
+            'The camera sent 12 frame(s) without their timestamps, so the video step '
+            'saved none. Reconnect the camera before recording again.',
         ),
         (HyperstackRefusedError('one channel only'), 'Hyperstack Not Built', 'one channel only'),
     ],
@@ -87,6 +114,10 @@ def _record_reports(monkeypatch, module):
         'finalize-step',
         'dropped-manual',
         'dropped-step',
+        'dropped-and-unstamped-manual',
+        'unstamped-step',
+        'all-unstamped-manual',
+        'all-unstamped-step',
         'hyperstack',
     ],
 )
@@ -242,4 +273,31 @@ def test_a_video_steps_failed_finish_is_chained_under_protocol(sim_scope, tmp_pa
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingFinalizeError) and fault.protocol_step is True
     assert fault.__cause__ is failure
+    assert kw == {'solicited': False, 'category': 'Protocol'}
+
+
+def test_a_video_step_sent_only_unstamped_frames_says_so(sim_scope, tmp_path, monkeypatch):
+    reported = _record_reports(monkeypatch, protocol_recording)
+    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    # The step's elapsed clock moves 0.4 s with each frame the camera
+    # delivers, so its one-second recording ends on frames, never on wall
+    # time, and a feed that delivers is never taken for a stalled one.
+    elapsed = {'now': 0.0}
+
+    def _delivered(_frame):
+        elapsed['now'] += 0.4
+
+    sim_scope.simulation.withhold_chunk('Timestamp', 100_000)
+    sim_scope.imaging.add_frame_listener(_delivered, name='the step clock')
+    try:
+        step = video_step_on(sim_scope, tmp_path, elapsed_clock=lambda: elapsed['now'])
+        step.run_blocking()
+        assert step.wait_until_finished(timeout=10.0), 'the finish never ended'
+    finally:
+        sim_scope.imaging.remove_frame_listener(_delivered)
+        sim_scope.simulation.clear()
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, RecordingFramesUnstampedError) and fault.protocol_step is True
+    assert fault.unstamped > 0
     assert kw == {'solicited': False, 'category': 'Protocol'}

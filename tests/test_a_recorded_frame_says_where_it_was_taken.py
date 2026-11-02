@@ -12,6 +12,7 @@ fields, and the plate transform a recording binds at start.
 
 import copy
 import datetime
+import json
 import pathlib
 from types import SimpleNamespace
 
@@ -23,14 +24,16 @@ from modules.lumascope_api import AxisPosition, AxisState
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.common_utils import Light
 from modules.lumascope_api.frame_record import (
+    ClockMapping,
     FrameTime,
     LightTiming,
     SettingSource,
     TimestampSource,
+    arrival_time,
+    camera_frame_time,
 )
 from modules.image_utils import read_file_record
 from modules.recording_frames import (
-    CameraTickRebaser,
     FrameFact,
     RecordingCamera,
     arrival,
@@ -220,27 +223,44 @@ class TestTheRecord:
 
 
 class TestTheFramesTime:
-    """A recorded frame's time says what it is: the camera's clock rebased
-    onto the host's, or the host's arrival time."""
+    """A recorded frame's time says what it is: its start on the camera's
+    clock through the recording's mapping, or the host's arrival time."""
 
-    def test_a_frame_with_ticks_takes_the_cameras_clock_rebased(self):
-        rebaser = CameraTickRebaser(1_000_000_000, clock=lambda: 0.0)
-        arrived_at = datetime.datetime.fromtimestamp(1755000000.0)
-        first = rebaser.frame_time_s(arrived_at, {'Timestamp': 5_000_000_000})
-        later = rebaser.frame_time_s(
-            arrived_at + datetime.timedelta(seconds=9), {'Timestamp': 5_250_000_000}
+    _ARRIVED = datetime.datetime.fromtimestamp(1755000009.0)
+
+    def _frame(self, chunks):
+        return delivered_frame(np.zeros((2, 2), dtype=np.uint8), self._ARRIVED, chunks)
+
+    def test_a_frame_with_ticks_takes_its_start_through_the_mapping(self):
+        # Latched at 5 s of ticks, at 1755000000 s on the wall; ticks a
+        # quarter second later are a quarter second later, whenever the
+        # frame arrived.
+        mapping = ClockMapping(
+            host_ns=0,
+            camera_ticks=5_000_000_000,
+            tick_hz=1_000_000_000,
+            uncertainty_ns=0,
+            wall_ns=1_755_000_000_000_000_000,
         )
 
-        assert first == (1755000000.0, TimestampSource.CAMERA_REBASED)
-        assert later == (1755000000.25, TimestampSource.CAMERA_REBASED)
+        stated = camera_frame_time(self._frame({'Timestamp': 5_250_000_000}), mapping)
 
-    def test_a_frame_without_ticks_takes_its_arrival(self):
-        rebaser = CameraTickRebaser(1_000_000_000, clock=lambda: 0.0)
-        arrived_at = datetime.datetime.fromtimestamp(1755000000.0)
+        assert stated == FrameTime(
+            at=datetime.datetime.fromtimestamp(1755000000.25),
+            source=TimestampSource.CAMERA_FRAME_START,
+        )
 
-        assert rebaser.frame_time_s(arrived_at, None) == (
-            1755000000.0,
-            TimestampSource.HOST_ARRIVAL,
+    def test_a_frame_without_its_tick_has_no_camera_time(self):
+        mapping = ClockMapping(
+            host_ns=0, camera_ticks=0, tick_hz=1_000_000_000, uncertainty_ns=0, wall_ns=0
+        )
+
+        assert camera_frame_time(self._frame({'FrameID': 7}), mapping) is None
+        assert camera_frame_time(self._frame(None), mapping) is None
+
+    def test_a_frames_arrival_is_its_arrival(self):
+        assert arrival_time(self._frame({'Timestamp': 5})) == FrameTime(
+            at=self._ARRIVED, source=TimestampSource.HOST_ARRIVAL
         )
 
 
@@ -409,6 +429,7 @@ def _config(out_dir):
         output_dir=out_dir,
         filename_template='frame_{n:06d}.tiff',
         timestamp_overlay=False,
+        timestamp_source=TimestampSource.HOST_ARRIVAL,
         manifest_extra={},
     )
 
@@ -468,13 +489,84 @@ class TestARecordingOnTheSimulator:
         assert written['objective'] == objective
         assert written['plate']['name'] == plate_name
         assert written['pixel_size_um'] is not None
-        assert written['timestamp_source'] == 'camera_rebased', 'the simulator stamps ticks'
+        assert written['timestamp_source'] == 'camera_frame_start', 'the simulator latches'
         assert written['illumination_timing'] == 'on_arrival'
         assert 'frame_validity' not in written and 'black_level' not in written
 
         # The stage stood still, so every plane states the one position.
         stack = read_file_record(folder / MANUAL_HYPERSTACK_FILENAME)
         assert stack['plate_pos_mm'] == written['plate_pos_mm'], "the stack states the frame's"
+
+
+class TestARecordingStatesEachFramesStart:
+    """A recording's frame states the instant it started on the camera's
+    clock, mapped through the one mapping the recording took as it started,
+    on the frames leg's files and the MP4 leg's manifest alike; a frame that
+    started before the recording did is not kept. The oracle is the
+    simulator's own clock, never the production mapping."""
+
+    _EXPOSURE_MS = 30.0
+    # The latch's bracket on the simulator is microseconds wide; 3 ms covers
+    # it and the two wall clock reads' own slew against the steady clock.
+    _WITHIN = datetime.timedelta(milliseconds=3)
+
+    def _record(self, tmp_path, *, video_as_frames):
+        """A manual recording of a few frames on a simulated session: its
+        folder, each delivered frame's true start by FrameID, and the wall
+        time just before the recording was asked to start."""
+        import threading
+
+        from drivers import host_clock
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        settings = complete_settings(live_folder=str(tmp_path), video_as_frames=video_as_frames)
+        session = ScopeSession.create(settings, simulate=True)
+        started = {}
+        six = threading.Event()
+        try:
+            scope = session.scope
+            offset_ns = scope._camera_driver._clock_offset_ns
+            scope.camera.set_exposure_ms(self._EXPOSURE_MS)
+
+            def _truth(frame):
+                exposure = scope.simulation.exposed_under(frame)
+                steady_ns = exposure.started_ticks - offset_ns
+                wall_ns = host_clock.wall_ns() + steady_ns - host_clock.steady_ns()
+                started[frame.chunks['FrameID']] = datetime.datetime.fromtimestamp(wall_ns / 1e9)
+                if len(started) >= 6:
+                    six.set()
+
+            scope.imaging.add_frame_listener(_truth, name='the true starts')
+            before = datetime.datetime.now()
+            operation = session.manual_recording.start()
+            assert six.wait(timeout=20), 'the simulated camera delivered no frames'
+            operation.stop()
+            operation.result(timeout=60)
+            scope.imaging.remove_frame_listener(_truth)
+        finally:
+            session.shutdown()
+        return tmp_path / 'Manual', started, before
+
+    def test_a_frames_recordings_first_frame_states_its_start(self, tmp_path):
+        manual, started, before = self._record(tmp_path, video_as_frames=True)
+
+        folder = next(manual.glob('Video_*'))
+        first = read_file_record(sorted(folder.glob('ManualVideo_Frame_*.tiff'))[0])
+        stated = datetime.datetime.fromisoformat(first['timestamp_iso'])
+        assert first['timestamp_source'] == 'camera_frame_start'
+        assert abs(stated - started[first['frame_id']]) <= self._WITHIN
+        assert stated >= before, 'a frame started before the recording was kept'
+
+    def test_an_mp4_recordings_manifest_states_its_first_frames_start(self, tmp_path):
+        manual, started, before = self._record(tmp_path, video_as_frames=False)
+
+        manifest = json.loads(next(manual.glob('*_manifest.json')).read_text())
+        first = manifest['frame_index'][0]
+        stated = datetime.datetime.fromtimestamp(first['ts_s'])
+        assert manifest['timestamp_grade'] == 'camera_frame_start'
+        assert abs(stated - started[first['chunks']['FrameID']]) <= self._WITHIN
+        assert stated >= before, 'a frame started before the recording was kept'
 
 
 # --- A recording's frames take their capture's container -----------------

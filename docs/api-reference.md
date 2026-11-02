@@ -3943,7 +3943,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 - `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
 - `scheduler`: The session's scheduler; the controller arms its own periodic health check on it at `start` and disarms at finish. Required: a controller that can start a recording but has no armed health bound is the trap this parameter exists to make unconstructible.
 - `post_processing`: The session's builds; a recording's stack is built through it.
-- `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence and the camera tick rebaser. Tests drive it.
+- `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence. Tests drive it.
 - `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration cap, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its cap. Tests drive it.
 
 <a id="ManualRecordingController.discard_pending"></a>
@@ -4088,7 +4088,7 @@ Nothing.
 def start(self, *, false_color_on: bool = False) -> Operation[str]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop).  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
 Route: `POST /api/v1/manual_recording/start`.
 
 Snapshot configuration and open a recording; returns its operation.
@@ -4116,10 +4116,13 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
 - `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. Nothing is committed.
+- `CameraReadFailedError`: The camera did not answer the read of its frame size, or the latch of its clock the recording maps every frame through. Nothing is committed.
 
 **Refusals by REST status**
 
-- 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_layer`, `camera_exposure_unknown`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
+- 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_layer`, `camera_exposure_unknown`, `capture_location_unusable`, `names_exhausted`, `insufficient_disk`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ManualRecordingController.stop"></a>
@@ -6796,6 +6799,36 @@ axis settled.
 **Raises**
 
 Nothing.
+
+<a id="ImagingAPI.map_camera_clock"></a>
+### `ImagingAPI.map_camera_clock`
+
+```python
+def map_camera_clock(self) -> ClockMapping | None
+```
+
+Marks: in-process.
+
+The camera's clock mapped onto the host's steady and wall clocks, now.
+
+The latch is a command to the camera, so it runs on the camera's
+lane, as a capture's own latch does: a latch and the read of what it
+latched never interleave with another's. A recording takes one as it
+starts and maps every frame's tick through it.
+
+**Returns**
+
+ClockMapping | None: The mapping; None for a camera without a latch (`capabilities.camera_has_clock_latch`).
+
+**Raises**
+
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `CameraReadFailedError`: The latch or the read of what it latched failed.
+
+**Refusals**
+
+- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ImagingAPI.recorded_changes"></a>
 ### `ImagingAPI.recorded_changes`
@@ -9626,6 +9659,7 @@ never by this record.
 ## `ClockMapping`
 
 A record: it crosses the wire as its data.  
+Returned by: [`ImagingAPI.map_camera_clock`](#ImagingAPI.map_camera_clock).  
 Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).  
 Taken by: [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).
 
@@ -13707,15 +13741,12 @@ CAMERA_FRAME_START: the frame's start on the camera's own clock (its
 HOST_ARRIVAL: the host's wall clock when the frame arrived from the
     camera: a camera that stamps no ticks or has no latch, or a frame
     that came without its tick.
-CAMERA_REBASED: the camera's own clock for the frame, offset onto the
-    host's wall clock at the recording's first frame that carried it.
 HOST_WALLCLOCK: the host's wall clock read after the grab returned the
     frame. No longer written: it is what a still saved by `4.0.0-beta`
     states.
 
 - `camera_frame_start`
 - `host_arrival`
-- `camera_rebased`
 - `host_wallclock`
 
 <a id="Trendline"></a>
@@ -16443,6 +16474,27 @@ are on disk.
 | `recording_finalize_failed` | -- | 500 |
 | `video_step_finalize_failed` | -- | 500 |
 
+<a id="RecordingFramesUnstampedError"></a>
+### `RecordingFramesUnstampedError`
+
+A fault; bases `Fault`, `CaptureError`.
+
+A recording's frames all came from the camera without their timestamps.
+
+In a recording whose times are the camera's frame starts, a frame
+without its tick has no time on that clock and is not kept, so a
+recording sent only such frames saved none. The camera was delivering:
+this is not a stalled camera and not an empty feed.
+
+**Attributes**
+
+- `unstamped`: Frames the camera sent without their timestamps.
+- `protocol_step`: True for a protocol video step, False for a manual recording.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `frames_unstamped` | -- | 500 |
+
 <a id="RecordingPositionNotRecordedNotice"></a>
 ### `RecordingPositionNotRecordedNotice`
 
@@ -17270,15 +17322,18 @@ Firmware update failure with stage and recoverability info.
 
 A fault; bases `Fault`, `CaptureError`.
 
-Frames a recording selected could not be written, so its video is short.
+Frames a recording was sent were not saved, so its video is short.
 
-Each dropped frame is a write that failed; the recording's manifest
-carries the counts too.
+A frame is dropped when its write failed, or when it came from the
+camera without its timestamp in a recording whose times are the
+camera's, so it was never kept; the recording's manifest carries the
+counts too.
 
 **Attributes**
 
-- `dropped`: Frames that could not be written.
+- `dropped`: Selected frames that could not be written.
 - `selected`: Frames the recording selected.
+- `unstamped`: Frames that came without the camera's timestamp and were left out.
 - `protocol_step`: True for a protocol video step, False for a manual recording.
 
 | Reason | Cause | REST status |

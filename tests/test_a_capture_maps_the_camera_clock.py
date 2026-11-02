@@ -158,6 +158,43 @@ def test_a_still_whose_frame_came_without_its_tick_states_its_arrival(sim_scope)
     assert before <= record.captured_at.at <= returned
 
 
+def test_two_latches_from_two_threads_each_map_their_own_instant(sim_scope, sim_camera):
+    """A recording's latch and a still's are commands on one camera lane:
+    a latch and the read of what it latched never interleave with the
+    other's, so each mapping's tick is the camera's clock at its own
+    bracket, by the simulator's clock (its steady clock plus its epoch)."""
+    _camera, sim = sim_camera
+    mappings = []
+    lock = threading.Lock()
+
+    def _recordings_latches():
+        for _ in range(20):
+            mapping = sim_scope.imaging.map_camera_clock()
+            with lock:
+                mappings.append(mapping)
+
+    def _stills_latches():
+        for _ in range(5):
+            mapping = sim_scope.imaging.capture_still().record.clock_mapping
+            with lock:
+                mappings.append(mapping)
+
+    threads = [
+        threading.Thread(target=_recordings_latches),
+        threading.Thread(target=_stills_latches),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30.0)
+        assert not thread.is_alive(), 'a latch never returned'
+
+    assert len(mappings) == 25
+    for mapping in mappings:
+        latched_steady_ns = mapping.camera_ticks - sim._clock_offset_ns
+        assert abs(latched_steady_ns - mapping.host_ns) <= mapping.uncertainty_ns, mapping
+
+
 def _configured_pylon_camera(advertised):
     """A Pylon camera reconnected through the real ``init_camera_config``,
     its chunks and its tick rate read as a connect reads them, advertising

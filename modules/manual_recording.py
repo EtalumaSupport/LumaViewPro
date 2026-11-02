@@ -59,19 +59,24 @@ from modules.exceptions import (
     InputFramesUnusableError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
+    RecordingFramesUnstampedError,
     RecordingPositionNotRecordedNotice,
     RecordingRefusedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
     VideoWriterFailedError,
 )
-from modules.lumascope_api.frame_record import FrameTime
+from modules.lumascope_api.frame_record import (
+    ClockMapping,
+    TimestampSource,
+    arrival_time,
+    camera_frame_time,
+)
 from modules.lumascope_api.illumination import lit_other_than
 from modules.notification_center import notifications
 from modules.operation import Operation
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
-    CameraTickRebaser,
     RecordingCamera,
     arrival,
     manual_frame_filename_template,
@@ -161,8 +166,7 @@ class ManualRecordingController:
         post_processing: The session's builds; a recording's stack is
             built through it.
         clock: Wall-time source (seconds) for what is measured against
-            frame timestamps: the engine's cadence and the camera tick
-            rebaser. Tests drive it.
+            frame timestamps: the engine's cadence. Tests drive it.
         elapsed_clock: Elapsed-time source (seconds) for the recording's
             bounds: its elapsed time, the duration cap, the stall watch and
             the disk probe's interval. Monotonic, because wall time steps
@@ -199,7 +203,13 @@ class ManualRecordingController:
         self._start_ts: float | None = None
         self._stall_watch: StallWatch | None = None
         self._effective_fps: float | None = None
-        self._rebaser: CameraTickRebaser | None = None
+        # The camera's clock as the recording took it at start; None on a
+        # camera without a latch, whose frames state their arrival.
+        self._mapping: ClockMapping | None = None
+        # Frames the camera delivered to this recording, stamped or not: the
+        # stall watch's count, since a camera sending frames without their
+        # timestamps is delivering, not stalled.
+        self._frames_delivered = 0
         self._hyperstack_rows: list | None = None
         self._last_disk_check_ts = 0.0
         self._operation: Operation | None = None
@@ -293,7 +303,7 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    @api(stop='Operation.stop')
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start(self, *, false_color_on: bool = False) -> 'Operation[str]':
         """Snapshot configuration and open a recording; returns its operation.
 
@@ -342,6 +352,9 @@ class ManualRecordingController:
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 Nothing is committed.
+            CameraReadFailedError: The camera did not answer the read of its
+                frame size, or the latch of its clock the recording maps
+                every frame through. Nothing is committed.
         """
         # Exclusivity has to span the finish, not just the drain. The
         # engine frees its claim before the finish thread stops reading
@@ -497,6 +510,11 @@ class ManualRecordingController:
             claimed['plate'] = scope.runtime_state.get_labware() if video_as_frames else None
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
             claimed['camera'] = recording_camera(scope) if video_as_frames else None
+            # The camera's clock, taken last before the engine's start: every
+            # frame's time is its start through this one mapping, so a frame
+            # that started before the recording did falls before its start
+            # and is not kept. A failed latch fails the start.
+            claimed['mapping'] = mapping = scope.imaging.map_camera_clock()
             claimed['config'] = RecordingConfig(
                 fps=effective_fps,
                 duration_s=duration_s,
@@ -506,6 +524,11 @@ class ManualRecordingController:
                 output_dir=save_folder,
                 filename_template=manual_frame_filename_template(capture_config.output_format_live),
                 timestamp_overlay=video_settings['timestamp_overlay'],
+                timestamp_source=(
+                    TimestampSource.CAMERA_FRAME_START
+                    if mapping is not None
+                    else TimestampSource.HOST_ARRIVAL
+                ),
                 manifest_extra=manifest_extra,
                 # The MP4 leg's artifacts share the flat Manual folder, so its
                 # manifest is named after the video the writer actually wrote --
@@ -587,7 +610,8 @@ class ManualRecordingController:
                 self._start_ts = self._elapsed_clock()
                 self._effective_fps = effective_fps
                 self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps, exposure))
-                self._rebaser = CameraTickRebaser(camera.camera_timestamp_tick_hz, self._clock)
+                self._mapping = claimed['mapping']
+                self._frames_delivered = 0
                 self._hyperstack_rows = [] if hyperstack else None
                 self._last_disk_check_ts = 0.0
                 self._operation = operation
@@ -755,7 +779,7 @@ class ManualRecordingController:
         # Exposure and gain stay open during a recording, so the interval
         # between frames can grow after start: the bound follows it.
         stall_watch.raise_threshold(self._stall_threshold_now(effective_fps))
-        if stall_watch.stalled(engine.frames_selected, self._elapsed_clock()):
+        if stall_watch.stalled(self._frames_delivered, self._elapsed_clock()):
             self._stop_for_camera_loss(reason='camera_stalled')
 
     def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
@@ -793,7 +817,13 @@ class ManualRecordingController:
     # ------------------------------------------------------------------
 
     def _on_camera_frame(self, frame: Frame) -> None:
-        """SDK-thread listener: rebase the timestamp, offer to the engine.
+        """SDK-thread listener: give the frame its time, offer it to the engine.
+
+        Its time is its start on the camera's clock through the recording's
+        mapping, or its arrival on a camera without a latch. A frame that
+        came without its tick in a recording whose times are the camera's is
+        not offered: it is counted (``note_unstamped``) and reported at the
+        finish.
 
         The frame's facts -- where it was, what lit it -- are read HERE,
         when the frame arrives, and ride the queue with it: the write runs
@@ -804,16 +834,22 @@ class ManualRecordingController:
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
+        self._frames_delivered += 1
         plan = self._plan
+        mapping = self._mapping
+        frame_time = (
+            camera_frame_time(frame, mapping) if mapping is not None else arrival_time(frame)
+        )
+        if frame_time is None:
+            engine.note_unstamped()
+            return
         chunks = dict(frame.chunks) if frame.chunks is not None else None
-        timestamp_s, source = self._rebaser.frame_time_s(frame.timestamp, chunks)
+        timestamp_s = frame_time.at.timestamp()
         facts = (
             arrival(
                 self._scope,
                 frame,
-                frame_time=FrameTime(
-                    at=datetime.datetime.fromtimestamp(timestamp_s), source=source
-                ),
+                frame_time=frame_time,
                 channel_tiebreak=plan.layer,
                 to_plate=plan.to_plate,
                 camera=plan.camera,
@@ -1009,10 +1045,21 @@ class ManualRecordingController:
                     logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
 
                 dropped = result.write_failures + writer_dropped
-                if dropped > 0 and not result.aborted:
+                # Frames came and none had the camera's timestamp: the
+                # recording saved none, and says why in its own words.
+                if result.frames_selected == 0 and result.frames_unstamped > 0:
+                    notifications.report_outcome(
+                        RecordingFramesUnstampedError(result.frames_unstamped, protocol_step=False),
+                        solicited=False,
+                        category='Recording',
+                    )
+                elif (dropped > 0 or result.frames_unstamped > 0) and not result.aborted:
                     notifications.report_outcome(
                         VideoFramesDroppedError(
-                            dropped, result.frames_selected, protocol_step=False
+                            dropped,
+                            result.frames_selected,
+                            unstamped=result.frames_unstamped,
+                            protocol_step=False,
                         ),
                         solicited=False,
                         category='Recording',

@@ -2586,14 +2586,18 @@ class RecordingFinalizeError(Fault, CaptureError):
 
 
 class VideoFramesDroppedError(Fault, CaptureError):
-    """Frames a recording selected could not be written, so its video is short.
+    """Frames a recording was sent were not saved, so its video is short.
 
-    Each dropped frame is a write that failed; the recording's manifest
-    carries the counts too.
+    A frame is dropped when its write failed, or when it came from the
+    camera without its timestamp in a recording whose times are the
+    camera's, so it was never kept; the recording's manifest carries the
+    counts too.
 
     Attributes:
-        dropped: Frames that could not be written.
+        dropped: Selected frames that could not be written.
         selected: Frames the recording selected.
+        unstamped: Frames that came without the camera's timestamp and were
+            left out.
         protocol_step: True for a protocol video step, False for a manual
             recording.
     """
@@ -2601,20 +2605,56 @@ class VideoFramesDroppedError(Fault, CaptureError):
     title = 'Video Frames Dropped'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'video_frames_dropped': None}
 
-    def __init__(self, dropped: int, selected: int, *, protocol_step: bool):
+    def __init__(self, dropped: int, selected: int, *, unstamped: int, protocol_step: bool):
         what = 'in a video step ' if protocol_step else ''
         short = (
             'that video is shorter than its'
             if protocol_step
             else 'the saved video is shorter than the'
         )
+        lost = []
+        if dropped:
+            lost.append(f'{dropped} of {selected} frame(s) {what}could not be written')
+        if unstamped:
+            lost.append(
+                f'{unstamped} frame(s) {what}came from the camera without their timestamps '
+                'and were left out'
+            )
         super().__init__(
-            f'{dropped} of {selected} frame(s) {what}could not be written, so {short} '
-            'recording. Check the log for the cause.',
+            f'{" and ".join(lost)}, so {short} recording. Check the log for the cause.',
             'video_frames_dropped',
         )
         self.dropped = dropped
         self.selected = selected
+        self.unstamped = unstamped
+        self.protocol_step = protocol_step
+
+
+class RecordingFramesUnstampedError(Fault, CaptureError):
+    """A recording's frames all came from the camera without their timestamps.
+
+    In a recording whose times are the camera's frame starts, a frame
+    without its tick has no time on that clock and is not kept, so a
+    recording sent only such frames saved none. The camera was delivering:
+    this is not a stalled camera and not an empty feed.
+
+    Attributes:
+        unstamped: Frames the camera sent without their timestamps.
+        protocol_step: True for a protocol video step, False for a manual
+            recording.
+    """
+
+    title = 'Recording Saved No Frames'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'frames_unstamped': None}
+
+    def __init__(self, unstamped: int, *, protocol_step: bool):
+        what = 'the video step' if protocol_step else 'the recording'
+        super().__init__(
+            f'The camera sent {unstamped} frame(s) without their timestamps, so {what} '
+            'saved none. Reconnect the camera before recording again.',
+            'frames_unstamped',
+        )
+        self.unstamped = unstamped
         self.protocol_step = protocol_step
 
 

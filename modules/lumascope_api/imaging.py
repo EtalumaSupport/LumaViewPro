@@ -1297,6 +1297,32 @@ class ImagingAPI:
             auto_gain=auto_gain,
         )
 
+    @api(in_process=True)
+    def map_camera_clock(self) -> ClockMapping | None:
+        """The camera's clock mapped onto the host's steady and wall clocks, now.
+
+        The latch is a command to the camera, so it runs on the camera's
+        lane, as a capture's own latch does: a latch and the read of what it
+        latched never interleave with another's. A recording takes one as it
+        starts and maps every frame's tick through it.
+
+        Returns:
+            ClockMapping | None: The mapping; None for a camera without a
+                latch (``capabilities.camera_has_clock_latch``).
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
+            CameraReadFailedError: The latch or the read of what it latched
+                failed.
+        """
+        return self._camera._dispatch_camera(
+            self._clock_mapping_for_record,
+            'map_camera_clock',
+            timeout_s=self._camera._CAMERA_WRITE_TIMEOUT_S,
+        )
+
     def _clock_mapping_for_record(self) -> ClockMapping | None:
         """The camera's clock mapped onto the host's, taken at the top of each
         capture cycle, before its drain: the latch alone is bracketed by the

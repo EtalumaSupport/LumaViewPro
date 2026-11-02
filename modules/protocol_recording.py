@@ -52,14 +52,19 @@ from modules.exceptions import (
     CaptureFailedError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
+    RecordingFramesUnstampedError,
     VideoFramesDroppedError,
     VideoWriterFailedError,
 )
 from modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
 from modules.notification_center import notifications
-from modules.lumascope_api.frame_record import FrameTime
+from modules.lumascope_api.frame_record import (
+    ClockMapping,
+    TimestampSource,
+    arrival_time,
+    camera_frame_time,
+)
 from modules.recording_frames import (
-    CameraTickRebaser,
     RecordingCamera,
     arrival,
     orient_and_fit,
@@ -133,8 +138,7 @@ class ProtocolVideoStep:
             no X/Y stage has no X/Y position to convert, so its frames state
             no plate position.
         clock: Wall-time source (seconds) for what is measured against
-            frame timestamps: the engine's cadence and the camera tick
-            rebaser. Tests drive it.
+            frame timestamps: the engine's cadence. Tests drive it.
         elapsed_clock: Elapsed-time source (seconds) for the step's
             bounds: the pre-recording stall watch, the duration, the
             stall watch and the disk probe's interval. Monotonic, because
@@ -201,7 +205,9 @@ class ProtocolVideoStep:
 
         self._engine: VideoRecordingEngine | None = None
         self._writer: VideoWriter | None = None
-        self._rebaser: CameraTickRebaser | None = None
+        # The camera's clock as the step took it at start; None on a camera
+        # without a latch, whose frames state their arrival.
+        self._mapping: ClockMapping | None = None
         self._tick_freq_hz: float | None = None
         self._camera: RecordingCamera | None = None
         self._output_dir: Path | None = None
@@ -303,7 +309,12 @@ class ProtocolVideoStep:
         # file with no objective would carry no scale.
         self._objective_id, _ = scope.runtime_state.resolve_current_objective()
         self._camera = recording_camera(scope) if self._video_as_frames else None
-        self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
+        # The camera's clock, taken after the prologue and before the
+        # engine's start: every frame's time is its start through this one
+        # mapping, so a frame that started before the step's recording did
+        # falls before its start and is not kept. A failed latch fails the
+        # step, as a failed frame-size read does.
+        self._mapping = scope.imaging.map_camera_clock()
         self._start_dt = datetime.datetime.now()
 
         if self._video_as_frames:
@@ -324,6 +335,11 @@ class ProtocolVideoStep:
                 self._name, self._capture_config.output_format_sequenced
             ),
             timestamp_overlay=self._timestamp_overlay,
+            timestamp_source=(
+                TimestampSource.CAMERA_FRAME_START
+                if self._mapping is not None
+                else TimestampSource.HOST_ARRIVAL
+            ),
             manifest_extra={
                 'step_name': self._name,
                 # The channel, and whether it was shown in false colour, as
@@ -549,7 +565,13 @@ class ProtocolVideoStep:
     # ------------------------------------------------------------------
 
     def _on_camera_frame(self, frame: Frame) -> None:
-        """SDK-thread listener: rebase the timestamp, offer to the engine.
+        """SDK-thread listener: give the frame its time, offer it to the engine.
+
+        Its time is its start on the camera's clock through the step's
+        mapping, or its arrival on a camera without a latch. A frame that
+        came without its tick in a step whose times are the camera's is not
+        offered: it is counted (``note_unstamped``) and reported at the
+        finish. It is seen either way, so the step's feed is alive.
 
         The frame's facts -- where it was, what lit it -- are read HERE,
         when the frame arrives, and ride the queue with it: the write runs
@@ -561,15 +583,20 @@ class ProtocolVideoStep:
         if engine is None or not engine.is_recording:
             return
         self._frames_seen += 1
+        mapping = self._mapping
+        frame_time = (
+            camera_frame_time(frame, mapping) if mapping is not None else arrival_time(frame)
+        )
+        if frame_time is None:
+            engine.note_unstamped()
+            return
         chunks = dict(frame.chunks) if frame.chunks is not None else None
-        timestamp_s, source = self._rebaser.frame_time_s(frame.timestamp, chunks)
+        timestamp_s = frame_time.at.timestamp()
         facts = (
             arrival(
                 self._scope,
                 frame,
-                frame_time=FrameTime(
-                    at=datetime.datetime.fromtimestamp(timestamp_s), source=source
-                ),
+                frame_time=frame_time,
                 channel_tiebreak=self._step['Color'],
                 to_plate=self._to_plate,
                 camera=self._camera,
@@ -725,6 +752,9 @@ class ProtocolVideoStep:
                 )
             else:
                 dropped = result.write_failures + writer_dropped
+                # Frames came and none had the camera's timestamp: the step
+                # saved none, and says why in its own words.
+                all_unstamped = result.frames_selected == 0 and result.frames_unstamped > 0
                 if result.aborted:
                     # The writer's death ends the run. Logged once here with
                     # its cause; the run's fatal funnel then stops the run,
@@ -742,6 +772,14 @@ class ProtocolVideoStep:
                         reason='video_write_failed', capture_time=self._start_dt
                     )
                 elif result.frames_written == 0:
+                    if all_unstamped:
+                        notifications.report_outcome(
+                            RecordingFramesUnstampedError(
+                                result.frames_unstamped, protocol_step=True
+                            ),
+                            solicited=False,
+                            category='Protocol',
+                        )
                     # The row's reason is the engine's recorded end reason --
                     # a camera death and a user stop must not share a label.
                     self._record_dropped_capture(
@@ -773,13 +811,20 @@ class ProtocolVideoStep:
                     notifications.report_outcome(
                         unsaved, solicited=False, category='Video Recording'
                     )
-                if dropped > 0 and not result.aborted:
+                if (
+                    (dropped > 0 or result.frames_unstamped > 0)
+                    and not result.aborted
+                    and not all_unstamped
+                ):
                     # The center's protocol mute suppresses this popup during
                     # an unattended run; the manifest and end-of-run report
                     # carry the counts either way.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
-                            dropped, result.frames_selected, protocol_step=True
+                            dropped,
+                            result.frames_selected,
+                            unstamped=result.frames_unstamped,
+                            protocol_step=True,
                         ),
                         solicited=False,
                         category='Protocol',

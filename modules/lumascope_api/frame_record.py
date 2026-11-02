@@ -107,8 +107,6 @@ class TimestampSource(enum.StrEnum):
     HOST_ARRIVAL: the host's wall clock when the frame arrived from the
         camera: a camera that stamps no ticks or has no latch, or a frame
         that came without its tick.
-    CAMERA_REBASED: the camera's own clock for the frame, offset onto the
-        host's wall clock at the recording's first frame that carried it.
     HOST_WALLCLOCK: the host's wall clock read after the grab returned the
         frame. No longer written: it is what a still saved by ``4.0.0-beta``
         states.
@@ -116,7 +114,6 @@ class TimestampSource(enum.StrEnum):
 
     CAMERA_FRAME_START = 'camera_frame_start'
     HOST_ARRIVAL = 'host_arrival'
-    CAMERA_REBASED = 'camera_rebased'
     HOST_WALLCLOCK = 'host_wallclock'
 
 

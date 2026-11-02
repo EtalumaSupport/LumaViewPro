@@ -22,6 +22,7 @@ from modules.activity_claim import ActivityClaim
 from modules.caller import Caller
 import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
+from modules.lumascope_api.frame_record import TimestampSource
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import (
     FakeClock,
@@ -38,6 +39,7 @@ REQUIRED_MANIFEST_KEYS = {
     'end_reason',
     'frames_written',
     'write_failures',
+    'frames_unstamped',
     'timestamp_grade',
     'measured_fps',
     'measured_duration_s',
@@ -53,6 +55,7 @@ def make_config(
     height=6,
     bit_depth=8,
     timestamp_overlay=True,
+    timestamp_source=TimestampSource.CAMERA_FRAME_START,
     manifest_extra=None,
     manifest_filename=video_recording_module.MANIFEST_FILENAME,
 ):
@@ -65,6 +68,7 @@ def make_config(
         output_dir=pathlib.Path(tmp_path),
         filename_template='frame_{n:06d}.tiff',
         timestamp_overlay=timestamp_overlay,
+        timestamp_source=timestamp_source,
         manifest_extra=manifest_extra,
         manifest_filename=manifest_filename,
     )
@@ -349,21 +353,37 @@ class TestMeasuredTruth:
         assert 6.0 < result.measured_fps < 8.0
         assert 1.5 < result.measured_duration_s < 2.1
 
-    def test_camera_chunks_grade_timestamps_camera(self, tmp_path):
-        engine, _writer, clock, _ = make_engine(tmp_path)
-        engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1, chunks=True)
-        engine.stop('user_stop')
-        assert engine.wait_for_drain(timeout=5)
-        assert engine.result().timestamp_grade == 'camera'
+    def test_the_grade_is_the_source_the_recording_started_with(self, tmp_path):
+        # The controller states its frames' source once; the engine never
+        # infers it from the frames, which carry chunks either way.
+        for source in (TimestampSource.CAMERA_FRAME_START, TimestampSource.HOST_ARRIVAL):
+            folder = tmp_path / source
+            folder.mkdir()
+            engine, _writer, clock, _ = make_engine(folder)
+            engine.start(
+                lambda folder=folder, source=source: make_config(
+                    folder, fps=5, duration_s=1, timestamp_source=source
+                )
+            )
+            feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1, chunks=True)
+            engine.stop('user_stop')
+            assert engine.wait_for_drain(timeout=5)
+            assert engine.result().timestamp_grade is source
+            manifest = json.loads(engine.result().manifest_path.read_text())
+            assert manifest['timestamp_grade'] == source.value
 
-    def test_missing_chunks_grade_timestamps_host(self, tmp_path):
+    def test_an_unstamped_frame_is_counted_and_never_selected(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
-        engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1, chunks=False)
+        engine.note_unstamped()  # before the recording: nothing to count it in
+        engine.start(lambda: make_config(tmp_path, fps=None, duration_s=10))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=0.3)
+        engine.note_unstamped()
+        engine.note_unstamped()
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
-        assert engine.result().timestamp_grade == 'host'
+        result = engine.result()
+        assert (result.frames_selected, result.frames_unstamped) == (3, 2)
+        assert json.loads(result.manifest_path.read_text())['frames_unstamped'] == 2
 
 
 class TestManifestTruth:
@@ -493,6 +513,7 @@ class TestConfigSnapshotContract:
                 bit_depth=8,
                 output_dir=pathlib.Path(tmp_path),
                 filename_template='frame_{n:06d}.tiff',
+                timestamp_source=TimestampSource.CAMERA_FRAME_START,
             )
 
     def test_manifest_extra_merges_and_engine_truth_wins(self, tmp_path):

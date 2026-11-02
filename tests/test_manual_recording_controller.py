@@ -8,6 +8,7 @@ post-drain finish. The engine underneath is the real one; the camera is
 a stub delivering frames straight into the registered listener.
 """
 
+import datetime
 import itertools
 import json
 import sys
@@ -22,8 +23,10 @@ import modules.manual_recording as manual_recording_module
 import modules.stack_builder as stack_builder_module
 from modules.coord_transformations import PlatePosition
 from modules.exceptions import RecordingRefusedError
+from modules.image_utils import read_file_record
 from modules.layer_record import load_scope_models
 from modules.lumascope_api.illumination import LedReading, LedState
+from modules.lumascope_api.frame_record import ClockMapping
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
@@ -104,6 +107,15 @@ class _FakeCamera:
 class _FakeImaging:
     def __init__(self):
         self.listener = None
+        # The camera's clock is the test's clock: ``feed_frames`` stamps a
+        # frame's tick as the clock's reading, so this mapping carries a tick
+        # to that reading. None is a camera without a latch.
+        self.mapping = ClockMapping(
+            host_ns=0, camera_ticks=0, tick_hz=TICK_HZ, uncertainty_ns=0, wall_ns=0
+        )
+
+    def map_camera_clock(self):
+        return self.mapping
 
     def add_frame_listener(self, cb, name=None):
         self.listener = cb
@@ -279,11 +291,15 @@ def make_controller(
     return controller, scope, clock
 
 
-def feed_frames(scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None):
+def feed_frames(
+    scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None, stamped=True, start_id=0
+):
     """Deliver n frames through the registered listener at the given rate.
 
-    Ticks advance uniformly at the camera's own clock; the host float
-    timestamp optionally jitters around the same instants.
+    Ticks advance uniformly at the camera's own clock; the host arrival
+    timestamp optionally jitters around the same instants. Unstamped frames
+    come without their ``Timestamp`` chunk, as a Basler frame whose chunk
+    the driver could not read.
     """
     step = 1.0 / fps
     for i in range(n):
@@ -295,8 +311,12 @@ def feed_frames(scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None):
             # -- the write lane's own disk-floor breach ends a recording
             # exactly this way, from a thread racing this loop.
             return
-        host_ts = clock() + (jitter[i % len(jitter)] if jitter else 0.0)
-        chunks = {'Timestamp': int(clock() * TICK_HZ), 'FrameID': i}
+        host_ts = datetime.datetime.fromtimestamp(
+            clock() + (jitter[i % len(jitter)] if jitter else 0.0)
+        )
+        chunks = {'FrameID': start_id + i}
+        if stamped:
+            chunks['Timestamp'] = int(clock() * TICK_HZ)
         image = np.full((height, width), i % 256, dtype=np.uint8)
         listener(delivered_frame(image, host_ts, chunks, seq=i + 1))
 
@@ -409,7 +429,7 @@ class TestFramesLeg:
         assert manifest['camera']['serial'] == 'TC9K-001'
         assert manifest['camera']['timestamp_tick_hz'] == TICK_HZ
         assert manifest['provenance']['software']['lvp_version'] is not None
-        assert manifest['timestamp_grade'] == 'camera'
+        assert manifest['timestamp_grade'] == 'camera_frame_start'
         assert all(entry['chunks'] is not None for entry in manifest['frame_index'])
 
     def test_two_recordings_in_one_second_get_their_own_folders(self, tmp_path):
@@ -459,6 +479,26 @@ class TestFramesLeg:
         times = [entry['ts_s'] for entry in manifest['frame_index']]
         intervals = [b - a for a, b in itertools.pairwise(times)]
         assert all(dt == pytest.approx(0.1, abs=1e-6) for dt in intervals)
+
+    def test_a_camera_without_a_latch_states_each_frames_arrival(self, tmp_path):
+        jitter = [0.0, 0.03, -0.02]
+        controller, scope, clock = make_controller(tmp_path)
+        scope.imaging.mapping = None
+        controller.start()
+        start = clock()
+        feed_frames(scope, clock, 3, fps=10.0, jitter=jitter)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        manifest = json.loads((folder / 'recording_manifest.json').read_text())
+        assert manifest['timestamp_grade'] == 'host_arrival'
+        arrivals = [start + 0.1 * (i + 1) + jitter[i] for i in range(3)]
+        assert [entry['ts_s'] for entry in manifest['frame_index']] == pytest.approx(
+            arrivals, abs=1e-6
+        )
+        first = read_file_record(sorted(folder.glob('ManualVideo_Frame_*.tiff'))[0])
+        assert first['timestamp_source'] == 'host_arrival'
 
 
 class TestMp4Leg:
@@ -1251,6 +1291,42 @@ class TestFeedLossDetection:
         assert not controller.is_recording
         finish(controller)
         assert controller.end_reason == 'camera_stalled'
+
+    def test_frames_that_come_without_timestamps_are_a_live_feed(self, tmp_path, centre_posts):
+        controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
+        # Past the 5 s floor, frames keep coming, none stamped: the camera
+        # is delivering, so the recording runs on.
+        for i in range(4):
+            controller._scheduler.fire()
+            clock.advance(1.5)
+            feed_frames(scope, clock, 1, stamped=False, start_id=3 + i)
+        controller._scheduler.fire()
+        assert controller.is_recording, 'a camera sending unstamped frames was taken for dead'
+        controller.stop()
+        finish(controller)
+
+        manifest = json.loads(
+            next((controller.save_folder).glob('recording_manifest.json')).read_text()
+        )
+        assert (manifest['frames_written'], manifest['frames_unstamped']) == (3, 4)
+        errors = [c for c in notify.calls if c[0] == 'error']
+        assert [title for _, (_, title, _), _ in errors] == ['Video Frames Dropped']
+        assert '4 frame(s) came from the camera without their timestamps' in errors[0][1][2]
+
+    def test_a_recording_sent_only_unstamped_frames_says_so(self, tmp_path, centre_posts):
+        notify = NotifyRecorder(centre_posts)
+        controller, scope, clock = make_controller(tmp_path)
+        controller.start()
+        for _ in range(4):
+            controller._scheduler.fire()
+            clock.advance(1.5)
+            feed_frames(scope, clock, 1, stamped=False)
+        controller.stop()
+        finish(controller)
+
+        assert controller.end_reason == 'user_stop'
+        errors = [c for c in notify.calls if c[0] == 'error']
+        assert [title for _, (_, title, _), _ in errors] == ['Recording Saved No Frames']
 
     def test_disconnect_stops_immediately_without_waiting_for_the_threshold(
         self, tmp_path, centre_posts

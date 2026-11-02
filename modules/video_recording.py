@@ -55,6 +55,7 @@ from modules.activity_claim import (
     the_holder_named,
 )
 from modules.exceptions import RecordingRefusedError
+from modules.lumascope_api.frame_record import TimestampSource
 from modules.live_work import WorkKind
 from modules.video_cadence import CadenceSelector, frame_budget
 
@@ -92,6 +93,11 @@ class RecordingConfig:
         timestamp_overlay: The user's burn-timestamps-into-video choice,
             snapshotted with the rest of the config. REQUIRED so no
             caller can silently decide it; the write edge consumes it.
+        timestamp_source: What every kept frame's time is
+            (``TimestampSource``), set once by the controller as it starts:
+            the camera's frame start when it took a clock mapping, the
+            host's arrival when the camera has no latch. The manifest's
+            ``timestamp_grade`` states it.
         manifest_extra: Caller-supplied static metadata (provenance,
             camera identity, channel color) merged into the manifest.
             Engine-measured fields always win on key collision -- the
@@ -113,6 +119,7 @@ class RecordingConfig:
     output_dir: pathlib.Path
     filename_template: str
     timestamp_overlay: bool
+    timestamp_source: TimestampSource
     manifest_extra: dict | None = None
     manifest_filename: str | None = MANIFEST_FILENAME
 
@@ -140,6 +147,9 @@ class RecordingResult:
         frames_written: Frames whose final artifact landed on disk.
         write_failures: Frames lost to per-frame write errors (each cost
             exactly that frame; the recording continued).
+        frames_unstamped: Frames that arrived without the camera's
+            timestamp in a recording whose times are the camera's, and so
+            were never offered to the selector (``note_unstamped``).
         writer_failure: What escaped the writer lane and killed it, or
             None; ``aborted`` is read from it, so the two cannot disagree.
         manifest_failure: The manifest write's error, or None. Needed
@@ -149,8 +159,8 @@ class RecordingResult:
             measured; None when every delivered frame was kept.
         measured_fps: Rate computed from real frame timestamps.
         measured_duration_s: First-to-last-frame span in seconds.
-        timestamp_grade: ``'camera'`` when hardware chunk timestamps
-            stamped the frames, ``'host'`` when the host clock had to.
+        timestamp_grade: What every kept frame's time is: the config's
+            ``timestamp_source``.
         frame_timestamps_s: Per-frame capture timestamps in seconds, in
             frame order.
         manifest_path: The written manifest file, or None if aborted
@@ -166,12 +176,13 @@ class RecordingResult:
     frames_selected: int
     frames_written: int
     write_failures: int
+    frames_unstamped: int
     writer_failure: BaseException | None
     manifest_failure: OSError | None
     configured_fps: float | None
     measured_fps: float
     measured_duration_s: float
-    timestamp_grade: str
+    timestamp_grade: TimestampSource
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
     end_reason: str
@@ -245,9 +256,9 @@ class VideoRecordingEngine:
         # REQUESTED name can end up describing a different recording's file.
         self._last_written_path: pathlib.Path | None = None
         self._write_failures = 0
+        self._frames_unstamped = 0
         self._timestamps: list[float] = []
         self._chunks: list = []
-        self._all_frames_carried_chunks = True
         self._writer_failure: BaseException | None = None
         self._manifest_failure: OSError | None = None
         self._result: RecordingResult | None = None
@@ -342,9 +353,9 @@ class VideoRecordingEngine:
                 self._frames_selected = 0
                 self._frames_written = 0
                 self._write_failures = 0
+                self._frames_unstamped = 0
                 self._timestamps = []
                 self._chunks = []
-                self._all_frames_carried_chunks = True
                 self._writer_failure = None
                 self._manifest_failure = None
                 self._end_reason = ''
@@ -417,8 +428,6 @@ class VideoRecordingEngine:
             self._pending += 1
             self._timestamps.append(timestamp_s)
             self._chunks.append(chunks)
-            if chunks is None:
-                self._all_frames_carried_chunks = False
             # Enqueue the delivered array as-is: no copy (pypylon's
             # GetArray already returns an owned array) and no flip --
             # orientation and contiguity are the write edge's business,
@@ -428,6 +437,19 @@ class VideoRecordingEngine:
             self._queue.put((image, timestamp_s, frame_number, chunks, fact))
             if self._selector.at_capacity:
                 self._close_selection_locked('frame_budget_filled')
+
+    def note_unstamped(self) -> None:
+        """Count one delivered frame that came without the camera's timestamp.
+
+        In a recording whose times are the camera's frame starts, a frame
+        without its tick has no time on that clock: stamped at its arrival
+        it would fall behind its neighbours and invert the timeline. It is
+        never offered to the selector; it is counted, so the result and the
+        manifest say how many the camera sent that way.
+        """
+        with self._lock:
+            if self._recording:
+                self._frames_unstamped += 1
 
     def stop(self, reason: str, *, taken_for: ControlSession | None = None) -> bool:
         """Close selection promptly (within one selection decision).
@@ -623,7 +645,7 @@ class VideoRecordingEngine:
         else:
             measured_duration = 0.0
             measured_fps = 0.0
-        grade = 'camera' if timestamps and self._all_frames_carried_chunks else 'host'
+        grade = self._config.timestamp_source
         manifest_path = None
         manifest_name = self._manifest_name()
         # An aborted recording has no trustworthy measured truth to publish,
@@ -646,6 +668,7 @@ class VideoRecordingEngine:
             frames_selected=self._frames_selected,
             frames_written=self._frames_written,
             write_failures=self._write_failures,
+            frames_unstamped=self._frames_unstamped,
             writer_failure=self._writer_failure,
             manifest_failure=self._manifest_failure,
             configured_fps=self._config.fps,
@@ -683,7 +706,7 @@ class VideoRecordingEngine:
         name: str,
         measured_fps: float,
         measured_duration: float,
-        grade: str,
+        grade: TimestampSource,
         timestamps: tuple,
     ) -> pathlib.Path | None:
         # Caller metadata first, engine truth second: on any key collision
@@ -696,8 +719,9 @@ class VideoRecordingEngine:
                 'frames_selected': self._frames_selected,
                 'frames_written': self._frames_written,
                 'write_failures': self._write_failures,
+                'frames_unstamped': self._frames_unstamped,
                 'end_reason': self._end_reason,
-                'timestamp_grade': grade,
+                'timestamp_grade': str(grade),
                 'configured_fps': self._config.fps,
                 'measured_fps': measured_fps,
                 'measured_duration_s': measured_duration,

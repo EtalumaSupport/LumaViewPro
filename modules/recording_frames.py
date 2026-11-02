@@ -10,11 +10,10 @@ One home for that logic so the capture paths cannot drift on frame
 identity or geometry.
 """
 
-import datetime
 import pathlib
 import re
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
@@ -26,7 +25,6 @@ from modules.lumascope_api._constants import AxisState
 from modules.lumascope_api.frame_record import (
     FrameRecord,
     FrameTime,
-    TimestampSource,
     delivered_frame_record,
 )
 
@@ -143,46 +141,6 @@ def is_video_recording_dir(path: str | pathlib.Path) -> bool:
     """
     path = pathlib.Path(path)
     return path.is_dir() and any(is_protocol_video_frame(p.name) for p in path.iterdir())
-
-
-class CameraTickRebaser:
-    """Host-epoch seconds for camera frames; hardware ticks when usable.
-
-    Camera hardware ticks are the frame's own clock, free of the OS
-    scheduling jitter host arrival stamps carry; rebasing them onto the
-    host epoch at the first tick-carrying frame keeps camera-grade
-    intervals on the axis cadence selection runs on. Without usable
-    ticks the host arrival time is used and the manifest's timestamp
-    grade reports it.
-
-    One instance per recording: the rebase offset anchors at the first
-    tick-carrying frame and must never survive into the next recording.
-    """
-
-    def __init__(self, tick_freq_hz: float | None, clock):
-        self._freq = tick_freq_hz
-        self._clock = clock
-        self._offset: float | None = None
-
-    def frame_time_s(
-        self,
-        timestamp: datetime.datetime | float | None,
-        chunks: Mapping[str, int | float] | None,
-    ) -> tuple[float, TimestampSource]:
-        """Host-epoch seconds for one frame delivered by the SDK callback, and
-        what they are: the camera's ticks rebased, or the host's arrival time."""
-        if isinstance(timestamp, datetime.datetime):
-            host_s = timestamp.timestamp()
-        elif timestamp is not None:
-            host_s = float(timestamp)
-        else:
-            host_s = self._clock()
-        ticks = chunks.get('Timestamp') if chunks else None
-        if self._freq and ticks is not None:
-            if self._offset is None:
-                self._offset = host_s - ticks / self._freq
-            return self._offset + ticks / self._freq, TimestampSource.CAMERA_REBASED
-        return host_s, TimestampSource.HOST_ARRIVAL
 
 
 def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
