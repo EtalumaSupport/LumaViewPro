@@ -16,11 +16,13 @@ frame after its start, not a later cadence slot that would hide an early one.
 
 import pathlib
 import threading
+from typing import NamedTuple
 
 import pytest
 
 from modules.exceptions import RecordingRefusedError
 from modules.frame_validity import FrameValiditySource
+from modules.lumascope_api.frame_record import ClockMapping
 from modules.image_utils import read_file_record
 from tests.video_step_drives import video_step_on
 
@@ -68,11 +70,40 @@ def _first_kept_frame_is_judged(scope, save_folder, change, *, step=None, autoga
         delivered.close()
     first = sorted(save_folder.rglob('*_Frame_0000.tif*'))
     assert first, 'the step saved no frame'
-    frame = delivered.by_id[read_file_record(first[0])['frame_id']]
-    return {
-        j.change.source: j
-        for j in scope.imaging.judge_frame(frame, scope.imaging.map_camera_clock())
-    }
+    return _judged(scope, delivered.by_id[read_file_record(first[0])['frame_id']])
+
+
+class _Judged(NamedTuple):
+    """A first kept frame's judgments, with the clock mapping they were made through."""
+
+    by_source: dict
+    mapping: ClockMapping | None
+
+
+def _judged(scope, frame):
+    mapping = scope.imaging.map_camera_clock()
+    return _Judged({j.change.source: j for j in scope.imaging.judge_frame(frame, mapping)}, mapping)
+
+
+def _why_not(judged, source):
+    """The whole judgment of ``source``, for a red: pytest's own rendering cuts it
+    short, and its anchor, the frame's start and the mapping's uncertainty are
+    what a red is read by."""
+    judgment = judged.by_source[source]
+    mapping = judged.mapping
+    stated = [repr(judgment), f'mapping {mapping!r}']
+    if mapping is not None and None not in (
+        judgment.frame_start_ticks,
+        judgment.qualifies_after_ticks,
+    ):
+        late_ms = (
+            (judgment.frame_start_ticks - judgment.qualifies_after_ticks) * 1000 / mapping.tick_hz
+        )
+        stated.append(
+            f'the frame started {late_ms:+.3f} ms after the instant it had to follow '
+            '(negative: before it)'
+        )
+    return '\n'.join(stated)
 
 
 def test_a_video_steps_first_frame_counts_for_a_black_level_change_just_before_it(
@@ -91,7 +122,9 @@ def test_a_video_steps_first_frame_counts_for_a_black_level_change_just_before_i
         sim_scope, tmp_path, lambda: sim_scope.camera.set_black_level(4.0)
     )
 
-    assert judged[FrameValiditySource.BLACK_LEVEL].counts
+    assert judged.by_source[FrameValiditySource.BLACK_LEVEL].counts, _why_not(
+        judged, FrameValiditySource.BLACK_LEVEL
+    )
 
 
 def _first_manual_frame_is_judged(session, live_folder, change):
@@ -108,11 +141,7 @@ def _first_manual_frame_is_judged(session, live_folder, change):
         delivered.close()
     first = sorted(pathlib.Path(live_folder).rglob('*_0000_*.tif*'))
     assert first, 'the recording saved no frame'
-    frame = delivered.by_id[read_file_record(first[0])['frame_id']]
-    return {
-        j.change.source: j
-        for j in scope.imaging.judge_frame(frame, scope.imaging.map_camera_clock())
-    }
+    return _judged(scope, delivered.by_id[read_file_record(first[0])['frame_id']])
 
 
 FRAMES_LEG = {'video_as_frames': True}
@@ -140,7 +169,7 @@ def test_a_manual_recordings_first_frame_counts_for_a_change_just_before_record(
         sim_session, tmp_path, lambda: getattr(camera, after[0])(after[1])
     )
 
-    assert judged[source].counts
+    assert judged.by_source[source].counts, _why_not(judged, source)
 
 
 @pytest.mark.parametrize('sim_session', [FRAMES_LEG], indirect=True)
@@ -170,5 +199,5 @@ def test_a_video_steps_first_frame_counts_for_the_gain_and_exposure_its_auto_gai
         autogain=AG_SETTINGS,
     )
 
-    assert judged[FrameValiditySource.GAIN].counts
-    assert judged[FrameValiditySource.EXPOSURE].counts
+    for source in (FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE):
+        assert judged.by_source[source].counts, _why_not(judged, source)

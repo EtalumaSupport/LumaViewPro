@@ -96,6 +96,18 @@ jobs:
       - name: Tests
         run: python -m pytest -n auto -rfE
 
+      # A red probe's console log is written under pytest's temporary folder,
+      # which the runner discards with the job; kept here, a red is read from
+      # its own log rather than rerun in the hope it fails again.
+      - name: Probe logs of a red run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-logs-${{ matrix.python-version }}
+          path: /tmp/pytest-of-runner/**/bench_results/**
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Lint
         run: ruff check .
 
