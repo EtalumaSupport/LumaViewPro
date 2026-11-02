@@ -533,7 +533,7 @@ class VideoBuilder(ProtocolPostProcessor):
         """
         manifest_path = path / 'recording_manifest.json'
         try:
-            with open(manifest_path) as fh:
+            with open(manifest_path, encoding='utf-8') as fh:
                 manifest = json.load(fh)
         except (OSError, ValueError):
             manifest = None
@@ -550,7 +550,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
         legacy_path = path / 'session_manifest.json'
         try:
-            with open(legacy_path) as fh:
+            with open(legacy_path, encoding='utf-8') as fh:
                 legacy = json.load(fh)
         except (OSError, ValueError):
             # Neither manifest generation is readable. Say so: a LOST

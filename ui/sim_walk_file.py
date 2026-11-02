@@ -72,7 +72,7 @@ def read_walk(path: pathlib.Path) -> list[dict]:
         ValueError: the file is not JSON (``json.JSONDecodeError``), or a step
             is malformed (``WalkFileError``).
     """
-    return parse_walk(pathlib.Path(path).read_text(), source=str(path))
+    return parse_walk(pathlib.Path(path).read_text(encoding='utf-8'), source=str(path))
 
 
 def parse_walk(text: str, *, source: str) -> list[dict]:

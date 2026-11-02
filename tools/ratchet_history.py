@@ -219,7 +219,7 @@ def main(argv=None):
     rows = run(points, args.branch)
     print(render(rows))
     if args.json:
-        pathlib.Path(args.json).write_text(json.dumps(rows, indent=1))
+        pathlib.Path(args.json).write_text(json.dumps(rows, indent=1), encoding='utf-8')
     return 0
 
 

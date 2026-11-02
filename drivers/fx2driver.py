@@ -765,7 +765,7 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
         buf[i] = 0xFF
     end_addr = 0
 
-    with open(hex_path) as f:
+    with open(hex_path, encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line or line[0] != ':':

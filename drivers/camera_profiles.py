@@ -365,7 +365,7 @@ def timing_record(profile: CameraProfile) -> dict | None:
     """
     if not profile.timing_model:
         return None
-    with open(timing_record_path(profile)) as f:
+    with open(timing_record_path(profile), encoding='utf-8') as f:
         return json.load(f)
 
 

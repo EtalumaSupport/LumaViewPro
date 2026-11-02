@@ -782,7 +782,7 @@ class DiagnosticsAPI:
                 f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
                 f'delay{inter_cycle_delay_s:g}s_{ts}.json'
             )
-            with open(out_path, 'x') as f:
+            with open(out_path, 'x', encoding='utf-8') as f:
                 json.dump(results, f, indent=2)
             results['written_to'] = str(out_path)
         except Exception as e:
@@ -989,7 +989,7 @@ class DiagnosticsAPI:
 
             fname = f'{model_t}__sn{serial_t}__fw{fw_t}__{host_t}__{dltl_token}__{ts_t}.json'
             out_path = out_dir / fname
-            with open(out_path, 'x') as f:
+            with open(out_path, 'x', encoding='utf-8') as f:
                 json.dump(snapshot, f, indent=2, default=str)
             snapshot['output_path'] = str(out_path)
         except Exception as e:

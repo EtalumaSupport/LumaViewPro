@@ -99,6 +99,25 @@ def test_every_log_rotates_at_its_row_of_the_one_cap_table(tmp_path):
     assert attached == table
 
 
+def test_every_log_is_written_as_utf8_whatever_the_platform(tmp_path):
+    """A handler that names no encoding writes in the locale's, cp1252 on a
+    Windows machine, so a log from the field would read differently from one
+    written here."""
+    code = (
+        'import json, os, lvp_logger\n'
+        'from logging.handlers import RotatingFileHandler\n'
+        'handlers = [v for v in vars(lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
+        'print(json.dumps([\n'
+        '    {os.path.basename(h.baseFilename): h.encoding for h in handlers},\n'
+        '    list(lvp_logger.LOG_CAPS),\n'
+        ']))\n'
+    )
+
+    encodings, logs = _run_with_data_root(tmp_path, code)
+
+    assert encodings == dict.fromkeys(logs, 'utf-8')
+
+
 def test_every_log_at_its_cap_fits_the_bundle_budget(tmp_path):
     code = (
         'import json, lvp_logger\n'

@@ -205,9 +205,9 @@ def _remove_backups_past(path: str, backups: int) -> None:
                 pass
 
 
-def _rotating_handler(path: str, *, layout: str, delay: bool, encoding: str | None = None):
+def _rotating_handler(path: str, *, layout: str, delay: bool):
     """The one maker of a rotating log handler: its cap from LOG_CAPS, its
-    every line starting with the one stamp."""
+    every line starting with the one stamp, every file UTF-8."""
     max_bytes, backups = LOG_CAPS[os.path.basename(path)]
     _remove_backups_past(path, backups)
     handler = RotatingFileHandler(
@@ -215,7 +215,7 @@ def _rotating_handler(path: str, *, layout: str, delay: bool, encoding: str | No
         mode='a',
         maxBytes=max_bytes,
         backupCount=backups,
-        encoding=encoding,
+        encoding='utf-8',
         delay=delay,
     )
     handler.namer = rotated_log_name
@@ -385,7 +385,7 @@ logger.addHandler(rest_api_handler)
 
 # GUI interaction log -- every user action for crash forensics
 # WORKAROUND: INFO level during beta. Move to DEBUG once stable.
-gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False, encoding='utf-8')
+gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
 gui_logger.addHandler(gui_handler)
@@ -539,7 +539,7 @@ def git_revision() -> str | None:
     # Built + CommitGUID for triage.
     _git_hash = None
     try:
-        with open(os.path.join(root, '.git_archival.txt')) as _af:
+        with open(os.path.join(root, '.git_archival.txt'), encoding='utf-8') as _af:
             for _line in _af:
                 if _line.startswith('node: ') and not _line.startswith('node: $Format'):
                     _git_hash = _line.split(': ', 1)[1].strip()[:12]

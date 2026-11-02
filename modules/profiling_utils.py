@@ -39,7 +39,9 @@ class ProfilingHelper:
         self._profile.disable()
         self._profile.dump_stats(self._profile_artifact_path / f'LumaViewProApp_{ts}.profile')
 
-        with open(self._profile_artifact_path / f'LumaViewProApp_{ts}.stats', 'w') as stream:
+        with open(
+            self._profile_artifact_path / f'LumaViewProApp_{ts}.stats', 'w', encoding='utf-8'
+        ) as stream:
             stats = pstats.Stats(
                 str(self._profile_artifact_path / f'LumaViewProApp_{ts}.profile'), stream=stream
             )

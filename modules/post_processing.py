@@ -207,7 +207,7 @@ def load_cell_count_method(path: str | os.PathLike) -> CellCountMethod:
         )
 
     try:
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             saved = json.load(f)
     except OSError as e:
         raise refuse('method_unreadable', f'it could not be read ({e.strerror})') from e
@@ -244,7 +244,7 @@ def save_cell_count_method(method: CellCountMethod, path: str | os.PathLike) -> 
     path = path_utils.file_to_write(path, extension='.json')
     saved = python_values({**saved_form(method), 'metadata': dict(_CELL_COUNT_METHOD_METADATA)})
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         json.dump(saved, f, indent=4)
 
 

@@ -262,7 +262,7 @@ def get_recent_protocols(n: int = RECENT_PROTOCOL_COUNT) -> list[dict]:
                 continue
             seen.add(real)
             try:
-                with open(proto_file) as f:
+                with open(proto_file, encoding='utf-8') as f:
                     head = f.read(2048)
             except (OSError, UnicodeDecodeError):
                 continue
@@ -429,7 +429,7 @@ def _collect_system_info():
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
     else:
         try:
-            with open('/proc/cpuinfo') as f:
+            with open('/proc/cpuinfo', encoding='utf-8') as f:
                 info['cpu_detail'] = f.read()[:2000]
         except OSError:
             pass
@@ -450,7 +450,7 @@ def _collect_system_info():
             pass
     else:
         try:
-            with open('/proc/meminfo') as f:
+            with open('/proc/meminfo', encoding='utf-8') as f:
                 info['ram_detail'] = f.read()[:1000]
         except OSError:
             pass
@@ -1804,7 +1804,7 @@ class TechSupportReport:
         d.mkdir()
 
         led_info = self.diag.get_led_info()
-        with open(d / 'led_info.txt', 'w') as f:
+        with open(d / 'led_info.txt', 'w', encoding='utf-8') as f:
             f.write(f'LED Board INFO:\n{led_info}\n')
 
         if self._no_motor_board_on_this_model():
@@ -1815,21 +1815,21 @@ class TechSupportReport:
             motor_info = self.diag.get_motor_info()
             fullinfo = self.diag.get_motor_fullinfo()
             sn = self.diag.get_serial_number()
-            with open(d / 'motor_info.txt', 'w') as f:
+            with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'Motor Board INFO:\n{motor_info}\n\n')
                 f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
                 f.write(f'Serial Number: {sn}\n')
 
             positions = self.diag.get_motor_positions_all()
             drvstat = self.diag.get_driver_status_all()
-            with open(d / 'motor_status.txt', 'w') as f:
+            with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 _write_axis_section(f, 'Motor Positions', positions, json.dumps)
                 _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
 
         i2c = self.diag.get_i2c_scan()
         led_readings = self.diag.get_led_readings()
-        with open(d / 'peripherals.txt', 'w') as f:
+        with open(d / 'peripherals.txt', 'w', encoding='utf-8') as f:
             f.write(f'Fan: {fan}\n\nI2C Scan: {i2c}\n\n')
             f.write(f'LED Readings (baseline, all off):\n{led_readings}\n')
 
@@ -1854,7 +1854,7 @@ class TechSupportReport:
             f'SKIPPED board queries: {skip.reason}\n'
             'The microscope was in use; these are the values cached at connect.\n'
         )
-        with open(d / 'led_info.txt', 'w') as f:
+        with open(d / 'led_info.txt', 'w', encoding='utf-8') as f:
             f.write(f'LED Board (cached at connect):\n{led_info}\n\n{skipped}')
         if self._no_motor_board_on_this_model():
             motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
@@ -1863,16 +1863,16 @@ class TechSupportReport:
         else:
             motor_info = self.scope.diagnostics.get_motor_info().to_dict()
             sn = motor_info['serial_number'] or 'UNKNOWN'
-            with open(d / 'motor_info.txt', 'w') as f:
+            with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
                 f.write(f'Serial Number: {sn}\n\n{skipped}')
             drvstat = self.diag.get_driver_status_all()
-            with open(d / 'motor_status.txt', 'w') as f:
+            with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 f.write('Motor Positions: not read.\n')
                 f.write(skipped)
                 _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
-        with open(d / 'peripherals.txt', 'w') as f:
+        with open(d / 'peripherals.txt', 'w', encoding='utf-8') as f:
             f.write(f'Fan: {fan}\n\n')
             f.write('I2C Scan and LED Readings: not read.\n')
             f.write(skipped)
@@ -1903,7 +1903,7 @@ class TechSupportReport:
         for board, label in boards:
             files = self.diag.read_config_files(board, label)
             if files is None:
-                with open(d / f'{label}_config_UNAVAILABLE.txt', 'w') as f:
+                with open(d / f'{label}_config_UNAVAILABLE.txt', 'w', encoding='utf-8') as f:
                     f.write(
                         f'Could not read config files from {label} board.\n'
                         f'Board may not be connected or raw REPL entry failed.\n'
@@ -1930,7 +1930,9 @@ class TechSupportReport:
                 # Validate motorconfig.json
                 if safe_name.lower() == 'motorconfig.json':
                     validation = validate_motorconfig(content, f'{label}/{safe_name}')
-                    with open(d / f'{label}_motorconfig_validation.txt', 'w') as f:
+                    with open(
+                        d / f'{label}_motorconfig_validation.txt', 'w', encoding='utf-8'
+                    ) as f:
                         f.write(f'Motorconfig Validation ({label}/{safe_name})\n')
                         f.write(f'Valid: {validation["valid"]}\n\n')
                         if validation['errors']:
@@ -2077,7 +2079,7 @@ class TechSupportReport:
     def _record_skipped(directory, filename, title, skip):
         """Write a skipped step's file where its result would have gone."""
         directory.mkdir(exist_ok=True)
-        with open(directory / filename, 'w') as f:
+        with open(directory / filename, 'w', encoding='utf-8') as f:
             f.write(f'{title}\n' + '=' * 40 + '\n\n')
             f.write(f'SKIPPED: {skip.reason}\n')
             f.write(f'{skip.consequence}\n')
@@ -2089,9 +2091,9 @@ class TechSupportReport:
     def _write_no_motor_board(directory, sn):
         """The motor files of a scope built without a motor board: one statement each."""
         absent = f'{MotorBoardPresence.NOT_ON_THIS_MODEL.value}.\n'
-        with open(directory / 'motor_info.txt', 'w') as f:
+        with open(directory / 'motor_info.txt', 'w', encoding='utf-8') as f:
             f.write(f'{absent}\nSerial Number: {sn}\n')
-        with open(directory / 'motor_status.txt', 'w') as f:
+        with open(directory / 'motor_status.txt', 'w', encoding='utf-8') as f:
             f.write(absent)
 
     def _step_firmware_tests(self, tmp):
@@ -2099,7 +2101,7 @@ class TechSupportReport:
         d.mkdir()
 
         selftest = self.diag.run_led_selftest()
-        with open(d / 'led_selftest.txt', 'w') as f:
+        with open(d / 'led_selftest.txt', 'w', encoding='utf-8') as f:
             f.write(f'LED SELFTEST:\n\n{selftest}\n')
 
     def _step_led_checks(self, tmp):
@@ -2109,7 +2111,7 @@ class TechSupportReport:
 
         # LED leakage
         leakage = self.diag.check_led_leakage()
-        with open(d / 'led_leakage.txt', 'w') as f:
+        with open(d / 'led_leakage.txt', 'w', encoding='utf-8') as f:
             f.write('LED Leakage Check (all LEDs off)\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in leakage:
                 f.write(f'{leakage["not_applicable"]}.\n')
@@ -2140,7 +2142,7 @@ class TechSupportReport:
         d.mkdir(exist_ok=True)
 
         regs = self.diag.read_tmc5072_registers()
-        with open(d / 'tmc5072_registers.txt', 'w') as f:
+        with open(d / 'tmc5072_registers.txt', 'w', encoding='utf-8') as f:
             f.write('TMC5072 Register Dump\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in regs:
                 f.write(f'{regs["not_applicable"]}.\n')
@@ -2161,7 +2163,7 @@ class TechSupportReport:
                 f.write('  Bit 25: ot (overtemperature shutdown)\n')
                 f.write('  Bit 26: otpw (overtemperature pre-warning)\n')
                 f.write('  Bit 31: stst (standstill indicator)\n')
-        with open(d / 'tmc5072_registers.json', 'w') as f:
+        with open(d / 'tmc5072_registers.json', 'w', encoding='utf-8') as f:
             json.dump(regs, f, indent=2, default=str)
 
     def _step_fan_test(self, tmp):
@@ -2170,7 +2172,7 @@ class TechSupportReport:
         d.mkdir(exist_ok=True)
 
         fan = self.diag.verify_fan_tachometer()
-        with open(d / 'fan_test.txt', 'w') as f:
+        with open(d / 'fan_test.txt', 'w', encoding='utf-8') as f:
             f.write('Fan Test (informational)\n' + '=' * 40 + '\n')
             f.write('Note: Many units in the field do not have a tachometer\n')
             f.write('wire installed. Zero RPM does not necessarily mean the\n')
@@ -2202,7 +2204,7 @@ class TechSupportReport:
             'motor', 'INFO'
         )
 
-        with open(d / 'serial_latency.txt', 'w') as f:
+        with open(d / 'serial_latency.txt', 'w', encoding='utf-8') as f:
             f.write('Serial Round-Trip Latency\n' + '=' * 40 + '\n\n')
             for label, latency in results.items():
                 f.write(f'--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n')
@@ -2228,7 +2230,7 @@ class TechSupportReport:
                             f'-- unstable USB connection **\n\n'
                         )
 
-        with open(d / 'serial_latency.json', 'w') as f:
+        with open(d / 'serial_latency.json', 'w', encoding='utf-8') as f:
             summary = {
                 label: {k: v for k, v in lat.items() if k != 'timings_ms'}
                 for label, lat in results.items()
@@ -2241,7 +2243,7 @@ class TechSupportReport:
         d.mkdir()
 
         homing = self.diag.run_homing_test()
-        with open(d / 'homing_test.txt', 'w') as f:
+        with open(d / 'homing_test.txt', 'w', encoding='utf-8') as f:
             f.write('Homing Test\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in homing:
                 f.write(f'{homing["not_applicable"]}.\n')
@@ -2255,7 +2257,7 @@ class TechSupportReport:
                     f.write(f'    Actual after:  {data.get("actual_after")}\n')
                     f.write(f'    Target after:  {data.get("target_after")}\n')
                     f.write(f'    Status:        {data.get("status")}\n\n')
-        with open(d / 'homing_test.json', 'w') as f:
+        with open(d / 'homing_test.json', 'w', encoding='utf-8') as f:
             json.dump(homing, f, indent=2, default=str)
 
     def _step_camera_diagnostics(self, tmp):
@@ -2295,7 +2297,7 @@ class TechSupportReport:
             for name, temp_c in (temperatures or {}).items():
                 info[f'Temperature_{name}'] = temp_c
 
-        with open(d / 'camera_info.txt', 'w') as f:
+        with open(d / 'camera_info.txt', 'w', encoding='utf-8') as f:
             f.write('Camera Information\n' + '=' * 40 + '\n\n')
             f.write(f'Camera model: {capabilities.camera_model}\n\n')
             for key, val in info.items():
@@ -2313,7 +2315,7 @@ class TechSupportReport:
                             f'    ** Note: sensor at {val}degC '
                             f'(elevated, may affect image noise) **\n'
                         )
-        with open(d / 'camera_info.json', 'w') as f:
+        with open(d / 'camera_info.json', 'w', encoding='utf-8') as f:
             json.dump(info, f, indent=2, default=str)
 
     def _step_disk_speed(self, tmp):
@@ -2385,7 +2387,7 @@ class TechSupportReport:
             except Exception:
                 pass
 
-        with open(d / 'disk_speed.txt', 'w') as f:
+        with open(d / 'disk_speed.txt', 'w', encoding='utf-8') as f:
             f.write('Disk Speed Test\n' + '=' * 40 + '\n\n')
             f.write(f'Test directory: {results.get("test_directory")}\n')
             f.write(f'Test size:      {DISK_SPEED_TEST_MB} MB\n\n')
@@ -2410,7 +2412,7 @@ class TechSupportReport:
                         f'** Write speed below {DISK_SPEED_WARN_MBPS} MB/s -- '
                         f'video recording may drop frames **\n'
                     )
-        with open(d / 'disk_speed.json', 'w') as f:
+        with open(d / 'disk_speed.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, default=str)
 
     def _step_runtime_census(self, tmp):
@@ -2456,7 +2458,7 @@ class TechSupportReport:
                 lines.append('  (none)')
         except Exception as e:
             lines.append(f'  on-disk CRT listing failed: {type(e).__name__}: {e}')
-        with open(d / 'runtime_census.txt', 'w') as f:
+        with open(d / 'runtime_census.txt', 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
 
     def _step_system_info(self, tmp):
@@ -2464,10 +2466,10 @@ class TechSupportReport:
         d.mkdir()
 
         info = _collect_system_info()
-        with open(d / 'system_info.json', 'w') as f:
+        with open(d / 'system_info.json', 'w', encoding='utf-8') as f:
             json.dump(info, f, indent=2, default=str)
 
-        with open(d / 'summary.txt', 'w') as f:
+        with open(d / 'summary.txt', 'w', encoding='utf-8') as f:
             f.write(f'OS:      {info.get("platform")}\n')
             f.write(f'Python:  {info.get("python_version")}\n')
             f.write(f'CPU:     {info.get("cpu")}\n')
@@ -2513,7 +2515,7 @@ class TechSupportReport:
         # Also write full pip freeze as separate file for easy diff
         pip_freeze = info.get('pip_freeze', '')
         if pip_freeze and 'Error' not in pip_freeze[:10]:
-            with open(d / 'pip_freeze.txt', 'w') as f:
+            with open(d / 'pip_freeze.txt', 'w', encoding='utf-8') as f:
                 f.write(pip_freeze)
 
     def _step_usb_devices(self, tmp):
@@ -2522,12 +2524,12 @@ class TechSupportReport:
 
         for label, content in _collect_usb_devices():
             safe = label.replace(' ', '_').replace('/', '_')
-            with open(d / f'{safe}.txt', 'w') as f:
+            with open(d / f'{safe}.txt', 'w', encoding='utf-8') as f:
                 f.write(content if isinstance(content, str) else str(content))
 
         devmgr = _collect_device_manager_full()
         if devmgr and 'Error' not in str(devmgr)[:20]:
-            with open(d / 'device_manager_full.csv', 'w') as f:
+            with open(d / 'device_manager_full.csv', 'w', encoding='utf-8') as f:
                 f.write(devmgr)
 
     def _step_camera_usb_bindings(self, tmp):
@@ -2562,7 +2564,7 @@ class TechSupportReport:
                 lines.append('  no device of this identity seen')
         (d / 'camera_usb_bindings.txt').write_text('\n'.join(lines) + '\n')
         if bindings is not None:
-            with open(d / 'camera_usb_bindings.json', 'w') as f:
+            with open(d / 'camera_usb_bindings.json', 'w', encoding='utf-8') as f:
                 json.dump([identity.to_dict() for identity in bindings], f, indent=2)
 
     def _step_data_folder(self, tmp):
@@ -2658,7 +2660,7 @@ class TechSupportReport:
         for i, p in enumerate(protocols, 1):
             p['bundle_name'] = f'{i:02d}_{p["name"]}{p["path"].suffix}'
 
-        with open(d / '_index.txt', 'w') as f:
+        with open(d / '_index.txt', 'w', encoding='utf-8') as f:
             f.write(f'Most Recent {len(protocols)} Protocols\n{"=" * 40}\n\n')
             for i, p in enumerate(protocols, 1):
                 f.write(f'{i:2d}. {p["bundle_name"]}\n')
@@ -2738,10 +2740,10 @@ class TechSupportReport:
         bw = CameraBandwidthTest(self.scope)
         results = bw.run(progress_callback=bw_cb)
 
-        with open(d / 'results.json', 'w') as f:
+        with open(d / 'results.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, default=str)
 
-        with open(d / 'summary.txt', 'w') as f:
+        with open(d / 'summary.txt', 'w', encoding='utf-8') as f:
             f.write('Camera Bandwidth Test\n' + '=' * 40 + '\n\n')
             f.write(f'Resolution:      {results.get("resolution", "?")}\n')
             f.write(f'Pixel format:    {results.get("pixel_format", "?")}\n\n')
@@ -2772,7 +2774,7 @@ class TechSupportReport:
             'contents': sorted(d.name for d in tmp.iterdir() if d.is_dir()),
         }
         meta.update(self._meta)
-        with open(tmp / 'report_metadata.json', 'w') as f:
+        with open(tmp / 'report_metadata.json', 'w', encoding='utf-8') as f:
             json.dump(meta, f, indent=2, default=str)
 
     # -- Helpers -------------------------------------------------------------
