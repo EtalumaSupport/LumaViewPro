@@ -86,7 +86,7 @@ FORBIDDEN_COMMIT_MARKERS = (
 
 
 def _method_node(source_file: pathlib.Path, class_name: str, method_name: str) -> ast.FunctionDef:
-    tree = ast.parse(source_file.read_text())
+    tree = ast.parse(source_file.read_text(encoding='utf-8'))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in ast.walk(node):

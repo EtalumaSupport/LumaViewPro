@@ -441,7 +441,7 @@ class TestProvisionalSettings:
         session.confirm_objective(session.settings['objective_id'])
         session.shutdown()
 
-        with open(data / 'current.json') as f:
+        with open(data / 'current.json', encoding='utf-8') as f:
             assert json.load(f)['objective_confirmed'] == 'turretless'
 
 

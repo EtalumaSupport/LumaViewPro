@@ -61,7 +61,7 @@ def _png(path):
 
 
 def _results(folder):
-    with open(folder / 'results.csv', newline='') as f:
+    with open(folder / 'results.csv', encoding='utf-8', newline='') as f:
         return {row['file']: row for row in csv.DictReader(f)}
 
 

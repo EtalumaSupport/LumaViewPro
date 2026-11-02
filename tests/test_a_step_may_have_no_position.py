@@ -42,7 +42,7 @@ def _saved_steps(session, path, count):
 
 def _rewrite_steps(path, **columns):
     """Rewrite the step rows' ``columns`` (a value per step, or one for all)."""
-    with open(path, newline='') as fp:
+    with open(path, encoding='utf-8', newline='') as fp:
         rows = list(csv.reader(fp, delimiter='\t'))
     header = next(i for i, row in enumerate(rows) if row[:1] == ['Name'])
     steps = rows[header + 1 :]
@@ -50,7 +50,7 @@ def _rewrite_steps(path, **columns):
         at = rows[header].index(column)
         for i, row in enumerate(steps):
             row[at] = values[i] if isinstance(values, list) else values
-    with open(path, 'w', newline='') as fp:
+    with open(path, 'w', encoding='utf-8', newline='') as fp:
         csv.writer(fp, delimiter='\t', lineterminator='\n').writerows(rows)
     return path
 

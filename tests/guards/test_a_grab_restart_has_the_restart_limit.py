@@ -109,7 +109,7 @@ def _restarting_driver_methods() -> frozenset[str]:
 
 def _dispatches(path: Path):
     """Each ``_dispatch_camera`` in ``path``: (class, enclosing method, impl, timeout expression)."""
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding='utf-8'))
     for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
         for fn in (m for m in cls.body if isinstance(m, ast.FunctionDef)):
             for call in ast.walk(fn):

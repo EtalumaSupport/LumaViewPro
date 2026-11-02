@@ -32,12 +32,12 @@ def _data_dir(tmp_path, live_folder=None):
     """A data directory holding the shipped template and, if given, a current.json."""
     data = tmp_path / 'data'
     data.mkdir()
-    with open(_REPO_TEMPLATE) as f:
+    with open(_REPO_TEMPLATE, encoding='utf-8') as f:
         template = json.load(f)
-    with open(data / 'settings.json', 'w') as f:
+    with open(data / 'settings.json', 'w', encoding='utf-8') as f:
         json.dump(template, f)
     if live_folder is not None:
-        with open(data / 'current.json', 'w') as f:
+        with open(data / 'current.json', 'w', encoding='utf-8') as f:
             json.dump({**template, 'live_folder': live_folder}, f)
     return tmp_path
 

@@ -125,7 +125,7 @@ class Reach:
 
 @functools.cache
 def _tree_of(path: str) -> ast.Module:
-    return ast.parse(pathlib.Path(path).read_text())
+    return ast.parse(pathlib.Path(path).read_text(encoding='utf-8'))
 
 
 def _parse_def(obj: object) -> ast.AST | None:

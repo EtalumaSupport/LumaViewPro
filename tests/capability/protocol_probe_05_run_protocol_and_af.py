@@ -77,7 +77,9 @@ try:
     import modules.protocol_step_runner as psr
     import modules.protocol_run_loop as prl
 
-    src = pathlib.Path(psr.__file__).read_text() + pathlib.Path(prl.__file__).read_text()
+    src = pathlib.Path(psr.__file__).read_text(encoding='utf-8') + pathlib.Path(
+        prl.__file__
+    ).read_text(encoding='utf-8')
     print("'turret' in the run modules:", 'turret' in src.lower())
     print('has_turret on this sim scope:', session.scope.capabilities.has_turret)
 finally:

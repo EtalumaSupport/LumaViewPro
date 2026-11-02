@@ -50,7 +50,7 @@ def _rows(base):
     path = _run_dir(base) / 'frame_validity_trace.csv'
     if not path.exists():
         return []
-    with open(path, newline='') as fh:
+    with open(path, encoding='utf-8', newline='') as fh:
         return list(csv.DictReader(fh))
 
 
@@ -177,7 +177,9 @@ class TestEveryRowMatchesTheHeader:
         cam.delivered = 5
         for seq in range(2, 20):
             fv.count_frame(seq, by=Counter.GRAB)
-        with open(_run_dir(tmp_path) / 'frame_validity_trace.csv', newline='') as fh:
+        with open(
+            _run_dir(tmp_path) / 'frame_validity_trace.csv', encoding='utf-8', newline=''
+        ) as fh:
             rows = list(csv.reader(fh))
         width = len(rows[0])
         assert width == len(FrameValidity._TRACE_HEADER.split(',')) + 1

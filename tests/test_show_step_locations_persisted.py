@@ -29,7 +29,7 @@ MICROSCOPE_SETTINGS_SRC = REPO / 'ui' / 'microscope_settings.py'
 
 
 def _method_source(path: pathlib.Path, class_name: str, method_name: str) -> str:
-    src = path.read_text()
+    src = path.read_text(encoding='utf-8')
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:

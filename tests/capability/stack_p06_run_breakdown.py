@@ -53,7 +53,7 @@ def _iotask_summary(run_dir):
     if f is None:
         return {'iotask_trace.csv': 'absent'}
     by = collections.defaultdict(lambda: {'n': 0, 'wait': [], 'exec': []})
-    with open(f) as fh:
+    with open(f, encoding='utf-8') as fh:
         for row in csv.DictReader(fh):
             k = (row['executor'], row['action'])
             by[k]['n'] += 1
@@ -78,7 +78,7 @@ def _validity_summary(run_dir):
         return {'frame_validity_trace.csv': 'absent'}
     events = collections.Counter()
     by_source = collections.Counter()
-    with open(f) as fh:
+    with open(f, encoding='utf-8') as fh:
         for row in csv.DictReader(fh):
             events[row['event']] += 1
             if row['event'] == 'invalidate':

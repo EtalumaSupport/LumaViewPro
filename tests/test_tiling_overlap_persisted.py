@@ -33,12 +33,12 @@ PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 
 
 def _method_source(path: pathlib.Path, class_name: str, method_name: str) -> str:
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding='utf-8'))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
-                    return ast.get_source_segment(path.read_text(), child)
+                    return ast.get_source_segment(path.read_text(encoding='utf-8'), child)
     raise AssertionError(f'{class_name}.{method_name} not found in {path}')
 
 

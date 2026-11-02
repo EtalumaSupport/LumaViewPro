@@ -806,7 +806,7 @@ def _memcap_fail(rss, cap_bytes, report_dir, capman):
     )
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f'memcap_{os.getpid()}.txt'
-    with open(path, 'w') as fh:
+    with open(path, 'w', encoding='utf-8') as fh:
         fh.write(line + '\n\n')
         faulthandler.dump_traceback(file=fh, all_threads=True)
     # pytest's fd capture owns stderr during a test; the write goes to the
@@ -1115,7 +1115,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if reports:
         terminalreporter.section(MEMORY_CAP_BANNER, sep='!', red=True)
         for path in reports:
-            with open(path) as fh:
+            with open(path, encoding='utf-8') as fh:
                 terminalreporter.line(fh.readline().rstrip())
             terminalreporter.line(f'thread stacks: {path}')
 

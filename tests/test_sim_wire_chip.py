@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
 import tmc5072 as chip
 
 BASE_CONFIG = json.loads(
-    pathlib.Path('drivers/sim_wire/firmware/motorconfig-base.json').read_text()
+    pathlib.Path('drivers/sim_wire/firmware/motorconfig-base.json').read_text(encoding='utf-8')
 )
 FCLK = 16_000_000
 START = {'X': 600_000, 'Y': 400_000, 'Z': 600_000, 'T': 150_000}

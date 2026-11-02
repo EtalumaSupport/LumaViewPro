@@ -27,7 +27,7 @@ from modules.tech_support_report import TechSupportReport
 
 
 def _write_protocol(path: pathlib.Path, marker: str, mtime: float) -> None:
-    path.write_text(f'{Protocol.PROTOCOL_FILE_HEADER}\n{marker}\n')
+    path.write_text(f'{Protocol.PROTOCOL_FILE_HEADER}\n{marker}\n', encoding='utf-8')
     os.utime(path, (mtime, mtime))
 
 

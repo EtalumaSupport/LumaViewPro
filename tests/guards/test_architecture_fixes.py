@@ -43,7 +43,7 @@ def _check_no_toplevel_imports(module_path, forbidden_prefixes):
     Skips: comments, indented imports (deferred inside functions/methods),
     and lines inside triple-quoted strings (rough heuristic).
     """
-    with open(module_path) as f:
+    with open(module_path, encoding='utf-8') as f:
         lines = f.readlines()
 
     violations = []
@@ -126,7 +126,7 @@ class TestConfigGettersRename:
         for rel_path in tracked_python_files():
             if 'test_architecture' in rel_path:
                 continue
-            with open(REPO_ROOT / rel_path) as f:
+            with open(REPO_ROOT / rel_path, encoding='utf-8') as f:
                 for i, line in enumerate(f, 1):
                     if old_module in line and not line.strip().startswith('#'):
                         violations.append(f'{rel_path}:{i}')
@@ -227,7 +227,7 @@ class TestTinyFileConsolidation:
         for rel_path in tracked_python_files():
             if 'test_architecture' in rel_path:
                 continue
-            with open(REPO_ROOT / rel_path) as f:
+            with open(REPO_ROOT / rel_path, encoding='utf-8') as f:
                 for i, line in enumerate(f, 1):
                     if line.strip().startswith('#'):
                         continue
@@ -336,7 +336,7 @@ def _ui_answerer_call_counts():
     """
     counts = {}
     for path in _gui_source_files():
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         imported = set()
         for node in _ast.walk(tree):
@@ -413,7 +413,7 @@ def _ui_private_reach_counts():
     API private. The rule is `_private_reaches_in_source`."""
     counts = {}
     for path in _ui_source_files():
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             counts.update(_private_reaches_in_source(fh.read(), _relpath(path)))
     return counts
 
@@ -455,7 +455,7 @@ def _ui_except_counts():
     means. The rule is `_except_handlers_in_source`."""
     counts = {}
     for path in _ui_source_files():
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             counts.update(_except_handlers_in_source(fh.read(), _relpath(path)))
     return counts
 
@@ -593,7 +593,7 @@ def _gui_orchestration_counts():
     the orchestration constructors."""
     counts = {}
     for path in _gui_source_files():
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         for node in _ast.walk(tree):
             if not isinstance(node, _ast.Call):
@@ -633,7 +633,7 @@ def _modules_context_read_counts():
     """{'modules/<file>.py': number of `_app_ctx.ctx` attribute reads}."""
     counts = {}
     for path in _list_py_files('modules'):
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         n = 0
         for node in _ast.walk(tree):
@@ -682,7 +682,7 @@ def _modules_widget_read_counts():
     """{'modules/<file>.py': number of `<expr>.ids[...]` subscripts}."""
     counts = {}
     for path in _list_py_files('modules'):
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         n = sum(
             1
@@ -708,7 +708,7 @@ def _lower_layer_ui_import_counts():
     statements at any nesting depth}."""
     counts = {}
     for path in _list_py_files('modules') + _list_py_files('drivers'):
-        with open(path) as fh:
+        with open(path, encoding='utf-8') as fh:
             tree = _ast.parse(fh.read())
         n = 0
         for node in _ast.walk(tree):

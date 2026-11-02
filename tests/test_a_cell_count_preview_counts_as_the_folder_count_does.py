@@ -69,7 +69,7 @@ def test_the_preview_counts_an_image_as_the_folder_count_counts_its_file(session
     folder.mkdir()
     path = _capture(folder / 'scaled.tiff', pixel_size_um=0.5)
     session.post_processing.count_cells(folder, method=_METHOD)
-    with open(folder / 'results.csv', newline='') as f:
+    with open(folder / 'results.csv', encoding='utf-8', newline='') as f:
         (row,) = csv.DictReader(f)
 
     pixels, significant_bits = read_cell_count_image(path)

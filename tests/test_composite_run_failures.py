@@ -104,7 +104,7 @@ def _record_rows(run_dir):
     """
     record = pathlib.Path(run_dir) / 'protocol_record.tsv'
     assert record.exists(), f'the run wrote no execution record in {run_dir}'
-    with open(record, newline='') as fp:
+    with open(record, encoding='utf-8', newline='') as fp:
         rows = list(csv.reader(fp, delimiter='\t'))
     columns = rows[3]
     # strict: a row that does not fit the column header is a malformed

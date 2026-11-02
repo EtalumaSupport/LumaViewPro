@@ -17,7 +17,7 @@ import modules.protocol_run_loop as protocol_run_loop
 
 
 def _source() -> str:
-    return pathlib.Path(protocol_run_loop.__file__).read_text()
+    return pathlib.Path(protocol_run_loop.__file__).read_text(encoding='utf-8')
 
 
 def test_scan_summary_wording_branches_on_abort_state():

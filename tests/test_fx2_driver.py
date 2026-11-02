@@ -641,7 +641,7 @@ class TestScopesJsonClassicModels:
     @pytest.fixture
     def scopes(self):
         path = REPO_ROOT / 'data' / 'scopes.json'
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             return json.load(f)['Models']
 
     def test_ls620_exists(self, scopes):

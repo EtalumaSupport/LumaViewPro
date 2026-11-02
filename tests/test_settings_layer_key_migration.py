@@ -77,10 +77,10 @@ def _appdata_with(tmp_dir, bf_layer):
     data_dir = os.path.join(tmp_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
     shutil.copy(TEMPLATE, os.path.join(data_dir, 'settings.json'))
-    with open(TEMPLATE) as template_file:
+    with open(TEMPLATE, encoding='utf-8') as template_file:
         current = json.load(template_file)
     current['BF'] = bf_layer
-    with open(os.path.join(data_dir, 'current.json'), 'w') as current_file:
+    with open(os.path.join(data_dir, 'current.json'), 'w', encoding='utf-8') as current_file:
         json.dump(current, current_file)
     return tmp_dir
 
@@ -141,7 +141,7 @@ def test_old_shape_current_json_passes_per_layer_parity():
     the exemption a real guard rather than a property of one developer's
     machine.
     """
-    with open(TEMPLATE) as template_file:
+    with open(TEMPLATE, encoding='utf-8') as template_file:
         template = json.load(template_file)
     current = json.loads(json.dumps(template))
     current['BF'] = OLD_SHAPE

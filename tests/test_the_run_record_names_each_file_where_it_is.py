@@ -27,7 +27,7 @@ def _video(name, index):
 def _file_rows(run_parent: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
     """The record's folder, and every row naming a file (a frame count past 0)."""
     (record,) = run_parent.rglob('protocol_record.tsv')
-    with open(record, newline='') as fp:
+    with open(record, encoding='utf-8', newline='') as fp:
         rows = list(csv.reader(fp, delimiter='\t'))[4:]
     return record.parent, [row[0] for row in rows if int(row[5]) > 0]
 

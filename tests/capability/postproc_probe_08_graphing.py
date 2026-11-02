@@ -17,7 +17,7 @@ import harness
 def body(session):
     live = session.settings['live_folder']
     results = f'{live}/results.csv'
-    with open(results, 'w') as f:
+    with open(results, 'w', encoding='utf-8') as f:
         f.write('file,count,mean_area\na.tif,3,1.5\nb.tif,5,2.5\nc.tif,8,3.0\n')
 
     options = session.post_processing.graph_options(results, x='count', y='mean_area')

@@ -33,7 +33,7 @@ def _serial_rows():
     f = pathlib.Path(base) / 'serial_trace.csv'
     if not f.is_file():
         return out
-    with open(f) as fh:
+    with open(f, encoding='utf-8') as fh:
         for row in csv.DictReader(fh):
             out[row['board']] += 1
     return out

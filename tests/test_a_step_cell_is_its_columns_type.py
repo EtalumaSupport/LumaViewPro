@@ -39,13 +39,13 @@ def _saved(tmp_path, steps) -> pathlib.Path:
 
 def _with_cell(path: pathlib.Path, step: int, column: str, text: str) -> pathlib.Path:
     """The saved file with one step cell replaced by ``text``, as a hand edit would."""
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding='utf-8').splitlines()
     header_at = next(i for i, line in enumerate(lines) if line.split('\t')[0] == 'Steps') + 1
     header = lines[header_at].split('\t')
     row = lines[header_at + 1 + step].split('\t')
     row[header.index(column)] = text
     lines[header_at + 1 + step] = '\t'.join(row)
-    path.write_text('\n'.join(lines) + '\n')
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return path
 
 

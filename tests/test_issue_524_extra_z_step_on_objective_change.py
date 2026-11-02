@@ -48,7 +48,7 @@ STEPNAV_SRC = REPO / 'ui' / 'step_navigation.py'
 
 
 def _module_tree(path: pathlib.Path) -> ast.Module:
-    return ast.parse(path.read_text())
+    return ast.parse(path.read_text(encoding='utf-8'))
 
 
 def _function_node(tree: ast.Module, name: str, class_name: str | None = None) -> ast.FunctionDef:

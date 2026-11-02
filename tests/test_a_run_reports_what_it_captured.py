@@ -65,7 +65,7 @@ class TestANormalRunLogsNoCrash:
 def _record_rows(run_parent):
     records = list(pathlib.Path(run_parent).rglob('protocol_record.tsv'))
     assert len(records) == 1, records
-    with open(records[0], newline='') as fp:
+    with open(records[0], encoding='utf-8', newline='') as fp:
         return [row[0] for row in list(csv.reader(fp, delimiter='\t'))[4:]]
 
 

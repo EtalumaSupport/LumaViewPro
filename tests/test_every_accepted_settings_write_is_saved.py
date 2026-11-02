@@ -91,14 +91,14 @@ def test_an_accepted_write_is_in_the_named_file_after_the_close(saving_session, 
 
     saving_session.shutdown()
 
-    with open(tmp_path / 'current.json') as f:
+    with open(tmp_path / 'current.json', encoding='utf-8') as f:
         assert json.load(f)['video']['max_fps'] == value
 
 
 def test_the_close_saves_with_no_write_so_a_first_run_leaves_its_file(saving_session, tmp_path):
     saving_session.shutdown()
 
-    with open(tmp_path / 'current.json') as f:
+    with open(tmp_path / 'current.json', encoding='utf-8') as f:
         assert json.load(f)['microscope'] == saving_session.model
 
 

@@ -139,7 +139,7 @@ def main():
         )
     if SAVE:
         return
-    before = json.loads(pathlib.Path(_arg('--compare')).read_text())['figures']
+    before = json.loads(pathlib.Path(_arg('--compare')).read_text(encoding='utf-8'))['figures']
     old_names = {s['key'] for s in before['stored by LED address'].values()}
     check(
         'each LED address holds the settings it held before',

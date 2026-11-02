@@ -41,14 +41,14 @@ def appdata(tmp_path):
         'data',
         'settings.json',
     )
-    with open(repo_template) as f:
+    with open(repo_template, encoding='utf-8') as f:
         template = json.load(f)
-    with open(data / 'settings.json', 'w') as f:
+    with open(data / 'settings.json', 'w', encoding='utf-8') as f:
         json.dump(template, f, indent=4)
 
     user = dict(template)
     user['live_folder'] = '/the-users-own-folder'
-    with open(data / 'current.json', 'w') as f:
+    with open(data / 'current.json', 'w', encoding='utf-8') as f:
         json.dump(user, f, indent=4)
     return tmp_path
 
@@ -72,16 +72,16 @@ def _clean_module_state():
 def _break(appdata, how):
     current = appdata / 'data' / 'current.json'
     if how == 'unparseable':
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             f.write('{"live_folder": "/the-users-own-folder",,,')
     elif how == 'missing_required':
-        with open(current) as f:
+        with open(current, encoding='utf-8') as f:
             loaded = json.load(f)
         del loaded['microscope']
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             json.dump(loaded, f)
     elif how == 'toplevel_list':
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             json.dump(['not', 'a', 'settings', 'object'], f)
     return current
 
@@ -118,9 +118,9 @@ class TestTheFileSurvives:
 
         # Repair it and load again: the flag must clear, or the app would
         # refuse to save forever after one bad startup.
-        with open(appdata / 'data' / 'settings.json') as f:
+        with open(appdata / 'data' / 'settings.json', encoding='utf-8') as f:
             healthy = f.read()
-        with open(appdata / 'data' / 'current.json', 'w') as f:
+        with open(appdata / 'data' / 'current.json', 'w', encoding='utf-8') as f:
             f.write(healthy)
         settings_init.load_lvp_settings(log, str(appdata))
         assert not settings_init.settings_are_provisional()
@@ -158,10 +158,10 @@ class TestShapeValidation:
 
     def _write_current(self, appdata, mutate):
         current = appdata / 'data' / 'current.json'
-        with open(current) as f:
+        with open(current, encoding='utf-8') as f:
             loaded = json.load(f)
         mutate(loaded)
-        with open(current, 'w') as f:
+        with open(current, 'w', encoding='utf-8') as f:
             json.dump(loaded, f)
         return current
 
@@ -228,7 +228,7 @@ class TestShapeValidation:
         # and the refusal names the template.
         current = appdata / 'data' / 'current.json'
         before = current.read_bytes()
-        with open(appdata / 'data' / 'settings.json', 'w') as f:
+        with open(appdata / 'data' / 'settings.json', 'w', encoding='utf-8') as f:
             f.write('{"truncated": ')
 
         with pytest.raises(InstallationFileError) as refused:
@@ -250,7 +250,7 @@ class TestShapeValidation:
 
     def test_a_fresh_install_with_an_unreadable_template_is_refused(self, appdata):
         os.remove(appdata / 'data' / 'current.json')
-        with open(appdata / 'data' / 'settings.json', 'w') as f:
+        with open(appdata / 'data' / 'settings.json', 'w', encoding='utf-8') as f:
             f.write('{"truncated": ')
 
         with pytest.raises(InstallationFileError) as refused:

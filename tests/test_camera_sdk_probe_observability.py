@@ -75,7 +75,7 @@ def test_environment_banner_consumes_the_import_probe():
     session's bring-up hands it the probe's output, and every probe line
     reaches the log, is driven in a real process by
     ``tests/test_every_session_host_logs_its_environment_once.py``."""
-    logger_src = pathlib.Path('lvp_logger.py').read_text()
+    logger_src = pathlib.Path('lvp_logger.py').read_text(encoding='utf-8')
     assert 'camera_sdk_lines' in logger_src, (
         'the banner must take the camera-SDK lines as a required parameter'
     )
@@ -102,7 +102,7 @@ def test_driver_import_guards_log_their_reason():
     pinned by behaviour in test_ids_absence_on_macos_is_not_a_warning.py."""
     import modules.lumascope_api._lumascope as lumascope_mod
 
-    src = pathlib.Path(lumascope_mod.__file__).read_text()
+    src = pathlib.Path(lumascope_mod.__file__).read_text(encoding='utf-8')
 
     fx2_guard = re.search(
         r'try:\s*\n\s*import drivers\.fx2driver[^\n]*\n'

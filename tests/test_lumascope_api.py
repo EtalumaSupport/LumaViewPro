@@ -691,7 +691,7 @@ class TestRunGrabLifecycleBenchmark:
             f'JSON persistence path empty; errors: {r.get("errors")}'
         )
         assert os.path.exists(r['written_to']), f'Promised JSON not at {r["written_to"]}'
-        with open(r['written_to']) as f:
+        with open(r['written_to'], encoding='utf-8') as f:
             persisted = json.load(f)
         assert persisted['num_cycles'] == 2
         # Cleanup test artifact so it doesn't accumulate in the repo dir.

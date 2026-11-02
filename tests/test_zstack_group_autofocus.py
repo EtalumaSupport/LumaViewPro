@@ -289,7 +289,7 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(focusing_session, tmp
 def _as_v9_file(protocol, path: pathlib.Path, flags: list[bool]) -> pathlib.Path:
     """``protocol`` saved as a v9 build saved it: no Z-Stack Offset, each slice flagged as given."""
     protocol.to_file(path)
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding='utf-8').splitlines()
     header_at = lines.index('Steps') + 1
     header = lines[header_at].split('\t')
     dropped, flag_at = header.index('Z-Stack Offset'), header.index('Auto_Focus')
@@ -303,7 +303,7 @@ def _as_v9_file(protocol, path: pathlib.Path, flags: list[bool]) -> pathlib.Path
                 cells[flag_at] = str(flags[number - header_at - 1])
             del cells[dropped]
         out.append('\t'.join(cells))
-    path.write_text('\n'.join(out) + '\n')
+    path.write_text('\n'.join(out) + '\n', encoding='utf-8')
     return path
 
 

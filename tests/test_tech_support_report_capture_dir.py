@@ -26,7 +26,7 @@ from modules import tech_support_report
 
 
 def _write(path: pathlib.Path, data: dict) -> None:
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding='utf-8')
 
 
 def test_reads_live_folder_from_current_json(monkeypatch, tmp_path):
@@ -70,7 +70,7 @@ def test_falls_back_when_live_folder_missing(monkeypatch, tmp_path):
 
 
 def test_no_longer_reads_dead_capture_path_key():
-    src = pathlib.Path(tech_support_report.__file__).read_text()
+    src = pathlib.Path(tech_support_report.__file__).read_text(encoding='utf-8')
     assert "settings.get('capture_path'" not in src, (
         'capture_path is not a real settings key; read live_folder instead'
     )

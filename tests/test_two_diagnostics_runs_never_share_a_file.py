@@ -53,7 +53,7 @@ def test_two_benchmarks_in_one_instant_do_not_overwrite(frozen_clock):
     second = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
 
     assert first['written_to'] is not None, first['errors']
-    with open(first['written_to']) as f:
+    with open(first['written_to'], encoding='utf-8') as f:
         assert json.load(f)['num_cycles'] == 2
     assert second['written_to'] is None
     assert any('Persist failed: FileExistsError' in e for e in second['errors'])
@@ -102,7 +102,7 @@ def test_two_probes_in_one_instant_do_not_overwrite(frozen_clock):
     second = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
 
     assert 'output_path' in first, first.get('errors')
-    with open(first['output_path']) as f:
+    with open(first['output_path'], encoding='utf-8') as f:
         assert json.load(f)['probe_number'] == 1
     assert 'output_path' not in second
     assert any('JSON write failed: FileExistsError' in e for e in second['errors'])

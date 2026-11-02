@@ -147,7 +147,7 @@ class TestTheSessionReadsTheTier:
     def test_the_template_ships_the_realistic_tier(self):
         import json
 
-        template = json.loads(pathlib.Path('data/settings.json').read_text())
+        template = json.loads(pathlib.Path('data/settings.json').read_text(encoding='utf-8'))
         assert template['simulator_tier'] == 'realistic'
 
     def test_a_setting_that_names_no_tier_is_refused(self):

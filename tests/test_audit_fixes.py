@@ -513,7 +513,7 @@ class TestLvpLock:
 
         # pin-justified: lock-before-kivy-import ordering within the file
         # is the contract; textual position is the only observable.
-        src = pathlib.Path('lumaviewpro.py').read_text()
+        src = pathlib.Path('lumaviewpro.py').read_text(encoding='utf-8')
         lock_idx = src.find('take_instance_lock(source_path)')
         assert lock_idx >= 0, (
             'lumaviewpro.py must invoke take_instance_lock(source_path) '
@@ -535,7 +535,7 @@ class TestLvpLock:
         """
         import pathlib
 
-        src = pathlib.Path('lumaviewpro.py').read_text()
+        src = pathlib.Path('lumaviewpro.py').read_text(encoding='utf-8')
         # Slice the __main__ block lock-check region.
         start = src.find('take_instance_lock(source_path)')
         end = src.find('Kivy configurations', start)
@@ -1203,7 +1203,7 @@ class TestSetBinningSizeAnswersByRaising:
         # contract text lives on the impl -- the public is a thin
         # dispatcher whose docstring points here, the same shape as the
         # other dispatched setters.
-        source = pathlib.Path('modules/lumascope_api/camera.py').read_text()
+        source = pathlib.Path('modules/lumascope_api/camera.py').read_text(encoding='utf-8')
         idx = source.find('def _set_binning_impl(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
@@ -1544,7 +1544,7 @@ class TestG4_MotorLogSuppression:
         """motorboard.py must NOT call lvp_logger.pause_thread()."""
         import pathlib
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
+        source = pathlib.Path('drivers/motorboard.py').read_text(encoding='utf-8')
         assert 'pause_thread()' not in source, (
             'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
         )
@@ -1559,7 +1559,7 @@ class TestRule1_MotorBoardNoNotifications:
     def test_motorboard_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
+        source = pathlib.Path('drivers/motorboard.py').read_text(encoding='utf-8')
         assert 'from modules.notification_center import notifications' not in source, (
             'MotorBoard must not import notifications -- Rule 1 (call down, not up)'
         )
@@ -1574,7 +1574,7 @@ class TestRule1_CameraNoNotifications:
     def test_camera_base_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/camera.py').read_text()
+        source = pathlib.Path('drivers/camera.py').read_text(encoding='utf-8')
         assert 'from modules.notification_center import notifications' not in source, (
             'drivers/camera.py must not import notifications -- Rule 1'
         )
@@ -1590,7 +1590,7 @@ class TestRule1_PylonCameraNoNotifications:
     def test_pyloncamera_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
+        source = pathlib.Path('drivers/pyloncamera.py').read_text(encoding='utf-8')
         assert 'from modules.notification_center import notifications' not in source, (
             'drivers/pyloncamera.py must not import notifications -- Rule 1'
         )
@@ -1607,7 +1607,7 @@ class TestRule1_SerialBoardNoNotifications:
     def test_serialboard_does_not_import_notifications(self):
         import pathlib
 
-        source = pathlib.Path('drivers/serialboard.py').read_text()
+        source = pathlib.Path('drivers/serialboard.py').read_text(encoding='utf-8')
         assert 'from modules.notification_center import notifications' not in source, (
             'drivers/serialboard.py must not import notifications -- Rule 1'
         )
@@ -1702,7 +1702,7 @@ class TestRule1_UiNoDriverReachThrough:
             p = pathlib.Path(path)
             if not p.exists():
                 continue
-            source = p.read_text()
+            source = p.read_text(encoding='utf-8')
             assert 'scope._motion_driver.driver' not in source, (
                 f'{path} must not read scope._motion_driver.driver directly '
                 '(Rule 1 / LV-14). Use scope.motor_connected instead.'
@@ -1715,7 +1715,7 @@ class TestRule1_UiNoDriverReachThrough:
             p = pathlib.Path(path)
             if not p.exists():
                 continue
-            source = p.read_text()
+            source = p.read_text(encoding='utf-8')
             assert 'scope._led_driver.driver' not in source, (
                 f'{path} must not read scope._led_driver.driver directly '
                 '(Rule 1). Use scope.led_connected instead.'
@@ -1736,7 +1736,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
         import ast
         import pathlib
 
-        tree = ast.parse(pathlib.Path(path).read_text())
+        tree = ast.parse(pathlib.Path(path).read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == func_name:
                 return ast.unparse(node)
@@ -1770,7 +1770,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
         import ast
         import pathlib
 
-        tree = ast.parse(pathlib.Path('ui/stage.py').read_text())
+        tree = ast.parse(pathlib.Path('ui/stage.py').read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.If)
@@ -1791,7 +1791,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
 
         # pin-justified: data/scopes.json is the shipped capability matrix;
         # the values are the contract.
-        scopes = json.loads(pathlib.Path('data/scopes.json').read_text())['Models']
+        scopes = json.loads(pathlib.Path('data/scopes.json').read_text(encoding='utf-8'))['Models']
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
         assert 'LS820' in scopes, 'LS820 scope config missing from data/scopes.json'
         assert scopes['Lumi']['XYStage'] is False, (
@@ -6391,19 +6391,19 @@ class TestManualVideoSpinners:
 
         # pin-justified: kv is declarative source with no headless seam;
         # the kv text is the contract.
-        return pathlib.Path('ui/lumaviewpro.kv').read_text()
+        return pathlib.Path('ui/lumaviewpro.kv').read_text(encoding='utf-8')
 
     def _ms_text(self):
         import pathlib
 
-        return pathlib.Path('ui/microscope_settings.py').read_text()
+        return pathlib.Path('ui/microscope_settings.py').read_text(encoding='utf-8')
 
     def _advanced_text(self):
         import pathlib
 
         # The manual-video rows + handlers + load now live in the
         # Advanced Settings modal, not the microscope panel.
-        return pathlib.Path('ui/advanced_settings.py').read_text()
+        return pathlib.Path('ui/advanced_settings.py').read_text(encoding='utf-8')
 
     def test_kv_has_max_duration_textinput(self):
         kv = self._advanced_text()
@@ -6457,7 +6457,7 @@ class TestManualVideoSpinners:
         # pin-justified: the shipped default in data/settings.json is the
         # contract a fresh install receives.
         path = pathlib.Path('data/settings.json')
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding='utf-8'))
         assert data.get('video', {}).get('max_fps') == 0, (
             'data/settings.json must ship with video.max_fps = 0 '
             "(uncapped) so a fresh install does not fire 'FPS budget "
@@ -6477,7 +6477,7 @@ class TestBfIlluminationCapAtStartup:
     def _src(self):
         import pathlib
 
-        return pathlib.Path('ui/image_settings.py').read_text()
+        return pathlib.Path('ui/image_settings.py').read_text(encoding='utf-8')
 
     def test_the_capability_grouping_sets_the_illumination_ranges(self):
         src = self._src()
@@ -6508,7 +6508,7 @@ class TestModSliderScrollWheel:
     def _src(self):
         import pathlib
 
-        return pathlib.Path('ui/mod_slider.py').read_text()
+        return pathlib.Path('ui/mod_slider.py').read_text(encoding='utf-8')
 
     def test_scroll_handler_present(self):
         src = self._src()
@@ -6612,7 +6612,7 @@ class TestModSliderClickThenScrollFocus:
     def _src(self):
         import pathlib
 
-        return pathlib.Path('ui/mod_slider.py').read_text()
+        return pathlib.Path('ui/mod_slider.py').read_text(encoding='utf-8')
 
     def test_armed_state_tracked_with_weakref(self):
         src = self._src()
@@ -6680,14 +6680,14 @@ class TestModSliderAwareScrollView:
     def _src(self):
         import pathlib
 
-        return pathlib.Path('ui/mod_slider.py').read_text()
+        return pathlib.Path('ui/mod_slider.py').read_text(encoding='utf-8')
 
     def _kv(self):
         import pathlib
 
         # pin-justified: kv is declarative source with no headless seam;
         # the kv text is the contract.
-        return pathlib.Path('ui/lumaviewpro.kv').read_text()
+        return pathlib.Path('ui/lumaviewpro.kv').read_text(encoding='utf-8')
 
     def test_class_defined(self):
         src = self._src()
@@ -7853,7 +7853,7 @@ class TestAutoGainArmedInScanIterate:
     def _run_loop_src(self):
         import pathlib
 
-        return pathlib.Path('modules/protocol_run_loop.py').read_text()
+        return pathlib.Path('modules/protocol_run_loop.py').read_text(encoding='utf-8')
 
     def test_armed_step_attribute_initialized_on_scr(self):
         runner = _bare_capture_runner()
@@ -8296,7 +8296,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         # way the GUI's does, so a one-key stand-in is rejected before the
         # resolution this test is about ever gets to matter.
         shipped = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'settings.json'
-        with open(shipped) as f:
+        with open(shipped, encoding='utf-8') as f:
             template = json.load(f)
         from_current = dict(template, marker='from-current')
         from_settings = dict(template, marker='from-settings')

@@ -66,7 +66,7 @@ def _legacy_current(data_dir):
     # A key the running version ships and this older file predates.
     current.pop('stimulation_enabled', None)
 
-    with open(data_dir / 'current.json', 'w') as f:
+    with open(data_dir / 'current.json', 'w', encoding='utf-8') as f:
         json.dump(current, f)
     return current
 
@@ -233,7 +233,7 @@ def test_the_gui_comes_up_on_the_template_and_reports_what_it_set_aside(tmp_path
 
 
 def test_normalization_reports_whether_it_changed_anything():
-    with open(SHIPPED_TEMPLATE) as f:
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         shipped = json.load(f)
 
     assert settings_init.normalize_loaded_settings(copy.deepcopy(shipped)) is False
@@ -250,7 +250,7 @@ def test_normalization_reports_whether_it_changed_anything():
 
 def test_a_stored_bf_focus_for_fluorescence_is_dropped():
     # The setting was removed; a file that still carries it loads without it.
-    with open(SHIPPED_TEMPLATE) as f:
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         stored = json.load(f)
     stored['protocol']['bf_af_for_fluorescence'] = True
 
@@ -261,7 +261,7 @@ def test_a_stored_bf_focus_for_fluorescence_is_dropped():
 def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     # Eight shipped keys had no reader; a file that still carries them loads
     # without them, and the autofocus and stage blocks they filled go whole.
-    with open(SHIPPED_TEMPLATE) as f:
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         stored = json.load(f)
     stored['camera_type'] = 'pylon'
     stored['profiling']['stim_profiling'] = False
@@ -284,7 +284,7 @@ def test_the_auto_gain_wait_nothing_reads_is_dropped_from_a_stored_file():
     # The longest an auto-gain step waited was unread once its settle became a
     # frame count, and the camera's auto-gain refuses a key it does not take:
     # a file that still carries it loads without it, the other bounds kept.
-    with open(SHIPPED_TEMPLATE) as f:
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         stored = json.load(f)
     shipped = dict(stored['protocol']['autogain'])
     stored['protocol']['autogain']['max_duration_seconds'] = 1.0
@@ -297,7 +297,7 @@ def test_the_rest_servers_dead_settings_are_dropped_from_a_stored_file():
     # The server's host, key and CORS origins were never read: it binds this
     # computer only and has no credentials. A file that still carries them
     # loads without them.
-    with open(SHIPPED_TEMPLATE) as f:
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         stored = json.load(f)
     stored['rest_api'].update(host='0.0.0.0', api_key='s3cr3t', cors_origins=['http://localhost:*'])
 
@@ -342,7 +342,7 @@ def test_a_stored_layer_file_root_is_dropped_at_load(tmp_path):
 def test_a_plate_the_catalogue_never_had_is_left_as_written():
     # Preparation folds spellings; it does not judge. Whether the plate
     # exists is answered where the plate is selected, against the catalogue.
-    with open(SHIPPED_TEMPLATE) as f:
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         shipped = json.load(f)
     unknown = copy.deepcopy(shipped)
     unknown['protocol']['labware'] = 'Acme 1536 Ultra Plate'

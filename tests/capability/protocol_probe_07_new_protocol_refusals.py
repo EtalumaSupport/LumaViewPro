@@ -49,7 +49,7 @@ try:
     import pathlib
     import modules.lumascope_api.protocols as pmod
 
-    src = pathlib.Path(pmod.__file__).read_text()
+    src = pathlib.Path(pmod.__file__).read_text(encoding='utf-8')
     print(
         'create_protocol body calls the rule:',
         'refuse_unaddressable_objectives'

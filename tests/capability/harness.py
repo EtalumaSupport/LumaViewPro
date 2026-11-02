@@ -245,7 +245,7 @@ def _write_verdict(failed, ended='reported'):
         'log_folder': lvp_logger.log_dir,
     }
     path = pathlib.Path(f'{RECORD}_verdict.json')
-    path.write_text(json.dumps(verdict, indent=2, default=str))
+    path.write_text(json.dumps(verdict, indent=2, default=str), encoding='utf-8')
     print(f'VERDICT FILE: {path}', flush=True)
     print(f'LOG FOLDER: {lvp_logger.log_dir}', flush=True)
 

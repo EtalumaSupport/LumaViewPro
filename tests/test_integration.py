@@ -1051,7 +1051,7 @@ class TestRestAPIPrep:
         settings_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), 'data', 'settings.json'
         )
-        with open(settings_path) as f:
+        with open(settings_path, encoding='utf-8') as f:
             settings = json.load(f)
         assert 'rest_api' in settings
         assert settings['rest_api']['enabled'] is False
