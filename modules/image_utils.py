@@ -826,7 +826,7 @@ def _load_pixels_and_timestamp(
             sig = _significant_bits_from_open(tif)
             white = _white_bits_from_open(tif)
             if read_timestamp:
-                timestamp = frame_time(_record_from_open(tif))
+                timestamp = stated_frame_time(_record_from_open(tif))
         if collapse_legacy_false_color:
             image = _collapse_legacy_false_color(image, path)
         # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
@@ -1365,7 +1365,7 @@ def read_pixel_size_um(path: pathlib.Path) -> float | None:
     return record.get('pixel_size_um') if record is not None else None
 
 
-def frame_time(record: dict | None) -> datetime.datetime | None:
+def stated_frame_time(record: dict | None) -> datetime.datetime | None:
     """The time a record states its frame was taken, or None when it states none."""
     stated = record.get('timestamp_iso') if record is not None else None
     return datetime.datetime.fromisoformat(stated) if stated else None
@@ -1395,7 +1395,7 @@ def read_tiff_depth_and_record(path: pathlib.Path) -> tuple[int, dict | None]:
     hundreds of recorded frames costs one IFD parse each. See
     read_tiff_significant_bits for the depth resolution order and
     read_file_record for the record, None when the file states none;
-    frame_time gives the record's capture time.
+    stated_frame_time gives the record's capture time.
     """
     with _open_saved_tiff(path) as tif:
         return _significant_bits_from_open(tif), _record_from_open(tif)

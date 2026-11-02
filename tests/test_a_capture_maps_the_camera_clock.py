@@ -7,14 +7,21 @@ exposed: whether it began before or after a change the host made. Each
 capture now latches the camera's clock between two reads of the host's
 steady clock and records the mapping, half the bracket being how far off
 it can be; a camera without a latch records none.
+
+A still's time is its first frame's start on that clock, carried to the
+host's wall clock through the same mapping: the frame validity judges it
+by, so one instant means one thing. A camera without a latch, or a frame
+that came without its tick, states the frame's arrival instead.
 """
 
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 
-from modules.lumascope_api.frame_record import ClockMapping
+from drivers import host_clock
+from modules.lumascope_api.frame_record import ClockMapping, TimestampSource
 from tests.camera_fakes import chunk_config_pylon_camera, init_configurable_pylon_camera
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
@@ -22,10 +29,29 @@ from tests.scope_fakes import bind_settings_like_a_session, build_scope
 def test_a_mapping_converts_a_host_time_at_the_cameras_tick_rate():
     # 25 MHz, not the simulator's 1 GHz, at which ticks and nanoseconds
     # are the same number and a unit slip would pass.
-    mapping = ClockMapping(host_ns=1_000, camera_ticks=500, tick_hz=25_000_000, uncertainty_ns=0)
+    mapping = ClockMapping(
+        host_ns=1_000, camera_ticks=500, tick_hz=25_000_000, uncertainty_ns=0, wall_ns=0
+    )
 
     assert mapping.camera_ticks_at(1_000 + 1_000_000_000) == 500 + 25_000_000
     assert mapping.camera_ticks_at(1_000 - 40) == 499
+
+
+def test_a_mapping_converts_a_tick_to_the_wall_time_it_was_latched_beside():
+    wall_ns = 1_755_000_000_123_456_000
+    mapping = ClockMapping(
+        host_ns=1_000, camera_ticks=500, tick_hz=25_000_000, uncertainty_ns=0, wall_ns=wall_ns
+    )
+    latched = datetime.datetime.fromtimestamp(1_755_000_000) + datetime.timedelta(
+        microseconds=123_456
+    )
+
+    assert mapping.wall_time_at(500) == latched
+    # A second of ticks later is a second later; 25 ticks are a microsecond,
+    # and one tick (40 ns) rounds to the nearest one.
+    assert mapping.wall_time_at(500 + 25_000_000) == latched + datetime.timedelta(seconds=1)
+    assert mapping.wall_time_at(475) == latched - datetime.timedelta(microseconds=1)
+    assert mapping.wall_time_at(499) == latched
 
 
 def _capture_lines(caplog):
@@ -78,8 +104,58 @@ def test_a_camera_without_a_latch_records_no_mapping(caplog):
 
     assert scope.capabilities.camera_has_clock_latch is False
     assert record.clock_mapping is None
+    assert record.captured_at.source is TimestampSource.HOST_ARRIVAL
     (line,) = _capture_lines(caplog)
     assert ' clock=none' in line, line
+
+
+def _wall_time_of_steady(steady_ns: int) -> datetime.datetime:
+    """The host's wall time at the steady instant ``steady_ns``, through a
+    wall/steady pair this test reads itself, never the production mapping."""
+    wall_now, steady_now = host_clock.wall_ns(), host_clock.steady_ns()
+    return datetime.datetime.fromtimestamp((wall_now + steady_ns - steady_now) / 1e9)
+
+
+def test_a_summed_still_states_its_first_frames_start_and_its_facts(sim_scope, sim_camera):
+    camera, sim = sim_camera
+    camera.set_exposure_ms(20.0)
+
+    still = sim_scope.imaging.capture_still(sum_count=3)
+    returned = datetime.datetime.now()
+    record = still.record
+
+    # The simulator's own account of the frame the record names: its
+    # exposure's start, on the simulator's clock (the host's steady clock
+    # plus its own epoch), and what it was exposed under.
+    exposed = sim.exposed_under(record.frame_id)
+    assert record.camera_timestamp_ticks == exposed.started_ticks
+    assert record.exposure_ms == exposed.exposure_us / 1000.0
+    assert record.gain_db == exposed.gain_db
+    started = _wall_time_of_steady(exposed.started_ticks - sim._clock_offset_ns)
+    # Within the latch's uncertainty, and 2 ms for the two wall clock reads'
+    # own slew against the steady clock.
+    tolerance = datetime.timedelta(microseconds=record.clock_mapping.uncertainty_ns / 1000 + 2000)
+    assert record.captured_at.source is TimestampSource.CAMERA_FRAME_START
+    assert abs(record.captured_at.at - started) <= tolerance
+    # The first of three: each later frame starts at least one exposure
+    # after the one before it, and the capture returns after the last one
+    # has been exposed and has arrived.
+    assert returned - record.captured_at.at >= datetime.timedelta(milliseconds=3 * 20.0) - tolerance
+
+
+def test_a_still_whose_frame_came_without_its_tick_states_its_arrival(sim_scope):
+    sim_scope.simulation.withhold_chunk('Timestamp', 1_000)
+    try:
+        before = datetime.datetime.now()
+        record = sim_scope.imaging.capture_still().record
+        returned = datetime.datetime.now()
+    finally:
+        sim_scope.simulation.clear()
+
+    assert record.clock_mapping is not None, 'the camera latched; the frame had no tick'
+    assert record.camera_timestamp_ticks is None
+    assert record.captured_at.source is TimestampSource.HOST_ARRIVAL
+    assert before <= record.captured_at.at <= returned
 
 
 def _configured_pylon_camera(advertised):

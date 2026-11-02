@@ -9629,13 +9629,16 @@ A record: it crosses the wire as its data.
 Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).  
 Taken by: [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).
 
-The camera's timestamp clock against the host's steady clock, measured once.
+The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
 The host latches the camera's clock between two reads of the scope's
 steady clock (`host_clock.steady_ns`); the latch fell somewhere inside
 that bracket, so its middle is the host time the latched value belongs to
 and half its width is how far off that can be. The read of the latched
-value comes after the bracket and is no part of it.
+value comes after the bracket and is no part of it. The host's wall
+clock is read immediately before the bracket, outside it, so the
+bracket's width stays the latch's own, and is carried to the bracket's
+middle by the steady clock.
 
 **Fields**
 
@@ -9643,6 +9646,7 @@ value comes after the bracket and is no part of it.
 - <a id="ClockMapping.host_ns"></a>`host_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) at the middle of the bracket.
 - <a id="ClockMapping.tick_hz"></a>`tick_hz`: `int` -- Ticks per second of the camera's clock.
 - <a id="ClockMapping.uncertainty_ns"></a>`uncertainty_ns`: `int` -- Half the bracket.
+- <a id="ClockMapping.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at `host_ns`.
 
 <a id="ControlSession"></a>
 ## `ControlSession`
@@ -10016,7 +10020,7 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.black_level"></a>`black_level`: `float | None` -- The camera's black level parameter the frame was taken at, in the camera's own units (`CameraAPI.read_black_level`). None for a recorded frame: no frame reports it.
 - <a id="FrameRecord.camera_model"></a>`camera_model`: `str | None` -- The camera that took it.
 - <a id="FrameRecord.camera_tick_hz"></a>`camera_tick_hz`: `int | None` -- Ticks per second of that clock.
-- <a id="FrameRecord.camera_timestamp_ticks"></a>`camera_timestamp_ticks`: `int | None` -- The camera's own clock for the frame (for a summed capture, the last frame's).
+- <a id="FrameRecord.camera_timestamp_ticks"></a>`camera_timestamp_ticks`: `int | None` -- The camera's own clock for the frame (for a summed capture, the first frame's).
 - <a id="FrameRecord.captured_at"></a>`captured_at`: `FrameTime` -- When the frame was taken, with what that time is (`FrameTime`).
 - <a id="FrameRecord.clock_mapping"></a>`clock_mapping`: `ClockMapping | None` -- The camera's clock mapped onto the host's, latched by the capture at the top of the cycle that grabbed the frame, before its drain (`ClockMapping`); None on a camera without a latch (`capabilities.camera_has_clock_latch`).
 - <a id="FrameRecord.dark"></a>`dark`: `bool | None` -- True when the frame was kept with no pixel above the dark floor while illumination was commanded on, after the capture waited out its budget for a lit one; for a summed capture, when any frame was. None when the capture did not judge it (no LED on, or `accept_dark`).
@@ -13695,16 +13699,24 @@ Held in: [`FrameTime.source`](#FrameTime.source).
 
 What a record's time is.
 
-HOST_WALLCLOCK: the host's wall clock read after the grab returned the
-    frame (a still).
+CAMERA_FRAME_START: the frame's start on the camera's own clock (its
+    `Timestamp` chunk), mapped onto the host's wall clock through the
+    camera's latched clock (`ClockMapping`). On the Baslers it is the
+    camera's frame start, for a rolling shutter its first row's; on the
+    simulated camera, its exposure's start.
 HOST_ARRIVAL: the host's wall clock when the frame arrived from the
-    camera (a recorded frame from a camera that stamps no ticks).
+    camera: a camera that stamps no ticks or has no latch, or a frame
+    that came without its tick.
 CAMERA_REBASED: the camera's own clock for the frame, offset onto the
     host's wall clock at the recording's first frame that carried it.
+HOST_WALLCLOCK: the host's wall clock read after the grab returned the
+    frame. No longer written: it is what a still saved by `4.0.0-beta`
+    states.
 
-- `host_wallclock`
+- `camera_frame_start`
 - `host_arrival`
 - `camera_rebased`
+- `host_wallclock`
 
 <a id="Trendline"></a>
 ### `Trendline`

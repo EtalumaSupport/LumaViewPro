@@ -60,7 +60,9 @@ def _clocked(source: str, delay_us: float, settle_check=None) -> FrameValidity:
 
 def _mapping_at(host_ns: int) -> ClockMapping:
     """A nanosecond camera clock reading 1_000_000 at ``host_ns``, known to 50 ns."""
-    return ClockMapping(host_ns=host_ns, camera_ticks=1_000_000, tick_hz=10**9, uncertainty_ns=50)
+    return ClockMapping(
+        host_ns=host_ns, camera_ticks=1_000_000, tick_hz=10**9, uncertainty_ns=50, wall_ns=0
+    )
 
 
 def _judgment(record, source: str):

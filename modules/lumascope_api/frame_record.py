@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 import numpy as np
 
+from drivers.camera import Frame
 from modules import image_utils
 from modules.api_surface import api_fields
 from modules.frame_validity import Judgment
@@ -32,16 +33,19 @@ from modules.lumascope_api.camera import AutoGainConvergence
 BLOWN_FRACTION = 0.98
 
 
-@api_fields('host_ns', 'camera_ticks', 'tick_hz', 'uncertainty_ns')
+@api_fields('host_ns', 'camera_ticks', 'tick_hz', 'uncertainty_ns', 'wall_ns')
 @dataclasses.dataclass(frozen=True)
 class ClockMapping:
-    """The camera's timestamp clock against the host's steady clock, measured once.
+    """The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
     The host latches the camera's clock between two reads of the scope's
     steady clock (``host_clock.steady_ns``); the latch fell somewhere inside
     that bracket, so its middle is the host time the latched value belongs to
     and half its width is how far off that can be. The read of the latched
-    value comes after the bracket and is no part of it.
+    value comes after the bracket and is no part of it. The host's wall
+    clock is read immediately before the bracket, outside it, so the
+    bracket's width stays the latch's own, and is carried to the bracket's
+    middle by the steady clock.
 
     Attributes:
         host_ns: The scope's steady clock (``host_clock.steady_ns``) at the
@@ -49,18 +53,33 @@ class ClockMapping:
         camera_ticks: The camera's clock the latch latched.
         tick_hz: Ticks per second of the camera's clock.
         uncertainty_ns: Half the bracket.
+        wall_ns: The host's wall clock (``host_clock.wall_ns``) at ``host_ns``.
     """
 
     host_ns: int
     camera_ticks: int
     tick_hz: int
     uncertainty_ns: int
+    wall_ns: int
 
     def camera_ticks_at(self, host_ns: int) -> int:
         """The camera's clock at the host's steady time ``host_ns``, through
         this mapping: off by ``uncertainty_ns`` and by whatever the clocks
         drifted between ``host_ns`` and the latch."""
         return self.camera_ticks + round((host_ns - self.host_ns) * self.tick_hz / 1e9)
+
+    def wall_time_at(self, ticks: int) -> datetime.datetime:
+        """The host's wall time, local and naive as every saved time is, at
+        the camera's clock ``ticks``, through this mapping: off by
+        ``uncertainty_ns`` and by whatever the clocks drifted between the
+        latch and ``ticks``. One wall read anchors every tick mapped through
+        it, so intervals between ticks are the camera's."""
+        wall_ns = self.wall_ns + (ticks - self.camera_ticks) * 1_000_000_000 // self.tick_hz
+        seconds, ns = divmod(wall_ns, 1_000_000_000)
+        # To the nearest microsecond, a datetime's resolution.
+        return datetime.datetime.fromtimestamp(seconds) + datetime.timedelta(
+            microseconds=(ns + 500) // 1000
+        )
 
 
 class SettingSource(enum.StrEnum):
@@ -80,17 +99,25 @@ class SettingSource(enum.StrEnum):
 class TimestampSource(enum.StrEnum):
     """What a record's time is.
 
-    HOST_WALLCLOCK: the host's wall clock read after the grab returned the
-        frame (a still).
+    CAMERA_FRAME_START: the frame's start on the camera's own clock (its
+        ``Timestamp`` chunk), mapped onto the host's wall clock through the
+        camera's latched clock (``ClockMapping``). On the Baslers it is the
+        camera's frame start, for a rolling shutter its first row's; on the
+        simulated camera, its exposure's start.
     HOST_ARRIVAL: the host's wall clock when the frame arrived from the
-        camera (a recorded frame from a camera that stamps no ticks).
+        camera: a camera that stamps no ticks or has no latch, or a frame
+        that came without its tick.
     CAMERA_REBASED: the camera's own clock for the frame, offset onto the
         host's wall clock at the recording's first frame that carried it.
+    HOST_WALLCLOCK: the host's wall clock read after the grab returned the
+        frame. No longer written: it is what a still saved by ``4.0.0-beta``
+        states.
     """
 
-    HOST_WALLCLOCK = 'host_wallclock'
+    CAMERA_FRAME_START = 'camera_frame_start'
     HOST_ARRIVAL = 'host_arrival'
     CAMERA_REBASED = 'camera_rebased'
+    HOST_WALLCLOCK = 'host_wallclock'
 
 
 @api_fields('at', 'source')
@@ -108,6 +135,22 @@ class FrameTime:
 
     at: datetime.datetime
     source: TimestampSource
+
+
+def arrival_time(frame: Frame) -> FrameTime:
+    """``frame``'s arrival from the camera on the host's wall clock: the one
+    builder of an arrival time."""
+    return FrameTime(at=frame.timestamp, source=TimestampSource.HOST_ARRIVAL)
+
+
+def camera_frame_time(frame: Frame, mapping: ClockMapping) -> FrameTime | None:
+    """``frame``'s start on the camera's clock, mapped through ``mapping``;
+    None when the frame carries no tick. What a caller states for a frame
+    without its tick is the caller's own policy."""
+    ticks = _chunk_facts(frame.chunks).ticks
+    if ticks is None:
+        return None
+    return FrameTime(at=mapping.wall_time_at(ticks), source=TimestampSource.CAMERA_FRAME_START)
 
 
 class LightTiming(enum.StrEnum):
@@ -182,7 +225,7 @@ class FrameRecord:
             from (``image_utils.summed_significant_bits``, ``summed_full_scale``,
             ``convert_sum_to_8bit``).
         camera_timestamp_ticks: The camera's own clock for the frame
-            (for a summed capture, the last frame's).
+            (for a summed capture, the first frame's).
         camera_tick_hz: Ticks per second of that clock.
         frame_id: The camera's frame counter for the frame.
         binning_size: Binning the frame was delivered at.
@@ -286,7 +329,7 @@ def _chunk_facts(chunks: Mapping[str, int | float] | None) -> _ChunkFacts:
 
 def grab_record(
     *,
-    captured_at: datetime.datetime,
+    captured_at: FrameTime,
     chunks: Mapping[str, int | float],
     read_exposure_ms: Callable[[], float],
     read_gain_db: Callable[[], float],
@@ -310,8 +353,8 @@ def grab_record(
     them; a frame without them takes ``read_exposure_ms`` / ``read_gain_db``,
     the camera's setting read here, beside the grab -- the nearest the frame
     has to its own account. A read the camera does not answer raises and
-    fails the capture. Its time is the host's wall clock after the grab
-    returned.
+    fails the capture. ``chunks`` and ``captured_at`` are one frame's: for a
+    summed capture, the first frame summed.
     """
     facts = _chunk_facts(chunks)
     if facts.exposure_ms is not None:
@@ -323,7 +366,7 @@ def grab_record(
     else:
         gain_db, gain_source = read_gain_db(), SettingSource.READ
     return FrameRecord(
-        captured_at=FrameTime(at=captured_at, source=TimestampSource.HOST_WALLCLOCK),
+        captured_at=captured_at,
         exposure_ms=exposure_ms,
         exposure_source=exposure_source,
         gain_db=gain_db,

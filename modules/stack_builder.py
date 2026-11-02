@@ -426,7 +426,7 @@ class StackBuilder(ProtocolPostProcessor):
         input_depths = [depth for depth, _ in headers]
         output_depth = image_utils.resolve_output_depth(input_depths)
         input_records = [record for _, record in headers]
-        timestamps = [image_utils.frame_time(record) for record in input_records]
+        timestamps = [image_utils.stated_frame_time(record) for record in input_records]
 
         # Positions only: build_hyperstack_output_metadata derives every
         # unit list itself, so unit entries built here would be dead.

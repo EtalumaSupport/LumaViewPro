@@ -20,11 +20,12 @@ from modules.recording_frames import FrameFact
 
 
 def frame_record(**overrides) -> FrameRecord:
-    """A plausible single-frame still's record with no LED lit; override any
-    field by name. A ``captured_at`` given as a datetime is a still's time."""
+    """A plausible single-frame still's record with no LED lit, from a camera
+    without a latch, so its time is the frame's arrival; override any field
+    by name. A ``captured_at`` given as a datetime is that arrival."""
     fields = {
         'captured_at': FrameTime(
-            at=datetime.datetime(2026, 9, 29, 12, 0, 0), source=TimestampSource.HOST_WALLCLOCK
+            at=datetime.datetime(2026, 9, 29, 12, 0, 0), source=TimestampSource.HOST_ARRIVAL
         ),
         'exposure_ms': 10.0,
         'exposure_source': SettingSource.FRAME,
@@ -50,7 +51,7 @@ def frame_record(**overrides) -> FrameRecord:
     fields.update(overrides)
     if isinstance(fields['captured_at'], datetime.datetime):
         fields['captured_at'] = FrameTime(
-            at=fields['captured_at'], source=TimestampSource.HOST_WALLCLOCK
+            at=fields['captured_at'], source=TimestampSource.HOST_ARRIVAL
         )
     return FrameRecord(**fields)
 

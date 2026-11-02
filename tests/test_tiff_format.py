@@ -736,7 +736,7 @@ class TestTimestampMetadata:
 
     def test_camera_ticks_emitted_when_provided(self, img_8bit, metadata):
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
-        metadata['timestamp_source'] = 'host_wallclock'
+        metadata['timestamp_source'] = 'camera_frame_start'
         metadata['timestamp_camera_ticks'] = 1234567890123
         metadata['timestamp_camera_tick_hz'] = 1_000_000_000
         result = image_utils.generate_tiff_data(
@@ -780,10 +780,11 @@ class TestTimestampMetadata:
         assert 'FrameID' not in plane
 
     def test_partial_timestamp_metadata_emits_only_what_provided(self, img_8bit, metadata):
-        # Provide host wall-clock only (camera doesn't support ChunkTimestamp,
-        # e.g. IDS today). The host fields appear; the camera fields do not.
+        # Provide the host's arrival time only (camera doesn't support
+        # ChunkTimestamp, e.g. IDS today). The host fields appear; the camera
+        # fields do not.
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
-        metadata['timestamp_source'] = 'host_wallclock'
+        metadata['timestamp_source'] = 'host_arrival'
         result = image_utils.generate_tiff_data(
             data=img_8bit,
             metadata=metadata,

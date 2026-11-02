@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import datetime
 import logging as _logging
 import threading
 import time
@@ -48,6 +47,9 @@ from modules.lumascope_api.frame_record import (
     CapturedStill,
     ClockMapping,
     FrameRecord,
+    FrameTime,
+    arrival_time,
+    camera_frame_time,
     grab_record,
 )
 from modules.lumascope_api.illumination import lit_other_than, live_lit_pairs
@@ -88,11 +90,11 @@ class _Grabbed:
 
     ``image`` is what the caller is handed -- the frame's own pixels, a sum,
     an 8-bit rendering or a scale-bar copy -- read-only in every case.
-    ``frame`` is the camera's record of the frame the image was made from
-    (the last one, for a sum), so the capture's record and its log describe
-    that frame and no later one. ``earliest`` is the first frame the image
-    was made from (``frame`` itself, but for a sum): the one a change could
-    have reached last, so the one the capture is judged by.
+    ``frame`` is the last frame the image was made from and ``earliest`` the
+    first (the same frame, but for a sum). ``earliest`` is the one a change
+    could have reached last, so the one the capture is judged by, and the
+    one its record and its log describe: the image's instant is its first
+    frame's start.
     ``saturated_fraction`` and ``dark`` are what the grab found of the frames
     it kept, for the capture's record (``FrameRecord``): None when it was not
     asked to look.
@@ -1141,7 +1143,6 @@ class ImagingAPI:
                 verify_chunk_targets=True,
                 judged=judged,
             )
-            grabbed_at = datetime.datetime.now()
 
             # Post-grab compare: a changed counter means the window was
             # dirtied and the frame (or failure) predates the state the
@@ -1161,9 +1162,9 @@ class ImagingAPI:
                 continue
             break
 
-        # The chunks are the returned frame's own; a capture that got no
-        # frame has none.
-        chunks = dict(grabbed.frame.chunks or {}) if isinstance(grabbed, _Grabbed) else {}
+        # The chunks are the first frame's own, the frame the record names;
+        # a capture that got no frame has none.
+        chunks = dict(grabbed.earliest.chunks or {}) if isinstance(grabbed, _Grabbed) else {}
         record: FrameRecord | None = None
         failed = grabbed if isinstance(grabbed, _NoFrame) else None
         if failed is not None:
@@ -1186,11 +1187,19 @@ class ImagingAPI:
                 # The frame is judged against the mapping its record carries,
                 # the one its cycle took before the drain.
                 judgments = self.frame_validity.judgments(grabbed.earliest, mapping)
+                # Its time is the first frame's start on the camera's clock,
+                # through the same mapping; a camera without a latch, or a
+                # frame that came without its tick, states its arrival.
+                captured_at = (
+                    camera_frame_time(grabbed.earliest, mapping) if mapping is not None else None
+                )
+                if captured_at is None:
+                    captured_at = arrival_time(grabbed.earliest)
                 try:
                     record = self._build_frame_record(
                         chunks=chunks,
                         lit=lit,
-                        captured_at=grabbed_at,
+                        captured_at=captured_at,
                         clock_mapping=mapping,
                         judgments=judgments,
                         saturated_fraction=grabbed.saturated_fraction,
@@ -1245,7 +1254,7 @@ class ImagingAPI:
         *,
         chunks: dict[str, int | float],
         lit: frozenset[tuple[int, float]],
-        captured_at: datetime.datetime,
+        captured_at: FrameTime,
         clock_mapping: ClockMapping | None,
         judgments: tuple[Judgment, ...],
         saturated_fraction: float | None,
@@ -1292,21 +1301,25 @@ class ImagingAPI:
         """The camera's clock mapped onto the host's, taken at the top of each
         capture cycle, before its drain: the latch alone is bracketed by the
         host's steady clock, and the read of what it latched follows outside
-        the bracket. None for a camera
+        the bracket; the wall clock is read just before it, outside it too
+        (``host_clock.wall_ns``, ``ClockMapping.wall_ns``). None for a camera
         without a latch. A failed latch or read raises ``HardwareError`` and
         fails the capture, as a failed black level read does.
         """
         camera = self._scope.capabilities
         if not camera.camera_has_clock_latch:
             return None
+        wall_ns = host_clock.wall_ns()
         before = host_clock.steady_ns()
         self._driver.latch_clock()
         after = host_clock.steady_ns()
+        host_ns = (before + after) // 2
         return ClockMapping(
-            host_ns=(before + after) // 2,
+            host_ns=host_ns,
             camera_ticks=self._driver.latched_clock_ticks(),
             tick_hz=camera.camera_timestamp_tick_hz,
             uncertainty_ns=(after - before + 1) // 2,
+            wall_ns=wall_ns + (host_ns - before),
         )
 
     def _settle_budget(
