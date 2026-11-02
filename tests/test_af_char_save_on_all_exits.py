@@ -32,6 +32,7 @@ import modules.autofocus_functions as autofocus_functions
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import AutofocusAborted
 from modules.protocol_image_writer import RunWriteBatch
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.af_drives import af_runner_on, raises_the_failure_from, sweep
 
@@ -39,7 +40,7 @@ from tests.af_drives import af_runner_on, raises_the_failure_from, sweep
 @pytest.fixture
 def write_batch():
     """A run's write batch over a real file lane."""
-    lane = SequentialIOExecutor(name='FILE')
+    lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='FILE')
     lane.start()
     yield RunWriteBatch(lane)
     lane.shutdown(wait=True)

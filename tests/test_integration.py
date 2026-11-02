@@ -36,6 +36,7 @@ from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -67,7 +68,10 @@ def _make_executors():
     from modules.protocol_thread import ProtocolThread
 
     names = ['io', 'file_io', 'camera', 'autofocus']
-    execs = {n: SequentialIOExecutor(name=f'INTEG_{n.upper()}') for n in names}
+    execs = {
+        n: SequentialIOExecutor(closed_answer=scope_lane_closed, name=f'INTEG_{n.upper()}')
+        for n in names
+    }
     for e in execs.values():
         e.start()
     pt = ProtocolThread()

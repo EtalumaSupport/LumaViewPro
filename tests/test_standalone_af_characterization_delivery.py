@@ -33,6 +33,8 @@ from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.run_events import RunEvents
@@ -104,9 +106,11 @@ class TestStandaloneAfDeliversCharacterizationData:
         scope._camera_driver.set_timing_mode('fast')
         scope.imaging.enable_streaming()
 
-        io_executor = SequentialIOExecutor(name='AF790_IO')
-        file_io_executor = SequentialIOExecutor(name='AF790_FILE')
-        camera_executor = SequentialIOExecutor(name='AF790_CAMERA')
+        io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF790_IO')
+        file_io_executor = SequentialIOExecutor(
+            closed_answer=session_lane_closed, name='AF790_FILE'
+        )
+        camera_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF790_CAMERA')
         for e in (io_executor, file_io_executor, camera_executor):
             e.start()
         protocol_thread = ProtocolThread()

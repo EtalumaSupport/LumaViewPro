@@ -137,8 +137,7 @@ def submit_reported(
     reaches the task's callback once. The executor's own narration is the
     record of a refused or dropped call, under the gesture's label.
 
-    Two executor paths run no callback, so their redraw is lost: a queue
-    drained by ``clear_pending`` (the lane closing down), and a task whose
+    One executor path runs no callback, so its redraw is lost: a task whose
     worker was abandoned by wedge recovery while stuck inside it.
 
     ``stop`` is for a Stop: it goes ahead of every queued request, so a

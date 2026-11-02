@@ -1241,8 +1241,9 @@ class CameraAPI:
         and a recording holds the scope. Once admitted, the task asks for the
         camera before the body runs, and again when the body raises a fault
         (``_asking_for_the_camera``), so a camera the command finds removed
-        is refused as one already gone; after ``disconnect()`` the lane's
-        own ``scope_disconnected`` is what the caller hears.
+        is refused as one already gone. A call ``disconnect()`` finds queued,
+        or one made after it, is refused ``scope_disconnected``; one it finds
+        running answers ``LaneCallStillRunningError`` ``'lane_closed'``.
 
         ``override`` admits the task whatever holds the scope, on the key the
         session registered: only for a read that must touch the camera from

@@ -204,11 +204,14 @@ class ManualCaptureController:
             while the still was queued behind other camera work, waiting or
             running when it was put on the lane, or when a recording runs and
             the camera would have to change layers for the still (nothing is
-            written then, and the recording is unchanged); ``CancelledError`` when the lane dropped it unrun (the
-            scope disconnected); ``LaneCallStillRunningError`` when it has
-            not finished within the bound a capture and its write are given:
-            the still may yet be taken and saved, its file logged when it is,
-            and a second still is refused ``'capture_in_flight'`` until then.
+            written then, and the recording is unchanged), and
+            ``'scope_disconnected'`` when the scope disconnected before the
+            still started; ``LaneCallStillRunningError`` when it has not
+            finished within the bound a capture and its write are given
+            (``'call_overran'``), or the scope disconnected while it ran
+            (``'lane_closed'``): the still may yet be taken and saved, its
+            file logged when it is, and a second still is refused
+            ``'capture_in_flight'`` until then.
 
         Raises:
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,

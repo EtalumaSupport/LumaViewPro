@@ -299,8 +299,9 @@ ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
 # A gesture that waits on a lane, standing in for a turret pick or a build:
 # a real lane, one sleeping task per press, its end recorded in wall time.
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-lane = SequentialIOExecutor(name='IO')
+lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
 lane.start()
 def busy(seconds):
     time.sleep(seconds)

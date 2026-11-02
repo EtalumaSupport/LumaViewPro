@@ -15,7 +15,6 @@ import concurrent.futures
 import logging
 import threading
 import time
-from concurrent.futures import CancelledError
 
 import pytest
 
@@ -27,6 +26,7 @@ from modules.exceptions import (
     LaneCallStillRunningError,
 )
 from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 _WAIT_S = 2.0
@@ -35,7 +35,7 @@ OUTCOMES = 'LVP.outcomes'
 
 @pytest.fixture
 def lane():
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.start()
     yield ex
     ex.shutdown(wait=False)
@@ -203,10 +203,10 @@ class TestATimedOutCall:
         claimed = threading.Event()
         original = lane._report_task_failure
 
-        def _held(task, exception, owned):
+        def _held(task, exception, owned, **kwargs):
             claimed.set()
             time.sleep(0.5)
-            original(task, exception, owned)
+            original(task, exception, owned, **kwargs)
 
         monkeypatch.setattr(lane, '_report_task_failure', _held)
         boom = RuntimeError('landed first')
@@ -227,7 +227,7 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
 
     @pytest.fixture
     def lane_and_key(self, claim):
-        ex = SequentialIOExecutor(name='TEST_IO')
+        ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         key = ex.ask_claim(claim)
         ex.start()
         yield ex, key
@@ -296,7 +296,7 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
 
 
 def test_shutdown_completes_a_waiter_whose_task_is_still_running(centre_posts):
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.start()
     release = threading.Event()
     started = threading.Event()
@@ -322,7 +322,9 @@ def test_shutdown_completes_a_waiter_whose_task_is_still_running(centre_posts):
     release.set()
 
     assert not waiter.is_alive(), 'the waiter was left waiting for an outcome no one will set'
-    assert isinstance(box.get('outcome'), CancelledError)
+    outcome = box.get('outcome')
+    assert isinstance(outcome, LaneCallStillRunningError), outcome
+    assert outcome.reason == 'lane_closed', 'the task was running: it may still finish'
 
 
 def test_a_listener_that_submits_from_inside_a_report_does_not_deadlock(lane):
@@ -350,7 +352,7 @@ def test_a_listener_that_submits_from_inside_a_report_does_not_deadlock(lane):
 
 
 def test_an_abandoned_worker_names_what_its_task_raised(caplog):
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.start()
     started = threading.Event()
     release = threading.Event()

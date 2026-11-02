@@ -69,6 +69,8 @@ from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.layer_record import release_colors
 from tests.stock_channels import LED0, LED2
@@ -102,10 +104,10 @@ def _make_executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='REFUSAL_IO'),
-        'file_io': SequentialIOExecutor(name='REFUSAL_FILE'),
-        'camera': SequentialIOExecutor(name='REFUSAL_CAMERA'),
-        'autofocus': SequentialIOExecutor(name='REFUSAL_AF'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='REFUSAL_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_CAMERA'),
+        'autofocus': SequentialIOExecutor(closed_answer=scope_lane_closed, name='REFUSAL_AF'),
     }
     for e in execs.values():
         e.start()

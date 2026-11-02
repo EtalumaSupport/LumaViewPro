@@ -137,13 +137,14 @@ class TestABudgetRunInsideAnotherTask:
         )
 
     def test_an_inline_budget_never_lowers_the_running_tasks(self):
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor, slow_task_budget
 
         @slow_task_budget(15.0)
         def _member():
             return None
 
-        lane = SequentialIOExecutor(name='TEST_IO')
+        lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         lane.start()
         try:
             longer = IOTask(

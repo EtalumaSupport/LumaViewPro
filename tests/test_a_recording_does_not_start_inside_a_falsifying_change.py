@@ -25,6 +25,7 @@ from modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
 from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.scope_session import ScopeSession
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from modules.lumascope_api.frame_record import TimestampSource
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -43,7 +44,7 @@ def claim():
 
 
 def _lane(claim, name):
-    ex = SequentialIOExecutor(name=name)
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name=name)
     ex.ask_claim(claim)
     ex.start()
     return ex

@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 from modules.layer_record import release_colors
 from modules.post_processing_api import PostProcessingAPI
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.installation_fixtures import shipped_grids
 
@@ -20,7 +21,7 @@ def a_post_processing_api() -> Iterator[PostProcessingAPI]:
     No scope holds anything and no run's files drain, so a caller's build is
     never refused for them.
     """
-    lane = SequentialIOExecutor(name='POSTPROC_TEST')
+    lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='POSTPROC_TEST')
     lane.start()
     try:
         yield PostProcessingAPI(

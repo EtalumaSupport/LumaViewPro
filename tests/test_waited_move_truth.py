@@ -82,12 +82,13 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
 def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     """Off an executor worker the user reads the error's message, not the
     generic 'did not complete' line that names no axis and no remedy."""
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _move():
         raise MoveFaultError('T', 'faulted')
 
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     task = IOTask(_move)
     task.set_name(executor.executor_name)
     executor.queue.put(task)

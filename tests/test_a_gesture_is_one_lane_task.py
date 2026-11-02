@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from ui import ui_helpers
@@ -166,7 +167,7 @@ def test_a_locked_control_surface_submits_nothing(env, monkeypatch):
 
 
 def test_a_lane_that_takes_no_work_skips_the_gui_work(env, monkeypatch):
-    closed = SequentialIOExecutor(name='CLOSED_IO')
+    closed = SequentialIOExecutor(closed_answer=scope_lane_closed, name='CLOSED_IO')
     closed.start()
     closed.shutdown(wait=False)
     monkeypatch.setattr(env.ctx.scope, 'io_lane', lambda: closed)

@@ -20,6 +20,7 @@ import time
 import pytest
 
 import modules.protocol_image_writer as piw
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 STALL_S = 0.5
@@ -55,7 +56,7 @@ def _paced_write(file_lane):
 
 
 def test_a_long_task_sharing_the_file_lane_wedges_a_runs_paced_write(fast_pacing):
-    file_lane = SequentialIOExecutor(name='FILE_SHARED')
+    file_lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='FILE_SHARED')
     file_lane.start()
     release = threading.Event()
     try:

@@ -27,8 +27,10 @@ import numpy as np
 import pytest
 
 import modules.protocol_image_writer as piw
+from modules.exceptions import FileWriterReplacedError
 from modules.notification_center import Severity, notifications
 from modules.protocol_image_writer import RunWriteBatch
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import (
     ENQUEUED,
     IOTask,
@@ -42,7 +44,7 @@ from tests.frame_records import frame_record
 @pytest.fixture
 def file_lane():
     """A started file lane."""
-    ex = SequentialIOExecutor(name='TEST_BP')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP')
     ex.start()
     yield ex
     ex.shutdown(wait=True)
@@ -105,7 +107,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     from unittest.mock import MagicMock
 
     monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 2)
-    ex = SequentialIOExecutor(name='TEST_BP_WRITER')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_WRITER')
     ex.start()
     saved = threading.Event()
     monkeypatch.setattr(
@@ -205,7 +207,7 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.4)
     monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
 
-    ex = SequentialIOExecutor(name='TEST_BP_WEDGE')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_WEDGE')
     ex.start()
     aborts = []
     record = MagicMock()
@@ -270,7 +272,7 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
     state."""
     import time as _time
 
-    ex = SequentialIOExecutor(name='TEST_BP_RECOVER')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_RECOVER')
     ex.start()
     batch = RunWriteBatch(ex)
     fired = []
@@ -308,7 +310,7 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
 
         orphan_thread = ex._worker_thread
         abandoned = batch.abandon('File writer recovery')
-        ex.replace_stuck_worker()
+        ex.replace_stuck_worker(FileWriterReplacedError)
 
         assert abandoned == 1, 'recovery must count the write it gave up on'
         assert not batch.draining, 'recovery must clear the lockout gate'
@@ -445,7 +447,7 @@ def test_replacing_a_stuck_worker_is_a_warning_not_a_failure(caplog):
     """Replacing a stuck worker is the recovery a person chose, after the
     stall was already reported as a fault; logging it at ERROR counted one
     failure twice. It is a WARNING: a thread is abandoned and its write lost."""
-    ex = SequentialIOExecutor(name='TEST_BP_REPLACE_LEVEL')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_BP_REPLACE_LEVEL')
     ex.start()
     started = threading.Event()
     release = threading.Event()
@@ -459,7 +461,7 @@ def test_replacing_a_stuck_worker_is_a_warning_not_a_failure(caplog):
         assert started.wait(2), 'worker never picked up the wedge task'
         caplog.clear()
 
-        ex.replace_stuck_worker()
+        ex.replace_stuck_worker(FileWriterReplacedError)
 
         replaced = [
             r.levelno for r in caplog.records if 'Replacing a worker stuck' in r.getMessage()

@@ -33,6 +33,8 @@ from modules.exceptions import (
     AutofocusZNotRestoredError,
     CameraSettingRejected,
     CaptureFailedError,
+    FileWriterReplacedError,
+    SessionClosingError,
 )
 from modules.lumascope_api.illumination import (
     LedTransition,
@@ -1312,9 +1314,10 @@ class AutofocusRunner:
         stays None, which is wrong-but-honest in the safe direction, and
         the log says a write outlived its window rather than leaving a
         reader to wonder. A save the run's writes gave up on resolves the
-        waiter with no result; a lane that drops the save -- a shutdown
-        clearing its queue, or a stuck writer replaced -- cancels it. Either
-        resolves this wait at once.
+        waiter with no result; a save LumaViewPro's close finds unstarted
+        answers ``SessionClosingError``, and one still running when its stuck
+        writer is replaced answers ``FileWriterReplacedError``. Each resolves
+        this wait at once.
 
         A refused submit returns no waiter at all, which needs no wait:
         nothing was queued, and saved_data_path() correctly stays None.
@@ -1325,12 +1328,16 @@ class AutofocusRunner:
             return
         try:
             fut.result(timeout=AF_DATA_WRITE_WAIT_S)
-        except concurrent.futures.CancelledError:
-            # The lane dropped the save before it ran: a shutdown cleared
-            # its queue, or a stuck writer was replaced.
+        except SessionClosingError:
             logger.warning(
-                "[AF] autofocus characterization write was given up with the run's "
-                'writes; this sweep reports no data file'
+                '[AF] autofocus characterization write was not done: LumaViewPro is closing; '
+                'this sweep reports no data file'
+            )
+        except FileWriterReplacedError:
+            logger.warning(
+                '[AF] autofocus characterization write was still running when the file writer '
+                'was replaced; this sweep reports no data file, and one may still appear on '
+                'disk afterwards'
             )
         except concurrent.futures.TimeoutError:
             logger.warning(

@@ -37,6 +37,8 @@ from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from tests.protocol_drives import (
@@ -230,10 +232,10 @@ def executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='RT_IO'),
-        'file_io': SequentialIOExecutor(name='RT_FILE'),
-        'camera': SequentialIOExecutor(name='RT_CAMERA'),
-        'autofocus': SequentialIOExecutor(name='RT_AF'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='RT_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_CAMERA'),
+        'autofocus': SequentialIOExecutor(closed_answer=scope_lane_closed, name='RT_AF'),
     }
     for e in execs.values():
         e.start()

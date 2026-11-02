@@ -26,6 +26,7 @@ Three defects these lock out:
 import logging
 from concurrent.futures import CancelledError
 
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 ESCAPE_WORDING = ('uncaught', 'unhandled exception', 'escaped')
@@ -40,7 +41,7 @@ def _run_failing_task(action, caplog) -> list[str]:
     starting the worker thread, so the assertions cannot race a live lane.
     """
     caplog.clear()
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     task = IOTask(action)
     task.set_name(executor.executor_name)
 

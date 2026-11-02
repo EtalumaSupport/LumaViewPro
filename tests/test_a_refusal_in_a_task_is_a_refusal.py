@@ -24,6 +24,7 @@ import pytest
 
 from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
 from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 # Each case builds its refusal fresh, as a press does: an outcome is logged
@@ -55,7 +56,7 @@ def _run_task(action, *args, protocol=False):
     """Run one fire-and-forget task through a real executor's worker path
     and epilogue. ``protocol`` is the worker's own mark for a task it took
     off the run's queue."""
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     task = IOTask(action, args=args)
     task.set_name(executor.executor_name)
     lane = executor.protocol_queue if protocol else executor.queue

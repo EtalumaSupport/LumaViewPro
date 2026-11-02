@@ -227,10 +227,11 @@ def test_a_write_under_an_ended_run_is_refused_on_an_idle_scope():
     and nothing else holds it -- the write must still be refused, not move
     the stage or light the sample of a scope the run no longer has."""
     from modules.activity_claim import ActivityClaim, acting
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
     claim = ActivityClaim()
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.ask_claim(claim)
     lane.start()
     try:
@@ -322,10 +323,11 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     diagnostic still holds the scope, but its own work is not the run's
     and is refused at the door until the run ends."""
     from modules.activity_claim import ActivityClaim, acting
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
     claim = ActivityClaim()
-    lane = SequentialIOExecutor(name='TEST_IO')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.ask_claim(claim)
     lane.start()
     diagnostic = claim.try_claim('diagnostic')

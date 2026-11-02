@@ -771,15 +771,17 @@ class LumaViewProApp(TooltipMixin, App):
             Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
 
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
-            from modules.exceptions import SessionClosingError
+            from modules.exceptions import LaneCallStillRunningError, SessionClosingError
 
             # The window's close began, in this tick or an earlier one.
             if self._closing_begun:
                 return
-            # The app is closing: a shutdown dropped the motion, the close
-            # began before it took the scope, or it began while it ran.
-            if done.cancelled() or isinstance(
-                done.exception(), (concurrent.futures.CancelledError, SessionClosingError)
+            # The app is closing: the close found the motion unstarted, began
+            # before it took the scope, or closed its lane while it ran.
+            exception = done.exception()
+            if isinstance(exception, SessionClosingError) or (
+                isinstance(exception, LaneCallStillRunningError)
+                and exception.reason == 'lane_closed'
             ):
                 return
             live = ctx.session.live_work

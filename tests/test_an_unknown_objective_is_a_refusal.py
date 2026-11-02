@@ -14,6 +14,7 @@ import logging
 
 from modules.exceptions import ObjectiveUnknownError
 from modules.notification_center import Severity
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 # The notification centre also writes an INFO forensic line of what the
@@ -28,7 +29,7 @@ def _jog_step():
 def _run_on_the_lane():
     """Run one fire-and-forget task through a real executor's worker path
     and epilogue."""
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     task = IOTask(_jog_step)
     task.set_name(executor.executor_name)
     executor.queue.put(task)

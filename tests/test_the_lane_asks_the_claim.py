@@ -22,6 +22,8 @@ from modules.exceptions import (
     Refusal,
 )
 from modules.run_events import RunEvents
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 
@@ -36,7 +38,7 @@ def claim():
 @pytest.fixture
 def lane(claim):
     """A started lane that asks ``claim``."""
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.ask_claim(claim)
     ex.start()
     yield ex
@@ -214,7 +216,7 @@ class TestABorrowing:
 
 class TestTheOverride:
     def test_the_named_override_passes_a_hold_and_nothing_else_can_claim_it(self, claim):
-        ex = SequentialIOExecutor(name='TEST_IO')
+        ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         key = ex.ask_claim(claim)
         ex.start()
         held = claim.try_claim('diagnostic')
@@ -245,8 +247,8 @@ def _submit_override(ex, key):
 
 class TestNoLaneWorkerWaitsOnALane:
     def test_a_blocking_dispatch_from_a_lane_worker_raises(self):
-        io = SequentialIOExecutor(name='TEST_IO')
-        camera = SequentialIOExecutor(name='TEST_CAMERA')
+        io = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
+        camera = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_CAMERA')
         io.start()
         camera.start()
         try:
@@ -269,8 +271,8 @@ class TestNoLaneWorkerWaitsOnALane:
             camera.shutdown()
 
     def test_the_worker_pool_is_not_a_lane(self):
-        io = SequentialIOExecutor(name='TEST_IO')
-        pool = SequentialIOExecutor(name='TEST_POOL', lane=False)
+        io = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
+        pool = SequentialIOExecutor(closed_answer=session_lane_closed, name='TEST_POOL', lane=False)
         io.start()
         pool.start()
         try:

@@ -149,20 +149,6 @@ class _ReusableTaskWaiter:
             raise self._exception
         return self._result
 
-    def cancel(self) -> bool:
-        """Best-effort cancel; signals waiting caller with CancelledError.
-        Matches the Future API used by clear_pending / clear_protocol_pending
-        in the executor (which wraps in try/except, so a False return
-        or no-op is also acceptable).
-        """
-        if self._event.is_set():
-            return False
-        from concurrent.futures import CancelledError as _CancelledError
-
-        self._exception = _CancelledError()
-        self._event.set()
-        return True
-
 
 # Which lane's worker this thread is, set by the worker as it starts. A lane
 # worker never waits on another lane: that wait is one half of the pair that
@@ -286,19 +272,22 @@ def _claim_waiter() -> _ReusableTaskWaiter:
     return waiter
 
 
-def _settle_dropped(fut) -> None:
-    """Tell a waiter its task was dropped and will never run.
-
-    Settled with ``CancelledError`` rather than ``cancel()``: a caller's own
-    Future is marked running before it is handed out, so ``cancel()`` would
-    return False and leave its holder waiting forever.
-    """
-    fut.set_exception(CancelledError())
-
-
 def _task_named(task: 'IOTask') -> str:
     """The task's action, by name, as the log names who made the task."""
     return getattr(task.action, '__name__', None) or repr(task.action)
+
+
+def _member_of(task: 'IOTask') -> str:
+    """The member an answer about ``task`` names: the one its submit named, else its action."""
+    return task.member if task.member is not None else _task_named(task)
+
+
+# A task's fate on its lane, decided once under the lane's caller-futures
+# lock: the worker starting it, or the lane answering it as never run. The
+# lock makes the two exclusive, so a task answered as not run is never run,
+# and one started is never answered as not run.
+_STARTED = 'started'
+_UNRUN = 'unrun'
 
 
 """
@@ -427,6 +416,10 @@ class IOTask:
         self.override = False
         # Where the task stands in the one ask order, stamped at submit.
         self.asked = None
+        # The API member a submit named, for the answers that name it.
+        self.member = None
+        # None while queued; _STARTED or _UNRUN once the lane decides.
+        self.fate = None
         # Set by the lane when this task was put on it with nothing waiting
         # and nothing running: it is next whatever the worker's timing, so a
         # hold that begins before the worker takes it lets it run, as it
@@ -583,7 +576,15 @@ class SequentialIOExecutor:
         protocol_queue_maxsize: int = 0,
         priority_aware: bool = False,
         lane: bool = True,
+        *,
+        closed_answer: Callable[[str], BaseException],
     ):
+        # What a call this executor will not run is told once it has closed,
+        # given the member's name. Stated by the executor's one closer, since
+        # what "closed" means is the closer's: the scope disconnected,
+        # LumaViewPro closing, the server closing. Read by a submit after the
+        # close and for every task the close finds unstarted.
+        self._closed_answer = closed_answer
         # priority_aware=True swaps the default queue for a priority
         # wrapper; protocol_queue stays FIFO so step ordering inside
         # a protocol is preserved.
@@ -630,9 +631,6 @@ class SequentialIOExecutor:
         # Surfaced by metrics_logger as a permanent invariant.
         self._caller_futures_alloc_count = 0
         self._caller_futures_pop_count = 0
-
-        self.cleared_queue = False
-        self.cleared_protocol_queue = False
 
         # None, or {'cause': str, 'count': int} per lane. Opened lazily by the
         # first refused submit, never by the state change that causes it: an
@@ -831,6 +829,7 @@ class SequentialIOExecutor:
 
     def _stamp(self, task: IOTask, override: object | None) -> None:
         task.set_name(self.executor_name)
+        task.fate = None
         task.taking = current_taking()
         running = getattr(_asking, 'ask', None)
         task.asked = running if running is not None else ask_now()
@@ -850,7 +849,9 @@ class SequentialIOExecutor:
         task.protocol = False
         # The waiter is created below, after the report, so whether there
         # will be one is what return_future says.
-        self._report_task_failure(task, refusal, owned=task.silent_on_failure and return_future)
+        self._report_task_failure(
+            task, refusal, owned=task.silent_on_failure and return_future, asked=True
+        )
         task.on_complete(None, refusal)
         if return_future and waiter is None:
             fut = _claim_waiter()
@@ -888,15 +889,20 @@ class SequentialIOExecutor:
                 another lane's worker, which never waits on a lane;
                 ``'blocking_inline'``, called inside the GUI's inline
                 boundary.
-            HardwareCommandRefusedError: ``'scope_disconnected'``, the lane is
-                closed; ``'exclusive_activity_running'``, the scope is held
-                by an activity this call is not made under;
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the
+                scope's lane closed before the task started, or before the
+                call was made (another executor raises the closed answer its
+                closer states); ``'exclusive_activity_running'``, the scope
+                is held by an activity this call is not made under;
                 ``'activity_ended'``, the call is made under an activity
-                that has ended.
+                that has ended, or a run's own call was still queued when
+                the run ended.
             ControlSessionRefusedError: ``'control_session_held'``, a control
                 session is held and this call is not its holder's.
-            LaneCallStillRunningError: ``timeout_s``, the API's own bound,
-                ran out with the task queued or running; it may still finish.
+            LaneCallStillRunningError: ``'call_overran'``, ``timeout_s``, the
+                API's own bound, ran out with the task queued or running;
+                ``'lane_closed'``, the lane closed while the task ran. Either
+                way it may still finish.
         """
         worker = getattr(_lane_worker, 'executor', None)
         if worker is self:
@@ -932,7 +938,14 @@ class SequentialIOExecutor:
                     self._caller_futures_pop_count += 1
             if mine is None:
                 return fut.result()
-            raise LaneCallStillRunningError(member, timeout_s) from None
+            # What the call waited behind, so an overrun reads as a slow
+            # device or as a long queue.
+            logger.info(
+                f'[{self.executor_name}] {member} overran its {timeout_s:g} s with '
+                f'{self.queue.qsize()} queued, {self.protocol_queue.qsize()} on the run '
+                f'queue, running {self.describe_running_task()}'
+            )
+            raise LaneCallStillRunningError('call_overran', member, timeout_s) from None
 
     def submit(
         self,
@@ -952,19 +965,23 @@ class SequentialIOExecutor:
         ``waiter`` is a Future the caller supplies, for a caller that hands
         the outcome to another thread: the thread's own waiter is reset on
         that thread's next submit, so it cannot travel. It is settled by the
-        lane on every exit -- run, refused while queued, dropped -- and must
-        already be marked running, so no one but the lane can settle it.
+        lane on every exit -- run, refused while queued, left unrun, let go
+        while running -- and must already be marked running, so no one but
+        the lane can settle it. The waiter carries the answers ``call``
+        raises.
 
         Raises:
-            HardwareCommandRefusedError: ``'scope_disconnected'``, the lane is
-                closed; ``'exclusive_activity_running'``, the scope is held
-                by an activity this call is not made under;
-                ``'activity_ended'``, the call is made under an activity
-                that has ended.
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the
+                scope's lane has closed (another executor raises the closed
+                answer its closer states); ``'exclusive_activity_running'``,
+                the scope is held by an activity this call is not made
+                under; ``'activity_ended'``, the call is made under an
+                activity that has ended.
             ControlSessionRefusedError: ``'control_session_held'``, a control
                 session is held and this call is not its holder's.
         """
         task.silent_on_failure = True
+        task.member = member
         # The run's own call goes through the door its protocol mode keeps
         # for it; anyone else's, and the run's once the mode has ended, through
         # put. Asked twice: a fence or its end can land between the question
@@ -981,7 +998,7 @@ class SequentialIOExecutor:
             )
         if fut is None:
             if self.pending_shutdown:
-                raise HardwareCommandRefusedError('scope_disconnected', member)
+                raise self._closed_answer(member)
             holder = self._claim.holder if self._claim is not None else None
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', member, holder.kind if holder is not None else None
@@ -1017,7 +1034,11 @@ class SequentialIOExecutor:
                 return True
 
         def overran() -> None:
-            settle_once(lambda: told.set_exception(LaneCallStillRunningError(member, bound_s)))
+            settle_once(
+                lambda: told.set_exception(
+                    LaneCallStillRunningError('call_overran', member, bound_s)
+                )
+            )
 
         timer = threading.Timer(bound_s, overran)
         timer.daemon = True
@@ -1030,14 +1051,9 @@ class SequentialIOExecutor:
                 if not settle_once(lambda: told.set_result(result)):
                     logger.info(f'[{self.executor_name}] {member} finished after its {bound_s:g} s')
             elif not settle_once(lambda: told.set_exception(exception)):
-                if isinstance(exception, CancelledError):
-                    logger.info(
-                        f'[{self.executor_name}] {member} was dropped unrun after its {bound_s:g} s'
-                    )
-                else:
-                    notifications.report_outcome(
-                        exception, solicited=False, category=f'Task:{member}', log_only=True
-                    )
+                notifications.report_outcome(
+                    exception, solicited=False, category=f'Task:{member}', log_only=True
+                )
 
         timer.start()
         waiter.add_done_callback(outcome)
@@ -1193,13 +1209,14 @@ class SequentialIOExecutor:
         # the caller a per-thread reusable waiter (was concurrent.futures
         # Future before; switched to drop Lock kernel-handle allocation
         # pressure during high-rate protocol submission).
+        fut = None
         if return_future:
             fut = waiter if waiter is not None else _claim_waiter()
-            with self._caller_futures_lock:
-                self.caller_futures[task] = fut
-                self._caller_futures_alloc_count += 1
-        else:
-            fut = None
+            if not self._register_waiter(task, fut):
+                if task.droppable_live:
+                    with self._live_lock:
+                        self._live_inflight -= 1
+                return self._refuse_submit(_LANE_DEFAULT, 'the lane is shut down', task)
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
@@ -1213,18 +1230,20 @@ class SequentialIOExecutor:
         self._accept_submit(_LANE_DEFAULT)
         return fut if return_future else ENQUEUED
 
-    def _claim_protocol_future(self, task: IOTask, return_future: bool, waiter=None):
-        """Register a per-thread reusable waiter for a protocol enqueue, or
-        the caller's own ``waiter``; see _claim_waiter for the rationale
-        (kernel-handle allocation pressure mitigation). Returns None for
-        fire-and-forget submissions."""
-        if not return_future:
-            return None
-        fut = waiter if waiter is not None else _claim_waiter()
+    def _register_waiter(self, task: IOTask, fut) -> bool:
+        """Register ``fut`` as ``task``'s waiter, unless the lane has closed.
+
+        Asked under the lock the close's sweep takes, after the close has
+        marked the lane closing: a waiter registered first is the sweep's to
+        answer, and one asked for after is refused here, so none is
+        registered behind the sweep and left waiting.
+        """
         with self._caller_futures_lock:
+            if self.pending_shutdown:
+                return False
             self.caller_futures[task] = fut
             self._caller_futures_alloc_count += 1
-        return fut
+        return True
 
     def _discard_protocol_future(self, task: IOTask, return_future: bool) -> None:
         """Drop a claimed waiter for a task that never entered the queue, so
@@ -1287,7 +1306,11 @@ class SequentialIOExecutor:
         if refusal is not None:
             return self._refused_at_submit(task, refusal, return_future, waiter)
 
-        fut = self._claim_protocol_future(task, return_future, waiter)
+        fut = None
+        if return_future:
+            fut = waiter if waiter is not None else _claim_waiter()
+            if not self._register_waiter(task, fut):
+                return self._refuse_submit(_LANE_PROTOCOL, 'the lane is shut down', task)
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (
@@ -1392,7 +1415,43 @@ class SequentialIOExecutor:
         # reflects only this run, not every run since the app launched.
         self._protocol_queue_dropped_count = 0
         self.protocol_running.set()
+        # After the mode is set: an override call put from here on goes on
+        # the run's queue itself, and one already waiting on the default
+        # queue, which protocol mode does not serve, is carried there.
+        self._carry_overrides_to_protocol_queue()
         logger.info(f'{self.name} Protocol Started')
+
+    def _carry_overrides_to_protocol_queue(self) -> None:
+        """Move the override tasks waiting on the default queue onto the run's queue, in order.
+
+        An override call is served whatever holds the scope, so it must wait
+        on the queue the worker serves: put just before a run, behind a
+        running task, it would otherwise wait out the run on a queue
+        protocol mode never serves, while the run's wait for an idle lane
+        waits on it. Its waiter stays registered.
+        """
+        q = self.queue
+        inner = q._q if isinstance(q, _PriorityFifoQueue) else q
+        with inner.mutex:
+            moved, kept = [], []
+            for item in inner.queue:
+                task = item[2] if isinstance(q, _PriorityFifoQueue) else item
+                (moved if task.override else kept).append(item)
+            if not moved:
+                return
+            inner.queue.clear()
+            inner.queue.extend(kept)
+            if isinstance(q, _PriorityFifoQueue):
+                heapq.heapify(inner.queue)
+                moved.sort(key=lambda item: item[:2])
+            inner.unfinished_tasks -= len(moved)
+            inner.not_full.notify_all()
+        for item in moved:
+            task = item[2] if isinstance(q, _PriorityFifoQueue) else item
+            if task.droppable_live:
+                with self._live_lock:
+                    self._live_inflight -= 1
+            self.protocol_queue.put(task)
 
     def protocol_end(self):
         was_running = self.protocol_running.is_set()
@@ -1510,25 +1569,37 @@ class SequentialIOExecutor:
                     not (self.protocol_running.is_set() or self.protocol_finish.is_set())
                     and not self.protocol_queue.empty()
                 ):
-                    self.protocol_queue.queue.clear()
-                if self.pending_shutdown:
-                    # Drop the claim taken at dequeue: this task will never
-                    # run, and a claim left on a stopping worker answers
-                    # "busy" forever to anything still polling.
-                    self.running_task = None
-                    self._running_task_started_monotonic = None
-                    return
+                    self.clear_protocol_pending()
 
                 # Asked again as it leaves the queue: a hold can begin while
                 # the task waits, and the holder's restore must not be run
                 # over by work queued before it.
                 refusal, counted = self._admit(task)
                 if refusal is not None:
-                    logger.warning(
-                        f'[{self.executor_name}] REFUSED {_task_named(task)} at dequeue -- {refusal}'
-                    )
-                    self._on_task_done(task, None, refusal)
+                    self._answer_unrun(task, refusal, asked=True)
+                    (self.protocol_queue if task.protocol else self.queue).task_done()
+                    self.running_task = None
+                    self._running_task_started_monotonic = None
                     continue
+
+                # Started, or left unrun because the lane is closing: decided
+                # under the lock the close's sweep reads, so the sweep never
+                # answers a started task as unrun, nor this worker runs one
+                # the sweep answered.
+                with self._caller_futures_lock:
+                    unrun = self.pending_shutdown
+                    if not unrun:
+                        task.fate = _STARTED
+                if unrun:
+                    if counted:
+                        self._claim.leave_falsifying_change()
+                    # Drop the claim taken at dequeue: a claim left on a
+                    # stopping worker answers "busy" forever to anything
+                    # still polling.
+                    self.running_task = None
+                    self._running_task_started_monotonic = None
+                    self._answer_unrun(task, self._closed_answer(_member_of(task)), asked=False)
+                    return
 
                 run_result = None
                 run_exc = None
@@ -1634,22 +1705,41 @@ class SequentialIOExecutor:
             if task.droppable_live:
                 with self._live_lock:
                     self._live_inflight -= 1
-            logger.warning(
-                f'[{self.executor_name}] REFUSED {_task_named(task)} while queued -- {refusal}'
-            )
             task.protocol = False
-            with self._caller_futures_lock:
-                fut = self.caller_futures.pop(task, None)
-                if fut is not None:
-                    self._caller_futures_pop_count += 1
-            if fut is not None:
-                fut.set_exception(refusal)
-            self._report_task_failure(
-                task, refusal, owned=task.silent_on_failure and fut is not None
-            )
-            task.on_complete(None, refusal)
+            self._answer_unrun(task, refusal, asked=True)
 
-    def _report_task_failure(self, task: IOTask, exception: BaseException, owned: bool) -> None:
+    def _answer_unrun(self, task: IOTask, refusal: BaseException, *, asked: bool) -> None:
+        """Answer a task the lane lets go of unrun: its waiter, its report, its callback.
+
+        The one answer for a task that will not run: refused while queued,
+        left on the run's queue when the run ended, or unstarted when the
+        lane closed. Its fate is decided under the lock the worker starts a
+        task under, so it is answered once, and never if it was started.
+        Given with no queue's mutex held: a waiter's holder or a callback may
+        put work on this lane.
+
+        Args:
+            asked: Whether someone is asking for the task now; False for the
+                close's answers, which nobody asked for at that moment.
+        """
+        with self._caller_futures_lock:
+            if task.fate is not None:
+                return
+            task.fate = _UNRUN
+            fut = self.caller_futures.pop(task, None)
+            if fut is not None:
+                self._caller_futures_pop_count += 1
+        logger.warning(f'[{self.executor_name}] NOT RUN {_task_named(task)} -- {refusal}')
+        if fut is not None:
+            fut.set_exception(refusal)
+        self._report_task_failure(
+            task, refusal, owned=task.silent_on_failure and fut is not None, asked=asked
+        )
+        task.on_complete(None, refusal)
+
+    def _report_task_failure(
+        self, task: IOTask, exception: BaseException, owned: bool, *, asked: bool
+    ) -> None:
         """Report a task that failed or was refused, unless it is its waiter's.
 
         ``owned`` is decided where the waiter's registration is popped, under
@@ -1657,6 +1747,8 @@ class SequentialIOExecutor:
         registered waiter is that waiter's, reported where its flight ends. A
         silent task with no one waiting is logged and not shown; any other
         task is logged and shown. What it is, and its words, are its own.
+        ``asked`` is whether someone asks for the task at this moment: a
+        refusal nobody asked for then is reported unsolicited.
         """
         action_name = getattr(task.action, '__name__', str(task.action))
         if isinstance(exception, CancelledError):
@@ -1675,7 +1767,7 @@ class SequentialIOExecutor:
         # unrelated camera failure seconds apart stay distinct events.
         notifications.report_outcome(
             exception,
-            solicited=isinstance(exception, Refusal) and not task.protocol,
+            solicited=asked and isinstance(exception, Refusal) and not task.protocol,
             category=f'Task:{action_name}',
             log_only=task.silent_on_failure,
             untyped_title='Protocol operation failed'
@@ -1694,7 +1786,7 @@ class SequentialIOExecutor:
                 self._caller_futures_pop_count += 1
         if exception is not None:
             self._report_task_failure(
-                task, exception, owned=task.silent_on_failure and caller_fut is not None
+                task, exception, owned=task.silent_on_failure and caller_fut is not None, asked=True
             )
         self.last_task_done_monotonic = time.monotonic()
 
@@ -1738,18 +1830,7 @@ class SequentialIOExecutor:
             del caller_fut
 
         task.on_complete(result, exception)
-        if task.protocol:
-            if not self.cleared_protocol_queue:
-                self.protocol_queue.task_done()
-            else:
-                self.clear_protocol_pending()
-                self.cleared_protocol_queue = False
-        else:
-            if not self.cleared_queue:
-                self.queue.task_done()
-            else:
-                self.clear_pending()
-                self.cleared_queue = False
+        (self.protocol_queue if task.protocol else self.queue).task_done()
 
         self.running_task = None
         self._running_task_started_monotonic = None
@@ -1772,7 +1853,7 @@ class SequentialIOExecutor:
     def shutdown(self, wait: bool = True) -> None:
         self.pending_shutdown = True
         self.protocol_end()
-        self.clear_pending()
+        self._answer_queued_as_closed()
         self.clear_protocol_pending()
         if self.worker_alive and wait:
             # Worker polls pending_shutdown on every queue.get timeout
@@ -1780,16 +1861,23 @@ class SequentialIOExecutor:
             # process exit indefinitely.
             self._worker_thread.join(timeout=5.0)
 
-        # The queues' waiters were cancelled above; what remains belongs to
-        # tasks still running. Each is completed, never just forgotten: a
-        # waiter whose registration is gone reads that as its outcome
-        # having landed, and would wait for it forever.
+        # The queued tasks were answered above; a waiter still registered is
+        # a task's the worker started, which may still finish, or one taken
+        # off a queue unstarted -- dequeued and not yet decided, or put as
+        # the close began. Each is answered, never just forgotten: a waiter
+        # whose registration is gone reads that as its outcome having
+        # landed, and would wait for it forever.
         with self._caller_futures_lock:
-            dropped = list(self.caller_futures.values())
-            self._caller_futures_pop_count += len(dropped)
-            self.caller_futures.clear()
-        for fut in dropped:
-            _settle_dropped(fut)
+            left = list(self.caller_futures.items())
+            running = [(task, fut) for task, fut in left if task.fate == _STARTED]
+            for task, _fut in running:
+                del self.caller_futures[task]
+            self._caller_futures_pop_count += len(running)
+        for task, fut in running:
+            fut.set_exception(LaneCallStillRunningError('lane_closed', _member_of(task)))
+        for task, _fut in left:
+            if task.fate != _STARTED:
+                self._answer_unrun(task, self._closed_answer(_member_of(task)), asked=False)
         self.running_task = None
         self._running_task_started_monotonic = None
 
@@ -1797,62 +1885,57 @@ class SequentialIOExecutor:
         # Block until all queued tasks processed (or until timeout)
         pass
 
-    def clear_pending(self) -> None:
-        """Drain the default queue, cancelling each pending task's Future.
+    def _answer_queued_as_closed(self) -> None:
+        """Empty the default queue as the lane closes, answering each task with the closed answer.
 
-        For priority_aware executors the drain order is HIGH-first --
-        if a HIGH cancel callback must run before a MED cancel callback
-        (e.g. abort signal ordering), that's the right semantic.
+        For priority_aware executors the answers go HIGH-first, the order
+        the queue would have served them in.
         """
-        # Remove all tasks still in queue
-        cleared_count = 0
+        taken = []
         while True:
             try:
                 task = self.queue.get_nowait()
-                # Cancel future and aggressively cleanup
-                with self._caller_futures_lock:
-                    fut = self.caller_futures.pop(task, None)
-                    if fut is not None:
-                        self._caller_futures_pop_count += 1
-                if fut:
-                    try:
-                        _settle_dropped(fut)
-                    except Exception:
-                        pass
-                cleared_count += 1
-                # Balance out get_nowait with a task_done
-                self.queue.task_done()
             except queue.Empty:
                 break
-
-        self.cleared_queue = True
-        if cleared_count > 0:
-            logger.info(f'{self.name} Pending Queue Cleared ({cleared_count} tasks)')
+            self.queue.task_done()
+            if task.droppable_live:
+                with self._live_lock:
+                    self._live_inflight -= 1
+            taken.append(task)
+        for task in taken:
+            task.protocol = False
+            self._answer_unrun(task, self._closed_answer(_member_of(task)), asked=False)
 
     def clear_protocol_pending(self) -> None:
-        cleared_count = 0
-        while True:
-            try:
-                task = self.protocol_queue.get_nowait()
-                # Cancel future and aggressively cleanup
-                with self._caller_futures_lock:
-                    fut = self.caller_futures.pop(task, None)
-                    if fut is not None:
-                        self._caller_futures_pop_count += 1
-                if fut:
-                    try:
-                        _settle_dropped(fut)
-                    except Exception:
-                        pass
-                cleared_count += 1
-                # Balance out get_nowait with a task_done
-                self.protocol_queue.task_done()
-            except queue.Empty:
-                break
+        """Empty the run's queue as its protocol mode ends, answering what it held.
 
-        self.cleared_protocol_queue = True
-        if cleared_count > 0:
-            logger.info(f'{self.name} Pending Protocol Queue Cleared ({cleared_count} tasks)')
+        An override call still waiting is carried back to the default queue,
+        in order, and served after the run; every other task on the run's
+        queue is the run's own and is answered ``activity_ended``. As the
+        lane closes, every task is answered with the closed answer instead.
+        """
+        closing = self.pending_shutdown
+        pq = self.protocol_queue
+        with pq.mutex:
+            left = list(pq.queue)
+            pq.queue.clear()
+            pq.unfinished_tasks -= len(left)
+            pq.not_full.notify_all()
+        for task in left:
+            if task.override and not closing:
+                task.first_in_line = False
+                self.queue.put(task)
+        for task in left:
+            if task.override and not closing:
+                continue
+            task.protocol = True
+            member = _member_of(task)
+            refusal = (
+                self._closed_answer(member)
+                if closing
+                else HardwareCommandRefusedError('activity_ended', member)
+            )
+            self._answer_unrun(task, refusal, asked=not closing)
 
     def is_busy(self):
         # Returns true if tasks queued or running
@@ -1878,7 +1961,7 @@ class SequentialIOExecutor:
         in_flight_s = self._running_task_in_flight_s()
         return in_flight_s is not None and in_flight_s >= self._stall_threshold_s(floor_s)
 
-    def replace_stuck_worker(self) -> None:
+    def replace_stuck_worker(self, answer: Callable[[str], BaseException]) -> None:
         """Abandon a worker stuck inside a task and start a replacement.
 
         A task stuck in a call Python cannot interrupt -- a write to an
@@ -1891,16 +1974,20 @@ class SequentialIOExecutor:
         work decides what the stuck task's loss means.
 
         A no-op when no task is in flight.
+
+        Args:
+            answer: What the stuck task's waiter is told, given the stuck
+                task's description: stated by the one caller, which knows
+                what replacing its worker means. The task may still finish.
         """
         stuck = self.running_task
         if stuck is None:
             return
+        described = self.describe_running_task()
         # WARNING, not ERROR: this is the recovery a person chose, after the
         # stall was reported as a fault; the abandoned thread and its lost
         # write are worth a reader's attention, not a second failure.
-        logger.warning(
-            f'[{self.executor_name}] Replacing a worker stuck on {self.describe_running_task()}'
-        )
+        logger.warning(f'[{self.executor_name}] Replacing a worker stuck on {described}')
         # Quarantine FIRST: were the stuck task to finish before the
         # generation moves, its epilogue would run against state the
         # replacement now owns.
@@ -1910,10 +1997,7 @@ class SequentialIOExecutor:
             if fut is not None:
                 self._caller_futures_pop_count += 1
         if fut is not None:
-            try:
-                _settle_dropped(fut)
-            except Exception as ex:
-                logger.debug(f'[{self.executor_name}] stuck-task future cancel: {ex}')
+            fut.set_exception(answer(described))
         self.start()
         # The orphan's guarded epilogue will not clear these and the
         # replacement only sets them when it dequeues something; left

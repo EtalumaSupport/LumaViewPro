@@ -614,45 +614,48 @@ class TestProtocolImageWriterWriteCapture:
         # Should not crash -- just returns
 
 
-class TestRunCleanupCancelledHandoff:
-    """A superseding run/abort cycle cancels queued cleanup tasks (LED
-    restore, return-to-position) via the executor's pending-clear. That is
-    a normal ownership hand-off: the new cycle sets LED state and stage
-    position itself. Treating the CancelledError as a cleanup failure
-    fired an error popup per cycle when the run button was clicked
-    rapidly -- nine popups in four seconds on the bench.
+class TestRunCleanupWhenTheLaneCloses:
+    """A cleanup step the lane closing left unrun is a cleanup failure, in its own words.
+
+    The lane closing is the one drop that reaches a cleanup's LED restore or
+    return move; neither was done, so the person is told the scope may not
+    be where they expect, as for any other step that failed.
     """
 
     def _args(self, **overrides):
         helper = TestRunCleanup()
         return helper._make_cleanup_args(**overrides)
 
-    def test_cancelled_led_restore_is_not_a_cleanup_error(self, centre_posts):
-        from concurrent.futures import CancelledError
-        from modules.notification_center import Severity
+    @staticmethod
+    def _cleanup_reports(centre_posts):
+        return [n for n in centre_posts if n.title == 'Protocol cleanup issues']
+
+    def test_an_led_restore_left_unrun_is_a_cleanup_failure(self, centre_posts):
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.protocol_cleanup import run_cleanup
 
-        def cancelled_apply(transition, ctx):
-            raise CancelledError()
+        def closed_apply(transition, ctx):
+            raise scope_lane_closed('apply')
 
-        args, _ = self._args(apply_led_transition_fn=cancelled_apply)
+        args, _ = self._args(apply_led_transition_fn=closed_apply)
         run_cleanup(**args)
-        assert [n for n in centre_posts if n.severity.level >= Severity.WARNING.level] == []
+        [report] = self._cleanup_reports(centre_posts)
+        assert 'Restore LED states: HardwareCommandRefusedError' in report.message
 
-    def test_cancelled_return_move_is_not_a_cleanup_error(self, centre_posts):
-        from concurrent.futures import CancelledError
-        from modules.notification_center import Severity
+    def test_a_return_move_left_unrun_is_a_cleanup_failure(self, centre_posts):
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.protocol_cleanup import run_cleanup
 
-        def cancelled_move(**kw):
-            raise CancelledError()
+        def closed_move(**kw):
+            raise scope_lane_closed('move')
 
         args, _ = self._args(
             return_to_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
-            default_move_fn=cancelled_move,
+            default_move_fn=closed_move,
         )
         run_cleanup(**args)
-        assert [n for n in centre_posts if n.severity.level >= Severity.WARNING.level] == []
+        [report] = self._cleanup_reports(centre_posts)
+        assert 'Return to position: HardwareCommandRefusedError' in report.message
 
 
 class TestFinalStepKeepsLedWhenCleanupRestoresIt:

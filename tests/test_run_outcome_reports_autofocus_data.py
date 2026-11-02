@@ -42,6 +42,8 @@ from modules.run_events import RunEvents
 from modules.run_outcome import PendingRunOutcome, RunEnding, RunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
@@ -135,9 +137,13 @@ class _AfRig:
         self.scope._camera_driver.set_timing_mode('fast')
         self.scope.imaging.enable_streaming()
 
-        self.io_executor = SequentialIOExecutor(name='AFOUT_IO')
-        self.file_io_executor = SequentialIOExecutor(name='AFOUT_FILE')
-        self.camera_executor = SequentialIOExecutor(name='AFOUT_CAMERA')
+        self.io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AFOUT_IO')
+        self.file_io_executor = SequentialIOExecutor(
+            closed_answer=session_lane_closed, name='AFOUT_FILE'
+        )
+        self.camera_executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='AFOUT_CAMERA'
+        )
         for e in (self.io_executor, self.file_io_executor, self.camera_executor):
             e.start()
         self.protocol_thread = ProtocolThread()
@@ -402,29 +408,30 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
             'moments later'
         )
 
-    def test_a_cancelled_write_does_not_cost_the_bound(self):
-        """An aborting run discards the queued save on purpose.
-
-        clear_protocol_pending cancels the task rather than running it, so
-        the wait must end on the cancellation and not sit out the timeout --
-        an abort exists to give the user control back.
-        """
+    def test_a_write_the_lane_will_not_finish_does_not_cost_the_bound(self):
+        """A save the close finds unstarted, or still running when its stuck
+        writer is replaced, ends the wait at once: neither will be told later,
+        and the sweep reports no data file."""
         from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+        from modules.exceptions import FileWriterReplacedError
+        from modules.executor_registry import session_lane_closed
         from modules.sequential_io_executor import _ReusableTaskWaiter
 
-        runner = self._bare_runner()
-        waiter = _ReusableTaskWaiter()
-        waiter.cancel()
-        runner._data_write_future = waiter
+        for answer in (session_lane_closed('save'), FileWriterReplacedError('save')):
+            runner = self._bare_runner()
+            waiter = _ReusableTaskWaiter()
+            waiter.set_exception(answer)
+            runner._data_write_future = waiter
 
-        started = time.monotonic()
-        runner._await_data_write()
-        elapsed = time.monotonic() - started
+            started = time.monotonic()
+            runner._await_data_write()
+            elapsed = time.monotonic() - started
 
-        assert elapsed < AF_DATA_WRITE_WAIT_S / 2, (
-            f'a cancelled write should end the wait at once, not sit out the '
-            f'{AF_DATA_WRITE_WAIT_S}s bound (took {elapsed:.3f}s)'
-        )
+            assert elapsed < AF_DATA_WRITE_WAIT_S / 2, (
+                f'{type(answer).__name__} should end the wait at once, not sit out the '
+                f'{AF_DATA_WRITE_WAIT_S}s bound (took {elapsed:.3f}s)'
+            )
+            assert runner.saved_data_path() is None
 
     def test_nothing_queued_needs_no_wait(self):
         """A refused submit returns no waiter, and saved_data_path stays None."""

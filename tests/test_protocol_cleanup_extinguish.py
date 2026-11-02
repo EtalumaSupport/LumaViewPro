@@ -169,9 +169,10 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
 def test_a_restore_that_did_not_apply_is_not_logged_as_complete(scope, monkeypatch):
     # A stand-in by design: the subject is the cleanup catching the run's LED
     # transition, and the transition is its interchangeable collaborator.
-    from concurrent.futures import CancelledError
+    from modules.lumascope_api._lumascope import scope_lane_closed
 
-    for fault in (RuntimeError('LED board did not answer'), CancelledError()):
+    # The lane closing under the restore is the one drop that reaches it.
+    for fault in (RuntimeError('LED board did not answer'), scope_lane_closed('apply')):
 
         def _fails(transition, ctx, fault=fault):
             raise fault

@@ -59,6 +59,8 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
@@ -261,9 +263,9 @@ def _make_executors():
     from modules.protocol_thread import ProtocolThread
 
     execs = {
-        'io': SequentialIOExecutor(name='TEST_IO'),
-        'file_io': SequentialIOExecutor(name='TEST_FILE'),
-        'camera': SequentialIOExecutor(name='TEST_CAMERA'),
+        'io': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO'),
+        'file_io': SequentialIOExecutor(closed_answer=session_lane_closed, name='TEST_FILE'),
+        'camera': SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_CAMERA'),
     }
     for e in execs.values():
         e.start()

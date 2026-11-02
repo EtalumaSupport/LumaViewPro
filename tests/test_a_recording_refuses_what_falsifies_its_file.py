@@ -33,6 +33,7 @@ from modules.lumascope_api.illumination import (
     LedTransitionCtx,
     snapshot_lit_pairs,
 )
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 from tests.case_walk import failing_cases
@@ -48,7 +49,7 @@ def claim():
 
 @pytest.fixture
 def lane(claim):
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.ask_claim(claim)
     ex.start()
     yield ex

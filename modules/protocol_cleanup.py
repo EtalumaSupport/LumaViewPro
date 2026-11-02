@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import pathlib
 import threading
-from concurrent.futures import CancelledError
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -263,20 +262,8 @@ def run_cleanup(
             logger.info(
                 f'[{logger_name}] Cleanup: LED end state applied ({end_policy.name.lower()})'
             )
-        except CancelledError:
-            # The protocol queue was cleared and this restore task cancelled
-            # before it ran. A superseding run/abort cycle is one canceller --
-            # but so are executor shutdown, an unwedge/quarantine, and the
-            # end-of-protocol-mode drain, and none of those re-asserts LED
-            # state. So the end-state stays undecided and the caller darkens;
-            # a superseding run re-lights per step, costing at most a
-            # transient dark blip during rapid run cycling. Not surfaced as a
-            # failure -- doing so produced a popup per cycle when the run
-            # button was clicked rapidly.
-            logger.info(
-                f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
-            )
         except Exception as ex:
+            # The end state stays undecided, so the caller darkens.
             cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
 
     # --- Restore the camera settings ---
@@ -317,13 +304,6 @@ def run_cleanup(
                 z=return_to_position.z_um,
             )
             logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
-    except CancelledError:
-        # Same hand-off as the LED restore above: a superseding run/abort
-        # cycle cancelled the queued move; the new cycle owns stage position.
-        logger.info(
-            f'[{logger_name}] Cleanup: return-to-position superseded by an '
-            'overlapping run/abort cycle'
-        )
     except Exception as ex:
         cleanup_errors.append(('Return to position', f'{type(ex).__name__}: {ex}'))
 

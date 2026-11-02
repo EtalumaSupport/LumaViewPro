@@ -20,6 +20,7 @@ from tests.settings_fixtures import complete_settings
 import modules.config_helpers as config_helpers
 from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import (
     build_scope,
@@ -98,7 +99,8 @@ class _RecordingExecutor(SequentialIOExecutor):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        # It stands for a scope lane, whose closer states scope_disconnected.
+        super().__init__(closed_answer=scope_lane_closed, **kwargs)
         self.submitted = []
 
     def put(self, task, return_future=False, *, override=None, waiter=None):

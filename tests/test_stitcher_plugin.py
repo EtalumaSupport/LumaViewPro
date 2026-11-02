@@ -119,9 +119,10 @@ def test_processor_returns_processor_result_on_missing_folder(
     # A path that exists but has no protocol files -> the stitch refuses,
     # and the shim must wrap that in ProcessorResult, NOT propagate it.
     from modules.post_processing_api import PostProcessingAPI
+    from modules.executor_registry import session_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    lane = SequentialIOExecutor(name='POSTPROC_TEST')
+    lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='POSTPROC_TEST')
     lane.start()
     harness_ctx.post_processing = PostProcessingAPI(
         lane=lane,

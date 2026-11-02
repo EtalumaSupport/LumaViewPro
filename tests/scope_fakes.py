@@ -135,9 +135,13 @@ def real_executor_bundle(**members):
     import dataclasses
 
     from modules.executor_registry import create_default
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    io, camera = SequentialIOExecutor(name='IO'), SequentialIOExecutor(name='CAMERA')
+    io, camera = (
+        SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO'),
+        SequentialIOExecutor(closed_answer=scope_lane_closed, name='CAMERA'),
+    )
     io.start()
     camera.start()
     bundle = create_default(io, camera)
@@ -211,10 +215,11 @@ def give_stub_lanes(scope):
     on a scope no session composes, which every guarded write reads. The
     test's teardown shuts the lanes. Returns the scope.
     """
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    scope._io_executor = SequentialIOExecutor(name='IO')
-    scope._camera_executor = SequentialIOExecutor(name='CAMERA')
+    scope._io_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='IO')
+    scope._camera_executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='CAMERA')
     scope._camera_override_key = None
     scope._activity_claim = None
     for lane in (scope._io_executor, scope._camera_executor):

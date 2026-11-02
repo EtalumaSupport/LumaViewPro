@@ -16,13 +16,14 @@ own cleanup calls it on every path out, before the run ends.
 import threading
 import time
 
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 def test_end_protocol_mode_restores_normal_queue_service():
     """Stuck-in-protocol-mode refuses normal file ops; the safety net exits
     protocol-mode so normal-queue service resumes and tasks run again."""
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.start()
     try:
         ex.protocol_start()  # worker serves only protocol_queue; put() refuses
@@ -55,7 +56,7 @@ def test_end_protocol_mode_flushes_queued_protocol_writes():
     in the queue -- not racing a concurrent enqueue -- when the safety net
     fires, which mirrors the real teardown (pending writes already queued, no
     producer still running)."""
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.start()
     try:
         ex.protocol_start()
@@ -88,7 +89,9 @@ def test_end_protocol_mode_flushes_queued_protocol_writes():
 
 def test_end_protocol_mode_is_noop_when_not_in_protocol_mode():
     """Safe to call on every teardown: a no-op when not in protocol-mode."""
-    ex = SequentialIOExecutor(name='TEST')  # not started, protocol_running clear
+    ex = SequentialIOExecutor(
+        closed_answer=scope_lane_closed, name='TEST'
+    )  # not started, protocol_running clear
     ex.end_protocol_mode()
     assert not ex.protocol_running.is_set()
     assert not ex.protocol_finish.is_set()

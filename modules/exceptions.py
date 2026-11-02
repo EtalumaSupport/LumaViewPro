@@ -3298,6 +3298,25 @@ class FileWriterStalledError(Fault, CaptureError):
         )
 
 
+class FileWriterReplacedError(Fault, CaptureError):
+    """The file writer was replaced while this write ran, and nobody waits for it now.
+
+    Given to whoever waited on the write that held the file writer when its
+    recovery replaced it. The stuck write may still finish and leave its
+    file; nothing will say when.
+    """
+
+    title = 'File Writer Replaced'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'file_writer_replaced': None}
+
+    def __init__(self, stuck: str):
+        super().__init__(
+            f'The file writer was replaced while it was writing ({stuck}); that write may '
+            'still finish and leave its file.',
+            'file_writer_replaced',
+        )
+
+
 class FrameHandlerRemovedError(Refusal, Exception):
     """The API stopped calling a frame handler that kept failing or kept running too long.
 
@@ -3853,7 +3872,7 @@ class DiagnosticRefusedError(Refusal, Exception):
 
 
 class SessionClosingError(Refusal, Exception):
-    """An activity was asked to take the scope while the session is closing.
+    """Something was asked of the session while it is closing, and was not done.
 
     Raised by the activity claim for a run, a recording, a home or a
     diagnostic while ``ScopeSession.shutdown`` runs: the close finishes the
@@ -3865,22 +3884,37 @@ class SessionClosingError(Refusal, Exception):
     finished. Work inside an activity already under way -- a run's video
     step under its run -- is not refused. Nothing was taken.
 
+    Raised too for work on one of the session's own executors (the file
+    writer, post-processing, the worker pool, diagnostics) that had not
+    started when the executor closed, and for work put on one after it
+    closed: that work was not done.
+
     Attributes:
         reason: ``'session_closing'``.
-        activity: The kind of activity that was refused.
+        activity: The kind of activity that was refused; None for work an
+            executor did not do.
+        work: The work an executor did not do, for the log; None for an
+            activity.
     """
 
     # A closing session never takes the scope again.
     title = 'Closing'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'session_closing': RefusalCause.RESTART}
 
-    def __init__(self, activity: str):
-        super().__init__(
-            f'{the_activity_named(activity)} was not started: LumaViewPro is closing, and finishes '
-            'what is already under way before it lets go of the microscope.'
-        )
+    def __init__(self, activity: str | None, *, work: str | None = None):
+        if (activity is None) == (work is None):
+            raise TypeError('a SessionClosingError names an activity or a piece of work, not both')
+        if activity is not None:
+            sentence = (
+                f'{the_activity_named(activity)} was not started: LumaViewPro is closing, and '
+                'finishes what is already under way before it lets go of the microscope.'
+            )
+        else:
+            sentence = 'The work was not done: LumaViewPro is closing.'
+        super().__init__(sentence)
         self.reason = 'session_closing'
         self.activity = activity
+        self.work = work
 
 
 @api_fields('holder', 'holder_trigger', 'control_session')
@@ -4741,28 +4775,36 @@ class MoveWaitExpiredError(MoveNotCompletedError, Quiet, TimeoutError):
 
 
 class LaneCallStillRunningError(Fault, Exception):
-    """The API's own bound on a call ran out before the call finished.
+    """The caller is no longer waiting for a call that has not finished.
 
-    The hardware has stopped answering or is slower than the bound allows,
-    and the call may still finish: nothing says it failed, nor that it
-    will not change the scope after this. A fault, never a ``TimeoutError``,
-    which means only that the caller's own wait ran out.
+    The call may still finish: nothing says it failed, nor that it will not
+    change the scope after this. A fault, never a ``TimeoutError``, which
+    means only that the caller's own wait ran out.
 
     Attributes:
-        reason: ``'call_overran'``.
+        reason: ``'call_overran'`` -- the API's own bound on the call ran
+            out: the hardware has stopped answering or is slower than the
+            bound allows. ``'lane_closed'`` -- the lane carrying the call
+            closed while the call ran: the scope disconnected, or
+            LumaViewPro closed.
         member: The API member whose call is still running.
-        timeout_s: The bound that ran out.
+        timeout_s: The bound that ran out, for ``'call_overran'``; None
+            otherwise.
     """
 
     words_for_person = True
     title = 'Still Running'
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'call_overran': None}
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'call_overran': None, 'lane_closed': None}
 
-    def __init__(self, member: str, timeout_s: float):
-        super().__init__(
-            f'{member} did not finish within {timeout_s:g} s and may still finish. '
-            'Check the scope before asking again.'
-        )
+    def __init__(self, reason: str, member: str, timeout_s: float | None = None):
+        if (timeout_s is None) != (reason == 'lane_closed'):
+            raise TypeError(f'{reason!r} takes timeout_s exactly when a bound ran out')
+        if reason == 'call_overran':
+            sentence = f'{member} did not finish within {timeout_s:g} s and may still finish.'
+        else:
+            sentence = f'{member} was still running when its lane closed, and may still finish.'
+        super().__init__(f'{sentence} Check the scope before asking again.')
+        self.reason = reason
         self.member = member
         self.timeout_s = timeout_s
 

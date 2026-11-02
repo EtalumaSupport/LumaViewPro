@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
 from modules.scope_display_thread import ScopeDisplayThread
+from modules.exceptions import SessionClosingError
 from modules.sequential_io_executor import SequentialIOExecutor
 
 
@@ -118,6 +119,15 @@ class ExecutorBundle:
         self.diagnostics_executor.shutdown(wait=False)
 
 
+def session_lane_closed(member: str) -> SessionClosingError:
+    """What a call the session's own executors will not run is told once they have closed.
+
+    They close only as the session closes: the work was not done because
+    LumaViewPro is closing.
+    """
+    return SessionClosingError(None, work=member)
+
+
 def create_default(
     io_executor: SequentialIOExecutor,
     camera_executor: SequentialIOExecutor,
@@ -137,8 +147,10 @@ def create_default(
     """
     # No run mode and no bound: a run's writes are counted and paced by the
     # run's own write batch, on this lane's one ordinary queue.
-    file_io_executor = SequentialIOExecutor(name='FILE')
-    post_processing_executor = SequentialIOExecutor(name='POSTPROC')
+    file_io_executor = SequentialIOExecutor(name='FILE', closed_answer=session_lane_closed)
+    post_processing_executor = SequentialIOExecutor(
+        name='POSTPROC', closed_answer=session_lane_closed
+    )
     # Thread is constructed here but NOT started: a host with a display
     # starts it from its display widget, which it renders through.
     scope_display_thread = ScopeDisplayThread()
@@ -148,12 +160,16 @@ def create_default(
     # Not a lane: no device sits behind it. A Stop's inline cleanup and the
     # GUI's jobs run here and wait on the device lanes through the blocking
     # public members, which a lane worker is forbidden to do.
-    worker_pool = SequentialIOExecutor(name='WORKER_POOL', priority_aware=True, lane=False)
+    worker_pool = SequentialIOExecutor(
+        name='WORKER_POOL', priority_aware=True, lane=False, closed_answer=session_lane_closed
+    )
     # Not a lane either, for a diagnostic that runs for minutes across both
     # device lanes (the support report). On the worker pool it would hold
     # the one worker, and a Stop would wait behind it; its own worker keeps
     # the pool free, and a second request queues behind the first.
-    diagnostics_executor = SequentialIOExecutor(name='DIAGNOSTICS', lane=False)
+    diagnostics_executor = SequentialIOExecutor(
+        name='DIAGNOSTICS', lane=False, closed_answer=session_lane_closed
+    )
 
     bundle = ExecutorBundle(
         io_executor=io_executor,

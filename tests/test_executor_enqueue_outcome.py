@@ -17,6 +17,7 @@ import logging
 import threading
 
 import modules.sequential_io_executor as sio
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import (
     ENQUEUED,
     IOTask,
@@ -26,7 +27,7 @@ from tests.log_capture import records_of
 
 
 def test_fire_and_forget_success_is_distinguishable_from_a_drop():
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.start()
     try:
         ran = threading.Event()
@@ -37,7 +38,7 @@ def test_fire_and_forget_success_is_distinguishable_from_a_drop():
 
 
 def test_a_protocol_fence_still_returns_none():
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     # protocol_start fences the default queue: the protocol owns the worker
     # until protocol_finish, and work submitted meanwhile is refused.
     ex.protocol_start()
@@ -45,7 +46,7 @@ def test_a_protocol_fence_still_returns_none():
 
 
 def test_a_waiter_caller_still_gets_a_waiter_not_the_sentinel():
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     waiter = ex.put(IOTask(action=lambda: None), return_future=True)
     assert waiter is not ENQUEUED
     assert hasattr(waiter, 'result')
@@ -86,7 +87,7 @@ def _episode_lines(caplog):
 
 
 def test_a_fenced_put_warns_once_and_still_returns_none(caplog):
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.protocol_start()
     with caplog.at_level(logging.WARNING):
         assert ex.put(IOTask(action=lambda: None)) is None
@@ -97,7 +98,7 @@ def test_a_fenced_put_warns_once_and_still_returns_none(caplog):
 
 
 def test_protocol_put_with_no_run_in_session_warns_and_returns_none(caplog):
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     with caplog.at_level(logging.WARNING):
         assert ex.protocol_put(IOTask(action=lambda: None)) is None
         assert len(_episode_lines(caplog)) == 1
@@ -107,7 +108,7 @@ def test_protocol_put_with_no_run_in_session_warns_and_returns_none(caplog):
 def test_a_sustained_refusal_does_not_inflate_the_log(caplog):
     """The case that killed the per-drop design: a fenced lane under a
     sustained submitter emits a bounded number of lines, not one per task."""
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.protocol_start()
     with caplog.at_level(logging.WARNING):
         for _ in range(5000):
@@ -117,7 +118,7 @@ def test_a_sustained_refusal_does_not_inflate_the_log(caplog):
 
 
 def test_the_episode_closes_with_a_count_when_work_is_accepted_again(caplog):
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.protocol_start()
     for _ in range(7):
         ex.put(IOTask(action=lambda: None))
@@ -139,7 +140,7 @@ def test_the_episode_closes_with_a_count_when_work_is_accepted_again(caplog):
 def test_the_two_lanes_do_not_close_each_others_episodes(caplog):
     """A run fences the default lane while the protocol lane accepts, so the
     two interleave. A shared tracker would reopen an episode per submit."""
-    ex = SequentialIOExecutor(name='TEST')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     ex.protocol_start()
     with caplog.at_level(logging.WARNING):
         for _ in range(50):
@@ -154,7 +155,7 @@ class TestWorkerAlive:
     that would wait on one reads the fact first, publicly."""
 
     def test_false_before_start_true_while_running_false_after_shutdown(self):
-        lane = SequentialIOExecutor(name='LIVENESS_TEST')
+        lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='LIVENESS_TEST')
         assert lane.worker_alive is False
         lane.start()
         try:

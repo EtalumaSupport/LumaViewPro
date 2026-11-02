@@ -50,6 +50,7 @@ _purge_kivy_from_sys_modules()
 # Now import the protocol execution chain -- these MUST not require Kivy
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -152,7 +153,10 @@ class TestHeadlessProtocolExecution:
         from modules.protocol_thread import ProtocolThread
 
         names = ['io', 'file_io', 'camera', 'autofocus']
-        execs = {n: SequentialIOExecutor(name=f'HEADLESS_{n.upper()}') for n in names}
+        execs = {
+            n: SequentialIOExecutor(closed_answer=scope_lane_closed, name=f'HEADLESS_{n.upper()}')
+            for n in names
+        }
         for e in execs.values():
             e.start()
         pt = ProtocolThread()

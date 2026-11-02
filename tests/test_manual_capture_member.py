@@ -297,20 +297,24 @@ class TestRefusalsAndFailures:
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 
-    def test_a_still_the_lane_drops_unrun_settles_and_frees_the_guard(self, still_session):
-        """The lane drops what it holds when the scope goes away; a still it
-        dropped must say so, not leave its caller and the guard waiting."""
+    def test_a_still_queued_when_the_scope_disconnects_is_refused_and_frees_the_guard(
+        self, still_session
+    ):
+        """The camera lane closes as the scope disconnects; a still it held
+        queued is refused saying so, not left with its caller and the guard
+        waiting."""
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
             future = session.manual_capture.capture(false_color_on=False)
             _wait_until_queued(session, 1)
-            session.camera_executor.clear_pending()
+            session.camera_executor.shutdown(wait=False)
         finally:
             blocker.release()
-        with pytest.raises(concurrent.futures.CancelledError):
+        with pytest.raises(HardwareCommandRefusedError) as refused:
             future.result(timeout=RESULT_TIMEOUT_S)
-        assert not session.manual_capture.in_flight, 'a dropped still kept the guard'
+        assert refused.value.reason == 'scope_disconnected'
+        assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 
     def test_no_frame_raises_the_captures_own_failure(self, still_session):
         session, tmp_path = still_session
@@ -379,7 +383,7 @@ class TestAStillIsWaitedForWithinItsBound:
         assert not session.manual_capture.in_flight
         assert len(list((tmp_path / 'Manual').glob('*.tiff'))) == 1
 
-    def test_a_still_past_its_bound_then_dropped_unrun_frees_the_guard(
+    def test_a_still_past_its_bound_then_refused_unrun_frees_the_guard(
         self, still_session, short_bound
     ):
         session, _ = still_session
@@ -388,12 +392,13 @@ class TestAStillIsWaitedForWithinItsBound:
             operation = session.manual_capture.capture(false_color_on=False)
             with pytest.raises(LaneCallStillRunningError):
                 operation.result(timeout=RESULT_TIMEOUT_S)
-            # The lane settles what it drops, and the guard goes with it.
-            session.camera_executor.clear_pending()
+            # The lane answers what it will not run as it closes, and the
+            # guard goes with it.
+            session.camera_executor.shutdown(wait=False)
         finally:
             blocker.release()
 
-        assert not session.manual_capture.in_flight, 'a dropped still kept the guard'
+        assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 
 
 class TestTheRecordIsTheCapturesMoment:

@@ -913,9 +913,10 @@ class TestIssue602_AFExecutorLED:
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
+        af_ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF_TEST')  # noqa: F841 -- deferred
         af = AutofocusRunner(scope=scope)
         # AF illuminates its own channel at scan start through the LED
         # authority (the AF_ENTER transition, which drives led_on under the
@@ -936,9 +937,10 @@ class TestIssue602_AFExecutorLED:
         bind_settings_like_a_session(scope)
         home_sim_scope(scope)
         park_z(scope, 5000.0)
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
+        af_ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='AF_TEST')  # noqa: F841 -- deferred
         af = AutofocusRunner(scope=scope)
         # AF lights its channel at scan start; a non-success exit must end
         # with that channel dark. AFE.run()'s finally routes the AF-end state
@@ -4741,19 +4743,18 @@ class TestPylonBslPrefixedNodeFallbacks:
 class TestSequentialIOExecutorCancelledNotErrorLogged:
     """SequentialIOExecutor._on_task_done must not fire
     notifications.error when the exception is a CancelledError.
-    Cancellations come from the caller (shutdown / clear_pending /
-    the session's close) by contract; treating them as failures
-    floods the error log on every clean shutdown.
+    A CancelledError a task body or a Future raises itself is a cancel by
+    contract, logged at debug; the lane answers its own drops with typed
+    refusals instead.
     """
 
     def _run_on_task_done(self, executor, exception):
         # Mirror the worker's lifecycle: put -> get -> task.run ->
         # _on_task_done. The worker dequeues before running; the test
         # bypasses task.run but must dequeue first so _on_task_done's
-        # internal task_done() balances against the put. Without the
-        # get_nowait, Stage A's shutdown -> clear_pending would call
-        # task_done() on a queue whose unfinished count already went to
-        # zero, raising ValueError.
+        # internal task_done() balances against the put; without the
+        # get_nowait it would call task_done() on a queue whose unfinished
+        # count already went to zero, raising ValueError.
         from modules.sequential_io_executor import IOTask
 
         task = IOTask(action=lambda: None, callback=lambda *a, **k: None)
@@ -4763,9 +4764,12 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
 
     def test_cancelled_does_not_call_notifications_error(self, centre_posts):
         from concurrent.futures import CancelledError
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_CANCEL')
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, max_workers=1, name='TEST_CANCEL'
+        )
         try:
             self._run_on_task_done(executor, CancelledError())
             calls = _posted(centre_posts, Severity.ERROR)
@@ -4788,6 +4792,7 @@ class TestSequentialIOExecutorTDequeuePreservedUnderProfileTrace:
 
     def test_t_dequeue_set_when_profile_trace_enabled(self, monkeypatch):
         import time
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor, IOTask
         from lib import profile_trace
 
@@ -4796,7 +4801,9 @@ class TestSequentialIOExecutorTDequeuePreservedUnderProfileTrace:
         original = profile_trace.ENABLE_PROFILE_TRACE
         monkeypatch.setattr(profile_trace, 'ENABLE_PROFILE_TRACE', True)
 
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_TDEQUEUE')
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, max_workers=1, name='TEST_TDEQUEUE'
+        )
         try:
             done_event = __import__('threading').Event()
             results = {}
@@ -4845,9 +4852,12 @@ class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
     """
 
     def test_caller_futures_empty_after_submit_then_shutdown(self):
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_SHUTDOWN_DRAIN')
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, max_workers=1, name='TEST_SHUTDOWN_DRAIN'
+        )
         executor.start()
         try:
             # Submit a batch of return_future tasks. Don't wait for them
@@ -4916,13 +4926,16 @@ class TestSequentialIOExecutorPriorityAware:
 
     def test_high_jumps_med(self):
         import threading as _t
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_HIGH,
             PRIORITY_MED,
         )
 
-        executor = SequentialIOExecutor(name='TEST_PRIO', priority_aware=True)
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='TEST_PRIO', priority_aware=True
+        )
         executor.start()
         try:
             head = _t.Event()
@@ -4939,12 +4952,15 @@ class TestSequentialIOExecutorPriorityAware:
 
     def test_fifo_within_priority(self):
         import threading as _t
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_MED,
         )
 
-        executor = SequentialIOExecutor(name='TEST_PRIO_FIFO', priority_aware=True)
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='TEST_PRIO_FIFO', priority_aware=True
+        )
         executor.start()
         try:
             head = _t.Event()
@@ -4967,6 +4983,7 @@ class TestSequentialIOExecutorPriorityAware:
 
     def test_three_priorities_strict_ordering(self):
         import threading as _t
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_HIGH,
@@ -4974,7 +4991,9 @@ class TestSequentialIOExecutorPriorityAware:
             PRIORITY_LOW,
         )
 
-        executor = SequentialIOExecutor(name='TEST_PRIO_THREE', priority_aware=True)
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='TEST_PRIO_THREE', priority_aware=True
+        )
         executor.start()
         try:
             head = _t.Event()
@@ -5007,6 +5026,7 @@ class TestSequentialIOExecutorPriorityAware:
         first, then a 50-MED burst, verify LOW completes."""
         import threading as _t
         import time as _t2
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import (
             SequentialIOExecutor,
             IOTask,
@@ -5014,7 +5034,9 @@ class TestSequentialIOExecutorPriorityAware:
             PRIORITY_LOW,
         )
 
-        executor = SequentialIOExecutor(name='TEST_PRIO_FAIR', priority_aware=True)
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='TEST_PRIO_FAIR', priority_aware=True
+        )
         executor.start()
         try:
             head = _t.Event()
@@ -5039,76 +5061,11 @@ class TestSequentialIOExecutorPriorityAware:
         finally:
             executor.shutdown(wait=False)
 
-    def test_clear_pending_drains_high_first(self):
-        """clear_pending on a priority_aware executor drains HIGH-first;
-        all caller_futures are drained and the alloc/pop counters
-        balance after the drain."""
-        import threading as _t
-        import time as _t2
-        from modules.sequential_io_executor import (
-            SequentialIOExecutor,
-            IOTask,
-            PRIORITY_HIGH,
-            PRIORITY_MED,
-        )
-
-        executor = SequentialIOExecutor(name='TEST_PRIO_CLEAR', priority_aware=True)
-        executor.start()
-        try:
-            # Block the worker so the queue actually accumulates tasks
-            # without them draining mid-test.
-            head_event = _t.Event()
-
-            def head_action():
-                head_event.wait(timeout=2.0)
-
-            executor.put(IOTask(action=head_action))
-            _t2.sleep(0.05)
-
-            # Submit MED then HIGH then MED. Without priority,
-            # cancel-order would be MED, HIGH, MED.
-            cancel_order = []
-            futs = []
-            for label, prio in [
-                ('med-A', PRIORITY_MED),
-                ('high', PRIORITY_HIGH),
-                ('med-B', PRIORITY_MED),
-            ]:
-                task = IOTask(
-                    action=lambda lbl=label: cancel_order.append(('ran-', lbl)),
-                    priority=prio,
-                )
-                fut = executor.put(task, return_future=True)
-                futs.append((label, fut))
-
-            executor.clear_pending()
-            # Cancel callbacks on _ReusableTaskWaiter are recorded as
-            # the order in which clear_pending pulled them. The
-            # PriorityQueue.get_nowait order IS the cancel-execution
-            # order from clear_pending's perspective.
-            #
-            # We can't directly observe cancel-call order without
-            # patching the waiter; instead verify the structural
-            # contract: every fut had cancel() invoked, and the
-            # caller_futures dict is fully drained.
-            head_event.set()
-            _t2.sleep(0.1)
-            assert len(executor.caller_futures) == 0, (
-                'clear_pending must drain caller_futures fully; '
-                f'residual={len(executor.caller_futures)}'
-            )
-            alloc, pop, _ = executor.caller_futures_stats()
-            assert alloc == pop, (
-                f'caller_futures alloc/pop must balance after '
-                f'clear_pending; alloc={alloc} pop={pop}'
-            )
-        finally:
-            executor.shutdown(wait=False)
-
     def test_caller_futures_invariant_under_priority_mix(self):
         """Mixed-priority return_future submission must keep
         alloc == pop at steady state."""
         import time as _t2
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import (
             SequentialIOExecutor,
             IOTask,
@@ -5117,7 +5074,9 @@ class TestSequentialIOExecutorPriorityAware:
             PRIORITY_LOW,
         )
 
-        executor = SequentialIOExecutor(name='TEST_PRIO_FUTURES', priority_aware=True)
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, name='TEST_PRIO_FUTURES', priority_aware=True
+        )
         executor.start()
         try:
             prios = [PRIORITY_HIGH, PRIORITY_MED, PRIORITY_LOW] * 30
@@ -5146,13 +5105,14 @@ class TestSequentialIOExecutorPriorityAware:
         """priority_aware=False (the default) ignores IOTask.priority
         and keeps submit-order FIFO."""
         import threading as _t
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import (
             SequentialIOExecutor,
             PRIORITY_HIGH,
             PRIORITY_MED,
         )
 
-        executor = SequentialIOExecutor(name='TEST_FIFO_LEGACY')
+        executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_FIFO_LEGACY')
         executor.start()
         try:
             head = _t.Event()
@@ -6838,17 +6798,6 @@ class TestReusableTaskWaiter:
         assert not w.is_spent()
         w.set_result(None)
         assert w.is_spent()
-
-    def test_cancel_unblocks_with_cancelled_error(self):
-        from modules.sequential_io_executor import _ReusableTaskWaiter
-        from concurrent.futures import CancelledError
-
-        w = _ReusableTaskWaiter()
-        assert w.cancel() is True
-        import pytest
-
-        with pytest.raises(CancelledError):
-            w.result(timeout=0.1)
 
     def test_thread_local_pool_reuse(self):
         """Sequential submissions from the same thread should reuse the
@@ -9341,9 +9290,10 @@ class TestSequentialIoExecutorWaitForIdle_F7:
         once the worker is idle."""
         import time as _time
 
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        executor = SequentialIOExecutor(name='F7-TEST')
+        executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='F7-TEST')
         executor.running_task = object()
         start = _time.monotonic()
         assert executor.wait_for_idle(timeout=0.05) is False, (
@@ -10053,9 +10003,10 @@ class TestGreaseRedistributionGateAlwaysReleased:
         it started. Driven through a real executor and the simulated scope
         so the enqueue topology under test is the production one."""
         from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        io = SequentialIOExecutor(name='TEST_IO')
+        io = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         io.start()
         io.protocol_start()
         try:

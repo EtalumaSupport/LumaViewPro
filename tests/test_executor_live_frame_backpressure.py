@@ -21,6 +21,7 @@ producer was the memmap record path the engine replaced.
 
 import threading
 
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import (
     ENQUEUED,
     LIVE_FRAME_DROPPED,
@@ -33,7 +34,7 @@ from modules.sequential_io_executor import (
 def _ex():
     # Constructed but NOT started: no worker drains, so put()/inflight state is
     # observable. Not shut and protocol_running is clear, so put() enqueues.
-    return SequentialIOExecutor(name='TEST')
+    return SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
 
 
 def test_put_bounds_droppable_live_frames():

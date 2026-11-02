@@ -21,6 +21,7 @@ from modules.caller import Caller, calling, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 from rest import problems
 from rest.jobs import JobRegistry
@@ -126,7 +127,7 @@ class TestEachHostStampsItsThreads:
     def test_a_gui_request_runs_as_the_gui_on_its_lane(self, monkeypatch):
         from ui import ui_helpers
 
-        lane = SequentialIOExecutor(name='probe_lane')
+        lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='probe_lane')
         lane.start()
         seen = []
         ran = threading.Event()

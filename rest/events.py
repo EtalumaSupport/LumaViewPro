@@ -42,7 +42,7 @@ from modules.notification_center import Notification
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession, Status
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-from rest import routes
+from rest import problems, routes
 from rest.jobs import Job
 
 # The events a client missed that a reconnect is resent: about a minute of
@@ -112,7 +112,11 @@ class EventStream:
         # camera's driver, never a lane. No claim is wired to it, so it runs
         # every read whatever holds the scope, and a raised read is reported
         # by the executor, once, as every background task's is.
-        self._reader = SequentialIOExecutor(name='EVENT_STREAM_READS', lane=False)
+        self._reader = SequentialIOExecutor(
+            name='EVENT_STREAM_READS',
+            lane=False,
+            closed_answer=lambda member: problems.server_closing(),
+        )
         self._reader.start()
         for owner, member_name, name, record in _listened(self._session):
             listener = self._listener(name, record)

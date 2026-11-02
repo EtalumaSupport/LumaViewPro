@@ -29,9 +29,10 @@ WAIT_S = 30.0
 
 @pytest.fixture
 def lane():
+    from modules.executor_registry import session_lane_closed
     from modules.sequential_io_executor import SequentialIOExecutor
 
-    executor = SequentialIOExecutor(name='FILE_TEST')
+    executor = SequentialIOExecutor(closed_answer=session_lane_closed, name='FILE_TEST')
     executor.start()
     yield executor
     executor.shutdown()

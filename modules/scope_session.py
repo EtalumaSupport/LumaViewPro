@@ -66,6 +66,7 @@ from modules.exceptions import (
     ConfigError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
+    FileWriterReplacedError,
     HARDWARE_STATE_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
@@ -1941,7 +1942,7 @@ class ScopeSession:
         # Given up on first, so the stuck write returning later counts
         # nothing and the writes queued behind it skip their turn.
         abandoned = batch.abandon('File writer recovery')
-        self.file_io_executor.replace_stuck_worker()
+        self.file_io_executor.replace_stuck_worker(FileWriterReplacedError)
         return abandoned
 
     @_guarded_write

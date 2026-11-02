@@ -27,6 +27,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     SessionClosingError,
 )
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from modules.wire_encoding import outcome_fields
 from tests.test_a_run_says_when_its_files_are_written import held_saves  # noqa: F401 -- a fixture
@@ -45,7 +46,7 @@ def claim():
 @pytest.fixture
 def lane(claim):
     """A started lane that asks ``claim``."""
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.ask_claim(claim)
     ex.start()
     yield ex

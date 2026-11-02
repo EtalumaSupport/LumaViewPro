@@ -78,6 +78,7 @@ def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(motion):
 def test_both_safety_refusals_reach_the_user_in_their_own_words(bound, centre_posts):
     """Driven through the real executor: a refusal raised in a background
     task is shown with its own message, whichever limit refused it."""
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     error = PositionOutOfRangeError('Y', 1e30, 0.0, 80000.0, bound=bound)
@@ -85,7 +86,7 @@ def test_both_safety_refusals_reach_the_user_in_their_own_words(bound, centre_po
     def _move_absolute_impl():
         raise error
 
-    executor = SequentialIOExecutor(name='TEST')
+    executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
     task = IOTask(_move_absolute_impl)
     task.set_name(executor.executor_name)
     executor.queue.put(task)
@@ -132,6 +133,7 @@ def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol(centre_pos
     """
     import re
 
+    from modules.lumascope_api._lumascope import scope_lane_closed
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _grind_beans():
@@ -141,7 +143,7 @@ def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol(centre_pos
         raise ValueError('portafilter empty')
 
     for action in (_grind_beans, _pull_shot, _grind_beans):
-        executor = SequentialIOExecutor(name='TEST')
+        executor = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST')
         task = IOTask(action)
         task.set_name(executor.executor_name)
         executor.queue.put(task)

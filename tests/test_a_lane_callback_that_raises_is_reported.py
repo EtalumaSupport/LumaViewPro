@@ -12,6 +12,7 @@ import pytest
 from modules import kivy_utils
 from modules.notification_center import notifications
 from modules.scope_session import ScopeSession
+from modules.lumascope_api._lumascope import scope_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
@@ -31,7 +32,7 @@ def reported(monkeypatch):
 
 
 def test_a_task_callback_that_raises_is_reported(reported):
-    lane = SequentialIOExecutor(name='CALLBACK_TEST')
+    lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='CALLBACK_TEST')
     lane.start()
     try:
         future = lane.put(IOTask(action=lambda: 'done', callback=_raising), return_future=True)

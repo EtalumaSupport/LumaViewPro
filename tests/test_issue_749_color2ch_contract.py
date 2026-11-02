@@ -114,9 +114,12 @@ class TestTaskFailureNotificationWording:
 
     def _fire(self, centre_posts, *, protocol: bool):
         from modules.notification_center import Severity
+        from modules.lumascope_api._lumascope import scope_lane_closed
         from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_WORDING')
+        executor = SequentialIOExecutor(
+            closed_answer=scope_lane_closed, max_workers=1, name='TEST_WORDING'
+        )
         try:
 
             def sample_operation():

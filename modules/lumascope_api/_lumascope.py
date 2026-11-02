@@ -126,6 +126,15 @@ from modules.api_surface import api, api_fields
 _api_log = _logging.getLogger('LVP.api')
 
 
+def scope_lane_closed(member: str) -> HardwareCommandRefusedError:
+    """What a call the scope's IO and CAMERA lanes will not run is told once they have closed.
+
+    They close only as the scope disconnects, so the scope takes no command
+    until the application restarts.
+    """
+    return HardwareCommandRefusedError('scope_disconnected', member)
+
+
 def _register_ids_camera(platform: str):
     """Import the IDS driver, which registers it; None when it cannot load.
 
@@ -490,8 +499,8 @@ class Lumascope:
         # script's bare scope -- run one at a time per bus, in order, and a
         # run holding the scope can refuse what is not its own. A session
         # composed over this scope asks the lanes its activity claim.
-        self._io_executor = SequentialIOExecutor(name='IO')
-        self._camera_executor = SequentialIOExecutor(name='CAMERA')
+        self._io_executor = SequentialIOExecutor(name='IO', closed_answer=scope_lane_closed)
+        self._camera_executor = SequentialIOExecutor(name='CAMERA', closed_answer=scope_lane_closed)
         self._io_executor.start()
         self._camera_executor.start()
         # The key the camera lane's claim returned to the session, which

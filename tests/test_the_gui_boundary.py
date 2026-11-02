@@ -20,6 +20,8 @@ import pytest
 import modules.app_context as _app_ctx
 from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
 from modules.notification_center import Severity
+from modules.lumascope_api._lumascope import scope_lane_closed
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor, inline_outcome
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
@@ -31,7 +33,7 @@ _WAIT_S = 2.0
 
 @pytest.fixture
 def lane():
-    ex = SequentialIOExecutor(name='TEST_IO')
+    ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     ex.start()
     yield ex
     ex.shutdown(wait=False)
@@ -39,7 +41,9 @@ def lane():
 
 @pytest.fixture
 def pool(monkeypatch):
-    ex = SequentialIOExecutor(name='WORKER_POOL', priority_aware=True, lane=False)
+    ex = SequentialIOExecutor(
+        closed_answer=session_lane_closed, name='WORKER_POOL', priority_aware=True, lane=False
+    )
     ex.start()
     monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(worker_pool=ex))
     # Headless: a scheduled redraw runs as soon as it is scheduled.

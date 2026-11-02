@@ -22,6 +22,7 @@ import modules.protocol_image_writer as piw
 from modules.exceptions import RefusalCause, RunFilesNotWrittenError, RunWriteRefusedError
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.protocol_image_writer import WRITER_WEDGED, RunWriteBatch
+from modules.executor_registry import session_lane_closed
 from modules.sequential_io_executor import SequentialIOExecutor
 
 HELD_S = 5.0
@@ -29,7 +30,7 @@ HELD_S = 5.0
 
 @pytest.fixture
 def lane():
-    executor = SequentialIOExecutor(name='TEST_FILE')
+    executor = SequentialIOExecutor(closed_answer=session_lane_closed, name='TEST_FILE')
     executor.start()
     try:
         yield executor
