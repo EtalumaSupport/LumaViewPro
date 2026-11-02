@@ -87,7 +87,7 @@ class ProtocolExecutionRecord:
 
     def _initialize_outfile(self, outfile: pathlib.Path):
         """Create file with header. Each add_step will append separately."""
-        with open(outfile, 'w', newline='') as fp:
+        with open(outfile, 'w', newline='', encoding='utf-8') as fp:
             csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
             csv_writer.writerow([self.FILE_HEADER])
             csv_writer.writerow(['Version', self.CURRENT_VERSION])
@@ -159,7 +159,7 @@ class ProtocolExecutionRecord:
             return
 
         try:
-            with open(self._outfile, 'a', newline='') as fp:
+            with open(self._outfile, 'a', newline='', encoding='utf-8') as fp:
                 csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
                 csv_writer.writerow(
                     [
@@ -244,7 +244,7 @@ class ProtocolExecutionRecord:
 
     @classmethod
     def _read(cls, file_path: pathlib.Path) -> 'ProtocolExecutionRecord':
-        with open(file_path) as fp:
+        with open(file_path, encoding='utf-8') as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:

@@ -116,7 +116,7 @@ class ProtocolPostRecord:
         self._rewrite_due = False
 
     def _initialize_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'w')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
+        self._outfile_fp = open(outfile, 'w', encoding='utf-8')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
         self._outfile_csv.writerow([self.FILE_HEADER])
         self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
@@ -125,7 +125,7 @@ class ProtocolPostRecord:
         self._outfile_csv.writerow(self.COLUMNS)
 
     def _reopen_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'a')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
+        self._outfile_fp = open(outfile, 'a', encoding='utf-8')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
 
     def complete(self) -> None:
@@ -376,7 +376,7 @@ class ProtocolPostRecord:
 
     @classmethod
     def from_file(cls, file_path: pathlib.Path) -> 'ProtocolPostRecord':
-        with open(file_path) as fp:
+        with open(file_path, encoding='utf-8') as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:

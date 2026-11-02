@@ -1646,7 +1646,7 @@ class Protocol:
 
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp_loc, 'w') as fp:
+            with open(tmp_loc, 'w', encoding='utf-8') as fp:
                 csvwriter = csv.writer(
                     fp, delimiter='\t', lineterminator='\n'
                 )  # access the file using the CSV library
@@ -3715,7 +3715,7 @@ class Protocol:
                     f'may be ({file_size:,} bytes) and cannot be loaded without exhausting memory.',
                     file=file_path,
                 )
-            with open(file_path) as fp_orig:
+            with open(file_path, encoding='utf-8') as fp_orig:
                 file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
                 file_content = ''.join(file_data_lines)
                 fp = io.StringIO(file_content)
