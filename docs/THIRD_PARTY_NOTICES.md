@@ -1,10 +1,10 @@
 # LumaViewPro — Third-Party Notices
 
-LumaViewPro is distributed under the MIT License (see `docs/LICENSE`). It bundles and uses software from the third parties listed below. Each entry identifies the component, the license under which it is distributed, and the upstream source. Full license texts for each license family are provided in `docs/licenses/`.
+LumaViewPro is distributed under the MIT License (see `docs/LICENSE`). It bundles and uses software from the third parties listed below. Each entry identifies the component, the license under which it is distributed, and the upstream source. License texts for the common license families are provided in `docs/licenses/`, and each bundled package's own license files are in its `<name>-<version>.dist-info` folder in the installation folder.
 
 This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §4(d) and comparable attribution requirements from BSD, LGPL, and GPL-with-Classpath-Exception licenses that apply to bundled components.
 
-**Last updated**: 2026-10-29 (for LumaViewPro 4.0.0-beta). Every package `requirements.txt` names is listed at its pin, its license read from its own Windows wheel. The packages those pull in (FastAPI's, uvicorn's and the rest) are still to be listed from a Windows build environment.
+**Last updated**: 2026-11-03 (for LumaViewPro 4.0.0-beta), from the build environment of the 4.0.0-beta40 test build `20261103T204223Z-WINDOWS-ASVR0F3`: every package its `pip freeze` lists is listed at that version, except the build tools (PyInstaller, pyinstaller-hooks-contrib, altgraph, pefile, pywin32-ctypes), each with the license its own Windows wheel declares.
 **Regenerating**: For each package `requirements.txt` names, read the license its Windows wheel declares (`pip download --no-deps --platform win_amd64 --only-binary=:all: <name>==<pin>`, then the wheel's `METADATA` and its license files); for the packages they pull in, the build environment's own `pip freeze`.
 
 ---
@@ -14,7 +14,7 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | Package | Version | License | Upstream |
 |---|---|---|---|
 | Kivy | 2.3.1 | MIT | https://kivy.org/ |
-| kivy-deps (sdl2, glew) | bundled with Kivy | zlib / MIT (SDL2 family) | https://www.libsdl.org/ |
+| kivy-deps (sdl2 0.8.1, glew 0.3.2, angle 0.4.0) | bundled with Kivy | zlib (sdl2) / MIT (glew, angle) | https://www.libsdl.org/ |
 | NumPy | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | https://numpy.org/ |
 | SciPy | 1.17.1 | BSD-3-Clause | https://scipy.org/ |
 | Matplotlib | 3.10.9 | Matplotlib License (PSF-based, BSD-compatible) | https://matplotlib.org/ |
@@ -39,6 +39,41 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | pyusb | 1.3.1 | BSD-3-Clause | https://github.com/pyusb/pyusb |
 | libusb1 (python-libusb1) | 3.4.0 | LGPL-2.1-or-later | https://github.com/vpelletier/python-libusb1 |
 | libusb-package | 1.0.30.0 | Apache-2.0 (packaging; carries the LGPL-2.1 libusb library below) | https://github.com/pyocd/libusb-package |
+| annotated-doc | 0.0.5 | MIT | https://github.com/fastapi/annotated-doc |
+| annotated-types | 0.8.0 | MIT | https://github.com/annotated-types/annotated-types |
+| AnyIO | 4.16.0 | MIT | https://github.com/agronholm/anyio |
+| certifi | 2026.10.23 | MPL-2.0 (shipped unmodified; source at the upstream) | https://github.com/certifi/python-certifi |
+| charset-normalizer | 3.5.2 | MIT | https://github.com/jawah/charset_normalizer |
+| Click | 8.5.0 | BSD-3-Clause | https://github.com/pallets/click |
+| contourpy | 1.4.0 | BSD-3-Clause | https://github.com/contourpy/contourpy |
+| cycler | 0.12.1 | BSD-3-Clause | https://github.com/matplotlib/cycler |
+| Docutils | 0.23 | Public Domain, with files under BSD-2-Clause (its one GPL-3.0 file, an Emacs mode, is not in the wheel) | https://docutils.sourceforge.io/ |
+| filetype | 1.2.0 | MIT | https://github.com/h2non/filetype.py |
+| fontTools | 4.68.0 | MIT | https://github.com/fonttools/fonttools |
+| h11 | 0.16.0 | MIT | https://github.com/python-hyper/h11 |
+| idna | 3.20 | BSD-3-Clause | https://github.com/kjd/idna |
+| ids-peak-common | 1.3.0.4212 | IDS license terms (proprietary); installed with ids-peak | https://pypi.org/project/ids-peak-common/ |
+| imageio | 2.38.1 | BSD-2-Clause | https://github.com/imageio/imageio |
+| importlib_resources | 7.1.0 | Apache-2.0 | https://github.com/python/importlib_resources |
+| Kivy-Garden | 0.1.5 | MIT | https://github.com/kivy-garden/garden |
+| kiwisolver | 1.5.1 | BSD-3-Clause | https://github.com/nucleic/kiwi |
+| lazy-loader | 0.6 | BSD-3-Clause | https://github.com/scientific-python/lazy-loader |
+| NetworkX | 3.7 | BSD-3-Clause | https://networkx.org/ |
+| opentelemetry-api | 1.45.2 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python |
+| packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | https://github.com/pypa/packaging |
+| Pillow | 13.0.0 | MIT-CMU | https://python-pillow.org/ |
+| pydantic-core | 2.50.0 | MIT | https://github.com/pydantic/pydantic |
+| Pygments | 2.21.0 | BSD-2-Clause | https://pygments.org/ |
+| pyparsing | 3.3.3 | MIT | https://github.com/pyparsing/pyparsing |
+| pypiwin32 | 223 | (no code of its own: it installs pywin32) | https://github.com/mhammond/pywin32 |
+| python-dateutil | 4.0.0 | BSD-3-Clause | https://github.com/dateutil/dateutil |
+| pywin32 | 312 | PSF-2.0 | https://github.com/mhammond/pywin32 |
+| Requests | 2.34.2 | Apache-2.0 | https://github.com/psf/requests |
+| setuptools | 84.2.1 | MIT | https://github.com/pypa/setuptools |
+| typing_extensions | 4.16.0 | PSF-2.0 | https://github.com/python/typing_extensions |
+| typing-inspection | 0.4.4 | MIT | https://github.com/pydantic/typing-inspection |
+| tzdata | 2026.6 | Apache-2.0 | https://github.com/python/tzdata |
+| urllib3 | 2.8.0 | MIT | https://github.com/urllib3/urllib3 |
 
 The IDS license terms permit distributing the IDS software only in products that operate with IDS cameras. Each ids-peak wheel carries those terms (`LICENSE`) and the licenses of the open-source components inside it (`third_party_licenses.txt`, `third_party_copyrights.txt`; ids-peak's GenICam licenses under `genicam/`). The installation carries them where the wheels put them: `ids_peak-<version>.dist-info/licenses/`, and the same for `ids_peak_ipl`, `ids_peak_icv` and `ids_peak_afl`, in the installation folder.
 
