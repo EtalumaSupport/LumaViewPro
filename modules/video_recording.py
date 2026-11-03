@@ -241,6 +241,11 @@ class RecordingResult:
             to describe, which is not a failure.
         configured_fps: The snapshot rate limit, for comparison against
             measured; None when every delivered frame was kept.
+        frame_budget: The frames the limit and the duration allow,
+            ``ceil(fps x duration)``; None with no limit. A camera slower
+            than the limit ends at the duration as ``duration_elapsed``
+            with fewer frames than this, so the count beside it is what
+            says how much it delivered.
         measured_fps: Rate computed from real frame timestamps.
         measured_duration_s: First-to-last-frame span in seconds.
         timestamp_grade: What every kept frame's time is: the config's
@@ -264,6 +269,7 @@ class RecordingResult:
     writer_failure: BaseException | None
     manifest_failure: OSError | None
     configured_fps: float | None
+    frame_budget: int | None
     measured_fps: float
     measured_duration_s: float
     timestamp_grade: TimestampSource
@@ -275,6 +281,18 @@ class RecordingResult:
     def aborted(self) -> bool:
         """True when the recording died fatally (writer-lane death)."""
         return self.writer_failure is not None
+
+    def summary(self) -> str:
+        """The recording's counts and rate in one line, for its host's log.
+
+        With a limit the line names the budget, so a camera slower than
+        the limit reads as the frames it delivered of those it was allowed.
+        """
+        budget = '' if self.frame_budget is None else f' of a {self.frame_budget}-frame budget'
+        return (
+            f'{self.frames_written} written{budget}, {self.write_failures} failed, '
+            f'measured {self.measured_fps:.2f} fps over {self.measured_duration_s:.2f} s'
+        )
 
 
 class VideoRecordingEngine:
@@ -783,6 +801,7 @@ class VideoRecordingEngine:
             writer_failure=self._writer_failure,
             manifest_failure=self._manifest_failure,
             configured_fps=self._config.fps,
+            frame_budget=self._config.frame_budget,
             measured_fps=measured_fps,
             measured_duration_s=measured_duration,
             timestamp_grade=grade,
@@ -834,6 +853,7 @@ class VideoRecordingEngine:
                 'end_reason': self._end_reason,
                 'timestamp_grade': str(grade),
                 'configured_fps': self._config.fps,
+                'frame_budget': self._config.frame_budget,
                 'measured_fps': measured_fps,
                 'measured_duration_s': measured_duration,
                 # Chunk dicts are stored verbatim: their keys are the

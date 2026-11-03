@@ -187,6 +187,14 @@ class TestARateLimitedRecordingEndsOnItsFramesClock:
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert (result.end_reason, result.frames_selected) == ('duration_elapsed', 10)
+        # The end reads as a complete recording; the budget beside the count
+        # is what says it kept 10 of the 20 its rate and duration allow.
+        manifest = json.loads(result.manifest_path.read_text())
+        assert (result.frame_budget, manifest['frame_budget']) == (20, 20)
+        assert manifest['frames_selected'] == 10
+        assert result.summary().startswith('10 written of a 20-frame budget, 0 failed'), (
+            result.summary()
+        )
 
     def test_a_budget_whose_last_slot_is_past_the_duration_fills_it(self, tmp_path):
         # 3 fps for 1.5 s is ceil(4.5) = 5 slots; the last opens at 5/3 s,
@@ -262,9 +270,13 @@ class TestNoRateLimit:
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
-        manifest = json.loads(engine.result().manifest_path.read_text())
+        result = engine.result()
+        manifest = json.loads(result.manifest_path.read_text())
         assert manifest['configured_fps'] is None
         assert manifest['frames_selected'] == 10
+        # With no rate there is no count to fall short of.
+        assert (result.frame_budget, manifest['frame_budget']) == (None, None)
+        assert result.summary().startswith('10 written, 0 failed'), result.summary()
 
 
 class TestEnqueueIsUnconditional:

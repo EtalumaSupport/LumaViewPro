@@ -1107,11 +1107,7 @@ class ManualRecordingController:
                         solicited=False,
                         category='Recording',
                     )
-                logger.info(
-                    f'[ManualRecord] Finished: {result.frames_written} written, '
-                    f'{result.write_failures} failed, measured '
-                    f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
-                )
+                logger.info(f'[ManualRecord] Finished: {result.summary()}')
             end_reason = engine.end_reason
             # Once it reads False a new recording may start and rebind every
             # per-recording slot this thread reads above. The claim was

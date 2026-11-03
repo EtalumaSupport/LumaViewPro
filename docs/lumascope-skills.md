@@ -840,8 +840,10 @@ Fiji open it with `Plugins > Bio-Formats > Importer`, colour mode Composite.
 own record (position, whether the stage was moving, the channel and its
 current), or as an MP4 played at the frames' own times; either way a
 `recording_manifest.json` holds what was measured: the frames delivered, their
-timestamps and the rate. Frames of one channel are also built into a
-hyperstack.
+timestamps and the rate. A rate is a limit: with one set, the manifest's
+`frame_budget` is the frames the limit and the duration allow, and a camera
+slower than the limit ends at the duration with fewer (`frames_selected`).
+Frames of one channel are also built into a hyperstack.
 
 ## Protocols and runs
 

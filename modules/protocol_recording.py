@@ -840,11 +840,7 @@ class ProtocolVideoStep:
                         solicited=False,
                         category='Protocol',
                     )
-                logger.info(
-                    f'[PROTOCOL-VIDEO] Finished: {result.frames_written} written, '
-                    f'{result.write_failures} failed, measured '
-                    f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
-                )
+                logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
 
     # ------------------------------------------------------------------
     # The step's video_progress event
