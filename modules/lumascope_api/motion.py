@@ -127,11 +127,10 @@ def _home_runs_its_own_moves(body):
 # good and the caller got the lane's bare TimeoutError at 30 s while the
 # loop ran on. Sized to fit inside the motion API's 30 s dispatch bound
 # beside one 5 s poll overrun, the move's other exchanges and its queue
-# residence. The worst legitimate leg is so far derived, not measured:
-# 6.25 s across every config in data/ on the simulator's ramp model, and
-# 5.07 s for an 11.2 mm downward Z move with overshoot run there, nearly
-# all of it the leg. To be confirmed on the LS850T with a full-travel
-# downward Z move (the arrival plan's bench row).
+# residence. The worst legitimate leg, measured: on an LS850T (motor board
+# firmware 2024-09-10) a full-travel downward Z move with overshoot, 13,950
+# to 125 um, took 3.38 s whole, the leg inside it; the simulator's ramp
+# model, derived, puts the worst across every config in data/ at 6.25 s.
 OVERSHOOT_LEG_TIMEOUT_S = 15.0
 
 # The axes a plate coordinate is defined for: the plate lies in X and Y.
