@@ -44,6 +44,38 @@ def iter_package_modules(packages):
             )
 
 
+def imported_names(tree: ast.Module):
+    """Yield ``(lineno, dotted_name)`` for every import anywhere in the module.
+
+    Every ``import`` and absolute ``from`` at any nesting depth -- a
+    deferred import is still an import, and fails at call time on a host
+    without its target -- and every ``__import__`` / ``importlib.import_module``
+    whose first argument is a literal. A relative import has no root to
+    police; a computed name cannot be read here.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                yield node.lineno, node.module
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node.lineno, alias.name
+        elif (
+            isinstance(node, ast.Call)
+            and _names_a_dynamic_import(node.func)
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            yield node.lineno, node.args[0].value
+
+
+def _names_a_dynamic_import(func: ast.AST) -> bool:
+    if isinstance(func, ast.Name):
+        return func.id in ('__import__', 'import_module')
+    return isinstance(func, ast.Attribute) and func.attr == 'import_module'
+
+
 def tracked_python_files() -> list[str]:
     """Every ``.py`` the repository tracks, repo-relative POSIX paths, sorted.
 

@@ -73,7 +73,6 @@ DETECTORS = (
     ('orchestration', _guards._gui_orchestration_counts),
     ('_app_ctx reads', _guards._modules_context_read_counts),
     ('.ids[ reads', _guards._modules_widget_read_counts),
-    ('ui imports below', _guards._lower_layer_ui_import_counts),
     ('fragile src pins', _source_pins._fragile_pin_counts),
     ('scope stand-ins', _scope_stand_in_counts),
 )

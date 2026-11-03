@@ -2,12 +2,8 @@
 """
 Tests for architecture audit fixes (2026-03-12, expanded 2026-05-02 LAYER-G).
 
-Covers:
-  1. Layer violation fixes -- full directory scan per Architecture Rule 1
-     (Firmware/docs/CLAUDE.md): lower layers must not import upward.
-       - modules/*.py must not import from ui/
-       - drivers/*.py must not import from modules/ or ui/
-       - lib/*.py must not import from drivers/, modules/, or ui/
+Covers (the layering of lib/ and drivers/ is
+tests/guards/test_the_lower_layers_import_nothing_above_them.py's):
   2. config_getters retired (its successor, config_ui_getters, retired in turn)
   3. stitch_algorithms.py replaces image_stitcher.py
   4. Dead code removal (position_stitcher removed from stitcher.py)
@@ -22,87 +18,12 @@ from tests import ratchets as _ratchets
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_python_files
 
 
-# ---------------------------------------------------------------------------
-# 1. Layer violations -- Architecture Rule 1: only call/import down one level
-# ---------------------------------------------------------------------------
-
-
 def _list_py_files(subdir):
     """Return sorted list of *.py files in <repo>/<subdir>/, excluding dunder
     files like __init__.py.
     """
     pattern = os.path.join(REPO_ROOT, subdir, '*.py')
     return sorted(p for p in glob.glob(pattern) if not os.path.basename(p).startswith('__'))
-
-
-def _check_no_toplevel_imports(module_path, forbidden_prefixes):
-    """Read a source file and return [(line_no, line)] for top-level
-    `from <prefix>...` or `import <prefix>...` imports where <prefix> is in
-    forbidden_prefixes (e.g. ('ui.',) or ('modules.', 'ui.')).
-
-    Skips: comments, indented imports (deferred inside functions/methods),
-    and lines inside triple-quoted strings (rough heuristic).
-    """
-    with open(module_path, encoding='utf-8') as f:
-        lines = f.readlines()
-
-    violations = []
-    in_string = False
-    for i, line in enumerate(lines, 1):
-        stripped = line.strip()
-        if stripped.startswith('#'):
-            continue
-        if '"""' in stripped or "'''" in stripped:
-            count = stripped.count('"""') + stripped.count("'''")
-            if count % 2 == 1:
-                in_string = not in_string
-            continue
-        if in_string:
-            continue
-        # Skip indented lines (inside functions/classes = deferred import)
-        if line and line[0] in (' ', '\t'):
-            continue
-        for prefix in forbidden_prefixes:
-            if f'from {prefix}' in stripped or f'import {prefix}' in stripped:
-                violations.append((i, stripped))
-                break
-    return violations
-
-
-# Files with known layer violations awaiting their structural fix.
-_DRIVERS_FILES = _list_py_files('drivers')
-_LIB_FILES = _list_py_files('lib')
-
-
-class TestLayerViolations:
-    """Verify every source file respects Architecture Rule 1.
-
-    Lower layers must not import upward. Higher layers may import down.
-    Test parametrized over each *.py file in modules/, drivers/, lib/ --
-    new files added under those directories are checked automatically.
-    """
-
-    def test_drivers_no_toplevel_modules_or_ui_import(self):
-        """drivers/ must not import from modules/ or ui/ (Rule 1: drivers
-        are below both). Shared utilities go in lib/ (e.g. lib/profile_trace).
-        """
-        found = {
-            os.path.basename(path): violations
-            for path in _DRIVERS_FILES
-            if (violations := _check_no_toplevel_imports(path, ('modules.', 'ui.')))
-        }
-        assert not found, f'top-level modules/ or ui/ imports found: {found}'
-
-    def test_lib_no_toplevel_drivers_modules_or_ui_import(self):
-        """lib/ must be cross-layer-shared and dependency-free relative to
-        drivers/, modules/, ui/. lib/ can only import stdlib + same-layer.
-        """
-        found = {
-            os.path.basename(path): violations
-            for path in _LIB_FILES
-            if (violations := _check_no_toplevel_imports(path, ('drivers.', 'modules.', 'ui.')))
-        }
-        assert not found, f'top-level drivers/, modules/, or ui/ imports found: {found}'
 
 
 # ---------------------------------------------------------------------------
@@ -696,42 +617,9 @@ def _modules_widget_read_counts():
     return counts
 
 
-# Proxy 6: the lower layer importing the GUI at ANY depth. The layer test
-# above deliberately skips deferred imports; a `from ui...` inside a function
-# is still an upward dependency, and a module that imports a popup cannot
-# run headless. A rule with one existing violation, expressed as a ratchet
-# that falls to zero.
-
-
-def _lower_layer_ui_import_counts():
-    """{'<modules|drivers>/<file>.py': number of `ui` / `ui.*` import
-    statements at any nesting depth}."""
-    counts = {}
-    for path in _list_py_files('modules') + _list_py_files('drivers'):
-        with open(path, encoding='utf-8') as fh:
-            tree = _ast.parse(fh.read())
-        n = 0
-        for node in _ast.walk(tree):
-            if isinstance(node, _ast.ImportFrom):
-                if node.module and (node.module == 'ui' or node.module.startswith('ui.')):
-                    n += 1
-            elif isinstance(node, _ast.Import) and any(
-                a.name == 'ui' or a.name.startswith('ui.') for a in node.names
-            ):
-                n += 1
-        if n:
-            counts[_relpath(path)] = n
-    return counts
-
-
 # Pinned at 74153fad. Lower a value in the same commit that hands the value
 # in as an argument or moves the popup to the caller; never raise one.
 _MODULES_WIDGET_READ_PIN = {}
-
-
-# Empty, and empty is the achieved state: nothing under modules/ or
-# drivers/ imports ui/. The pin stays so the next one is a rise from zero.
-_LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
 
 
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
@@ -826,16 +714,6 @@ class TestGuiIsDisplayOnly:
             _MODULES_WIDGET_READ_PIN,
             _modules_widget_read_counts(),
             '.ids[ reads',
-            _MODULES_REMEDY,
-        )
-        assert report == [], '\n'.join(report)
-
-    def test_lower_layer_ui_imports_match_the_pin(self):
-        report = _ratchet_report(
-            'GUI: ui imports from modules/ and drivers/',
-            _LOWER_LAYER_UI_IMPORT_PIN,
-            _lower_layer_ui_import_counts(),
-            'ui imports',
             _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
