@@ -98,7 +98,7 @@ def _manual(session, layer, live):
     session.show_channel(layer)
     before = _manifests(live)
     started = time.monotonic()
-    end_reason = session.manual_recording.start().result(timeout=_DURATION_S * 3)
+    end_reason = session.manual_recording.start().result(timeout=_DURATION_S * 3).end_reason
     waited = time.monotonic() - started
     figure('manual.operation_end_reason', end_reason)
     _report_recording('manual', _new_manifest('manual', live, before), waited)
@@ -114,7 +114,8 @@ def _video_step(session, runner, layer, live):
         if other != layer:
             session.set_channel_acquire(other, None)
     session.set_channel_acquire(layer, AcquireMode.VIDEO)
-    session.update_settings(f'{layer}.video_config.fps', float(_FPS))
+    # A step records at the one global limit, as a manual recording does.
+    session.update_settings('video.max_fps', float(_FPS))
     session.update_settings(f'{layer}.video_config.duration', float(_DURATION_S))
     # One step at the live position, as the GUI's Add then Run One Scan.
     protocol = session.create_empty_protocol()
