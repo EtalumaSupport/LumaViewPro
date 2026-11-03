@@ -41,8 +41,15 @@
 # -----------------------
 # GLOBAL WIDGET STYLES
 # -----------------------
-# Rounded button -- use in place of Button for text buttons
+# Rounded button -- use in place of Button for text buttons. Kivy draws a
+# label's texture at its full width, centred, with no clipping, so a text
+# wider than its button runs over the edges; text_size wraps it inside the
+# button instead, and halign must be stated because a given text_size
+# otherwise renders flush left. The same for the toggle below.
 <RoundedButton>:
+    text_size: self.width - dp(12), None
+    halign: 'center'
+    valign: 'middle'
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
@@ -56,6 +63,9 @@
 
 # Rounded toggle button -- use in place of ToggleButton for text toggle buttons
 <RoundedToggleButton>:
+    text_size: self.width - dp(12), None
+    halign: 'center'
+    valign: 'middle'
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
@@ -772,32 +782,24 @@
 					id: turret_pos_1_btn
 					text: '< 1 >'
 					font_size: '12sp'
-					text_size: self.width - dp(6), None
-					halign: 'center'
 					tooltip_text: 'Select turret position 1'
 		            on_release: root.turret_gesture(1)
 				RoundedToggleButton:
 					id: turret_pos_2_btn
 					text: '< 2 >'
 					font_size: '12sp'
-					text_size: self.width - dp(6), None
-					halign: 'center'
 					tooltip_text: 'Select turret position 2'
 		            on_release: root.turret_gesture(2)
 				RoundedToggleButton:
 					id: turret_pos_3_btn
 					text: '< 3 >'
 					font_size: '12sp'
-					text_size: self.width - dp(6), None
-					halign: 'center'
 					tooltip_text: 'Select turret position 3'
 		            on_release: root.turret_gesture(3)
 				RoundedToggleButton:
 					id: turret_pos_4_btn
 					text: '< 4 >'
 					font_size: '12sp'
-					text_size: self.width - dp(6), None
-					halign: 'center'
 					tooltip_text: 'Select turret position 4'
 		            on_release: root.turret_gesture(4)
 

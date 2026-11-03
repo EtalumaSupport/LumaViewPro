@@ -36,8 +36,14 @@ def test_the_panel_has_the_four_slot_buttons_reset_and_assign():
 
 
 def test_each_slot_button_wraps_its_name_to_its_width():
+    # The wrap is the RoundedToggleButton style's, so a slot button wraps by
+    # being one and by setting no text_size of its own that would undo it.
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+    style = kv[kv.index('<RoundedToggleButton>:') :]
+    style = style[: style.index('\n\n')]
+    assert 'text_size: self.width' in style
     block = _objective_control()
     buttons = block.split('RoundedToggleButton:')[1:]
     slots = [b for b in buttons if 'root.turret_gesture(' in b]
     assert len(slots) == 4
-    assert all('text_size: self.width' in b for b in slots)
+    assert not any('text_size:' in b.split('root.turret_gesture(')[0] for b in slots)
