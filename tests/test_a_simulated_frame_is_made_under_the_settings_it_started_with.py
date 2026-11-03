@@ -24,47 +24,78 @@ from drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 
-def _next_frames(cam, wanted: int, *, after=None):
-    """The next ``wanted`` frames delivered; with ``after``, the ones delivered after it.
-
-    ``after()`` is made from the next frame's callback, on the camera's
-    thread as that frame is stored, so it lands at one place in the stream:
-    the frames after it are the ones delivered after the change. Made from
-    the test's thread, it lands whenever that thread next runs, and every
-    frame delivered while it waits is counted as one in flight at the change.
-    """
+def _next_frames(cam, wanted: int):
+    """The next ``wanted`` frames delivered."""
     frames = []
     collected = threading.Event()
-    pending = after
 
     def _collect(frame):
-        nonlocal pending
-        if pending is not None:
-            change, pending = pending, None
-            change()
-        elif len(frames) < wanted:
+        if len(frames) < wanted:
             frames.append(frame)
             if len(frames) == wanted:
                 collected.set()
 
     cam.register_frame_callback(_collect)
-    assert collected.wait(5.0), f'only {len(frames)} frames came after the change'
+    assert collected.wait(5.0), f'only {len(frames)} frames came'
     return frames
+
+
+def _frames_through_a_change(cam, change):
+    """The frames delivered after ``change``, through the first that must show it.
+
+    ``change()`` is made from the next frame's callback, on the camera's
+    thread, so it lands at one place in the stream; the camera's clock is
+    read either side of it. Collection ends at the first frame whose
+    exposure started ``SENSOR_APPLY_DELAY_US`` after the change returned.
+
+    Returns:
+        The camera's clock before the change and after it, and the frames.
+    """
+    delay_ticks = cam.SENSOR_APPLY_DELAY_US * cam.TIMESTAMP_TICK_HZ // 1_000_000
+    frames = []
+    clock = {}
+    done = threading.Event()
+
+    def _collect(frame):
+        if not clock:
+            clock['before'] = cam.camera_clock_ticks()
+            change()
+            clock['after'] = cam.camera_clock_ticks()
+        elif not done.is_set():
+            frames.append(frame)
+            if frame.chunks['Timestamp'] >= clock['after'] + delay_ticks:
+                done.set()
+
+    cam.register_frame_callback(_collect)
+    assert done.wait(5.0), f'no frame started after the change took; {len(frames)} came'
+    return clock['before'], clock['after'], frames
+
+
+def _mean(frame) -> float:
+    return float(frame.image.mean())
 
 
 # Three settings, three paths into the pixels: the integration time, the
 # analogue scale and the offset.
 @pytest.mark.parametrize(
-    'change',
+    ('change', 'setting', 'new'),
     [
-        lambda cam: cam.exposure_t(20.0),
-        lambda cam: cam.gain(20.0),
-        lambda cam: cam.set_black_level(60.0),
+        (lambda cam: cam.exposure_t(20.0), 'exposure_us', 20_000.0),
+        (lambda cam: cam.gain(20.0), 'gain_db', 20.0),
+        (lambda cam: cam.set_black_level(60.0), 'black_level', 60.0),
     ],
     ids=['exposure', 'gain', 'black_level'],
 )
-def test_the_frames_in_flight_at_a_change_are_made_under_the_old_setting(change):
-    in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
+def test_a_frame_shows_a_setting_only_if_it_started_the_apply_delay_after_the_write(
+    change, setting, new
+):
+    """A frame started before a write, or less than ``SENSOR_APPLY_DELAY_US`` after it, is made under the old setting; one started that long after it, under the new.
+
+    The frames the sensor had started at the write are among the old ones.
+    How many frames that is depends on how far the host has fallen behind
+    the camera; which frames, by when each started, does not.
+    """
+    delay_ticks = SimulatedCamera.SENSOR_APPLY_DELAY_US * SimulatedCamera.TIMESTAMP_TICK_HZ // 10**6
     cam = SimulatedCamera(width=48, height=24)
     # A test pattern's signal follows the settings exactly; the specimen's is floored.
     cam.set_test_pattern(enabled=True, pattern='noise')
@@ -72,23 +103,44 @@ def test_the_frames_in_flight_at_a_change_are_made_under_the_old_setting(change)
     cam.gain(0.0)
     cam.open_and_start()
     try:
-        dim = float(grab_a_frame_made_after_now(cam).image.mean())
-        frames = _next_frames(cam, in_flight + 4, after=lambda: change(cam))
+        settled = grab_a_frame_made_after_now(cam)
+        old = getattr(cam.exposed_under(settled.chunks['FrameID']), setting)
+        before, after, frames = _frames_through_a_change(cam, lambda: change(cam))
+        made_under = [getattr(cam.exposed_under(f.chunks['FrameID']), setting) for f in frames]
     finally:
         cam.stop_grabbing()
 
-    means = [float(frame.image.mean()) for frame in frames]
-    bright = means[-1]
-    assert bright > 2 * dim, f'precondition: the change brightens the frame ({bright} vs {dim})'
-    old = [m < (dim + bright) / 2 for m in means]
-    first_new = old.index(False)
-    assert all(old[:first_new]) and not any(old[first_new:]), means
-    assert in_flight <= first_new <= in_flight + 1, (
-        f'{first_new} frames came under the old setting; the sensor had {in_flight} started'
+    assert old != new, f'precondition: the change changes {setting} ({old})'
+    starts = [f.chunks['Timestamp'] for f in frames]
+    too_soon = [
+        (start - before, value)
+        for start, value in zip(starts, made_under, strict=True)
+        if start < before + delay_ticks and value != old
+    ]
+    assert not too_soon, f'frames started (ticks after the write, {setting}) {too_soon}'
+    too_late = [
+        (start - after, value)
+        for start, value in zip(starts, made_under, strict=True)
+        if start >= after + delay_ticks and value != new
+    ]
+    assert not too_late, f'frames started (ticks after the write, {setting}) {too_late}'
+    assert any(start < before for start in starts), (
+        'no frame started before the write came after it'
     )
+    # The pixels follow the record: old frames dim, new ones bright.
+    dim, bright = _mean(settled), _mean(frames[-1])
+    assert bright > 2 * dim, f'precondition: the change brightens the frame ({bright} vs {dim})'
+    looks_old = [_mean(f) < (dim + bright) / 2 for f in frames]
+    assert looks_old == [value == old for value in made_under], (made_under, looks_old)
 
 
 def test_a_stale_frames_chunk_already_carries_the_new_value():
+    """A frame made at the old gain and tagged after the write carries the new gain in its chunk.
+
+    The chunk is read from the register as the frame is tagged, so it leads
+    the content, as on the bench: only the frame's exposure record tells a
+    stale frame from a new one.
+    """
     cam = SimulatedCamera(width=48, height=24)
     cam.set_test_pattern(enabled=True, pattern='noise')
     cam.exposure_t(1.0)
@@ -96,17 +148,13 @@ def test_a_stale_frames_chunk_already_carries_the_new_value():
     cam.open_and_start()
     try:
         grab_a_frame_made_after_now(cam)
-        wanted = SimulatedCamera.SENSOR_PIPELINE_FRAMES + 3
-        frames = _next_frames(cam, wanted, after=lambda: cam.gain(20.0))
+        _, _, frames = _frames_through_a_change(cam, lambda: cam.gain(20.0))
+        stale = [f for f in frames if cam.exposed_under(f.chunks['FrameID']).gain_db == 0.0]
     finally:
         cam.stop_grabbing()
 
-    means = [float(frame.image.mean()) for frame in frames]
-    middle = (means[0] + means[-1]) / 2
-    stale = [f for f, m in zip(frames, means, strict=True) if m < middle]
-    assert any(f.chunks['Gain'] == 20.0 for f in stale), (
-        'no frame made at the old gain was tagged after the write'
-    )
+    assert stale, 'precondition: a frame made at the old gain came after the write'
+    assert all(f.chunks['Gain'] == 20.0 for f in stale), [f.chunks['Gain'] for f in stale]
 
 
 def test_a_frame_is_numbered_as_it_leaves_the_pipeline_before_its_transfer():
