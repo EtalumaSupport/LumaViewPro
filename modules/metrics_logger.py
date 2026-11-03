@@ -280,6 +280,7 @@ class MetricsLogger:
         self._scope.imaging.start_camera_temp_logging(
             self._scheduler.schedule_interval,
             self._scheduler.unschedule,
+            schedule_once_fn=self._scheduler.schedule_once,
             interval_s=camera_temp_interval_s,
         )
 

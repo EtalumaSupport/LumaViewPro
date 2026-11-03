@@ -42,7 +42,7 @@ class Scheduler(Protocol):
 
     Implementations let MetricsLogger (and any future Lumascope-side
     periodic work) fire on a cadence without coupling to a specific
-    event loop. The protocol is intentionally tiny -- three methods --
+    event loop. The protocol is intentionally tiny -- four methods --
     so the surface stays implementable from any host environment.
 
     All methods are safe to call from any thread. Cancellation must
@@ -57,6 +57,15 @@ class Scheduler(Protocol):
         """
         ...
 
+    def schedule_once(self, callback: TickCallback, delay_s: float) -> object:
+        """Fire ``callback`` once, ``delay_s`` seconds from now, on the scheduler's thread.
+
+        A raising ``callback`` is reported as a raising tick is. Returns
+        an opaque handle suitable for ``unschedule(handle)``, which
+        cancels it if it has not fired.
+        """
+        ...
+
     def unschedule(self, handle: object) -> None:
         """Cancel the schedule represented by ``handle``. Idempotent."""
         ...
@@ -65,7 +74,7 @@ class Scheduler(Protocol):
         """Cancel every schedule this scheduler owns + release resources.
 
         Idempotent. After ``shutdown()`` the scheduler refuses new
-        ``schedule_interval`` calls.
+        ``schedule_interval`` and ``schedule_once`` calls.
         """
         ...
 
@@ -174,9 +183,30 @@ class ThreadingTimerScheduler:
         self._lock = threading.Lock()
         self._next_id = 0
 
-    def schedule_interval(self, callback, interval_s):
+    def schedule_interval(self, callback: TickCallback, interval_s: float) -> _PeriodicTimer:
         if self._closed:
             raise RuntimeError('ThreadingTimerScheduler is shutdown; refusing new schedule')
+        timer = self._timer(callback, interval_s)
+        timer.start()
+        return timer
+
+    def schedule_once(self, callback: TickCallback, delay_s: float) -> _PeriodicTimer:
+        if self._closed:
+            raise RuntimeError('ThreadingTimerScheduler is shutdown; refusing new schedule')
+
+        # The timer cancels itself before the callback runs, so it does not
+        # re-arm whether the callback returns or raises, and a raise still
+        # reaches the timer's own error report.
+        def _once() -> None:
+            self.unschedule(timer)
+            callback()
+
+        timer = self._timer(_once, delay_s)
+        timer.start()
+        return timer
+
+    def _timer(self, callback: TickCallback, interval_s: float) -> _PeriodicTimer:
+        """A named, tracked timer for ``callback``, not yet started."""
         with self._lock:
             self._next_id += 1
             tid = self._next_id
@@ -188,7 +218,6 @@ class ThreadingTimerScheduler:
         )
         with self._lock:
             self._timers.append(timer)
-        timer.start()
         return timer
 
     def unschedule(self, handle):

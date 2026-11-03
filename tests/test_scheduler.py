@@ -27,6 +27,62 @@ from modules.scheduler import (
 class TestThreadingTimerScheduler:
     """Behavioral contract for the production REST scheduler."""
 
+    def test_schedule_once_fires_once_on_the_schedulers_thread(self):
+        sched = ThreadingTimerScheduler()
+        fired_on = []
+        fired = threading.Event()
+
+        def _cb():
+            fired_on.append(threading.current_thread())
+            fired.set()
+
+        try:
+            sched.schedule_once(_cb, 0.01)
+            assert fired.wait(timeout=2.0), 'the one-shot never fired'
+            # Twenty of its delays: a timer that re-armed would have fired again.
+            time.sleep(0.2)
+        finally:
+            sched.shutdown()
+        assert len(fired_on) == 1
+        assert fired_on[0] is not threading.current_thread()
+
+    def test_a_raising_one_shot_is_reported_once(self):
+        reported = []
+        seen = threading.Event()
+
+        def _cb():
+            raise RuntimeError('the first sample failed')
+
+        def _on_error(error):
+            reported.append(error)
+            seen.set()
+
+        sched = ThreadingTimerScheduler(on_callback_error=_on_error)
+        try:
+            sched.schedule_once(_cb, 0.01)
+            assert seen.wait(timeout=2.0), 'the failure was never reported'
+            # Twenty of its delays: a timer that re-armed would have failed again.
+            time.sleep(0.2)
+        finally:
+            sched.shutdown()
+        assert [str(e) for e in reported] == ['the first sample failed']
+
+    def test_an_unscheduled_one_shot_never_fires(self):
+        sched = ThreadingTimerScheduler()
+        fired = threading.Event()
+        try:
+            handle = sched.schedule_once(fired.set, 0.2)
+            sched.unschedule(handle)
+            assert not fired.wait(timeout=0.4)
+        finally:
+            sched.shutdown()
+
+    def test_schedule_once_after_shutdown_is_refused(self):
+        sched = ThreadingTimerScheduler()
+        sched.shutdown()
+        with pytest.raises(RuntimeError, match='shutdown'):
+            sched.schedule_once(lambda: None, 0.0)
+
     def test_schedule_interval_fires_callback(self):
         sched = ThreadingTimerScheduler()
         try:

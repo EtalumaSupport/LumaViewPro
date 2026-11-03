@@ -12,6 +12,7 @@ failure as a temperature failure: the diagnostic snapshot records it in its
 field, the support report writes it, the periodic log logs it at its tick.
 """
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -179,20 +180,51 @@ def test_a_failed_read_on_a_tick_reaches_the_scheduler(sim_scope):
         sim_scope.imaging._log_camera_temps()
 
 
-def test_a_failed_startup_sample_is_reported_and_the_schedule_starts(sim_scope, centre_posts):
-    schedule = MagicMock(return_value='handle')
-    with patch.object(
-        sim_scope._camera_driver,
-        'get_all_temperatures',
-        side_effect=CameraReadFailedError('temperature read failed'),
-    ):
-        sim_scope.imaging.start_camera_temp_logging(schedule, MagicMock(), interval_s=60.0)
+def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_session, centre_posts):
+    """The host starting metrics never waits on the camera's lane for the first sample.
 
+    The GUI starts metrics on its main thread, and the read waits for what the
+    camera lane is running; taken on the session's timer, the sample cannot
+    hold the window, and its failure is the scheduler's to report, as a tick's.
+    """
+    from modules.notification_center import Severity, notifications
+
+    # The thread that asks the API read is the one that waits on the lane; the
+    # driver's own read always runs on the lane's thread, so it cannot tell.
+    diagnostics = sim_session.scope.diagnostics
+    the_read = diagnostics.get_camera_temperatures_degc
+    asked_on = []
+
+    def watched_read():
+        asked_on.append(threading.current_thread())
+        return the_read()
+
+    reported = threading.Event()
+
+    def heard(notification):
+        if notification.title == CameraReadFailedError.title:
+            reported.set()
+
+    notifications.add_listener(heard, min_severity=Severity.DEBUG)
+    try:
+        with (
+            patch.object(
+                sim_session.scope._camera_driver,
+                'get_all_temperatures',
+                side_effect=CameraReadFailedError('temperature read failed'),
+            ),
+            patch.object(diagnostics, 'get_camera_temperatures_degc', watched_read),
+        ):
+            sim_session.enable_metrics()
+            assert reported.wait(timeout=10.0), 'the failed first sample was never reported'
+    finally:
+        notifications.remove_listener(heard)
+        sim_session.disable_metrics()
+
+    assert asked_on and asked_on[0] is not threading.current_thread()
     # The driver's words are the log's; the person reads which fault it was.
-    reported = [n for n in centre_posts if n.title == CameraReadFailedError.title]
-    assert len(reported) == 1
-    assert reported[0].category == 'Camera'
-    schedule.assert_called_once()
+    (post,) = [n for n in centre_posts if n.title == CameraReadFailedError.title]
+    assert post.category == 'Scheduler'
 
 
 def test_the_support_report_writes_a_temperature_failure_as_one(sim_scope, tmp_path):

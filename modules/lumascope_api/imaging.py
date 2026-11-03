@@ -2549,8 +2549,8 @@ class ImagingAPI:
         camera-temp probe (cold probes live on DiagnosticsAPI).
 
         Raises:
-            HardwareError: The read failed. On a tick the session's scheduler
-                reports it and keeps the schedule.
+            HardwareError: The read failed. On the first sample and on each
+                tick the session's scheduler reports it and keeps the schedule.
         """
         temps = self._scope.diagnostics.get_camera_temperatures_degc()
         if temps is None:
@@ -2563,6 +2563,7 @@ class ImagingAPI:
         schedule_interval_fn: Callable[[Callable[..., None], float], object],
         unschedule_fn: Callable[[object], None],
         *,
+        schedule_once_fn: Callable[[Callable[[], None], float], object],
         interval_s: float = 14400.0,
     ) -> None:
         """Own the periodic camera-temp logging schedule.
@@ -2582,6 +2583,8 @@ class ImagingAPI:
                 Passed in so this module stays GUI-agnostic.
             unschedule_fn: Callable matching ``Clock.unschedule(event)``,
                 used by ``stop_camera_temp_logging``.
+            schedule_once_fn: The scheduler's ``schedule_once``, which takes
+                the immediate sample on the scheduler's thread.
             interval_s: Seconds between log emissions; default 4 hours.
         """
         # Defensive: if a previous logger is already running, stop it
@@ -2593,13 +2596,11 @@ class ImagingAPI:
             self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
-        # One immediate sample. Its caller is the host bringing metrics up,
-        # which a failed read must not stop, so the failure is reported here,
-        # where its flight ends, as a tick's is by the scheduler.
-        try:
-            self._log_camera_temps()
-        except HardwareError as ex:
-            notifications.report_outcome(ex, solicited=False, category='Camera')
+        # One immediate sample, on the scheduler's thread like every tick: the
+        # caller is the host bringing metrics up -- the GUI's main thread at
+        # start -- which must not wait on the camera's lane for it, and a
+        # failed read is reported by the scheduler, as a tick's is.
+        schedule_once_fn(self._log_camera_temps, 0)
 
         def _tick(_dt=0):
             # camera_connected is an instantaneous poll and a False can be

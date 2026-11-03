@@ -413,7 +413,12 @@ def test_temp_logger_survives_transient_disconnect_and_resumes():
         scheduled['tick'] = fn
         return 'event-token'
 
-    imaging.start_camera_temp_logging(schedule_interval_fn, unschedule_calls.append, interval_s=1.0)
+    imaging.start_camera_temp_logging(
+        schedule_interval_fn,
+        unschedule_calls.append,
+        schedule_once_fn=lambda fn, _delay: fn(),  # the immediate sample, fired at once
+        interval_s=1.0,
+    )
     assert len(probes) == 1  # the one immediate sample at start
 
     connected['value'] = False  # transient disconnect for one tick
@@ -446,7 +451,10 @@ def test_disconnect_tears_down_temp_logging_schedule():
 
     unschedule_calls = []
     imaging.start_camera_temp_logging(
-        lambda fn, interval: 'event-token', unschedule_calls.append, interval_s=1.0
+        lambda fn, interval: 'event-token',
+        unschedule_calls.append,
+        schedule_once_fn=lambda fn, _delay: None,
+        interval_s=1.0,
     )
     assert imaging._camera_temp_event == 'event-token'
 
