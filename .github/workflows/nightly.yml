@@ -1,0 +1,23 @@
+name: nightly
+
+# The full suite, every test on both supported Pythons, on the dev/4.0.0
+# trunk once a day. A trunk push gets only the fast check (tests.yml's
+# header says why); this is where the slow tests and a slow, shared runner's
+# timing races are still looked for every day.
+#
+# It lives here because GitHub runs a schedule only from the default branch.
+# The job itself is the trunk's tests.yml, called with the trunk to check
+# out, so there is one definition of what the suite runs. A failed run emails
+# whoever last changed the schedule below.
+
+on:
+  schedule:
+    # 09:00 UTC: 01:00 or 02:00 in California, after the day's pushes.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  trunk:
+    uses: EtalumaSupport/LumaViewPro/.github/workflows/tests.yml@dev/4.0.0
+    with:
+      ref: dev/4.0.0
