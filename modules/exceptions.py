@@ -6,6 +6,7 @@ For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
 import datetime
+import errno
 import pathlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -1121,6 +1122,13 @@ class CameraDriverRepairFailedError(Fault, Exception):
         )
 
 
+# A bind's errno for an address that is not this computer's: POSIX's, and
+# Windows' socket error, which Python raises under its own number.
+_ADDRESS_NOT_HERE = frozenset(
+    {errno.EADDRNOTAVAIL, getattr(errno, 'WSAEADDRNOTAVAIL', errno.EADDRNOTAVAIL)}
+)
+
+
 class RestServerNotStartedError(Fault, Exception):
     """The REST server was not started: a ``rest_api`` setting cannot be used, or its port could not be taken.
 
@@ -1128,7 +1136,8 @@ class RestServerNotStartedError(Fault, Exception):
     before anything is served. A setting that cannot be used is named with
     why; a port that could not be taken is chained from the ``OSError`` of
     the bind, so the words name the address and the operating system's own
-    reason -- most often another program on the port. The GUI runs on
+    reason -- another program on the port, or an address that is not this
+    computer's (an unplugged cable withdraws its address). The GUI runs on
     without a server; the headless server exits.
     """
 
@@ -1138,14 +1147,19 @@ class RestServerNotStartedError(Fault, Exception):
     words_for_person = True
 
     def __init__(
-        self, address: str, port: object, cause: OSError | tuple[tuple[str, str], ...]
+        self, address: object, port: object, cause: OSError | tuple[tuple[str, str], ...]
     ) -> None:
         if isinstance(cause, OSError):
             reason = cause.strerror or type(cause).__name__
-            words = (
-                f'The REST server was not started on {address}:{port} ({reason}). If another '
-                'program uses that port, set rest_api.port to a free one.'
-            )
+            if cause.errno in _ADDRESS_NOT_HERE:
+                advice = (
+                    'rest_api.address must be an address of this computer, on a network that is '
+                    'connected: an unplugged cable withdraws its address. Connect it, or correct '
+                    'the address, and restart LumaViewPro.'
+                )
+            else:
+                advice = 'If another program uses that port, set rest_api.port to a free one.'
+            words = f'The REST server was not started on {address}:{port} ({reason}). {advice}'
         else:
             # Each refused setting as its path and why.
             refused = '; '.join(f'{path}: {why}' for path, why in cause)
@@ -1197,6 +1211,9 @@ class ServerRefusedError(Refusal, Exception):
             operation to stop. ``'idempotency_key_reused'`` -- the
             ``Idempotency-Key`` was sent before with a different request; a
             key is sent again only to retry the same request.
+            ``'client_not_allowed'`` -- the scope serves only the clients its
+            ``rest_api.allowed_clients`` names, and the request came from
+            another address.
         title: The heading, the reason's.
         errors: For ``'invalid_request'`` from the request reader, each
             argument that does not fit; None otherwise.
@@ -1219,6 +1236,7 @@ class ServerRefusedError(Refusal, Exception):
         'no_frame_yet': RefusalCause.STATE,
         'not_cancellable': RefusalCause.STATE,
         'idempotency_key_reused': RefusalCause.REQUEST,
+        'client_not_allowed': RefusalCause.REQUEST,
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -1232,6 +1250,7 @@ class ServerRefusedError(Refusal, Exception):
         'no_frame_yet': 'No Frame Yet',
         'not_cancellable': 'Not Cancellable',
         'idempotency_key_reused': 'Idempotency Key Reused',
+        'client_not_allowed': 'Client Not Allowed',
     }
 
     def __init__(

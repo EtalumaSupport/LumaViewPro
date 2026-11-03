@@ -109,6 +109,7 @@ _SERVER_STATUS = {
     'no_frame_yet': 503,
     'not_cancellable': 409,
     'idempotency_key_reused': 422,
+    'client_not_allowed': 403,
 }
 
 
@@ -252,6 +253,15 @@ def server_closing() -> ServerRefusedError:
     return ServerRefusedError(
         'server_closing',
         'The server is closing: it finishes what is under way, then exits.',
+    )
+
+
+def client_not_allowed(peer: str | None) -> ServerRefusedError:
+    """A client at an address the server's allowlist does not name."""
+    return ServerRefusedError(
+        'client_not_allowed',
+        f'This scope serves only the clients its rest_api.allowed_clients names, and {peer} '
+        'is not one of them. Add its address at the scope PC, with LumaViewPro closed.',
     )
 
 

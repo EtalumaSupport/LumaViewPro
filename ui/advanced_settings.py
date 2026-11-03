@@ -18,7 +18,8 @@ import typing
 
 from kivy.clock import Clock
 from kivy.lang import Builder
-from kivy.properties import BooleanProperty
+from kivy.app import App
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.popup import Popup
 
 import modules.app_context as _app_ctx
@@ -60,6 +61,9 @@ class AdvancedSettings(Popup):
     # before the capability is read.
     stim_supported = BooleanProperty(False)
 
+    # Where the REST server serves, as the application holds it; read on open.
+    rest_reach = StringProperty('')
+
     # True while the modal is open: closed, it needs no redraw, since it
     # fills from the store when it opens.
     shown = False
@@ -76,6 +80,8 @@ class AdvancedSettings(Popup):
         """Show every row's stored setting: on open, and on a change to one while open."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
+
+        self.rest_reach = App.get_running_app().rest_reach()
 
         caps = ctx.lumaview.scope.capabilities
         self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
@@ -541,6 +547,20 @@ kv = Builder.load_string(
                         background_down: './data/icons/ToggleRW.png'
                         on_release: root.update_stimulation_settings()
                         state: 'normal'
+
+            # Full width, outside the two-column grid: an address and its
+            # guard need the room.
+            Label:
+                id: rest_reach_id
+                text: 'REST server: ' + root.rest_reach
+                tooltip_text: 'Set by rest_api in the settings file, with LumaViewPro closed'
+                font_size: '12sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+                size_hint_y: None
+                height: '24dp'
+                padding: dp(10), 0
 
             SectionHeader:
                 text: 'Camera'

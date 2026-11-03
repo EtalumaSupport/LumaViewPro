@@ -135,7 +135,7 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
 # it cannot use by not acting on it: the load neither judges nor replaces
 # it, since the shipped value is not always the narrower one (an empty
 # client list admits every client), and a save writes back what the user
-# wrote. ``rest_api``'s reader is the REST server's judge (``rest.server``).
+# wrote. ``rest_api``'s reader is the REST server's judge (``rest.served``).
 JUDGED_BY_ITS_READER: typing.Final[frozenset[str]] = frozenset({'rest_api'})
 
 # A preference of the person at the display: it changes no capture, no file

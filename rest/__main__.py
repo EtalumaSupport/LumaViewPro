@@ -4,10 +4,12 @@
 Brings the scope up as the GUI does -- the single-instance lock, the
 prepared settings, ``ScopeSession.create``, the startup motion, the
 plugins, the metrics -- and serves the declared API through
-``rest.server.build_server`` on ``127.0.0.1:<rest_api.port>``. It has no
-credentials, so it binds the loopback interface only: anyone who can reach
-the port drives the scope. A ``rest_api`` setting that cannot be used, or a
-port that cannot be taken, is printed and it exits 1. SIGINT or SIGTERM
+``rest.server.build_server`` on ``rest_api.address`` and ``rest_api.port``
+(shipped ``127.0.0.1:8000``, this computer only). It has no credentials:
+anyone who can reach the address drives the scope, unless
+``rest_api.allowed_clients`` names the clients served. A ``rest_api``
+setting that cannot be used, or an address and port that cannot be taken,
+is printed and it exits 1. SIGINT or SIGTERM
 closes it with its clients connected (``rest.server``); it exits 0, or 1
 when the session did not close cleanly.
 """
@@ -19,7 +21,7 @@ import sys
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog='python -m rest',
-        description='Serve the Lumascope API over HTTP on 127.0.0.1.',
+        description='Serve the Lumascope API over HTTP, where rest_api in the settings says.',
     )
     parser.add_argument(
         '--simulate', action='store_true', help='drive the simulated scope, not hardware'
@@ -75,11 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         session.run_application_session()
         session.load_plugins()
         session.enable_metrics()
-        print(
-            f'LumaViewPro REST server: http://{server.config.host}:{server.config.port}/api/v1 '
-            '(reference: /docs)',
-            flush=True,
-        )
+        reach = server.reach
+        logger.info(f'[REST     ] Serving {reach}')
+        print(f'LumaViewPro REST server: {reach.url} ({reach}; reference: /docs)', flush=True)
         server.run()
         if not server.close_begun:
             # It stopped without its close: it did not start serving, or was stopped before it did.

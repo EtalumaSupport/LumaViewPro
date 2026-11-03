@@ -57,7 +57,7 @@ installed app, or a server started from the source. You need `bash`, `curl`
      the app starts) in a text editor and set
 
      ```json
-     "rest_api": {"enabled": true, "port": 8000}
+     "rest_api": {"enabled": true, "port": 8000, "address": "127.0.0.1", "allowed_clients": []}
      ```
 
      Then start the app in simulation from a command prompt, in its folder
@@ -89,8 +89,9 @@ installed app, or a server started from the source. You need `bash`, `curl`
 
 Each line prints its answer on a line of its own, and its comment says the
 status it answers. The server is
-`http://127.0.0.1:8000`, this computer only; with another `port`, change
-`API=` at the top of the example. The interactive reference of every route is
+`http://127.0.0.1:8000`, this computer only; with another `port` or
+`address` (another computer's scope: the guide's "Reaching it from another
+computer"), change `API=` at the top of the example. The interactive reference of every route is
 at `http://127.0.0.1:8000/docs` while the server runs.
 
 `refusals_and_faults` pulls the simulated camera's cable, as its Python form

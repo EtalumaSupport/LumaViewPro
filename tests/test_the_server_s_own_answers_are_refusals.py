@@ -53,6 +53,7 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'no_frame_yet': (503, 'No Frame Yet'),
         'not_cancellable': (409, 'Not Cancellable'),
         'idempotency_key_reused': (422, 'Idempotency Key Reused'),
+        'client_not_allowed': (403, 'Client Not Allowed'),
     }
     assert set(expected) == set(ServerRefusedError.causes)
     answered = {}

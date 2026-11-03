@@ -434,9 +434,9 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if settings_dict.pop(block, None) is not None:
             changed = True
 
-    # The REST server's host, key and CORS origins, which nothing read: it
-    # binds this computer only and has no credentials. A shipped null key is
-    # dropped too, so the test is membership, not the value.
+    # The REST server's host, key and CORS origins, which nothing ever read;
+    # where it serves is ``address``. A shipped null key is dropped too, so
+    # the test is membership, not the value.
     rest_api = settings_dict.get('rest_api')
     if isinstance(rest_api, dict):
         for key in ('host', 'api_key', 'cors_origins'):

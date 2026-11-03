@@ -53,6 +53,7 @@ from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
 from rest.problems import Answer
 from rest.routes import ANSWER_CONFIG, Handle, Job, PathAnswer, Route, routes, sent_of_query
+from rest.served import Served, judged
 
 # The REST log: a child of lvp_logger's logger, whose REST handler keeps
 # only the records marked api_request.
@@ -145,6 +146,11 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     while the application is served, from its startup to its shutdown.
     Its close is ``app.state.closing``; its live view ``app.state.live``.
 
+    When *session*'s ``rest_api`` lists ``allowed_clients``, a request from
+    a client at any other address is refused ``client_not_allowed`` on every
+    route, whoever serves the application; it is read from the peer alone,
+    never from a header naming another.
+
     Args:
         session: The session the application serves, as
             ``ScopeSession.create`` brings it up; every route calls into it.
@@ -153,7 +159,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         ConfigurationDefectError: ``'route_shadowed'``, a Session member is
             named as one of the server's own routes, so a client could not
             reach it.
+        RestServerNotStartedError: A ``rest_api`` setting cannot be used, so
+            the application would not know whom to admit.
     """
+    rest_api = judged(session.get_setting('rest_api'))
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
     handed_out = wire_encoding.handed_out(
@@ -195,6 +204,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         response_model=None,
         responses={200: {'model': Versions, 'description': 'The versions.'}},
     )
+    app.state.served = rest_api
+    # Registered first, so it runs inside the request's id and log line: a
+    # refused client's answer carries its id and is logged once.
+    app.middleware('http')(_admitted_by(rest_api))
     app.middleware('http')(_identify_and_log)
     app.add_exception_handler(ServerRefusedError, _refused)
     app.add_exception_handler(RequestValidationError, _body_does_not_fit)
@@ -645,6 +658,28 @@ async def _identify_and_log(
         extra={'api_request': True, 'request_id': request_id},
     )
     return response
+
+
+def _admitted_by(
+    served: Served,
+) -> Callable[
+    [fastapi.Request, Callable[[fastapi.Request], Awaitable[fastapi.Response]]],
+    Awaitable[fastapi.Response],
+]:
+    """The guard answering a client *served* does not admit, before any route sees its request."""
+
+    async def admitted(
+        request: fastapi.Request,
+        call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]],
+    ) -> fastapi.Response:
+        peer = request.client.host if request.client else None
+        if not served.admits(peer):
+            return problems.refused_by_server(
+                problems.client_not_allowed(peer), request.state.request_id
+            ).response()
+        return await call_next(request)
+
+    return admitted
 
 
 async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:

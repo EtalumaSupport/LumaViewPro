@@ -13095,6 +13095,11 @@ interactive reference at `/docs`. The event stream hears the scope
 while the application is served, from its startup to its shutdown.
 Its close is `app.state.closing`; its live view `app.state.live`.
 
+When *session*'s `rest_api` lists `allowed_clients`, a request from
+a client at any other address is refused `client_not_allowed` on every
+route, whoever serves the application; it is read from the peer alone,
+never from a header naming another.
+
 **Args**
 
 - `session`: The session the application serves, as `ScopeSession.create` brings it up; every route calls into it.
@@ -13102,10 +13107,12 @@ Its close is `app.state.closing`; its live view `app.state.live`.
 **Raises**
 
 - `ConfigurationDefectError`: `'route_shadowed'`, a Session member is named as one of the server's own routes, so a client could not reach it.
+- `RestServerNotStartedError`: A `rest_api` setting cannot be used, so the application would not know whom to admit.
 
 **Refusals**
 
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `route_shadowed`
+- [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
 
 <a id="rest.server"></a>
 ## `rest.server`
@@ -13125,8 +13132,10 @@ The one way to serve *session*'s API: judged, bound and configured here, served 
 
 Every host serves through it -- the GUI (`serve_beside`),
 `python -m rest`, and a program serving a session it brought up
-itself. The address and port are *session*'s `rest_api` settings,
-judged first. The port is bound and the configuration loaded on the
+itself. Where it serves and whom it admits are *session*'s
+`rest_api` settings, judged first: one address of this computer, and
+when `allowed_clients` lists any, only a client at an address in it
+(`build_app`'s guard). The port is bound and the configuration loaded on the
 caller's thread, so a failure is raised here and nothing serves; uvicorn
 doing either on the server's thread would end that thread instead, with
 the host never told. `run()` serves on the thread that calls it until
@@ -13134,12 +13143,12 @@ the close: SIGINT, SIGTERM or the host's `close()`.
 
 **Args**
 
-- `session`: The session served, whose `rest_api` settings say where.
+- `session`: The session served, whose `rest_api` settings say where and to whom.
 - `shut_down`: The host's close of *session*, run inside the server's close; the server never closes the session any other way. When `run()` returns with `close_begun` false, the server stopped before it served and the host shuts *session* down itself.
 
 **Raises**
 
-- `RestServerNotStartedError`: A `rest_api` setting cannot be used, or the port could not be taken.
+- `RestServerNotStartedError`: A `rest_api` setting cannot be used, or the address and port could not be taken: another program on the port, or an address that is not this computer's (a network cable not yet plugged in withdraws its address).
 
 **Refusals**
 
@@ -16735,7 +16744,8 @@ Raised by `rest.server.build_server`, through which every host serves,
 before anything is served. A setting that cannot be used is named with
 why; a port that could not be taken is chained from the `OSError` of
 the bind, so the words name the address and the operating system's own
-reason -- most often another program on the port. The GUI runs on
+reason -- another program on the port, or an address that is not this
+computer's (an unplugged cable withdraws its address). The GUI runs on
 without a server; the headless server exits.
 
 | Reason | Cause | REST status |
@@ -17147,7 +17157,7 @@ read from this record.
 
 **Attributes**
 
-- `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles or jobs as it keeps; asking again later may succeed. `'server_closing'` -- the server is closing: it finishes what is under way, answers nothing new, and exits. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancellable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request.
+- `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles or jobs as it keeps; asking again later may succeed. `'server_closing'` -- the server is closing: it finishes what is under way, answers nothing new, and exits. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancellable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address.
 - `title`: The heading, the reason's.
 - `errors`: For `'invalid_request'` from the request reader, each argument that does not fit; None otherwise.
 - `retry_after_s`: Seconds to wait before asking again, for a refusal that waiting may lift (`'overloaded'`, `'no_frame_yet'`); None when no wait helps.
@@ -17158,6 +17168,7 @@ read from this record.
 
 | Reason | Cause | REST status |
 |---|---|---|
+| `client_not_allowed` | request | 403 |
 | `handle_shared` | request | 422 |
 | `idempotency_key_reused` | request | 422 |
 | `invalid_request` | request | 422 |

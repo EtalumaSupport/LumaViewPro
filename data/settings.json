@@ -198,6 +198,8 @@
     "lvp_lock_port": 43101,
     "rest_api": {
         "enabled": false,
-        "port": 8000
+        "port": 8000,
+        "address": "127.0.0.1",
+        "allowed_clients": []
     }
 }

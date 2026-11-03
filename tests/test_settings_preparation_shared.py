@@ -295,15 +295,15 @@ def test_the_auto_gain_wait_nothing_reads_is_dropped_from_a_stored_file():
 
 
 def test_the_rest_servers_dead_settings_are_dropped_from_a_stored_file():
-    # The server's host, key and CORS origins were never read: it binds this
-    # computer only and has no credentials. A file that still carries them
-    # loads without them.
+    # The server's host, key and CORS origins were never read. A file that
+    # still carries them loads without them, every shipped key kept.
     with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         stored = json.load(f)
+    shipped = set(stored['rest_api'])
     stored['rest_api'].update(host='0.0.0.0', api_key='s3cr3t', cors_origins=['http://localhost:*'])
 
     assert settings_init.normalize_loaded_settings(stored) is True
-    assert set(stored['rest_api']) == {'enabled', 'port'}
+    assert set(stored['rest_api']) == shipped
 
 
 def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
@@ -312,6 +312,7 @@ def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
     from tests.settings_fixtures import complete_settings
 
     settings = complete_settings(live_folder=str(tmp_path))
+    shipped = set(settings['rest_api'])
     settings['rest_api']['api_key'] = 's3cr3t'
     saved = tmp_path / 'current.json'
     session = ScopeSession.create(settings, simulate=True, settings_file=str(saved))
@@ -321,7 +322,7 @@ def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
         session.shutdown()
 
     assert b's3cr3t' not in saved.read_bytes()
-    assert set(json.loads(saved.read_text())['rest_api']) == {'enabled', 'port'}
+    assert set(json.loads(saved.read_text())['rest_api']) == shipped
 
 
 def test_a_stored_layer_file_root_is_dropped_at_load(tmp_path):

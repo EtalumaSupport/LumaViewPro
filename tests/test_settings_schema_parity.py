@@ -77,8 +77,8 @@ MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 #   waited, unread once its settle became a frame count.
 # - video.max_duration_seconds: renamed max_duration_s, for its unit.
 # - profiling.stim_profiling: shipped with no reader, removed.
-# - rest_api.host, api_key, cors_origins: the server binds this computer
-#   only and has no credentials; nothing read them.
+# - rest_api.host, api_key, cors_origins: nothing read them; where the
+#   server serves is rest_api.address.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
     'protocol.autogain': {'max_duration_seconds'},
