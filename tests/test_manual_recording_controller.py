@@ -124,7 +124,7 @@ class _FakeImaging:
         the clock's reading, as a frame's time is."""
         return lambda: round(clock() * 1e9)
 
-    def changes_in_force(self, mapping, exclude_sources=()):
+    def changes_in_force(self, mapping=None, exclude_sources=()):
         # This scope records no change, so a recording's wait before its
         # first frame ends at once; the wait itself is pinned on the
         # simulated scope (test_a_recording_keeps_no_frame_from_before_a_change.py).

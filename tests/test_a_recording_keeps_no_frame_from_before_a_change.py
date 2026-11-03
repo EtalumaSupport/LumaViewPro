@@ -81,6 +81,12 @@ class _Judged(NamedTuple):
 
 
 def _judged(scope, frame):
+    """``frame``'s judgments, through a clock mapping latched after the recording.
+
+    Not the recording's own mapping: no public member reads it (a recorded
+    frame's record carries none), and a latch after the recording carries the
+    same camera clock, off by its own uncertainty, which ``_why_not`` states.
+    """
     mapping = scope.imaging.map_camera_clock()
     return _Judged({j.change.source: j for j in scope.imaging.judge_frame(frame, mapping)}, mapping)
 

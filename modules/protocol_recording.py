@@ -318,12 +318,6 @@ class ProtocolVideoStep:
         # file with no objective would carry no scale.
         self._objective_id, _ = scope.runtime_state.resolve_current_objective()
         self._camera = recording_camera(scope) if self._video_as_frames else None
-        # The camera's clock, taken after the prologue and before the
-        # engine's start: every frame's time is its start through this one
-        # mapping, so a frame that started before the step's recording did
-        # falls before its start and is not kept. A failed latch fails the
-        # step, as a failed frame-size read does.
-        self._mapping = scope.imaging.map_camera_clock()
         self._start_dt = wall_time.now()
 
         if self._video_as_frames:
@@ -466,6 +460,12 @@ class ProtocolVideoStep:
         gain and an exposure change of its own, which the step's first
         frame must count too.
 
+        When the recording may start, the step's clock mapping is the one
+        the wait latched (``self._mapping``): every frame's time and the
+        recording's start are read through it, so a frame that started
+        before the recording did falls before its start and is not kept. A
+        failed latch fails the step, as a failed frame-size read does.
+
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the camera
                 left during the wait; it leaves the video step, and the run
@@ -492,7 +492,7 @@ class ProtocolVideoStep:
             )
 
         stall_s = prologue_stall_threshold_s(float(step['Exposure']) / 1000.0)
-        ended = wait_for_changes_in_force(
+        ended, self._mapping = wait_for_changes_in_force(
             scope.imaging,
             clock=self._elapsed_clock,
             stop_requested=self._stop_requested,

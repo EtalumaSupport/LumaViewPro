@@ -527,9 +527,14 @@ class ManualRecordingController:
             # a capture's limit: a dead feed or a change that never comes
             # into force refuses the start, with nothing committed. No stop
             # can reach it, since the start has not returned its operation.
-            ended = wait_for_changes_in_force(
+            # On READY the wait latches the camera's clock, last before the
+            # engine's start: every frame's time and the recording's start are
+            # read through this one mapping, so a frame that started before
+            # the recording did falls before its start and is not kept. A
+            # failed latch fails the start.
+            ended, mapping = wait_for_changes_in_force(
                 scope.imaging,
-                clock=time.monotonic,
+                clock=self._elapsed_clock,
                 limit_s=scope.imaging.changes_in_force_limit_s(),
             )
             if ended != PreRollEnd.READY:
@@ -541,11 +546,7 @@ class ManualRecordingController:
                         'live view, then record again.'
                     ),
                 )
-            # The camera's clock, taken last before the engine's start: every
-            # frame's time is its start through this one mapping, so a frame
-            # that started before the recording did falls before its start
-            # and is not kept. A failed latch fails the start.
-            claimed['mapping'] = mapping = scope.imaging.map_camera_clock()
+            claimed['mapping'] = mapping
             claimed['config'] = RecordingConfig(
                 fps=effective_fps,
                 duration_s=duration_s,

@@ -83,19 +83,29 @@ def wait_for_changes_in_force(
     stop_requested: Callable[[], bool] | None = None,
     stall_threshold_s: float | None = None,
     limit_s: float | None = None,
-) -> PreRollEnd:
-    """Take frames until every change recorded is in force, and say what ended the wait.
+) -> tuple[PreRollEnd, ClockMapping | None]:
+    """Take frames until every change recorded is in force; say what ended
+    the wait, and on READY latch the recording's one clock mapping.
 
     A recording's pre-roll, manual or a run's video step: its first kept
     frame must count for every change, by the condition a capture drains
-    on (``ImagingAPI.changes_in_force``), judged through one clock mapping
-    latched as the wait begins. Each grab counts its frame, so a change
-    under the credit rule is met by the frames taken here even with live
-    view off. The stop is checked first on every pass, so a stop always
-    wins; a dead feed is zero frame ARRIVALS for the stall bound, not a
-    change that stays owed while frames arrive, which would blame the
+    on (``ImagingAPI.changes_in_force``). Each grab counts its frame, so a
+    change under the credit rule is met by the frames taken here even with
+    live view off. The stop is checked first on every pass, so a stop
+    always wins; a dead feed is zero frame ARRIVALS for the stall bound,
+    not a change that stays owed while frames arrive, which would blame the
     camera for a settle fault. ``clock`` is in seconds, and the stall
     bound and the limit run on it.
+
+    The mapping is latched once every change is in force, and the
+    recording times every frame and reads its start through it. The loop
+    asks without a mapping: the latch's own bracket lies between the
+    instant the changes came into force and the recording's start, so a
+    frame the recording keeps started at least the latch's uncertainty
+    past that instant, the margin a frame judged through this mapping
+    needs. Latched before the loop instead, it would age by the wait,
+    and the camera's clock drifts against the host's by more than any
+    margin covers over a wait with no time limit.
 
     Args:
         imaging: The scope's imaging API.
@@ -107,32 +117,33 @@ def wait_for_changes_in_force(
         limit_s: Seconds the whole wait may take, or None for no limit.
 
     Returns:
-        PreRollEnd: READY, STOPPED, DEAD_FEED or TIMED_OUT.
+        tuple[PreRollEnd, ClockMapping | None]: READY with the recording's
+        mapping (None for a camera without a latch, whose frames state
+        their arrival); STOPPED, DEAD_FEED or TIMED_OUT with None.
 
     Raises:
         CameraReadFailedError: The camera did not answer the latch of its clock.
         HardwareCommandRefusedError: ``'not_connected'``, the camera left
             during the wait.
     """
-    mapping = imaging.map_camera_clock()
     watch = StallWatch(stall_threshold_s) if stall_threshold_s is not None else None
     deadline = clock() + limit_s if limit_s is not None else None
     arrivals = 0
-    while not imaging.changes_in_force(mapping):
+    while not imaging.changes_in_force():
         if stop_requested is not None and stop_requested():
-            return PreRollEnd.STOPPED
+            return PreRollEnd.STOPPED, None
         now = clock()
         if watch is not None and watch.stalled(arrivals, now):
-            return PreRollEnd.DEAD_FEED
+            return PreRollEnd.DEAD_FEED, None
         if deadline is not None and now >= deadline:
-            return PreRollEnd.TIMED_OUT
+            return PreRollEnd.TIMED_OUT, None
         # A grab that got no frame is no arrival, for the stall watch.
         try:
             imaging.get_image(force_new_capture=True)
         except CaptureFailedError:
             continue
         arrivals += 1
-    return PreRollEnd.READY
+    return PreRollEnd.READY, imaging.map_camera_clock()
 
 
 # End reason for a recording whose caller failed to finish starting it.
