@@ -9,11 +9,18 @@
 # exist on `main` yet, so a `main` job today would fail for the wrong reason
 # and teach everyone to ignore it. Add `main` when 4.0.0 promotes.
 #
-# The trunk is here because this is the one run on both supported Pythons: the
-# local push suite runs on one (its summary names which), and with 4.0.0-beta
-# alone a 3.12-only failure on the trunk went unseen until the next shipping
-# merge. A failed run emails the pusher. Only the newest push's run is wanted,
-# so a newer push on the same branch cancels the run in progress.
+# Two depths. A push to the trunk gets the FAST check: one Python, 3.13,
+# every test not marked slow -- a clean Linux checkout that installs, imports
+# and passes, in minutes. The local push suite already ran every test on the
+# other interpreter (its summary names which). The FULL suite, every test on
+# both Pythons, runs on a push to 4.0.0-beta, on a pull request, and nightly
+# on the trunk: `nightly.yml` on main calls this file with `full`, because
+# GitHub schedules only from the default branch. A slow, shared runner is
+# where timing races show (a z-stack's autofocus centred on the floor,
+# 2026-11-02, was found only here), so the full depth still runs every day;
+# on every push it cost 45-50 minutes a run, and the next push cancelled most
+# of them. A failed run emails the pusher. Only the newest push's run is
+# wanted, so a newer push on the same branch cancels the run in progress.
 #
 # FIRST-RUN RISK, named in advance so a red first run is diagnosed rather than
 # guessed at. It cannot be settled without executing this on a real runner,
@@ -40,6 +47,12 @@ on:
     branches: [4.0.0-beta, dev/4.0.0]
   pull_request:
     branches: [4.0.0-beta]
+  workflow_call:
+    inputs:
+      ref:
+        description: The branch to check out and test.
+        type: string
+        required: true
 
 concurrency:
   group: tests-${{ github.ref }}
@@ -58,13 +71,23 @@ jobs:
     # scripts, and lumaviewpro.py's startup gate; a dependency floor that
     # outruns these is what made this job unable to install anything at all.
     # fail-fast off: a red on one interpreter must not cancel the other's
-    # answer.
+    # answer. A trunk push runs 3.13 alone (the header), its test files
+    # split across four jobs, shard 0 to 3, so the answer comes in minutes;
+    # a full run is one job per interpreter, shard `all`.
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/dev/4.0.0' && '["3.13"]' || '["3.12", "3.13"]') }}
+        shard: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/dev/4.0.0' && '["0", "1", "2", "3"]' || '["all"]') }}
+    env:
+      # The fast check's selection; empty selects every test.
+      MARKS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev/4.0.0' && 'not slow' || '' }}
+      SHARDS: 4
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Empty for a push or pull request: the commit that triggered it.
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -93,8 +116,18 @@ jobs:
       # failures and errors. -n auto runs the suite across the runner's cores
       # under pytest-xdist, as every local run does; serially it took 12 min
       # on 2026-09-14, before the suite reached 11,000 tests.
+      # A shard takes every fourth test file in git's order, so the four
+      # together run each file exactly once; `all` runs the whole tree.
       - name: Tests
-        run: python -m pytest -n auto -rfE
+        run: |
+          if [ "${{ matrix.shard }}" = all ]; then
+            python -m pytest -n auto -rfE -m "$MARKS"
+          else
+            git ls-files tests | grep -E '/test_[^/]*\.py$|_test\.py$' \
+              | awk -v n="$SHARDS" -v i="${{ matrix.shard }}" 'NR % n == i' > "$RUNNER_TEMP/shard_files.txt"
+            echo "shard ${{ matrix.shard }} of $SHARDS: $(wc -l < "$RUNNER_TEMP/shard_files.txt") test files"
+            python -m pytest -n auto -rfE -m "$MARKS" $(cat "$RUNNER_TEMP/shard_files.txt")
+          fi
 
       # A red probe's logs are written under pytest's temporary folder, which
       # the runner discards with the job; kept here, a red is read from its
@@ -106,7 +139,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: probe-logs-${{ matrix.python-version }}
+          name: probe-logs-${{ matrix.python-version }}-${{ matrix.shard }}
           path: /tmp/pytest-of-runner/**/test_probe_*/checkout/logs/LVP_Log/**
           if-no-files-found: ignore
           retention-days: 14
