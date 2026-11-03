@@ -63,7 +63,11 @@ def stall_threshold_s(effective_fps: float | None, exposure_s: float) -> float:
     exposure alone when no rate limit applies (None: every delivered
     frame is kept, so selection never waits longer than delivery). This
     detects DEATH, not degradation: a trickling feed below the configured
-    rate ends at the wall cap as an honest short delivery, by design.
+    rate ends at its duration on its frames' clock as an honest short
+    delivery, by design. The same bound is the margin past the duration at
+    which the recording controllers' steady-clock backstop ends a recording
+    whose frames never reach that end: no legitimate last frame arrives
+    later than one such gap.
 
     Raises:
         ValueError: If ``effective_fps`` is present and not positive, or

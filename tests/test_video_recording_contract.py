@@ -162,6 +162,44 @@ class TestBudgetContract:
         assert engine.result().frames_selected == 5
 
 
+class TestARateLimitedRecordingEndsOnItsFramesClock:
+    """With a rate, a recording ends at its last slot's deadline on its frames' clock.
+
+    The deadline is the start plus budget / fps, the instant the budget's last
+    slot opens. A camera at the rate fills the budget there; one below it is
+    closed by its first frame at or past that instant, once the frame has
+    taken the slot it is owed. No caller's clock decides the content.
+    """
+
+    def _deliver(self, engine, start, offsets_s):
+        feed = FrameFeed()
+        for offset in offsets_s:
+            image, ts, chunks = feed.frame(start + offset)
+            engine.ingest_frame(image, ts, chunks, fact=None)
+
+    def test_a_camera_below_the_rate_ends_at_the_duration_with_what_it_delivered(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))
+        # 5 fps against 10 for 3 s: the budget of 20 never fills, and the
+        # frame at 2.0 s is the first at the last slot's deadline.
+        self._deliver(engine, clock(), [0.2 * k for k in range(1, 16)])
+        assert not engine.is_recording, 'frames past the duration kept the recording open'
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert (result.end_reason, result.frames_selected) == ('duration_elapsed', 10)
+
+    def test_a_budget_whose_last_slot_is_past_the_duration_fills_it(self, tmp_path):
+        # 3 fps for 1.5 s is ceil(4.5) = 5 slots; the last opens at 5/3 s,
+        # after the duration, and its frame fills the budget before any
+        # time end is read.
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(lambda: (make_config(tmp_path, fps=3, duration_s=1.5), None))
+        self._deliver(engine, clock(), [k / 30 for k in range(1, 61)])
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert (result.end_reason, result.frames_selected) == ('frame_budget_filled', 5)
+
+
 class TestRateContract:
     def test_configured_rate_honored_under_fast_delivery(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)

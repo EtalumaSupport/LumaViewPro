@@ -12,11 +12,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import modules.protocol_recording as protocol_recording
+from modules.run_events import RunEvents, VideoPhase
 from tests.stock_channels import LED0
 from tests.video_step_drives import video_step_on
 
 
-def _make_recorder(scope, tmp_path, clock):
+def _make_recorder(scope, tmp_path, clock, **overrides):
     return video_step_on(
         scope,
         tmp_path,
@@ -24,6 +25,7 @@ def _make_recorder(scope, tmp_path, clock):
         video_as_frames=False,
         clock=lambda: clock['t'],
         elapsed_clock=lambda: clock['t'],
+        **overrides,
     )
 
 
@@ -46,21 +48,37 @@ class TestWaitForRecordingOutcome:
         outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
         assert outcome == protocol_recording.CANCELLED
 
-    def test_duration_elapsed_still_completes(self, tmp_path, sim_scope):
-        # Each clock read advances 5.5 s: start at 1005.5, then 1011.0
-        # (elapsed 5.5), then 1016.5 (elapsed 11 > duration) -> the
-        # duration closes the loop with the camera alive the whole time.
+    def test_a_step_its_frames_never_end_completes_one_stall_bound_past_its_duration(
+        self, tmp_path, sim_scope
+    ):
+        # The recording's own end is its frames'; a step whose engine never
+        # closes is ended by the wait, on the steady clock, one stall bound
+        # past its duration, so the wait never races a last frame on its way.
+        # Each clock read advances 2.5 s with a frame seen, so the feed is alive.
+        # The progress shown never runs past the step's duration.
         clock = {'t': 1000.0}
+        elapsed_read = []
+        shown = []
 
         def _advancing():
-            clock['t'] += 5.5
+            clock['t'] += 2.5
+            recorder._frames_seen += 1
+            elapsed_read.append(clock['t'] - 1002.5)
             return clock['t']
 
-        recorder = _make_recorder(sim_scope, tmp_path, clock)
+        recorder = _make_recorder(
+            sim_scope, tmp_path, clock, events=RunEvents(video_progress=shown.append)
+        )
         recorder._elapsed_clock = _advancing
         engine = MagicMock(is_recording=True)
-        outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=1000.0)
-        assert outcome == protocol_recording.COMPLETED
+        outcome, reason = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
+        assert (outcome, reason) == (protocol_recording.COMPLETED, 'duration_elapsed')
+        assert elapsed_read[-1] == 15.0, (
+            f'the wait ended at {elapsed_read[-1]} s, not at its duration plus its stall bound'
+        )
+        recording = [(p.elapsed_s, p.total_s) for p in shown if p.phase == VideoPhase.RECORDING]
+        assert recording[-1] == (10.0, 10.0), f'the step showed {recording}'
+        assert all(elapsed <= total for elapsed, total in recording), f'the step showed {recording}'
 
 
 class TestZeroFrameOutcomeMapping:
@@ -233,8 +251,8 @@ class TestWaitLoopFeedStall:
 
     def test_advancing_ingest_counter_never_stalls(self, tmp_path, sim_scope):
         # Preservation guard: frames arriving (counter advancing every
-        # tick) run the step to its duration exactly as before.
-        recorder = self._advancing_recorder(sim_scope, tmp_path)
+        # tick) never end the step as stalled; it runs to its backstop.
+        recorder = self._advancing_recorder(sim_scope, tmp_path, step_s=2.5)
         engine = MagicMock(is_recording=True)
 
         counter = {'n': 0}

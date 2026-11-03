@@ -6,7 +6,7 @@ button today, REST/SDK callers tomorrow). The controller owns everything
 caller-shaped the engine deliberately does not: reading settings into
 the immutable ``RecordingConfig`` snapshot, building the per-leg write
 edge (TIFF-per-frame or VFR MP4), registering the camera frame listener,
-the rolling disk-floor stop, the elapsed-time duration cap, and the
+the rolling disk-floor stop, the duration backstop, and the
 post-drain finish (MP4 close, optional hyperstack, drop notification).
 
 GUI-agnostic by construction: no Kivy imports; the caller polls status
@@ -109,7 +109,7 @@ if TYPE_CHECKING:
 
 # Health-check cadence while a recording is live. Matches the cadence the
 # GUI historically polled at; the check is three reads, so ten a second
-# is cheap and catches a duration cap or a dead feed within a tenth of a
+# is cheap and catches the duration backstop or a dead feed within a tenth of a
 # second.
 HEALTH_CHECK_INTERVAL_S = 0.1
 
@@ -180,10 +180,10 @@ class ManualRecordingController:
             reads its start on through the recording's clock mapping.
             Tests drive it.
         elapsed_clock: Elapsed-time source (seconds) for the recording's
-            bounds: its elapsed time, the duration cap, the stall watch and
+            bounds: its elapsed time, the duration backstop, the stall watch and
             the disk probe's interval. Monotonic, because wall time steps
             (an NTP correction, a host resume) and a step would end a good
-            recording early or let one run past its cap. Tests drive it.
+            recording early or let one run past its backstop. Tests drive it.
     """
 
     def __init__(
@@ -737,7 +737,7 @@ class ManualRecordingController:
 
         Every caller of this -- the Record button, app close, a REST or SDK client
         -- is the user stopping the recording, so its ``end_reason`` is
-        ``'user_stop'``. The controller's own enders (the duration cap, the
+        ``'user_stop'``. The controller's own enders (the duration backstop, the
         disk floor, a lost camera) name their own, and no caller can write
         one of those into the manifest.
 
@@ -788,9 +788,13 @@ class ManualRecordingController:
     def _health_check(self) -> None:
         """Watch the recording's health; armed by the controller itself.
 
-        Owns the elapsed-time duration cap (the engine's frame budget is
-        frame-driven, so a dead feed would never fill it) and both
-        camera-death checks: the disconnect latch, and the stall watch
+        Owns the duration backstop and both camera-death checks. The engine
+        ends a recording at its duration on its frames' clock; the backstop
+        ends, on the steady clock, one whose frames never reach that end (a
+        feed of unstamped frames, a wall clock that stepped back under a
+        camera without a latch), one stall bound past the duration, so it
+        never races a last frame on its way. The checks: the disconnect
+        latch, and the stall watch
         for a feed that dies without an event -- delivery stops while
         the camera still reads active. start() schedules this on the
         session's scheduler and the post-drain finish disarms it, so
@@ -806,7 +810,10 @@ class ManualRecordingController:
             effective_fps = self._effective_fps
         if engine is None or not engine.is_recording or start_ts is None or config is None:
             return
-        if self._elapsed_clock() - start_ts >= config.duration_s:
+        # Exposure and gain stay open during a recording, so the interval
+        # between frames can grow after start: the bound follows it.
+        stall_bound_s = self._stall_threshold_now(effective_fps)
+        if self._elapsed_clock() - start_ts >= config.duration_s + stall_bound_s:
             self._end('duration_elapsed')
             return
         if not self._scope.camera.active:
@@ -814,9 +821,7 @@ class ManualRecordingController:
             return
         if stall_watch is None:
             return
-        # Exposure and gain stay open during a recording, so the interval
-        # between frames can grow after start: the bound follows it.
-        stall_watch.raise_threshold(self._stall_threshold_now(effective_fps))
+        stall_watch.raise_threshold(stall_bound_s)
         if stall_watch.stalled(self._frames_delivered, self._elapsed_clock()):
             self._stop_for_camera_loss(reason='camera_stalled')
 

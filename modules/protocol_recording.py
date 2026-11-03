@@ -550,16 +550,23 @@ class ProtocolVideoStep:
                 )
                 outcome, end_reason = CAMERA_LOST, 'camera_stalled'
                 break
-            if elapsed >= duration_s:
-                # The frame budget is the primary boundary; this wall cap
-                # ends a step whose camera delivers below the configured
-                # rate (the budget would otherwise never fill). Kept
-                # frames are an honest short delivery in the manifest.
+            if elapsed >= duration_s + stall_threshold:
+                # The engine ends the recording at its duration on its
+                # frames' clock. This backstop ends one whose frames never
+                # reach that end (a feed of unstamped frames, a wall clock
+                # that stepped back under a camera without a latch), one
+                # stall bound past the duration, so it never races a last
+                # frame on its way.
                 break
             if now - last_progress_ts >= _PROGRESS_INTERVAL_S:
                 last_progress_ts = now
+                # The last frame may land a little after the duration.
                 self._send_progress(
-                    VideoProgress(VideoPhase.RECORDING, elapsed_s=elapsed, total_s=duration_s)
+                    VideoProgress(
+                        VideoPhase.RECORDING,
+                        elapsed_s=min(elapsed, duration_s),
+                        total_s=duration_s,
+                    )
                 )
             time.sleep(_WAIT_TICK_S)
         return outcome, end_reason

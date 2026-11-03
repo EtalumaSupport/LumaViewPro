@@ -3,7 +3,7 @@
 
 The controller is the caller-shaped half of manual recording: settings
 snapshot, per-leg write edges (real production writes into tmp_path),
-typed start refusals, the rolling disk floor, the duration cap, and the
+typed start refusals, the rolling disk floor, the duration backstop, and the
 post-drain finish. The engine underneath is the real one; the camera is
 a stub delivering frames straight into the registered listener.
 """
@@ -31,6 +31,7 @@ from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from modules.scope_capabilities import FrameSize
+from modules.video_cadence import stall_threshold_s
 from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
@@ -903,8 +904,7 @@ class TestARecordingIsAnOperation:
             tmp_path, duration_s=2, claim=ActivityClaim(on_transition=on_transition)
         )
         held.append(controller.start())
-        feed_frames(scope, clock, 3, fps=10.0)
-        clock.advance(2.0)
+        feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
         controller._scheduler.fire()
 
         assert held[0].result(timeout=15) == 'duration_elapsed'
@@ -973,13 +973,55 @@ class TestTheStopIsTheUsers:
         finish(controller)
 
 
+def _backstop_s(duration_s, max_fps=None, exposure_ms=100.0):
+    """How long the health check waits for a recording's own end: its duration and stall bound."""
+    return duration_s + stall_threshold_s(max_fps, exposure_ms / 1000.0)
+
+
 class TestDurationCap:
-    def test_tick_stops_at_max_duration(self, tmp_path):
+    """A recording's content ends on its frames' clock; the cap is a backstop past it.
+
+    The engine ends a recording at its duration on the frames' clock. The
+    health check, on the steady clock, ends one whose frames never reach that
+    end, a stall bound past the duration, so it never races a frame on its way.
+    """
+
+    def test_its_frames_end_it_at_its_duration(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, duration_s=2)
         controller.start()
+        feed_frames(scope, clock, 30, fps=10.0)
+        assert not controller.is_recording
+        assert controller.end_reason == 'duration_elapsed'
+        finish(controller)
+
+    def test_its_last_frame_on_its_way_at_the_duration_is_kept(self, tmp_path):
+        # 10 fps for 2 s is 20 frames; the 20th, due at 2.0 s, has not yet
+        # arrived when the health check first reads the duration as passed.
+        controller, scope, clock = make_controller(tmp_path, duration_s=2, max_fps=10)
+        controller.start()
+        feed_frames(scope, clock, 19, fps=10.0)
+        clock.advance(0.15)
+        controller._scheduler.fire()
+        assert controller.is_recording, 'the cap ended the recording before its last frame'
+        feed_frames(scope, clock, 1, fps=10.0, start_id=19)
+        finish(controller)
+        manifest = json.loads((controller.save_folder / 'recording_manifest.json').read_text())
+        assert (manifest['end_reason'], manifest['frames_written']) == ('frame_budget_filled', 20)
+
+    def test_a_feed_that_never_reaches_its_end_is_ended_at_the_backstop(
+        self, tmp_path, centre_posts
+    ):
+        # Unstamped frames are a live feed with no time on the frames' clock:
+        # only the backstop can end it.
+        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+        started = clock()
+        controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
-        assert controller.is_recording
-        clock.advance(2.0)
+        while clock() - started < _backstop_s(2) - 0.5:
+            feed_frames(scope, clock, 5, fps=10.0, stamped=False)
+            controller._scheduler.fire()
+        assert controller.is_recording, 'the backstop fired before its bound'
+        clock.advance(1.0)
         controller._scheduler.fire()
         assert not controller.is_recording
         assert controller.end_reason == 'duration_elapsed'
@@ -993,7 +1035,7 @@ class TestDurationCap:
         wall.advance(3600.0)  # an NTP correction or a host resume
         controller._scheduler.fire()
         assert controller.is_recording
-        elapsed.advance(2.0)
+        elapsed.advance(_backstop_s(2))
         controller._scheduler.fire()
         assert not controller.is_recording
         finish(controller)
@@ -1397,7 +1439,7 @@ class TestFeedLossDetection:
 
     def test_healthy_feed_keeps_recording_through_ticks(self, tmp_path, centre_posts):
         # Preservation guard: frames arriving between ticks never trip
-        # the watch, and the duration cap still owns the normal end.
+        # the watch.
         controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
         for _ in range(4):
             clock.advance(3.0)
@@ -1415,8 +1457,7 @@ class TestHealthCheckArming:
         controller.start()
         sched = controller._scheduler
         assert sched.callback is not None, 'start must arm the health check'
-        feed_frames(scope, clock, 3, fps=10.0)
-        clock.advance(2.0)
+        feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
         sched.fire()
         assert not controller.is_recording
         finish(controller)
@@ -1693,8 +1734,7 @@ class TestTheEndReason:
     def test_a_stop_after_the_duration_ended_it_leaves_duration_elapsed(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, duration_s=2)
         recording = controller.start()
-        feed_frames(scope, clock, 3, fps=10.0)
-        clock.advance(2.0)
+        feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
         controller._scheduler.fire()
         controller.stop()
 

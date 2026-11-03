@@ -3945,7 +3945,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 - `post_processing`: The session's builds; a recording's stack is built through it.
 - `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence, and its start on a camera without a clock mapping. Tests drive it.
 - `steady_clock`: The host's steady clock (nanoseconds) the engine reads its start on through the recording's clock mapping. Tests drive it.
-- `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration cap, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its cap. Tests drive it.
+- `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration backstop, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its backstop. Tests drive it.
 
 <a id="ManualRecordingController.discard_pending"></a>
 ### `ManualRecordingController.discard_pending`
@@ -4139,7 +4139,7 @@ Close selection; the drain and finish continue on their own.
 
 Every caller of this -- the Record button, app close, a REST or SDK client
 -- is the user stopping the recording, so its `end_reason` is
-`'user_stop'`. The controller's own enders (the duration cap, the
+`'user_stop'`. The controller's own enders (the duration backstop, the
 disk floor, a lost camera) name their own, and no caller can write
 one of those into the manifest.
 

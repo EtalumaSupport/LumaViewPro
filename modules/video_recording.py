@@ -514,12 +514,10 @@ class VideoRecordingEngine:
         ):
             if not self._recording:
                 return
-            # A rate-limited recording has no separate duration cutoff:
-            # the frame budget (ceil(fps * duration)) IS the duration
-            # boundary, and the selector's catch-up semantics require
-            # late frames to claim outstanding slots -- an independent
-            # time close would truncate exactly that catch-up. With no
-            # limit there is no budget, so the duration is the boundary.
+            # With no limit there is no budget, so the duration on the
+            # frames' clock is the boundary. With a rate the boundary is the
+            # budget's last slot (below), so a frame past the duration still
+            # fills a slot the budget owes.
             if self._config.fps is None and timestamp_s - self._start_ts >= self._config.duration_s:
                 self._close_selection_locked('duration_elapsed')
                 return
@@ -540,6 +538,16 @@ class VideoRecordingEngine:
             self._queue.put((image, timestamp_s, frame_number, chunks, fact))
             if self._selector.at_capacity:
                 self._close_selection_locked('frame_budget_filled')
+            elif (
+                self._config.fps is not None
+                and timestamp_s >= self._start_ts + self._config.frame_budget / self._config.fps
+            ):
+                # A camera below the rate never fills its budget. Its first
+                # frame at or past the last slot's deadline has taken the
+                # slot it was owed, and the recording ends there on its
+                # frames' clock: a caller's own clock ending it would race
+                # the last frame on its way.
+                self._close_selection_locked('duration_elapsed')
 
     def note_unstamped(self) -> None:
         """Count one delivered frame that came without the camera's timestamp.
