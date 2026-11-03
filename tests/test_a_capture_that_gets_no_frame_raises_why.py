@@ -131,6 +131,16 @@ class TestAGiveUpStatesItsWait:
 
         assert _give_up_lines(caplog) == []
 
+    def test_a_feed_quiet_for_two_seconds_is_waited_for_not_judged_stopped(self, sim_scope, caplog):
+        # A camera whose next frame is only slow -- a busy host, a first frame
+        # -- is waited for up to the grab's 5 s floor; a 1 s floor refused it.
+        sim_scope.simulation.stall_stream(0.0, 2.0)
+
+        captured = sim_scope.imaging.capture_still(timeout_s=1.0)
+
+        assert captured.record is not None
+        assert _give_up_lines(caplog) == []
+
 
 class TestARemovedCamera:
     def test_a_removal_mid_capture_is_the_not_connected_refusal_reported_by_no_one_inside(
