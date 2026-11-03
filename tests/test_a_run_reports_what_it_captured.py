@@ -355,7 +355,7 @@ class TestTheFileCountCountsImages:
         from modules.protocol_image_writer import RunWriteBatch
 
         batch = RunWriteBatch(MagicMock())
-        batch.count_not_written('video_unfinished', 'The video V1')
+        batch.count_off_lane('The video V1', lost='video_unfinished')
         outcomes = []
         batch.close()
         batch.when_complete(outcomes.append)
@@ -405,6 +405,19 @@ class TestAVideoStepIsOneCapture:
             outcome = _run(runner, tmp_path / 'runs', [_video('V1', 0)])
         assert outcome.status == 'completed', outcome
         assert (outcome.captures.asked, outcome.captures.captured) == (1, 1), outcome.captures
+
+    def test_a_video_that_finished_is_one_file_written(self, tmp_path):
+        # A video step's file is written on its own lane, outside the run's
+        # batch; uncounted, a run that saved a still and a video told its
+        # caller one file written, and a video-only run told it none.
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            pending = runner.start_single_scan(
+                protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0), _video('V1', 1)]),
+                parent_dir=str(tmp_path / 'runs'),
+            )
+            assert pending.result(timeout=WAIT_S).status == 'completed'
+            files = pending.files.result(timeout=WAIT_S)
+        assert (files.outcome, files.written, files.not_written) == ('written', 2, 0), files
 
     def test_a_video_whose_file_did_not_finish_is_a_file_not_written(self, tmp_path, monkeypatch):
         # The step recorded, so it is a capture; its file never finished, so

@@ -487,21 +487,23 @@ class RunWriteBatch:
         if due is not None:
             self._complete(*due)
 
-    def count_not_written(self, reason: str, what: str) -> None:
-        """Count one image the run captured that never became a write here.
+    def count_off_lane(self, what: str, lost: str | None) -> None:
+        """Count one image the run wrote on another lane: written, or *lost* and why.
 
         A video step writes its file on its own lane and finishes it after
-        the step; when that file does not finish, the run's image is not on
-        disk all the same. Counted before the run closes its writes, since
-        cleanup waits for video steps to finish first; one that finishes
-        after the batch completed is logged, and changes nothing.
+        the step, so the batch never sees the write; it is told the file's
+        end here, one image per step whatever the container. Counted before
+        the run closes its writes, since cleanup waits for video steps to
+        finish first; one that finishes after the batch completed is
+        logged, and changes nothing.
         """
         with self._cond:
             if self._outcome is None:
-                self._count_image_locked(reason)
+                self._count_image_locked(lost)
                 return
+        ended = 'written' if lost is None else f'not written ({lost})'
         logger.warning(
-            f'[Protocol-Writer] {what} was not written ({reason}), but the run had '
+            f'[Protocol-Writer] {what} was {ended}, but the run had '
             'already reported its files; it is not counted'
         )
 
@@ -856,12 +858,15 @@ class ProtocolImageWriter:
         timestamp,
         separate_folder_per_channel,
     ) -> None:
-        """Record one finished video step: the attempt and its row, paired.
+        """Record one finished video step: one image written, and the attempt and its row, paired.
 
-        The stills lane pairs note_capture_attempt with add_step inside
-        write_capture; the video lane pairs them here so the end-of-run
-        reconcile stays balanced.
+        The step's file is written on its own lane, outside the run's batch,
+        so the batch is told here; otherwise the run's count of files written
+        leaves out every video. The stills lane pairs note_capture_attempt
+        with add_step inside write_capture; the video lane pairs them here so
+        the end-of-run reconcile stays balanced.
         """
+        self._write_batch.count_off_lane(f'The video {name}', lost=None)
         if self._execution_record is None:
             return
         self._execution_record.note_capture_attempt()
@@ -887,7 +892,7 @@ class ProtocolImageWriter:
         so the batch is told here; otherwise a run whose video never
         finished would report its files written.
         """
-        self._write_batch.count_not_written('video_unfinished', f'The video {name}')
+        self._write_batch.count_off_lane(f'The video {name}', lost='video_unfinished')
         self._record_dropped_capture(reason=reason, name=name, **row)
 
     def _record_dropped_capture(

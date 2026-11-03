@@ -298,7 +298,7 @@ def test_files_lost_to_a_fault_shown_behind_a_stop_are_not_shown_again(centre_po
     stub._disable_saving_artifacts = True
     stub._on_run_idle = None
     batch = RunWriteBatch(MagicMock())
-    batch.count_not_written('video_unfinished', 'The video V1')
+    batch.count_off_lane('The video V1', lost='video_unfinished')
 
     files_written = scr.SequencedCaptureRunner._close_run_writes(
         stub, batch, STOPPED, stub._last_run()
