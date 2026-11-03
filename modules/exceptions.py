@@ -1945,9 +1945,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             delivers no frames. ``'camera_not_delivering'`` -- the run has
             a video step and no Recording max FPS, and no delivered rate
             of the camera's was measured within the run start's wait, so
-            the disk the step will write cannot be sized. ``'position_unknown'`` -- an axis this
-            scope has does not know its position, so the scope has to be
-            homed first. ``'lid_open_before_motion'`` -- the stage's lid is
+            the disk the step will write cannot be sized.
+            ``'position_unknown'`` -- an axis this scope has does not know
+            its position, so the scope has to be homed first. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
             ``'no_acquiring_layer'`` -- no channel, or not the step's, is
             set to acquire, so there is no step to make.

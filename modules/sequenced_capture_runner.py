@@ -1263,30 +1263,6 @@ class SequencedCaptureRunner:
                 ),
             )
 
-        # The rate a video step is sized at for the disk check: the limit,
-        # else the camera's delivered rate. A video step with no limit keeps
-        # every delivered frame, so with nothing delivered it cannot be sized,
-        # and a run sized at no rate would reserve no disk for its video.
-        # The camera is asked only when its rate is what sizes a video step,
-        # and waited for, since a stream that has just started has no rate
-        # measured yet.
-        has_video = AcquireMode.VIDEO in set(protocol.steps()['Acquire'])
-        video_fps = video_sizing_fps(
-            video_max_fps,
-            self._scope.imaging.wait_for_delivered_rate(DELIVERED_RATE_WAIT_S).frame_rate_fps
-            if has_video and video_max_fps <= 0
-            else 0.0,
-        )
-        if video_fps is None and has_video:
-            self._refuse(
-                reason='camera_not_delivering',
-                message=(
-                    'The camera is not delivering frames, so the disk a video step will '
-                    'write cannot be sized. Start its live image, or set a Recording '
-                    'max FPS, and try again.'
-                ),
-            )
-
         # Pre-run validation: the steps are well-formed enough to run
         try:
             validation_errors = protocol.validate_for_run(
@@ -1319,6 +1295,30 @@ class SequencedCaptureRunner:
                 reason='validation_failed',
                 message=(
                     f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}'
+                ),
+            )
+
+        # The rate a video step is sized at for the disk check: the limit,
+        # else the camera's delivered rate. A video step with no limit keeps
+        # every delivered frame, so with nothing delivered it cannot be sized,
+        # and a run sized at no rate would reserve no disk for its video.
+        # The camera is asked only when its rate is what sizes a video step,
+        # and waited for, since a stream that has just started has no rate
+        # measured yet.
+        has_video = AcquireMode.VIDEO in set(protocol.steps()['Acquire'])
+        video_fps = video_sizing_fps(
+            video_max_fps,
+            self._scope.imaging.wait_for_delivered_rate(DELIVERED_RATE_WAIT_S).frame_rate_fps
+            if has_video and video_max_fps <= 0
+            else 0.0,
+        )
+        if video_fps is None and has_video:
+            self._refuse(
+                reason='camera_not_delivering',
+                message=(
+                    'The camera is not delivering frames, so the disk a video step will '
+                    'write cannot be sized. Start its live image, or set a Recording '
+                    'max FPS, and try again.'
                 ),
             )
 
