@@ -1669,6 +1669,10 @@ class ScopeSession:
             for notice in settings_init.take_stored_replacements()
             for replacement in notice.replacements
         ]
+        # What this factory has started, bound as each part comes up: a raise
+        # from any step below stops exactly these, the session's shutdown
+        # once the session holds them, so no step can sit outside the undo.
+        scope = executor_bundle = autofocus_thread = session = None
         try:
             import modules.lumascope_api as lumascope_api
 
@@ -1684,18 +1688,12 @@ class ScopeSession:
                 sim_focal_spread_um=simulated.focal_spread_um,
             )
             # Armed before the bring-up below, which is what they are for.
-            try:
-                if simulated.model_answer is not None:
-                    scope.simulation.answer_model(simulated.model_answer.model)
-                if simulated.refused_stream_starts != 0:
-                    scope.simulation.refuse_stream_start(simulated.refused_stream_starts)
-                for refusal in simulated.refused_camera_writes:
-                    scope.simulation.refuse_camera_write(
-                        refusal.node, refusal.answer, refusal.count
-                    )
-            except BaseException:
-                cls._report_teardown_failure(scope.disconnect)
-                raise
+            if simulated.model_answer is not None:
+                scope.simulation.answer_model(simulated.model_answer.model)
+            if simulated.refused_stream_starts != 0:
+                scope.simulation.refuse_stream_start(simulated.refused_stream_starts)
+            for refusal in simulated.refused_camera_writes:
+                scope.simulation.refuse_camera_write(refusal.node, refusal.answer, refusal.count)
 
             from modules.executor_registry import create_default
 
@@ -1709,43 +1707,49 @@ class ScopeSession:
 
             autofocus_runner, autofocus_thread = cls._build_autofocus_pair(scope=scope)
 
-            # The ownership fact goes in HERE, before _bring_up can call
-            # shutdown on a refusal: a session torn down mid-factory must
+            # The ownership fact goes in HERE, before a raise below hands the
+            # teardown to the session: a session torn down mid-factory must
             # already know the scope is its own.
-            try:
-                session = cls(
-                    settings=settings,
-                    scope=scope,
-                    executor_bundle=executor_bundle,
-                    autofocus_runner=autofocus_runner,
-                    autofocus_thread=autofocus_thread,
-                    owns_scope=True,
-                    engineering_mode=engineering_mode,
-                    no_engineering=no_engineering,
-                )
-            except BaseException:
-                # No session exists to tear down, so stop what this factory
-                # started.
-                autofocus_thread.stop(timeout=2.0)
-                executor_bundle.shutdown()
-                cls._report_teardown_failure(scope.disconnect)
-                raise
+            session = cls(
+                settings=settings,
+                scope=scope,
+                executor_bundle=executor_bundle,
+                autofocus_runner=autofocus_runner,
+                autofocus_thread=autofocus_thread,
+                owns_scope=True,
+                engineering_mode=engineering_mode,
+                no_engineering=no_engineering,
+            )
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
             cls._bring_up(session, replaced, old_channel_blocks)
             if simulated.file_stall is not None:
                 session._hold_the_file_lane(simulated.file_stall)
+            _tell_stored_replacements(replaced)
+            # Last, so a factory that raises has no saver for its teardown's
+            # close to save through: a failed create writes no file.
             if settings_file is not None:
                 session._start_saving_to(settings_file)
         except BaseException:
+            # Before the teardown, which takes back the listeners that hear it.
             _tell_stored_replacements(replaced)
+            if session is not None:
+                cls._report_teardown_failure(session.shutdown)
+            else:
+                # Last started, first stopped; the scope's own constructor
+                # undid itself if it was the step that raised.
+                if autofocus_thread is not None:
+                    autofocus_thread.stop(timeout=2.0)
+                if executor_bundle is not None:
+                    executor_bundle.shutdown()
+                if scope is not None:
+                    cls._report_teardown_failure(scope.disconnect)
             # Give the listener back: a host that composes again after this
             # raise (the GUI's fallback to the shipped defaults) would
             # otherwise hear every outcome twice.
             if outcome_listener is not None:
                 notifications.remove_listener(outcome_listener)
             raise
-        _tell_stored_replacements(replaced)
         return session
 
     def _hold_the_file_lane(self, stall: 'SimulatedStall') -> None:
@@ -1898,21 +1902,14 @@ class ScopeSession:
     ) -> None:
         """Configure the scope a factory built; ``initialize`` releases the
         camera start gate last, after the capture pixel format. A raise
-        anywhere in here leaves the caller with no session object to tear
-        down, so this tears down what the factory started before it lets
-        the raise out. What the bring-up replaces is added to ``replaced``,
-        the load's list, for the factory to tell once.
+        from here is the factory's to tear down, as a raise from any of its
+        steps is. What the bring-up replaces is added to ``replaced``, the
+        load's list, for the factory to tell once.
 
         The old channel settings are placed first, so the configuration and
         the absent-layer check judge each where this unit holds it."""
-        try:
-            session._place_old_channel_blocks(old_channel_blocks)
-            session._configure_scope(replaced)
-        except BaseException:
-            # Before the teardown, which takes back the listeners that hear it.
-            _tell_stored_replacements(replaced)
-            cls._report_teardown_failure(session.shutdown)
-            raise
+        session._place_old_channel_blocks(old_channel_blocks)
+        session._configure_scope(replaced)
         session._stop_acquiring_absent_layers()
         # The one marker for "the session is up": a host measures its own
         # consumer's start against it. It says whether the camera is
@@ -4679,10 +4676,15 @@ class ScopeSession:
             self._settings_saver.wake()
 
     def _start_saving_to(self, file: FilePath) -> None:
-        """Save every accepted write to ``file`` from now on, and the settings at the close."""
+        """Save every accepted write to ``file`` from now on, and the settings at the close.
+
+        The saver is held only once it has started: a start that raises
+        leaves the session with no saver, so the close saves nothing.
+        """
+        saver = SettingsSaver(self._save_settings_file)
         self._settings_file = os.fspath(file)
-        self._settings_saver = SettingsSaver(self._save_settings_file)
-        self._settings_saver.start()
+        saver.start()
+        self._settings_saver = saver
 
     def _save_settings_file(self) -> None:
         """Write the live settings to the session's file, whole, or say why not.

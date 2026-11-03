@@ -182,11 +182,17 @@ def create_default(
         diagnostics_executor=diagnostics_executor,
     )
 
-    file_io_executor.start()
-    post_processing_executor.start()
-    worker_pool.start()
-    diagnostics_executor.start()
-    protocol_thread.start()
+    # A start that raises leaves no caller holding the bundle, so the
+    # starts before it are stopped here before the raise goes on.
+    try:
+        file_io_executor.start()
+        post_processing_executor.start()
+        worker_pool.start()
+        diagnostics_executor.start()
+        protocol_thread.start()
+    except BaseException:
+        bundle.shutdown()
+        raise
 
     logger.info(
         '[LVP Main  ] ExecutorRegistry: created + started FILE, POSTPROC, '
