@@ -13,7 +13,9 @@ shown without a bench.
 
 from __future__ import annotations
 
+import itertools
 import threading
+import time
 
 import pytest
 
@@ -166,6 +168,45 @@ def test_a_frame_leaves_the_pipeline_its_own_period_and_one_ceiling_period_after
     # Late by the loop's wake-up at most, and never a second exposure late.
     assert all(expected_s - 0.001 <= lag < expected_s + period_s / 2 for lag in lags_s), (
         f'start to hand-over {lags_s} s; the camera takes {expected_s} s'
+    )
+
+
+def test_a_late_acquisition_thread_never_starts_two_exposures_less_than_a_period_apart():
+    """However late the host reaches a frame's start, the exposures start a frame period apart.
+
+    A sensor starts its exposures on its own clock; the host thread that
+    simulates it can be held past a start, by a slow callback or by the
+    other threads of a loaded process. A frame started when the thread got
+    there, rather than when it was due, would start the next one at once to
+    re-anchor, two exposures a fraction of a millisecond apart, which no
+    camera makes and which puts frames before a change that a camera's would
+    not have started.
+    """
+    period_ns = round(1e9 / SimulatedCamera._MAX_DELIVERY_FPS)
+    cam = SimulatedCamera(width=48, height=24)
+    cam.exposure_t(1.0)  # the ceiling's period sets the frame period
+    stamps = []
+    enough = threading.Event()
+
+    def on_frame(frame):
+        stamps.append(frame.chunks['Timestamp'])
+        if len(stamps) in (3, 8):
+            # The callback runs on the camera's thread: holding it here is a
+            # host that reaches the next start more than a period late.
+            time.sleep(2 * period_ns / 1e9)
+        if len(stamps) == 14:
+            enough.set()
+
+    cam.register_frame_callback(on_frame)
+    cam.open_and_start()
+    try:
+        assert enough.wait(5.0), f'only {len(stamps)} frames were stored'
+    finally:
+        cam.stop_grabbing()
+
+    gaps_ns = [later - earlier for earlier, later in itertools.pairwise(stamps)]
+    assert min(gaps_ns) >= period_ns, (
+        f'exposure starts {gaps_ns} ns apart; the period is {period_ns}'
     )
 
 

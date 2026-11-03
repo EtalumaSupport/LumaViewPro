@@ -20,6 +20,7 @@ binning level is reproducible and the cycle round-trips exactly.
 from typing import ClassVar
 
 import modules.binning as binning
+from drivers import host_clock
 from drivers.camera_profiles import lookup_profile
 from drivers.simulated_camera import SimulatedCamera
 
@@ -211,7 +212,9 @@ class TestSimPostBinningContract:
     """
 
     def _grab_shape(self, cam):
-        return cam._generate_image(cam._start_exposure()).shape  # (height, width)
+        return cam._generate_image(
+            cam._start_exposure(host_clock.steady_ns())
+        ).shape  # (height, width)
 
     def test_set_frame_size_is_post_binning(self):
         cam = SimulatedCamera()  # native 3840x2160

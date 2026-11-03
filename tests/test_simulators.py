@@ -21,6 +21,7 @@ import numpy as np
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
+from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, CameraWriteFailedError
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -972,7 +973,10 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
         frames = [
-            np.asarray(cam._generate_image(cam._start_exposure()), dtype=float) for _ in range(4)
+            np.asarray(
+                cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+            )
+            for _ in range(4)
         ]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(f.std() for f in frames) > 0
@@ -981,7 +985,10 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_a_fresh_camera_renders_the_moving_specimen(self):
         cam = SimulatedCamera(width=480, height=300)
         frames = [
-            np.asarray(cam._generate_image(cam._start_exposure()), dtype=float) for _ in range(4)
+            np.asarray(
+                cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+            )
+            for _ in range(4)
         ]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(diffs) > 0, 'the constructor default is a static image'
@@ -991,7 +998,9 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='NotAPattern')
         caplog.clear()
-        img = np.asarray(cam._generate_image(cam._start_exposure()), dtype=float)
+        img = np.asarray(
+            cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+        )
 
         assert img.std() > 0, 'a bad name must still produce a usable frame'
         # set_test_pattern lowercases the name, so the message carries it lowercased
@@ -1009,7 +1018,9 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera()
         cam.set_test_pattern(enabled=False)
         cam._pixel_format = 'Mono12'
-        img = np.asarray(cam._generate_image(cam._start_exposure()), dtype=float)
+        img = np.asarray(
+            cam._generate_image(cam._start_exposure(host_clock.steady_ns())), dtype=float
+        )
         assert img.max() > 255, (
             f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
         )

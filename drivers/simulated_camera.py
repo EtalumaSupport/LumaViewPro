@@ -428,11 +428,11 @@ class SimulatedCamera(Camera):
         # stream nobody was watching looked the same.
         self._acquisition_thread: threading.Thread | None = None
         self._acquisition_stop = threading.Event()
-        # A stretch of monotonic time in which the stream delivers nothing
-        # while the camera stays connected and grabbing: the silent stall a
-        # real camera's USB link or grab loop can fall into. None when no
-        # stall is set. See hold_frames.
-        self._held_window: tuple[float, float] | None = None
+        # A stretch of host steady time (ns) in which the stream delivers
+        # nothing while the camera stays connected and grabbing: the silent
+        # stall a real camera's USB link or grab loop can fall into. None
+        # when no stall is set. See hold_frames.
+        self._held_window: tuple[int, int] | None = None
 
         # Synthetic image state -- can be set externally for test scenarios
         # 'specimen', 'black', 'white', 'noise', 'focus_target'.
@@ -762,8 +762,8 @@ class SimulatedCamera(Camera):
         stop. This is how a simulated scope shows what happens when a stream
         stops delivering, without hardware.
         """
-        start = time.monotonic() + stall.after_s
-        self._held_window = (start, start + stall.for_s)
+        start = host_clock.steady_ns() + round(stall.after_s * 1e9)
+        self._held_window = (start, start + round(stall.for_s * 1e9))
         logger.info(
             f'[CAM Sim   ] frames will stop in {stall.after_s:g} s for {stall.for_s:g} s '
             '(simulated stall)'
@@ -827,11 +827,16 @@ class SimulatedCamera(Camera):
 
         The interval is the exposure, never shorter than the delivery
         ceiling's period (``_MAX_DELIVERY_FPS``). Frames start on a
-        fixed schedule, so the host time spent generating and delivering
-        a frame comes out of the interval rather than adding to it -- a
-        real camera's frame period does not include host work. A loop
-        that falls behind (generation slower than the interval) starts
-        the next frame at once and re-anchors, never bursting to catch up.
+        fixed schedule on the host's steady clock, so the host time spent
+        generating and delivering a frame comes out of the interval rather
+        than adding to it -- a real camera's frame period does not include
+        host work. A frame is started at the time it was due, however late
+        the thread reaches it: its exposure start and the settings it is
+        made under are read at that time, so two exposures never start
+        less than an interval apart on the camera's clock. A loop that
+        falls a whole interval behind starts the next frame at the time it
+        found itself late and re-anchors there, never starting every frame
+        it missed.
 
         A frame leaves the pipeline its own frame interval after it starts,
         plus ``SENSOR_PIPELINE_FRAMES - 1`` of the ceiling's periods, as the
@@ -851,7 +856,7 @@ class SimulatedCamera(Camera):
         the frame is tagged, so the chunk leads the content as it does on
         the bench.
         """
-        next_due = time.monotonic()
+        next_due = host_clock.steady_ns()
         stalled = False
         # Frames handed over and on their way to the store, oldest first
         # (delay_delivery).
@@ -859,14 +864,14 @@ class SimulatedCamera(Camera):
         # The frames started and not yet out of the pipeline, oldest first,
         # each with the time it leaves.
         in_flight: collections.deque = collections.deque()
-        readout_s = (self.SENSOR_PIPELINE_FRAMES - 1) / self._MAX_DELIVERY_FPS
+        readout_ns = round((self.SENSOR_PIPELINE_FRAMES - 1) * 1e9 / self._MAX_DELIVERY_FPS)
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
             # A camera off the bus delivers nothing, as a removed one does.
             if handler is None or not self._grabbing or self.is_device_removed():
                 return
             held = self._held_window
-            now = time.monotonic()
+            now = host_clock.steady_ns()
             if held is not None and held[0] <= now < held[1]:
                 # Stalled: nothing reaches the host, and the stream picks up
                 # on its own schedule when the stall ends.
@@ -874,10 +879,10 @@ class SimulatedCamera(Camera):
                     stalled = True
                     logger.info('[CAM Sim   ] simulated stall: frames stopped')
                 if self._acquisition_stop.wait(
-                    min(self._frame_interval_s(self._exposure_us), held[1] - now)
+                    min(self._frame_interval_s(self._exposure_us), (held[1] - now) / 1e9)
                 ):
                     return
-                next_due = time.monotonic()
+                next_due = host_clock.steady_ns()
                 continue
             if stalled:
                 stalled = False
@@ -886,7 +891,7 @@ class SimulatedCamera(Camera):
             # after its successor starts, which ends its exposure.
             if now >= next_due:
                 with self._lock:
-                    started = self._start_exposure()
+                    started = self._start_exposure(next_due)
                     # The newest frame's exposure ends as this one starts.
                     if in_flight:
                         newest, leaves_at = in_flight[-1]
@@ -896,13 +901,13 @@ class SimulatedCamera(Camera):
                         )
                     # The frame's own exposure is the inter-frame interval,
                     # bounded below by the delivery ceiling.
-                    interval_s = self._frame_interval_s(started.exposure_us)
-                    in_flight.append((started, now + interval_s + readout_s))
-                next_due = max(next_due + interval_s, time.monotonic())
+                    interval_ns = round(self._frame_interval_s(started.exposure_us) * 1e9)
+                    in_flight.append((started, next_due + interval_ns + readout_ns))
+                next_due = max(next_due + interval_ns, now)
                 continue
             if not in_flight or in_flight[0][1] > now:
                 wake_at = next_due if not in_flight else min(next_due, in_flight[0][1])
-                if self._acquisition_stop.wait(wake_at - now):
+                if self._acquisition_stop.wait((wake_at - now) / 1e9):
                     return
                 continue
             with self._lock:
@@ -944,7 +949,7 @@ class SimulatedCamera(Camera):
             # single grab sometimes delivers that grab a frame. Its number
             # is left unused, as a dropped frame's is.
             held = self._held_window
-            if held is not None and held[0] <= time.monotonic() < held[1]:
+            if held is not None and held[0] <= host_clock.steady_ns() < held[1]:
                 continue
             # The host has the frame here: it is stored once the backlog
             # behind it is handed over; with none it goes at once, and a
@@ -1400,19 +1405,23 @@ class SimulatedCamera(Camera):
         """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
         return host_clock.steady_ns() + self._clock_offset_ns
 
-    def _start_exposure(self) -> SensorExposure:
-        """Start a frame's exposure. Call with ``_lock`` held.
+    def _start_exposure(self, started_ns: int) -> SensorExposure:
+        """Start a frame's exposure at ``started_ns``. Call with ``_lock`` held.
 
         The registers, Z, the stage and the light are each as they stood
-        ``SENSOR_APPLY_DELAY_US`` before now, read against the time each
-        changed (``_input_at``). The objective is asked here, as the frame
+        ``SENSOR_APPLY_DELAY_US`` before the start, read against the time
+        each changed (``_input_at``). The objective is asked here, as the frame
         starts: the glass in the light path is not a setting the sensor
         applies. An unknown objective is None, which renders in focus;
         unwired, the camera has a nominal depth of field, as a camera built
         with no scope around it must.
+
+        Args:
+            started_ns: The host steady time the frame was due to start,
+                earlier than now when the acquisition loop runs late.
         """
         self._read_scope_inputs()
-        applied_at = host_clock.steady_ns() - self.SENSOR_APPLY_DELAY_US * 1_000
+        applied_at = started_ns - self.SENSOR_APPLY_DELAY_US * 1_000
         x_um, y_um = self._input_at('stage_xy', applied_at)
         illumination_ma, light = self._input_at('illumination', applied_at)
         if self._depth_of_field_func is None:
@@ -1423,7 +1432,7 @@ class SimulatedCamera(Camera):
         self._frames_started += 1
         return SensorExposure(
             frame_id=self._frames_started,
-            started_ticks=self.camera_clock_ticks(),
+            started_ticks=started_ns + self._clock_offset_ns,
             exposure_us=self._input_at('exposure_us', applied_at),
             gain_db=self._input_at('gain_db', applied_at),
             black_level=self._input_at('black_level', applied_at),
