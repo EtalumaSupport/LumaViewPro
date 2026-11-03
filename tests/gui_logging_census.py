@@ -52,6 +52,10 @@ PERSON_EVENTS = (
     # CommitInput's: raised only by a person's edit or Enter, never by a
     # write to the box (ui/ui_helpers.py).
     'on_commit',
+    # A touch on the widget: the live view's click-to-centre binds one.
+    'on_touch_down',
+    'on_touch_move',
+    'on_touch_up',
 )
 
 # Kivy events a value change raises, whoever made it: a person operating the
@@ -65,6 +69,16 @@ VALUE_EVENTS = (
 )
 
 USER_EVENTS = PERSON_EVENTS + VALUE_EVENTS
+
+# Events the census knowingly does not read as a control's binding. Any other
+# ``on_<event>`` in a kv source is refused, naming its file and line, so a new
+# shape is read or named here rather than dropped.
+NOT_A_CONTROLS_BINDING = (
+    # An accordion item's: censused by accordion_items, from its touch handler.
+    'on_collapse',
+    # A popup's lifecycle hook: it fires without anyone touching a control.
+    'on_open',
+)
 
 EMITTERS = (
     'button',
@@ -116,24 +130,58 @@ def _is_code(line: str) -> bool:
     return bool(stripped) and not stripped.startswith('#')
 
 
+def _python_paths():
+    """Every module where GUI code lives: the one list the census reads."""
+    paths = [REPO_ROOT / m for m in SEARCH_MODULES]
+    for package in SEARCH_PACKAGES:
+        paths += sorted((REPO_ROOT / package).glob('*.py'))
+    return paths
+
+
+def load_string_blocks(rel):
+    """The kv text of every ``Builder.load_string`` call in module ``rel``.
+
+    Read by AST, so each text is the string Kivy receives. A call whose
+    argument is not a string literal is refused, naming the module and line:
+    its kv cannot be read without running the module, and dropping it would
+    hide its controls from the census.
+    """
+    blocks = []
+    for node in ast.walk(ast.parse((REPO_ROOT / rel).read_text())):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'load_string'
+        ):
+            continue
+        arg = node.args[0] if node.args else None
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+            raise ValueError(
+                f'{rel}:{node.lineno} passes Builder.load_string something other '
+                'than a string literal, so the census cannot read its kv.'
+            )
+        blocks.append(arg.value)
+    return blocks
+
+
+def modules_holding_load_string():
+    """Every GUI module that makes a ``Builder.load_string`` call."""
+    rels = (path.relative_to(REPO_ROOT).as_posix() for path in _python_paths())
+    return sorted(rel for rel in rels if load_string_blocks(rel))
+
+
 def kv_sources():
     """``(label, text)`` for the kv file and every production load_string block."""
     sources = [(KV_FILE, (REPO_ROOT / KV_FILE).read_text())]
     for rel in LOAD_STRING_MODULES:
-        src = (REPO_ROOT / rel).read_text()
-        for match in re.finditer(r'Builder\.load_string\(\s*(?:"""|\'\'\')', src):
-            quote = '"""' if src[match.end() - 3 : match.end()] == '"""' else "'''"
-            sources.append((rel, src[match.end() : src.index(quote, match.end())]))
+        sources += [(rel, text) for text in load_string_blocks(rel)]
     return sources
 
 
 def _class_index():
     """``name -> (relpath, ClassDef)`` for every class a kv rule can name."""
     index = {}
-    paths = [REPO_ROOT / m for m in SEARCH_MODULES]
-    for package in SEARCH_PACKAGES:
-        paths += sorted((REPO_ROOT / package).glob('*.py'))
-    for path in paths:
+    for path in _python_paths():
         rel = path.relative_to(REPO_ROOT).as_posix()
         try:
             tree = ast.parse(path.read_text())
@@ -259,14 +307,39 @@ def _rule_root(lines, index):
     return None
 
 
+def _handler(lines, i):
+    """The handler bound on line ``i``: the text after the colon, or, where
+    nothing but a comment follows it, every line indented under it."""
+    after = re.match(r'^[ \t]*on_\w+:\s*(.*?)\s*$', lines[i]).group(1)
+    if after and not after.startswith('#'):
+        return after
+    body = []
+    for line in lines[i + 1 :]:
+        if not _is_code(line):
+            continue
+        if _indent(line) <= _indent(lines[i]):
+            break
+        body.append(line.strip())
+    return '; '.join(body)
+
+
 def _blocks(label, text):
-    """Every widget block in ``text`` that binds a user event."""
+    """Every widget block in ``text`` that binds a user event.
+
+    An event in neither ``USER_EVENTS`` nor ``NOT_A_CONTROLS_BINDING`` is
+    refused, naming its file and line.
+    """
     lines = text.splitlines()
     out = []
     for i, line in enumerate(lines):
-        match = re.match(r'^[ \t]*(on_\w+):\s*(.+)$', line)
-        if not match or match.group(1) not in USER_EVENTS:
+        match = re.match(r'^[ \t]*(on_\w+):', line)
+        if not match or match.group(1) in NOT_A_CONTROLS_BINDING:
             continue
+        if match.group(1) not in USER_EVENTS:
+            raise ValueError(
+                f'{label}:{i + 1} binds {match.group(1)}, which the census neither '
+                'reads nor names: add it to USER_EVENTS or NOT_A_CONTROLS_BINDING.'
+            )
         prop_depth = _indent(line)
         header = i - 1
         while header >= 0 and (not _is_code(lines[header]) or _indent(lines[header]) >= prop_depth):
@@ -287,7 +360,7 @@ def _blocks(label, text):
             if id_match:
                 control_id = id_match.group(1)
                 break
-        handler = match.group(2).strip()
+        handler = _handler(lines, i)
         out.append(
             {
                 'file': label,
@@ -547,13 +620,6 @@ def person_records_on_value_changes():
                 if _reaches_person_record(owner, method):
                     out.append(f'{label}:{block["line"]} {block["event"]}: {owner}.{method}')
     return sorted(out)
-
-
-def _python_paths():
-    paths = [REPO_ROOT / m for m in SEARCH_MODULES]
-    for package in SEARCH_PACKAGES:
-        paths += sorted((REPO_ROOT / package).glob('*.py'))
-    return paths
 
 
 # A widget's own touch handlers run only when a person touches it.

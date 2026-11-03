@@ -35,14 +35,16 @@ before editing the roster.
 
 from __future__ import annotations
 
+import pytest
+
 from tests.gui_logging_census import (
     LOAD_STRING_MODULES,
     census,
     handlers_run_twice_by_a_write,
+    modules_holding_load_string,
     person_handlers_called_from_python,
     person_records_on_value_changes,
 )
-from tests.ast_seams import REPO_ROOT
 
 
 def _D(helper):
@@ -247,6 +249,18 @@ _ROSTER = {
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',
     ),
+    # A touch on the live view: click-to-centre.
+    'ShaderViewer.scope_display_id': ('SCOPE_CLICK_TO_CENTER',),
+    # Each sets the stitching mode, then chooses the folder; RUN_STITCHER's
+    # mode= records which of the two ran.
+    'StitchControls.fast_preview_stitch_btn': (
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
+    ),
+    'StitchControls.quality_stitch_btn': (
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
+    ),
     'VerticalControl.RoundedButton(goto_bookmark)': ('GOTO_Z_BOOKMARK',),
     'VerticalControl.RoundedButton(set_all_bookmarks)': ('SET_ALL_BOOKMARKS',),
     'VerticalControl.RoundedButton(set_bookmark)': ('SET_Z_BOOKMARK',),
@@ -411,11 +425,7 @@ def test_no_new_kv_source_escapes_the_census():
     hole, and nothing else in the suite would notice.
     """
     declared = set(LOAD_STRING_MODULES)
-    actual = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in sorted(REPO_ROOT.glob('ui/*.py'))
-        if 'Builder.load_string' in path.read_text()
-    }
+    actual = set(modules_holding_load_string())
     unregistered = sorted(actual - declared)
     assert not unregistered, (
         f'{unregistered} define kv rules via Builder.load_string but are not '
@@ -424,6 +434,74 @@ def test_no_new_kv_source_escapes_the_census():
     )
     stale = sorted(declared - actual)
     assert not stale, f'{stale} no longer hold a load_string block.'
+
+
+def test_a_load_string_the_census_cannot_read_is_refused(monkeypatch, tmp_path):
+    # A load_string handed a name, not a literal: its kv is unreadable without
+    # running the module, so the census refuses it instead of reading nothing.
+    import tests.gui_logging_census as gui_census
+
+    module = tmp_path / 'scratch_kv_module.py'
+    module.write_text("KV = '<Scratch@BoxLayout>:'\nBuilder.load_string(KV)\n")
+    monkeypatch.setattr(gui_census, 'LOAD_STRING_MODULES', (str(module),))
+    with pytest.raises(ValueError, match=r'scratch_kv_module\.py:2 passes Builder\.load_string'):
+        gui_census.kv_sources()
+
+
+def test_a_handler_written_under_its_event_is_censused(monkeypatch):
+    # The Stitch buttons' shape: nothing after the colon, an assignment on the
+    # first body line and the call on the second, so a reader of the first
+    # line alone misses the record.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<StitchControls>:\n'
+        '    FolderChooseBTN:\n'
+        '        id: scratch_stitch_btn\n'
+        '        on_release:\n'
+        "            root.stitching_mode = 'Quality'\n"
+        "            self.choose('apply_stitching_to_folder')\n"
+        '        disabled: app.lock.run_lockout\n'
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    surface = gui_census.census()
+    assert 'StitchControls.scratch_stitch_btn' in surface, sorted(surface)
+    assert surface['StitchControls.scratch_stitch_btn']['static'] == [
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
+    ]
+
+
+def test_a_touch_binding_is_censused(monkeypatch):
+    # A touch is a person's: the live view's click-to-centre binds one.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<ShaderViewer>:\n'
+        '    ScopeDisplay:\n'
+        '        id: scratch_display\n'
+        '        on_touch_down: self.touch(args[0], args[1])\n'
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    surface = gui_census.census()
+    assert 'ShaderViewer.scratch_display' in surface, sorted(surface)
+    assert surface['ShaderViewer.scratch_display']['static'] == ['SCOPE_CLICK_TO_CENTER']
+
+
+def test_an_event_the_census_does_not_know_is_refused(monkeypatch):
+    # An event in neither list is refused, naming where it is, so the next
+    # new shape is read or named instead of dropped.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<Scratch@BoxLayout>:\n'
+        '    Button:\n'
+        '        id: scratch_btn\n'
+        '        on_double_tap: root.scratch_handler()\n'
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    with pytest.raises(ValueError, match=r'scratch\.kv:4 binds on_double_tap'):
+        gui_census.census()
 
 
 def test_an_accordion_item_that_records_nothing_is_reported(monkeypatch):
