@@ -28,11 +28,13 @@ import dataclasses
 import logging
 import math
 import pathlib
+import time
 import typing
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
+from lvp_logger import logger
 import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
 from modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
@@ -176,12 +178,14 @@ class ProtocolsAPI:
         """
         from modules.protocol import Protocol
 
+        started = time.monotonic()
         protocol = Protocol.from_file(
             file_path=path_utils.existing_file(file_path),
             tiling_grids=self.tiling_grids(),
             unit=self._scope.channel_identity,
             wellplate_loader=self._scope.wellplate_loader,
         )
+        read = time.monotonic()
         # After the parse, so a file that is not a protocol at all is
         # answered as that rather than as a turret problem, and before the
         # return, so no caller ever holds an inadmissible protocol.
@@ -195,6 +199,15 @@ class ProtocolsAPI:
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
         self._report_invalid_steps(protocol, solicited=False)
+        # The load runs on the caller's thread (the GUI's, at a Load and at
+        # startup), so a large protocol holds that thread for its whole
+        # length; the split says whether the read or the checks cost it.
+        checked = time.monotonic()
+        logger.info(
+            f'[Protocol] Loaded "{pathlib.Path(file_path).name}": '
+            f'{protocol.num_steps()} steps, read in {read - started:.2f} s, '
+            f'checked in {checked - read:.2f} s'
+        )
         return protocol
 
     def _report_invalid_steps(self, protocol: Protocol, *, solicited: bool) -> None:

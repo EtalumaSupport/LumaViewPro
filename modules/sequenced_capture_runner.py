@@ -1202,6 +1202,7 @@ class SequencedCaptureRunner:
             ControlSessionRefusedError: ``'control_session_held'``, a
                 control session is held by someone else.
         """
+        started = time.monotonic()
         claim = borrowed_claim if borrowed_claim is not None else self._activity_claim
         refusal = self.state_refusal(claim, for_this_caller=True)
         if refusal is not None:
@@ -1459,7 +1460,7 @@ class SequencedCaptureRunner:
         if parent_dir is None:
             disable_saving_artifacts = True
 
-        return RunPlan(
+        plan = RunPlan(
             borrowed_claim=borrowed_claim,
             protocol=execution_protocol,
             run_mode=run_mode,
@@ -1498,6 +1499,13 @@ class SequencedCaptureRunner:
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
         )
+        # The checks walk every step on the starter's thread (the GUI's, at
+        # a Run), so a large protocol holds it before the run's first line.
+        logger.info(
+            f'[SeqCapExec] Run prepared: {protocol.num_steps()} steps checked '
+            f'in {time.monotonic() - started:.2f} s'
+        )
+        return plan
 
     def _take_auto_gain_arm_for_run(self) -> None:
         """Hold a live-view auto-gain arm for the run's duration.
