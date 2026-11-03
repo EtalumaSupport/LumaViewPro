@@ -24,6 +24,8 @@ import json
 import logging
 import os
 import platform
+import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -516,6 +518,67 @@ def pytest_runtest_makereport(item, call):
         report.longrepr = '\n\n'.join(failures)
     if report.failed:
         report.sections.append((GC_SECTION, _gen2_section()))
+        _write_failure_file(item, report, call)
+
+
+# Every failed test phase leaves one file holding its whole report -- the
+# failure, every log line production wrote during the test (pyproject's
+# log_level keeps DEBUG), stdout and stderr -- whatever --tb or -q the run
+# printed, so a red that passes on its rerun is read from what it left
+# instead of chased. One folder per run, named by the controller and handed
+# to each xdist worker; CI uploads it.
+FAILURE_FILES_BANNER = 'failure files'
+
+
+def _failure_run(config) -> tuple[Path, str]:
+    """The run's failure folder and the commit it ran, the controller's on a worker."""
+    workerinput = getattr(config, 'workerinput', None)
+    if workerinput is not None and 'lvp_failure_dir' in workerinput:
+        return Path(workerinput['lvp_failure_dir']), workerinput['lvp_failure_commit']
+    return config._failure_run_dir, config._failure_commit
+
+
+def _write_failure_file(item, report, call) -> None:
+    """The whole traceback from the test's own file down, whatever the run's
+    --tb, else the report's own words for a failure this conftest made of a
+    passing phase."""
+    config = item.config
+    folder, commit = _failure_run(config)
+    if call.excinfo is not None:
+        excinfo = pytest.ExceptionInfo.from_exception(call.excinfo.value)
+        excinfo.traceback = excinfo.traceback.cut(path=item.path)
+        failure = str(excinfo.getrepr(style='long'))
+    else:
+        failure = report.longreprtext
+    folder.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r'[^A-Za-z0-9_.-]+', '_', report.nodeid)[:180]
+    worker = getattr(config, 'workerinput', {}).get('workerid', 'main')
+    parts = [
+        f'{report.nodeid} failed in {report.when}',
+        f'worker {worker}, {report.duration:.3f} s, commit {commit}',
+        '',
+        failure,
+    ]
+    parts += [f'\n----- {title} -----\n{content}' for title, content in report.sections]
+    (folder / f'{name}__{report.when}.txt').write_text('\n'.join(parts), encoding='utf-8')
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node):
+    """The controller hands each xdist worker the run's failure folder.
+
+    An xdist hook: optional, so a run without xdist loads this conftest.
+    """
+    node.workerinput['lvp_failure_dir'] = str(node.config._failure_run_dir)
+    node.workerinput['lvp_failure_commit'] = node.config._failure_commit
+
+
+def _head_commit(root: Path) -> str:
+    """The checkout's HEAD, or what kept it unread: the files name the run they came from."""
+    answer = subprocess.run(
+        ['git', 'rev-parse', '--short', 'HEAD'], cwd=root, capture_output=True, text=True
+    )
+    return answer.stdout.strip() if answer.returncode == 0 else f'unread ({answer.stderr.strip()})'
 
 
 @pytest.fixture(autouse=True)
@@ -990,6 +1053,13 @@ def pytest_configure(config):
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
 
+    if getattr(config, 'workerinput', None) is None:
+        started = time.strftime('%Y%m%d-%H%M%S')
+        config._failure_run_dir = (
+            Path(config.rootpath) / 'build' / 'test_failures' / f'{started}-{os.getpid()}'
+        )
+        config._failure_commit = _head_commit(Path(config.rootpath))
+
     config._memcap_started = time.time()
     config._memcap_report_dir = Path(config.rootpath) / 'build'
     threading.Thread(
@@ -1142,6 +1212,13 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     from tests import ratchets
 
     terminalreporter.line(f'interpreter: Python {platform.python_version()} at {sys.executable}')
+
+    failures = config._failure_run_dir
+    if failures.is_dir():
+        terminalreporter.section(FAILURE_FILES_BANNER, sep='!', red=True)
+        terminalreporter.line(
+            f'{len(list(failures.glob("*.txt")))} failed phase(s), each with its whole log: {failures}'
+        )
 
     # A worker the cap killed is reported by xdist as a crash; this names the
     # cap and the test so the log cannot read as an ordinary failure.

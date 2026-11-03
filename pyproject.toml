@@ -17,6 +17,11 @@ addopts = "--tb=short -q --durations=50 --dist loadgroup --max-worker-restart 0"
 # without a rerun, a profiler or sudo; the test itself goes on. The longest
 # recorded test takes about 105 s (a slow-marked wire conformance case).
 faulthandler_timeout = 180
+# Every log line production writes during a test is captured, DEBUG up, so a
+# failed test's report holds what the code did, not only what it warned of;
+# the report is also written whole to build/test_failures/ (tests/conftest.py).
+# Measured free: two files' 9 tests 37.24 s at the default, 37.03 s at DEBUG.
+log_level = "DEBUG"
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
