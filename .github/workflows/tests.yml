@@ -96,15 +96,18 @@ jobs:
       - name: Tests
         run: python -m pytest -n auto -rfE
 
-      # A red probe's console log is written under pytest's temporary folder,
-      # which the runner discards with the job; kept here, a red is read from
-      # its own log rather than rerun in the hope it fails again.
+      # A red probe's logs are written under pytest's temporary folder, which
+      # the runner discards with the job; kept here, a red is read from its
+      # own log rather than rerun in the hope it fails again. The whole
+      # LVP_Log folder, not bench_results alone: a capture's give-up line
+      # (its wait, the frames handed over and stored, the last frame's age)
+      # is written to the LVP log, never to the probe's console.
       - name: Probe logs of a red run
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: probe-logs-${{ matrix.python-version }}
-          path: /tmp/pytest-of-runner/**/bench_results/**
+          path: /tmp/pytest-of-runner/**/test_probe_*/checkout/logs/LVP_Log/**
           if-no-files-found: ignore
           retention-days: 14
 
