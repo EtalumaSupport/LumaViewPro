@@ -14,12 +14,14 @@ frame (its rate above the camera's), so the first frame kept is the first
 frame after its start, not a later cadence slot that would hide an early one.
 """
 
+import json
 import pathlib
 import threading
 from typing import NamedTuple
 
 import pytest
 
+from drivers import host_clock
 from modules.exceptions import RecordingRefusedError
 from modules.frame_validity import FrameValiditySource
 from modules.lumascope_api.frame_record import ClockMapping
@@ -140,14 +142,49 @@ def _first_manual_frame_is_judged(session, live_folder, change):
     try:
         change()
         operation = session.manual_recording.start()
+        started_ns = host_clock.steady_ns()
         delivered.await_more(5)
+        stop_ns = host_clock.steady_ns()
         operation.stop()
-        operation.result(timeout=30)
+        finished = operation.result(timeout=30)
     finally:
         delivered.close()
     first = sorted(pathlib.Path(live_folder).rglob('*_0000_*.tif*'))
-    assert first, 'the recording saved no frame'
+    assert first, _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns)
     return _judged(scope, delivered.by_id[read_file_record(first[0])['frame_id']])
+
+
+def _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns):
+    """What a recording that kept no frame was offered, for a red.
+
+    Whether frames that started after ``start`` returned came before the
+    stop, read through a clock mapping latched after the recording and off
+    by its uncertainty: frames after the start and none kept is the
+    recording's to answer, the stop before any such frame the test's.
+    """
+    stated = [f'the recording saved no frame: {finished!r}']
+    for manifest in pathlib.Path(live_folder).rglob('recording_manifest.json'):
+        facts = json.loads(manifest.read_text())
+        counts = ('frames_selected', 'frames_written', 'write_failures', 'frames_unstamped')
+        stated.append(f'manifest { ({key: facts.get(key) for key in counts})!r}')
+    mapping = scope.imaging.map_camera_clock()
+    if mapping is None:
+        stated.append('no clock mapping, so no frame start is stated')
+        return '\n'.join(stated)
+    stated.append(f'mapping {mapping!r}')
+    start_ticks = mapping.camera_ticks_at(started_ns)
+
+    def after_start_ms(ticks):
+        return (ticks - start_ticks) * 1000 / mapping.tick_hz
+
+    stated.append(
+        f'stop asked {after_start_ms(mapping.camera_ticks_at(stop_ns)):+.3f} ms after start returned'
+    )
+    for frame_id, frame in sorted(delivered.by_id.items())[-15:]:
+        starts = {j.frame_start_ticks for j in scope.imaging.judge_frame(frame, mapping)} - {None}
+        when = f'{after_start_ms(starts.pop()):+.3f} ms' if starts else 'at no stated tick'
+        stated.append(f'frame {frame_id} started {when} after start returned')
+    return '\n'.join(stated)
 
 
 FRAMES_LEG = {'video_as_frames': True}
