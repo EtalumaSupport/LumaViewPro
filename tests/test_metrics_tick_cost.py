@@ -186,6 +186,26 @@ class TestHandleMetricsLine:
         assert not lines
 
 
+class TestGcMetricsLine:
+    def test_the_line_states_the_snapshots_heap_block_count(
+        self, monkeypatch, caplog, sim_scope, tmp_path
+    ):
+        # The real snapshot, so the line and the snapshot agree on the key.
+        # a stand-in by design: check_disk_space needs a real number for the
+        # line to be reached at all, as in _drive_log_system_metrics.
+        monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
+        lines = _metrics_lines(
+            caplog,
+            lambda: config_helpers.log_system_metrics(
+                complete_settings(live_folder=str(tmp_path)),
+                scope=sim_scope,
+                executors=real_executor_bundle(),
+            ),
+        )
+        (line,) = [m for m in lines if '[GC METRICS]' in m]
+        assert re.search(r'\[GC METRICS\] blocks=[1-9]\d* \|', line), line
+
+
 class _RecordingScheduler(ThreadingTimerScheduler):
     """The session's scheduler, recording each interval it is asked to keep."""
 

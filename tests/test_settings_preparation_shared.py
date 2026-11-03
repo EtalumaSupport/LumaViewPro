@@ -260,6 +260,17 @@ def test_a_stored_bf_focus_for_fluorescence_is_dropped():
     assert 'bf_af_for_fluorescence' not in stored['protocol']
 
 
+def test_a_stored_object_sampler_interval_is_dropped():
+    # The handle trace's object-type sampler was removed; a file that still
+    # carries its interval loads without it.
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
+        stored = json.load(f)
+    stored['profiling']['handle_trace_obj_sample_every'] = 200
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'handle_trace_obj_sample_every' not in stored['profiling']
+
+
 def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     # Eight shipped keys had no reader; a file that still carries them loads
     # without them, and the autofocus and stage blocks they filled go whole.

@@ -651,11 +651,11 @@ def log_system_metrics(
             f'dedicated_mem={gpu.get("gpu_dedicated_mem_mb", 0.0):.0f} MB',
         )
 
-    # Python GC objects. Steady growth = closures or observers holding refs.
-    gc_objects = metrics.get('gc_objects', -1)
-    if gc_objects >= 0:
+    # Python heap blocks. Steady growth = closures or observers holding refs.
+    allocated_blocks = metrics.get('allocated_blocks', -1)
+    if allocated_blocks >= 0:
         metrics_logger.info(
-            f'[GC METRICS] objects={gc_objects} | '
+            f'[GC METRICS] blocks={allocated_blocks} | '
             f'gen0={metrics.get("gc_gen0_collections", -1)} '
             f'gen1={metrics.get("gc_gen1_collections", -1)} '
             f'gen2={metrics.get("gc_gen2_collections", -1)}',

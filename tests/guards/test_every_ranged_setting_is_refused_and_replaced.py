@@ -54,7 +54,6 @@ _OUT_OF_RANGE = {
     'protocol.autogain.target_brightness': 1.5,
     'protocol.autogain.min_gain_db': -1.0,
     'protocol.autogain.max_gain_db': -2,
-    'profiling.handle_trace_obj_sample_every': 0,
     'profiling.metrics_interval_s': 0,
     'ag_ae_max_exposure_ms.transmitted': 0.0,
     'ag_ae_max_exposure_ms.fluorescence': -5.0,

@@ -11,6 +11,7 @@ import os
 import pathlib
 import platform
 import re
+import sys
 import threading
 import time as _time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
@@ -1413,21 +1414,23 @@ def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
         metrics['thread_count'] = -1
         metrics['thread_names'] = []
 
-    # --- Python GC (catches reference-cycle / closure-capture leaks) ---
-    # `gc.get_objects()` is somewhat expensive (iterates all tracked
-    # objects), which the hourly production cadence absorbs; the 60 s
-    # engineering cadence pays it sixty times as often, deliberately.
+    # --- Python heap (catches reference-cycle / closure-capture leaks) ---
+    # The count is of the memory blocks Python's allocator holds, which it
+    # keeps as a running total. Not len(gc.get_objects()): that list hands
+    # this thread every object the collector tracks, a tuple another thread
+    # is still building among them, and that thread's tuple() then raises
+    # SystemError -- a protocol run ended that way.
     # Steady linear growth indicates accumulation, typically from
     # observers/callbacks holding refs; the growth-rate thresholds are
-    # the gc_objects_growth_per_hr row in PERFORMANCE_BUDGETS.md.
+    # the allocated_blocks_growth_per_hr row in PERFORMANCE_BUDGETS.md.
     try:
-        metrics['gc_objects'] = len(gc.get_objects())
+        metrics['allocated_blocks'] = sys.getallocatedblocks()
         gc_stats = gc.get_stats()
         metrics['gc_gen0_collections'] = gc_stats[0]['collections']
         metrics['gc_gen1_collections'] = gc_stats[1]['collections']
         metrics['gc_gen2_collections'] = gc_stats[2]['collections']
     except Exception:
-        metrics['gc_objects'] = -1
+        metrics['allocated_blocks'] = -1
         metrics['gc_gen0_collections'] = -1
         metrics['gc_gen1_collections'] = -1
         metrics['gc_gen2_collections'] = -1

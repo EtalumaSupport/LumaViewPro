@@ -186,15 +186,13 @@ class MicroscopeSettings(BoxLayout):
             MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
             logger.info('[LVP Main  ] Memory Profiler started.')
 
-        # Handle / object-type leak diagnostic. Same opt-in pattern as
+        # Handle leak diagnostic. Same opt-in pattern as
         # the memory profiler above; settings-driven so customers and
         # bench operators can enable without rebuilding.
         if settings['profiling']['handle_trace_enabled']:
             from lib import handle_trace as _handle_trace
 
-            _handle_trace.enable(
-                obj_sample_every=int(settings['profiling']['handle_trace_obj_sample_every'])
-            )
+            _handle_trace.enable()
 
         # update GUI values from JSON data:
 

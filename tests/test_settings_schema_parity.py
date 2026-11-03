@@ -77,13 +77,15 @@ MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 #   waited, unread once its settle became a frame count.
 # - video.max_duration_seconds: renamed max_duration_s, for its unit.
 # - profiling.stim_profiling: shipped with no reader, removed.
+# - profiling.handle_trace_obj_sample_every: the interval of the handle
+#   trace's object-type sampler, removed with it.
 # - rest_api.host, api_key, cors_origins: nothing read them; where the
 #   server serves is rest_api.address.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
     'protocol.autogain': {'max_duration_seconds'},
     'video': {'max_duration_seconds'},
-    'profiling': {'stim_profiling'},
+    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every'},
     'rest_api': {'host', 'api_key', 'cors_origins'},
 }
 

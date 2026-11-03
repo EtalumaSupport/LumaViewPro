@@ -433,6 +433,15 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if settings_dict.pop(block, None) is not None:
             changed = True
 
+    # The handle trace's object-type sampler was removed: its gc.get_objects()
+    # handed the grab and save threads' half-built tuples to another thread,
+    # whose tuple() then raised. Its interval has nothing left to set.
+    if (
+        isinstance(profiling, dict)
+        and profiling.pop('handle_trace_obj_sample_every', None) is not None
+    ):
+        changed = True
+
     # The REST server's host, key and CORS origins, which nothing ever read;
     # where it serves is ``address``. A shipped null key is dropped too, so
     # the test is membership, not the value.
