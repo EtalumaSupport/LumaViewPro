@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import logging
-import os
 import pathlib
 
 import pandas as pd
@@ -237,8 +236,3 @@ class Stitcher(ProtocolPostProcessor):
             output_file_loc=output_file_loc,
             channel_colors=channel_colors,
         )
-
-
-if __name__ == '__main__':
-    stitcher = Stitcher(has_turret=False)
-    stitcher.load_folder(pathlib.Path(os.getenv('SAMPLE_IMAGE_FOLDER')))
