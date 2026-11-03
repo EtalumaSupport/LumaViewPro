@@ -56,7 +56,7 @@ from modules.activity_claim import (
     the_holder_named,
 )
 from modules.exceptions import CaptureFailedError, RecordingRefusedError
-from modules.lumascope_api.frame_record import TimestampSource
+from modules.lumascope_api.frame_record import ClockMapping, TimestampSource
 from modules.live_work import WorkKind
 from modules.video_cadence import CadenceSelector, StallWatch, frame_budget
 
@@ -287,7 +287,11 @@ class VideoRecordingEngine:
             which ``start`` acts under and the recording's end leaves
             held.
         clock: Time source returning seconds; injectable so cadence and
-            duration behavior is testable without wall-clock sleeps.
+            duration behavior is testable without wall-clock sleeps. The
+            start of a recording whose frames have no clock mapping.
+        steady_clock: The host's steady clock in nanoseconds
+            (``host_clock.steady_ns``), on which a recording with a clock
+            mapping reads its start through that mapping.
     """
 
     def __init__(
@@ -296,10 +300,12 @@ class VideoRecordingEngine:
         write_frame: Callable[..., pathlib.Path],
         claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
+        steady_clock: Callable[[], int],
     ):
         self._write_frame = write_frame
         self._claim = claim
         self._clock = clock
+        self._steady_clock = steady_clock
         # One lock covers selection state and counters. ingest_frame runs
         # on the camera ingest thread, stop()/start() on callers' threads,
         # and the writer lane decrements the pending count -- all under
@@ -361,14 +367,22 @@ class VideoRecordingEngine:
         """Frames the cadence selector has kept so far."""
         return self._frames_selected
 
-    def start(self, make_config: Callable[[], RecordingConfig]) -> None:
+    def start(self, make_config: Callable[[], tuple[RecordingConfig, ClockMapping | None]]) -> None:
         """Open selection for one recording.
 
         Atomically acquires the exclusivity claim; exactly one of two
         concurrent starts can win. ``make_config`` is called once the claim
         is held: what the file will claim -- frame size, binning, pixel
         size, objective -- is read only when no write that would change it
-        can start or still be running.
+        can start or still be running. It returns the config with the clock
+        mapping the caller times every frame through, or None for a camera
+        without one, whose frames are timed on the host's wall clock.
+
+        The start is read on the clock the frames are: through the mapping,
+        as a frame's time is, so the start and every frame share its one
+        wall read and its rounding, and a step of the wall clock, or its
+        coarse read, between the latch and the start cannot move the start
+        against the frames. Without a mapping it is a wall read.
 
         Raises:
             RecordingRefusedError: When an exclusive activity (protocol
@@ -411,9 +425,14 @@ class VideoRecordingEngine:
                 )
             self._held_claim = held
             try:
-                config = make_config()
+                config, mapping = make_config()
                 self._config = config
-                start_ts = self._clock()
+                if mapping is not None:
+                    start_ts = mapping.wall_time_at(
+                        mapping.camera_ticks_at(self._steady_clock())
+                    ).timestamp()
+                else:
+                    start_ts = self._clock()
                 self._selector = CadenceSelector(
                     fps=config.fps, max_frames=config.frame_budget, start_ts=start_ts
                 )

@@ -34,6 +34,7 @@ from typing import Any
 
 import numpy as np
 
+from drivers import host_clock
 from drivers.camera import Frame
 from lvp_logger import logger, version as lvp_version
 from modules.activity_claim import BorrowedClaim
@@ -140,7 +141,11 @@ class ProtocolVideoStep:
             no X/Y stage has no X/Y position to convert, so its frames state
             no plate position.
         clock: Wall-time source (seconds) for what is measured against
-            frame timestamps: the engine's cadence. Tests drive it.
+            frame timestamps: the engine's cadence, and its start on a
+            camera without a clock mapping. Tests drive it.
+        steady_clock: The host's steady clock (nanoseconds) the engine
+            reads its start on through the step's clock mapping. Tests
+            drive it.
         elapsed_clock: Elapsed-time source (seconds) for the step's
             bounds: the pre-recording stall watch, the duration, the
             stall watch and the disk probe's interval. Monotonic, because
@@ -173,6 +178,7 @@ class ProtocolVideoStep:
         labware: Labware,
         fallback_focus: str | None,
         clock: Callable[[], float] = time.time,
+        steady_clock: Callable[[], int] = host_clock.steady_ns,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):
         self._scope = scope
@@ -203,6 +209,7 @@ class ProtocolVideoStep:
         self._labware = labware
         self._fallback_focus = fallback_focus
         self._clock = clock
+        self._steady_clock = steady_clock
         self._elapsed_clock = elapsed_clock
 
         self._engine: VideoRecordingEngine | None = None
@@ -385,8 +392,9 @@ class ProtocolVideoStep:
             write_frame=self._write_frame,
             claim=self._run_claim,
             clock=self._clock,
+            steady_clock=self._steady_clock,
         )
-        engine.start(lambda: config)
+        engine.start(lambda: (config, self._mapping))
         try:
             self._engine = engine
             scope.imaging.add_frame_listener(

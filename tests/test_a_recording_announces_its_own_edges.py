@@ -14,6 +14,7 @@ import threading
 
 import pytest
 
+from drivers import host_clock
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
@@ -46,7 +47,9 @@ def _engine_heard_by(tmp_path, claim_for, *, blocked=False):
     claim = claim_for(_listener)
     writer = WriterStub(tmp_path, blocked=blocked)
     clock = FakeClock()
-    engine = VideoRecordingEngine(write_frame=writer, claim=claim, clock=clock)
+    engine = VideoRecordingEngine(
+        write_frame=writer, claim=claim, clock=clock, steady_clock=host_clock.steady_ns
+    )
     return engine, writer, clock, heard
 
 
@@ -64,7 +67,7 @@ class TestTheEngine:
     def test_a_listener_hears_it_go_live(self, tmp_path, claim_for):
         engine, _writer, _clock, heard = _engine_heard_by(tmp_path, claim_for)
 
-        engine.start(lambda: make_config(tmp_path))
+        engine.start(lambda: (make_config(tmp_path), None))
         try:
             assert (True, True) in heard, (
                 f'no listener was told the recording is live; heard {heard}'
@@ -75,7 +78,7 @@ class TestTheEngine:
 
     def test_a_listener_hears_it_go_to_draining(self, tmp_path, claim_for):
         engine, writer, clock, heard = _engine_heard_by(tmp_path, claim_for, blocked=True)
-        engine.start(lambda: make_config(tmp_path, fps=None))
+        engine.start(lambda: (make_config(tmp_path, fps=None), None))
         clock.advance(0.1)
         image, ts, chunks = FrameFeed().frame(clock())
         engine.ingest_frame(image, ts, chunks, fact=None)
@@ -111,6 +114,7 @@ class TestTheController:
             activity_claim=ActivityClaim(on_transition=_listener),
             scheduler=ManualFireScheduler(),
             clock=clock,
+            steady_clock=scope.imaging.steady_clock(clock),
             channel_colors=release_colors,
             post_processing=post_processing,
         )

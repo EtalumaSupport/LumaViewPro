@@ -116,6 +116,14 @@ class _FakeImaging:
     def map_camera_clock(self):
         return self.mapping
 
+    @staticmethod
+    def steady_clock(clock):
+        """The host's steady clock this mapping is anchored on, read off the
+        test's clock: the steady clock at ``clock``'s reading maps through the
+        mapping to that same reading, so a start read through the mapping is
+        the clock's reading, as a frame's time is."""
+        return lambda: round(clock() * 1e9)
+
     def changes_in_force(self, mapping, exclude_sources=()):
         # This scope records no change, so a recording's wait before its
         # first frame ends at once; the wait itself is pinned on the
@@ -292,6 +300,7 @@ def make_controller(
         activity_claim=claim or ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
+        steady_clock=scope.imaging.steady_clock(clock),
         elapsed_clock=elapsed_clock or clock,
         channel_colors=release_colors,
         post_processing=post_processing or _builds,

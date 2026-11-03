@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from drivers import host_clock
 from modules.caller import Caller
 from modules.exceptions import (
     ClaimStillLentError,
@@ -106,10 +107,13 @@ class TestTheDiagnosticHoldsTheScope:
 
         session = session_on_a_simulated_scope()
         engine = VideoRecordingEngine(
-            write_frame=MagicMock(), claim=session.activity_claim, clock=lambda: 0.0
+            write_frame=MagicMock(),
+            claim=session.activity_claim,
+            clock=lambda: 0.0,
+            steady_clock=host_clock.steady_ns,
         )
         with session.diagnostic_claim(), pytest.raises(RecordingRefusedError) as excinfo:
-            engine.start(lambda: MagicMock())
+            engine.start(lambda: (MagicMock(), None))
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert excinfo.value.holder == 'diagnostic'
 

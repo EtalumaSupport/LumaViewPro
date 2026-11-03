@@ -19,6 +19,7 @@ import pathlib
 
 import modules.manual_recording as manual_recording_module
 import modules.protocol_recording as protocol_recording
+from drivers import host_clock
 from tests.video_step_drives import record_first_frame
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
@@ -35,12 +36,13 @@ def _engine(tmp_path, writer=None):
         write_frame=writer if writer is not None else WriterStub(tmp_path),
         claim=ActivityClaim(),
         clock=clock,
+        steady_clock=host_clock.steady_ns,
     )
     return engine, clock
 
 
 def _record(engine, clock, tmp_path, *, output_dir=None, frames=10):
-    engine.start(lambda: make_config(output_dir or tmp_path, fps=10, duration_s=1))
+    engine.start(lambda: (make_config(output_dir or tmp_path, fps=10, duration_s=1), None))
     feed = FrameFeed()
     for _ in range(frames):
         clock.advance(0.1)
@@ -160,7 +162,7 @@ def test_a_recording_with_nothing_to_describe_is_not_a_lost_details_file(tmp_pat
 
     # A start that failed recorded nothing, so no manifest is written: its
     # absence is the honest answer, not a failure to report.
-    engine.start(lambda: make_config(tmp_path, fps=10, duration_s=1))
+    engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
     engine.stop('start_failed')
     assert engine.wait_for_drain(timeout=5)
     result = engine.result()

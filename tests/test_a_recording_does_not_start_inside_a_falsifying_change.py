@@ -20,6 +20,7 @@ import threading
 
 import pytest
 
+from drivers import host_clock
 from modules import settings_init
 from modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
 from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
@@ -79,7 +80,12 @@ def _config(tmp_path):
 
 
 def _engine(claim):
-    return VideoRecordingEngine(write_frame=lambda *a, **k: None, claim=claim, clock=lambda: 0.0)
+    return VideoRecordingEngine(
+        write_frame=lambda *a, **k: None,
+        claim=claim,
+        clock=lambda: 0.0,
+        steady_clock=host_clock.steady_ns,
+    )
 
 
 class _Change:
@@ -120,7 +126,7 @@ class TestTheRecordingStart:
         fut, change = _run_inline_in_an_unmarked_task(io_lane)
         try:
             with pytest.raises(RecordingRefusedError) as refused:
-                _engine(claim).start(lambda: _config(tmp_path))
+                _engine(claim).start(lambda: (_config(tmp_path), None))
             assert refused.value.reason == 'falsifying_change_in_flight'
             assert claim.holder is None, 'a refused start leaves the claim free'
         finally:
@@ -135,7 +141,7 @@ class TestTheRecordingStart:
         fut, change = _run_top_level(lane, falsifies_recording=True)
         try:
             with pytest.raises(RecordingRefusedError) as refused:
-                _engine(claim).start(lambda: _config(tmp_path))
+                _engine(claim).start(lambda: (_config(tmp_path), None))
             assert refused.value.reason == 'falsifying_change_in_flight'
             assert claim.holder is None
         finally:
@@ -161,7 +167,7 @@ class TestTheRecordingStart:
     def test_the_change_it_was_refused_for_runs_to_its_end(self, claim, io_lane, tmp_path):
         fut, change = _run_inline_in_an_unmarked_task(io_lane)
         with pytest.raises(RecordingRefusedError):
-            _engine(claim).start(lambda: _config(tmp_path))
+            _engine(claim).start(lambda: (_config(tmp_path), None))
         change.release.set()
         assert fut.result(timeout=_WAIT_S) is None
 
@@ -170,7 +176,7 @@ class TestTheRecordingStart:
         change.release.set()
         fut.result(timeout=_WAIT_S)
         engine = _engine(claim)
-        engine.start(lambda: _config(tmp_path))
+        engine.start(lambda: (_config(tmp_path), None))
         try:
             assert claim.owner == 'recording'
         finally:
@@ -180,7 +186,7 @@ class TestTheRecordingStart:
         fut, change = _run_top_level(io_lane, falsifies_recording=False)
         engine = _engine(claim)
         try:
-            engine.start(lambda: _config(tmp_path))
+            engine.start(lambda: (_config(tmp_path), None))
             assert claim.owner == 'recording'
             engine.stop('user_stop')
         finally:
@@ -192,7 +198,7 @@ class TestTheRecordingStart:
 
         def _build():
             seen.append(claim.owner)
-            return _config(tmp_path)
+            return _config(tmp_path), None
 
         engine = _engine(claim)
         engine.start(_build)
@@ -319,13 +325,15 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
             return resolve()
 
         scope.runtime_state.resolve_current_objective = _objective_read
+        clock = FakeClock()
         controller = ManualRecordingController(
             scope=scope,
             settings=make_settings(tmp_path),
             shown_layer=lambda: 'BF',
             activity_claim=claim,
             scheduler=ManualFireScheduler(),
-            clock=FakeClock(),
+            clock=clock,
+            steady_clock=scope.imaging.steady_clock(clock),
             channel_colors=release_colors,
             post_processing=post_processing,
         )

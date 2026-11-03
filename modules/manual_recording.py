@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from drivers import host_clock
 from drivers.camera import Frame
 import modules.image_mode as image_mode
 import modules.image_save as image_save
@@ -168,7 +169,11 @@ class ManualRecordingController:
         post_processing: The session's builds; a recording's stack is
             built through it.
         clock: Wall-time source (seconds) for what is measured against
-            frame timestamps: the engine's cadence. Tests drive it.
+            frame timestamps: the engine's cadence, and its start on a
+            camera without a clock mapping. Tests drive it.
+        steady_clock: The host's steady clock (nanoseconds) the engine
+            reads its start on through the recording's clock mapping.
+            Tests drive it.
         elapsed_clock: Elapsed-time source (seconds) for the recording's
             bounds: its elapsed time, the duration cap, the stall watch and
             the disk probe's interval. Monotonic, because wall time steps
@@ -187,6 +192,7 @@ class ManualRecordingController:
         scheduler: Scheduler,
         post_processing: 'PostProcessingAPI',
         clock: Callable[[], float] = time.time,
+        steady_clock: Callable[[], int] = host_clock.steady_ns,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):
         self._post_processing = post_processing
@@ -197,6 +203,7 @@ class ManualRecordingController:
         self._claim = activity_claim
         self._scheduler = scheduler
         self._clock = clock
+        self._steady_clock = steady_clock
         self._elapsed_clock = elapsed_clock
         self._engine: VideoRecordingEngine | None = None
         self._config: RecordingConfig | None = None
@@ -499,7 +506,7 @@ class ManualRecordingController:
         # was an instant before one.
         claimed = {}
 
-        def _make_config() -> RecordingConfig:
+        def _make_config() -> tuple[RecordingConfig, ClockMapping | None]:
             claimed['layer'] = layer = self._shown_layer()
             _refuse_a_name_that_would_be_false(scope, layer)
             manifest_extra['channel'] = layer
@@ -563,12 +570,13 @@ class ManualRecordingController:
                 # the default name.
                 manifest_filename=('recording_manifest.json' if video_as_frames else None),
             )
-            return claimed['config']
+            return claimed['config'], mapping
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
             claim=self._claim,
             clock=self._clock,
+            steady_clock=self._steady_clock,
         )
         # The frames leg's folder, reserved above; a start that fails from
         # here on leaves it holding nothing.

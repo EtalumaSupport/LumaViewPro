@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from drivers import host_clock
 from modules.coord_transformations import PlatePosition, StageOffset
 from modules import wall_time
 from modules.lumascope_api import AxisPosition, AxisState
@@ -87,7 +88,7 @@ class TestTheFactRidesWithItsFrame:
         clock = FakeClock(1000.0)
         writer = WriterStub(tmp_path, blocked=True)
         engine = _engine(writer, clock)
-        engine.start(lambda: _config(tmp_path))
+        engine.start(lambda: (_config(tmp_path), None))
         feed = FrameFeed()
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
         engine.ingest_frame(image, ts, chunk, fact=A_FACT)
@@ -102,7 +103,7 @@ class TestTheFactRidesWithItsFrame:
         clock = FakeClock(1000.0)
         writer = WriterStub(tmp_path)
         engine = _engine(writer, clock)
-        engine.start(lambda: _config(tmp_path))
+        engine.start(lambda: (_config(tmp_path), None))
         feed = FrameFeed()
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
         with pytest.raises(TypeError):
@@ -417,7 +418,9 @@ class TestTheBoundPlateTransform:
 def _engine(writer, clock):
     from modules.activity_claim import ActivityClaim
 
-    return VideoRecordingEngine(write_frame=writer, claim=ActivityClaim(), clock=clock)
+    return VideoRecordingEngine(
+        write_frame=writer, claim=ActivityClaim(), clock=clock, steady_clock=host_clock.steady_ns
+    )
 
 
 def _config(out_dir):

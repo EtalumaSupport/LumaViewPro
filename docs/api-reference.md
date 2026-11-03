@@ -3943,7 +3943,8 @@ One manual-recording flow: snapshot, record, drain, finish.
 - `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
 - `scheduler`: The session's scheduler; the controller arms its own periodic health check on it at `start` and disarms at finish. Required: a controller that can start a recording but has no armed health bound is the trap this parameter exists to make unconstructible.
 - `post_processing`: The session's builds; a recording's stack is built through it.
-- `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence. Tests drive it.
+- `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence, and its start on a camera without a clock mapping. Tests drive it.
+- `steady_clock`: The host's steady clock (nanoseconds) the engine reads its start on through the recording's clock mapping. Tests drive it.
 - `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration cap, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its cap. Tests drive it.
 
 <a id="ManualRecordingController.discard_pending"></a>
