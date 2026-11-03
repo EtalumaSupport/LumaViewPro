@@ -22,23 +22,30 @@ from drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 
-def _collect_after(cam, change, wanted: int):
-    """The frames delivered from just before ``change()`` on, ``wanted`` of them."""
-    changed = threading.Event()
+def _next_frames(cam, wanted: int, *, after=None):
+    """The next ``wanted`` frames delivered; with ``after``, the ones delivered after it.
+
+    ``after()`` is made from the next frame's callback, on the camera's
+    thread as that frame is stored, so it lands at one place in the stream:
+    the frames after it are the ones delivered after the change. Made from
+    the test's thread, it lands whenever that thread next runs, and every
+    frame delivered while it waits is counted as one in flight at the change.
+    """
     frames = []
     collected = threading.Event()
+    pending = after
 
     def _collect(frame):
-        if changed.is_set() and len(frames) < wanted:
+        nonlocal pending
+        if pending is not None:
+            change, pending = pending, None
+            change()
+        elif len(frames) < wanted:
             frames.append(frame)
             if len(frames) == wanted:
                 collected.set()
 
     cam.register_frame_callback(_collect)
-    # Collecting starts before the change, so the frame being made at the
-    # change may be collected too: it predates the change and is old.
-    changed.set()
-    change()
     assert collected.wait(5.0), f'only {len(frames)} frames came after the change'
     return frames
 
@@ -64,7 +71,7 @@ def test_the_frames_in_flight_at_a_change_are_made_under_the_old_setting(change)
     cam.open_and_start()
     try:
         dim = float(grab_a_frame_made_after_now(cam).image.mean())
-        frames = _collect_after(cam, lambda: change(cam), in_flight + 4)
+        frames = _next_frames(cam, in_flight + 4, after=lambda: change(cam))
     finally:
         cam.stop_grabbing()
 
@@ -88,7 +95,7 @@ def test_a_stale_frames_chunk_already_carries_the_new_value():
     try:
         grab_a_frame_made_after_now(cam)
         wanted = SimulatedCamera.SENSOR_PIPELINE_FRAMES + 3
-        frames = _collect_after(cam, lambda: cam.gain(20.0), wanted)
+        frames = _next_frames(cam, wanted, after=lambda: cam.gain(20.0))
     finally:
         cam.stop_grabbing()
 
@@ -148,7 +155,7 @@ def test_a_frame_leaves_the_pipeline_its_own_period_and_one_ceiling_period_after
     cam.open_and_start()
     try:
         grab_a_frame_made_after_now(cam)
-        frames = _collect_after(cam, lambda: None, 3)
+        frames = _next_frames(cam, 3)
         clock_offset_ns = cam.camera_clock_ticks() - host_clock.steady_ns()
         made_under = [cam.exposed_under(f.chunks['FrameID']).exposure_us for f in frames]
     finally:
@@ -168,7 +175,7 @@ def test_each_frame_carries_its_counter_and_its_exposure_start_on_the_cameras_cl
     cam.open_and_start()
     try:
         before = cam.camera_clock_ticks()
-        frames = _collect_after(cam, lambda: None, 4)
+        frames = _next_frames(cam, 4)
     finally:
         cam.stop_grabbing()
 
