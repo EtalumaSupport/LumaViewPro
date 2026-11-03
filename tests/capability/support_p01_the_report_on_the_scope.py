@@ -26,9 +26,7 @@ _STEP_FILES = ('fan_test.txt', 'led_leakage.txt')
 
 
 def _make(session):
-    from modules.tech_support_report import TechSupportReport
-
-    zip_path = TechSupportReport(scope=session.scope).generate(output_dir=probe_dir('support_p01'))
+    zip_path = session.make_support_report(output_dir=probe_dir('support_p01')).path
     figure('report', str(zip_path))
     with zipfile.ZipFile(zip_path) as z:
         names = z.namelist()

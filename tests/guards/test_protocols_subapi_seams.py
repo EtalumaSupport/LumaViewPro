@@ -3,11 +3,7 @@
 
 Three things are locked here:
 
-1. Both Lumascope constructor paths expose the SAME sub-API roster.
-   `__init__` and `create_diagnostic` open-code their wiring separately,
-   so a sub-API added to one and forgotten in the other raises
-   AttributeError only on the diagnostic path -- which nobody exercises
-   until a customer needs a support report.
+1. The Lumascope constructor wires every sub-API in the roster.
 2. `source_path` is stored in exactly one place, on the scope, given at
    its construction; ProtocolsAPI reads it and keeps no copy.
 3. The migration itself: production callers reach the cluster through
@@ -109,7 +105,7 @@ def _legacy_call_sites():
 
 
 class TestSubApiRoster:
-    """Both constructor paths wire an identical sub-API roster."""
+    """The constructor wires every sub-API in the roster."""
 
     def test_init_path_wires_every_sub_api(self):
         scope = _new_scope()
@@ -118,13 +114,6 @@ class TestSubApiRoster:
         finally:
             scope.disconnect()
         assert not missing, f'__init__ did not wire: {missing}'
-
-    def test_diagnostic_path_wires_every_sub_api(self, diagnostic_scope):
-        missing = [name for name in _SUB_APIS if not hasattr(diagnostic_scope, name)]
-        assert not missing, (
-            f'create_diagnostic did not wire: {missing}. The two constructor '
-            f'paths wire sub-APIs separately; both must be updated together.'
-        )
 
 
 class TestSourcePathHasOneHome:

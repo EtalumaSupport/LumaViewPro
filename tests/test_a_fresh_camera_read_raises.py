@@ -102,11 +102,11 @@ def test_a_defect_in_any_fresh_read_leaves_as_itself(sim_scope, monkeypatch):
     assert relabelled == {}
 
 
-def test_with_no_camera_every_fresh_read_is_refused_naming_it(diagnostic_scope):
+def test_with_no_camera_every_fresh_read_is_refused_naming_it(no_hardware_scope):
     answered = {}
     for read, _node in _READS:
         try:
-            answered[read] = getattr(diagnostic_scope.camera, read)()
+            answered[read] = getattr(no_hardware_scope.camera, read)()
         except HardwareCommandRefusedError as refusal:
             if (refusal.reason, refusal.missing) != ('not_connected', MissingPart.CAMERA):
                 answered[read] = refusal

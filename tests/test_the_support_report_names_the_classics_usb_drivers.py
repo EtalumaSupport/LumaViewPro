@@ -46,8 +46,8 @@ def test_a_classic_on_libusbk_is_written_unusable_naming_its_driver(fx2_session,
     ]
 
 
-def test_a_scope_with_no_fx2_says_the_bindings_were_not_read(sim_scope, tmp_path):
-    TechSupportReport(scope=sim_scope)._step_camera_usb_bindings(tmp_path)
+def test_a_scope_with_no_fx2_says_the_bindings_were_not_read(sim_session, tmp_path):
+    TechSupportReport(sim_session)._step_camera_usb_bindings(tmp_path)
 
     written = (tmp_path / 'camera_usb_bindings' / 'camera_usb_bindings.txt').read_text()
     assert 'Not read: this host binds no driver to a USB device.' in written

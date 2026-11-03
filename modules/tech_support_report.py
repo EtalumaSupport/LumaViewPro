@@ -3,31 +3,17 @@
 Tech Support Report Generator for LumaViewPro.
 
 Collects comprehensive diagnostic information and bundles it into a ZIP file
-in the folder its caller names (the GUI and the command line name the
-user's Desktop) for emailing to support@etaluma.com.
+in the folder its caller names (the GUI names the user's Desktop) for
+emailing to support@etaluma.com.
 
-Two modes:
-  1. Integrated: Called from the LumaViewPro GUI "Generate Support Report"
-     button. Receives a Lumascope instance (or ScopeSession) from the running
-     application.
-  2. Standalone: ``python tech_support_report.py`` -- connects to hardware
-     directly, no LumaViewPro needed. Can also be frozen with PyInstaller
-     into a standalone .exe (see build notes at bottom of file).
+A report is made by ``ScopeSession.make_support_report``, the one way every
+client makes one: the GUI's "Generate Support Report" button, REST, the SDK
+and a script. The report is built on that session and its scope.
 
 Config file retrieval:
   - Uses MicroPython raw REPL to read files directly from the RP2040
     filesystem (similar to Thonny). No custom firmware command needed.
     Temporarily interrupts firmware, reads files, then soft-resets.
-
-Usage (standalone):
-    python tech_support_report.py
-    python tech_support_report.py --bandwidth-test
-    python tech_support_report.py --no-firmware
-
-Usage (integrated):
-    from modules.tech_support_report import TechSupportReport
-    report = TechSupportReport(scope=lumascope_instance)
-    report.generate(callback=progress_callback, output_dir=desktop_folder())
 
 Recent protocols list (reusable from GUI):
     from modules.tech_support_report import get_recent_protocols
@@ -51,6 +37,7 @@ import tempfile
 import time
 import zipfile
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import platformdirs
 
@@ -86,6 +73,10 @@ from modules.path_utils import (
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.api_surface import ProgressCallback, api, api_fields
+
+if TYPE_CHECKING:
+    from modules.lumascope_api.illumination import IlluminationAPI
+    from modules.lumascope_api.motion import MotionAPI
 
 logger = logging.getLogger(__name__)
 
@@ -854,20 +845,6 @@ class CameraBandwidthTest:
 
     def run(self, progress_callback: ProgressCallback | None = None) -> dict:
         """Run test. Returns results dict."""
-        if self.scope is None:
-            return {
-                'num_frames_requested': self.num_frames,
-                'num_frames_received': 0,
-                'num_frames_failed': 0,
-                'failed_by_reason': {},
-                'total_bytes': 0,
-                'elapsed_seconds': 0,
-                'mb_per_second': 0.0,
-                'fps_actual': 0.0,
-                'frame_sizes': [],
-                'errors': ['No scope available'],
-                'passed': False,
-            }
         return self.scope.diagnostics.run_camera_bandwidth_test(
             num_frames=self.num_frames,
             timeout_s=BANDWIDTH_TEST_TIMEOUT_S,
@@ -938,57 +915,28 @@ class FirmwareDiagnostics:
     Driver objects are NOT held on this class (LAYER-D / LV-32 / LV-40).
     """
 
-    # The command-line report builds its own scope with
-    # ``connect_standalone()``; the GUI report is handed the running one.
-
-    def __init__(self, scope=None):
+    def __init__(self, scope):
         self._scope = scope
-        # Why ``connect_standalone`` could not build a scope, or None.
-        self.build_failure: Exception | None = None
-
-    def connect_standalone(self) -> None:
-        """Build a scope for the command-line report through the API.
-
-        A scope that cannot be built (a missing or unreadable install file,
-        say) leaves ``self._scope`` None and the cause in
-        ``build_failure``, so the report can say in its own files why no
-        hardware step ran instead of reporting every board as unplugged.
-
-        A retry closes the scope it built before it builds the next: a
-        process drives one real scope, so a second built beside the first
-        is refused.
-        """
-        try:
-            from modules.lumascope_api import Lumascope
-
-            if self._scope is not None:
-                previous, self._scope = self._scope, None
-                previous.disconnect()
-            self._scope = Lumascope.create_diagnostic()
-            self.build_failure = None
-        except Exception as e:
-            self._scope = None
-            self.build_failure = e
 
     @property
     def scope(self):
         return self._scope
 
     @property
-    def led_board(self):
+    def led_board(self) -> 'IlluminationAPI':
         """Backward-compat accessor returning a stable per-scope reference
         used by ``_target_str`` identity matching only. New diagnostic
         code MUST go through ``send_diagnostic_command``. Returns the
         post-Wave-7 illumination sub-API namespace (was ``scope.led``
         pre-Wave-7 -- that attribute no longer exists)."""
-        return getattr(self._scope, 'illumination', None) if self._scope else None
+        return self._scope.illumination
 
     @property
-    def motor_board(self):
+    def motor_board(self) -> 'MotionAPI':
         """Backward-compat accessor returning a stable per-scope reference
         used by ``_target_str`` identity matching only. New diagnostic
         code MUST go through ``send_diagnostic_command``."""
-        return getattr(self._scope, 'motion', None) if self._scope else None
+        return self._scope.motion
 
     def _led_ok(self) -> bool:
         """True when a real LED board is connected to this scope.
@@ -997,18 +945,14 @@ class FirmwareDiagnostics:
         ``scope.illumination`` is non-None even when only a NullLEDBoard is
         installed, so its truthiness says nothing.
         """
-        return self._scope is not None and self._scope.led_connected
+        return self._scope.led_connected
 
     def motor_board_presence(self) -> MotorBoardPresence:
         """Whether this scope's motor board is connected, missing, or never fitted.
 
         The scope's ``motion_expected`` tells a manual scope from one whose
-        board did not come up. The command-line report's scope is built
-        without a model, so it always expects a board and can only answer
-        connected or missing.
+        board did not come up.
         """
-        if self._scope is None:
-            return MotorBoardPresence.MISSING
         if self._scope.motor_connected:
             return MotorBoardPresence.CONNECTED
         if not self._scope.motion_expected:
@@ -1135,8 +1079,6 @@ class FirmwareDiagnostics:
         target_str = self._target_str(target)
         if target_str is None:
             return NOT_CONNECTED
-        if self._scope is None:
-            return NOT_CONNECTED
         return self._scope.diagnostics.send_diagnostic_command(
             target_str, command, timeout_s=timeout_s
         )
@@ -1145,8 +1087,6 @@ class FirmwareDiagnostics:
         """Send command and read multi-line response (for SELFTEST etc.)."""
         target_str = self._target_str(target)
         if target_str is None:
-            return NOT_CONNECTED
-        if self._scope is None:
             return NOT_CONNECTED
         return self._scope.diagnostics.send_diagnostic_command_multiline(
             target_str, command, timeout_s=timeout_s, end_markers=end_markers
@@ -1166,8 +1106,6 @@ class FirmwareDiagnostics:
         # Post-Wave-7 the LED namespace is ``scope.illumination``; the
         # legacy ``scope.led`` attribute was retired. Motor namespace
         # remained ``scope.motion``.
-        if self._scope is None:
-            return None
         if target is getattr(self._scope, 'illumination', None):
             return 'led'
         if target is getattr(self._scope, 'motion', None):
@@ -1685,7 +1623,7 @@ class SupportReportSaved:
 class TechSupportReport:
     """Generate a comprehensive diagnostic ZIP for Etaluma tech support."""
 
-    def __init__(self, scope=None, session=None):
+    def __init__(self, session):
         # Store scope as primary interface -- avoid extracting raw driver
         # objects at this level.  FirmwareDiagnostics handles board access.
         #
@@ -1693,25 +1631,20 @@ class TechSupportReport:
         # report takes the session's diagnostic claim around them, so a
         # run or a recording cannot start underneath a homing or a fan
         # sweep, and a report started during one skips those steps instead
-        # of driving the hardware out from under it.
+        # of driving the hardware out from under it. The report is built on
+        # its session alone, so none is made without the claim.
         self._session = session
-        if scope is not None:
-            self.scope = scope
-        elif session is not None:
-            self.scope = session.scope
-        else:
-            self.scope = None
+        self.scope = session.scope
 
         # FirmwareDiagnostics routes all serial I/O through the
-        # Lumascope API. In integrated mode it inherits the live scope; the
-        # command-line report calls ``diag.connect_standalone()`` later.
+        # Lumascope API, on the session's scope.
         self.diag = FirmwareDiagnostics(scope=self.scope)
 
         self._meta = {}
 
     def _camera_active(self) -> bool:
-        """True when the report has a scope and its camera is connected."""
-        return self.scope is not None and self.scope.camera_connected
+        """True when the scope's camera is connected."""
+        return self.scope.camera_connected
 
     def generate(
         self,
@@ -1962,41 +1895,24 @@ class TechSupportReport:
         with contextlib.ExitStack() as held:
             in_use = None
             skip = None
-            not_built = self.diag.build_failure
-            if not_built is not None:
+            # Another activity holding the scope, or a control session
+            # held by someone else: either way the microscope is in use.
+            try:
+                held.enter_context(self._session.diagnostic_claim())
+            except DiagnosticRefusedError as e:
+                in_use = e.message
+            except ControlSessionRefusedError as e:
+                in_use = str(e)
+            if in_use is not None:
                 skip = _SkippedStep(
-                    f'The scope could not be built: {type(not_built).__name__}: {not_built}',
-                    'No board or camera was reached, so this step did not run.',
+                    in_use,
+                    'The microscope was in use, so this step did not drive the hardware.',
                 )
-                self._meta['scope_not_built'] = skip.reason
-            # No session means the command-line report, which opens the
-            # boards in a process of its own; nothing in that process can
-            # contend for the scope, so there is no claim to take.
-            elif self._session is not None:
-                # Another activity holding the scope, or a control session
-                # held by someone else: either way the microscope is in use.
-                try:
-                    held.enter_context(self._session.diagnostic_claim())
-                except DiagnosticRefusedError as e:
-                    in_use = e.message
-                except ControlSessionRefusedError as e:
-                    in_use = str(e)
-                if in_use is not None:
-                    skip = _SkippedStep(
-                        in_use,
-                        'The microscope was in use, so this step did not drive the hardware.',
-                    )
-                    logger.info(f'Report: hardware steps skipped -- {in_use}')
+                logger.info(f'Report: hardware steps skipped -- {in_use}')
 
             # 1. Firmware info + serial number  (0-5%)
             cb(1, 'Querying firmware...')
-            if not_built is not None:
-                self._record_skipped(
-                    tmp / 'firmware_info', 'firmware_info.txt', 'Firmware Info', skip
-                )
-                sn = 'UNKNOWN'
-            else:
-                sn = self._step_firmware_info(tmp, skip)
+            sn = self._step_firmware_info(tmp, skip)
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')
@@ -2059,10 +1975,7 @@ class TechSupportReport:
 
             # 9. Camera diagnostics (temp)  (38-41%)
             cb(39, 'Checking camera...')
-            if not_built is not None:
-                self._record_skipped(tmp / 'camera_info', 'camera_info.txt', 'Camera', skip)
-            else:
-                self._step_camera_diagnostics(tmp)
+            self._step_camera_diagnostics(tmp)
 
             # 10. Bandwidth test (optional)  (41-48%)
             if include_bw:
@@ -2538,8 +2451,6 @@ class TechSupportReport:
         The read the camera's connect makes, so the report shows why a
         Classic did not come up on a wrong or missing driver.
         """
-        if self.scope is None:
-            return
         d = tmp / 'camera_usb_bindings'
         d.mkdir()
         lines = ['Lumascope Classic USB driver bindings', '=' * 40, '']
@@ -2835,25 +2746,9 @@ class TechSupportReport:
     def _step_bring_up(self, tmp):
         """What bring-up found: each part and why it is not up, the substitutions, the settings set aside.
 
-        The session's record when there is one; the command-line report's
-        diagnostic scope's otherwise, which holds the two boards and no
-        camera and expects every board. No scope, no record: the file says
-        why there is none.
+        The session's record.
         """
-        if self._session is not None:
-            record = self._session.bring_up_record()
-        elif self.diag.scope is not None:
-            record = self.diag.scope.bring_up_record()
-        else:
-            failure = self.diag.build_failure
-            why = (
-                f'the scope could not be built: {type(failure).__name__}: {failure}'
-                if failure is not None
-                else 'the report ran without connecting to the scope'
-            )
-            body = {'record': None, 'why': why}
-            (tmp / 'bring_up.json').write_text(json.dumps(body, indent=2))
-            return
+        record = self._session.bring_up_record()
         body = dataclasses.asdict(record)
         for part in body['parts']:
             part['cause_words'] = CAUSE_PHRASES.get(part['cause']) if part['cause'] else None
@@ -2861,7 +2756,7 @@ class TechSupportReport:
 
     def _step_plugins(self, tmp):
         """The loaded plugins, the ones that did not load and why, and their runtime errors."""
-        health = self._session.plugin_health() if self._session is not None else None
+        health = self._session.plugin_health()
         if health is None:
             body = {'plugins': None, 'why': 'no plugin registry on this host'}
         else:
@@ -2917,12 +2812,12 @@ class TechSupportReport:
                 #    path the full TSR uses, so an SN reachable via
                 #    FULLINFO surfaces here too.
                 # 3. 'logs' fallback only when both are unavailable
-                #    (standalone runs, motor not connected).
+                #    (motor not connected).
                 sn_tag = None
                 try:
                     mb = self.diag.motor_board
                     # A scope with no motor board has no motor configuration.
-                    motorconfig = getattr(mb, 'motorconfig', None) if mb is not None else None
+                    motorconfig = getattr(mb, 'motorconfig', None)
                     if motorconfig is not None:
                         sn = motorconfig.serial_number()
                         if sn and sn != 'Unknown':
@@ -3009,129 +2904,3 @@ class TechSupportReport:
 
         logger.info(f'Report saved: {zip_path}')
         return zip_path
-
-
-# ---------------------------------------------------------------------------
-# Standalone CLI
-# ---------------------------------------------------------------------------
-
-
-def main() -> int:
-    """Run diagnostics from command line without LumaViewPro."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description='Etaluma LumaViewPro -- Tech Support Diagnostic Report',
-        epilog=(
-            'The command-line report does not know the scope model, so it cannot tell '
-            'a scope built without a motor board (LS560, LS620) from one whose board '
-            'is not connected: both read "Motor board not connected". The report '
-            'generated from LumaViewPro tells them apart.'
-        ),
-    )
-    parser.add_argument(
-        '--output', '-o', type=str, default=None, help='Output directory (default: Desktop)'
-    )
-    parser.add_argument(
-        '--bandwidth-test', action='store_true', help='Include camera bandwidth test (~2-5 min)'
-    )
-    parser.add_argument(
-        '--no-firmware',
-        action='store_true',
-        help='Skip firmware communication (no hardware needed)',
-    )
-    args = parser.parse_args()
-
-    logger.info('')
-    logger.info('=' * 56)
-    logger.info('  Etaluma Diagnostics -- Tech Support Report Generator')
-    logger.info('=' * 56)
-    logger.info('')
-
-    report = TechSupportReport()
-
-    def connect():
-        """Build the scope and say what came up: (LED ok, motor ok, built)."""
-        report.diag.connect_standalone()
-        not_built = report.diag.build_failure
-        if not_built is not None:
-            # Not a cable or power fault: power-cycle advice would send the
-            # user after the wrong thing, and a retry fails the same way.
-            logger.error(f'  The scope could not be built: {type(not_built).__name__}: {not_built}')
-            logger.error('  The report will say so; no hardware test will run.')
-            return False, False, False
-        led_ok = report.diag._led_ok()
-        mot_ok = report.diag.motor_board_presence() is MotorBoardPresence.CONNECTED
-        logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
-        logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
-        return led_ok, mot_ok, True
-
-    if not args.no_firmware:
-        logger.info('Connecting to hardware...')
-        led_ok, mot_ok, built = connect()
-
-        # If neither board found, prompt for power cycle before giving up
-        if built and not led_ok and not mot_ok:
-            logger.info('')
-            logger.info('  ** No boards detected. **')
-            logger.info('  Please try the following:')
-            logger.info('    1. Check that the USB cable is connected')
-            logger.info('    2. Power-cycle the system (turn off, wait 10 seconds, turn on)')
-            logger.info('    3. Wait 30 seconds for the boards to boot')
-            try:
-                input('  Press Enter to retry (Ctrl-C to skip hardware)...')
-            except KeyboardInterrupt:
-                logger.info('  Skipping hardware.')
-                led_ok = False
-                mot_ok = False
-            else:
-                logger.info('  Retrying...')
-                led_ok, mot_ok, built = connect()
-                if built and not led_ok and not mot_ok:
-                    logger.info('')
-                    logger.info('  Still no boards found. Generating report without hardware.')
-                    logger.info(f'  Please include this report and contact {SUPPORT_ADDRESS}')
-                    logger.info('')
-
-        # Boards are owned by report.diag -- no need to copy them to report
-        if mot_ok:
-            logger.info('')
-            logger.info('  ** The stage will be homed and moved during testing.  **')
-            logger.info('  ** This process may take 5-10 minutes to complete.    **')
-            try:
-                input('  Press Enter to continue (Ctrl-C to cancel)...')
-            except KeyboardInterrupt:
-                logger.info('  Cancelled.')
-                return 1
-    else:
-        logger.info('Skipping firmware (--no-firmware)')
-
-    logger.info('')
-
-    def cli_progress(pct, msg):
-        filled = int(30 * pct / 100)
-        bar = '#' * filled + '-' * (30 - filled)
-        # Progress bar uses carriage return -- keep as print for CLI display
-        print(f'\r  [{bar}] {pct:3d}%  {msg:<50s}', end='', flush=True)
-
-    try:
-        zip_path = report.generate(
-            callback=cli_progress,
-            include_bandwidth_test=args.bandwidth_test,
-            output_dir=args.output or desktop_folder(),
-        )
-    except SupportReportNotSavedError as e:
-        print('\n')  # Newline after progress bar
-        logger.error(f'  {e}', exc_info=e)
-        logger.info('')
-        return 1
-
-    print('\n')  # Newline after progress bar
-    logger.info(f'  {SupportReportSaved(zip_path, SupportReportKind.SUPPORT_REPORT).message}')
-    logger.info('')
-
-    return 0
-
-
-if __name__ == '__main__':
-    sys.exit(main())

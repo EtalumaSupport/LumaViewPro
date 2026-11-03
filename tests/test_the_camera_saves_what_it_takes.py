@@ -198,15 +198,15 @@ def test_a_saved_camera_setting_written_through_update_settings_names_the_camera
     assert 'scope.camera.set_binning' in str(refused.value)
 
 
-def test_a_scope_no_session_composed_refuses_to_save(diagnostic_scope):
-    """The diagnostic scope has no settings: a camera setting it saves is refused.
+def test_a_scope_no_session_composed_refuses_to_save(no_hardware_scope):
+    """A scope no session composed has no settings: a camera setting it saves is refused.
 
     Reached through the image mode: a scope with no camera has no formats,
     so the mode is saved without a camera write, and the binning and frame
     setters refuse ``not_connected`` before they save.
     """
     with pytest.raises(ConfigurationDefectError) as refused:
-        diagnostic_scope.camera.set_image_mode('8bit')
+        no_hardware_scope.camera.set_image_mode('8bit')
 
     assert refused.value.reason == 'scope_not_composed'
 

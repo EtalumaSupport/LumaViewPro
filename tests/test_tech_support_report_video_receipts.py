@@ -109,13 +109,13 @@ def test_execution_record_found_walking_up_and_absent_for_manual(tmp_path):
     assert find_execution_record(manual) is None
 
 
-def test_step_writes_receipt_bundles(tmp_path, monkeypatch):
+def test_step_writes_receipt_bundles(sim_session, tmp_path, monkeypatch):
     capture = tmp_path / 'capture'
     run = capture / 'run_A'
     rec = _make_protocol_recording(run)
     (run / ProtocolExecutionRecord.DEFAULT_FILENAME).write_text('rows')
     monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture)
-    report = TechSupportReport()
+    report = TechSupportReport(sim_session)
     out = tmp_path / 'bundle'
     out.mkdir()
 
@@ -140,11 +140,11 @@ def test_step_writes_receipt_bundles(tmp_path, monkeypatch):
     assert frame_copies == [], 'receipts must not ship pixel data'
 
 
-def test_step_records_none_found(tmp_path, monkeypatch):
+def test_step_records_none_found(sim_session, tmp_path, monkeypatch):
     capture = tmp_path / 'capture'
     capture.mkdir()
     monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture)
-    report = TechSupportReport()
+    report = TechSupportReport(sim_session)
     out = tmp_path / 'bundle'
     out.mkdir()
 
@@ -153,7 +153,7 @@ def test_step_records_none_found(tmp_path, monkeypatch):
     assert (out / 'video_receipts' / 'none_found.txt').is_file()
 
 
-def test_logs_only_bundle_carries_video_receipts(tmp_path, monkeypatch):
+def test_logs_only_bundle_carries_video_receipts(sim_session, tmp_path, monkeypatch):
     """A video complaint usually arrives via the quick 'zip logs' bundle,
     not the full report -- the receipts must ride BOTH."""
     import zipfile
@@ -166,7 +166,7 @@ def test_logs_only_bundle_carries_video_receipts(tmp_path, monkeypatch):
     monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture)
     monkeypatch.setattr(tech_support_report, '_get_lvp_logs_dir', lambda: logs)
     monkeypatch.setattr(tech_support_report, '_get_lvp_data_dir', lambda: None)
-    report = TechSupportReport()
+    report = TechSupportReport(sim_session)
 
     zip_path = report.generate_logs_only(output_dir=tmp_path / 'out')
 

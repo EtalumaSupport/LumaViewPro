@@ -88,5 +88,5 @@ def test_it_is_the_sensor_maximum_with_the_exposure_unknown(session):
     assert camera.longest_exposure_ms == _sensor_maximum(session) == 1000.0
 
 
-def test_it_is_none_with_no_camera(diagnostic_scope):
-    assert diagnostic_scope.camera.longest_exposure_ms is None
+def test_it_is_none_with_no_camera(no_hardware_scope):
+    assert no_hardware_scope.camera.longest_exposure_ms is None

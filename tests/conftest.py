@@ -320,9 +320,9 @@ _install_host_absent_production_modules()
 # path when none is, so the suite behaved differently by what was plugged
 # in. Unless --run-hardware is set, enumeration finds nothing and the open
 # raises, and the TOUCH fails the test at its end: the driver registry's
-# auto mode and create_diagnostic both swallow a failed constructor into a
-# null driver, so an exception alone would let the test go green on a null
-# board, which is the quiet pass again.
+# auto mode swallows a failed constructor into a null driver, so an
+# exception alone would let the test go green on a null board, which is
+# the quiet pass again.
 SERIAL_REFUSAL_BANNER = 'REAL SERIAL PORT REACHED'
 _serial_touches: list[tuple[str, str]] = []
 
@@ -764,39 +764,6 @@ def _no_test_leaves_the_popups_muted():
 
 
 @pytest.fixture
-def diagnostic_scope():
-    """Lumascope.create_diagnostic() with each board connect answered by its
-    null driver, as on a machine with no scope. The diagnostic path's own
-    wiring is what a test reads; the real boards are unreachable from a test."""
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.null_motorboard import NullMotionBoard
-    from drivers.registry import DriverFallback
-    from modules.lumascope_api import _lumascope
-
-    absent = DriverFallback('not_detected', ())
-    with (
-        patch.object(
-            _lumascope.led_registry,
-            'create_with_fallback',
-            lambda name='auto', **kw: (NullLEDBoard(), absent),
-        ),
-        patch.object(
-            _lumascope.motor_registry,
-            'create_with_fallback',
-            lambda name='auto', **kw: (NullMotionBoard(), absent),
-        ),
-    ):
-        from tests.settings_fixtures import installation_of_its_own
-
-        # On an installation of its own: a real scope takes its lock.
-        instance = _lumascope.Lumascope.create_diagnostic(source_path=installation_of_its_own())
-    try:
-        yield instance
-    finally:
-        instance.disconnect()
-
-
-@pytest.fixture
 def no_hardware(monkeypatch):
     """The registries answer as a machine with no scope does: null boards, no camera."""
     from drivers.null_ledboard import NullLEDBoard
@@ -823,6 +790,22 @@ def no_hardware(monkeypatch):
 
     real_create = _lumascope.camera_registry.create
     monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)
+
+
+@pytest.fixture
+def no_hardware_scope(no_hardware):
+    """A real scope on a machine with no scope: null boards, no camera, no session's settings.
+
+    On an installation of its own, since a real scope takes its installation's lock.
+    """
+    from modules.lumascope_api import Lumascope
+    from tests.settings_fixtures import installation_of_its_own
+
+    instance = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
+    try:
+        yield instance
+    finally:
+        instance.disconnect()
 
 
 # ---------------------------------------------------------------------------

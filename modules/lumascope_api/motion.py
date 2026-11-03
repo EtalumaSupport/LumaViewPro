@@ -438,7 +438,7 @@ class MotionAPI:
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
         """Populate per-axis state dicts from the detected axes.
 
-        Called from Lumascope.__init__ (and create_diagnostic) after the
+        Called from Lumascope.__init__ after the
         motion driver's detect_present_axes() has run. NullMotionBoard
         returns [] so a system with no motor hardware ends up with empty
         dicts -- all state-touching methods handle that via no-ops.
@@ -488,7 +488,7 @@ class MotionAPI:
 
         Called from Lumascope.__init__ after _init_axes() so the thread
         always sees fully populated state dicts. Separate from __init__
-        so create_diagnostic can control the spawn sequence.
+        so the scope's constructor starts it only once the axes are populated.
         """
         self._motion_monitor_stop.clear()
         self._monitor_ended = False

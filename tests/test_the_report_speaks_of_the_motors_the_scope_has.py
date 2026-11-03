@@ -108,30 +108,6 @@ def test_a_manual_scope_held_by_another_activity_still_says_it_has_no_motor_boar
     )
 
 
-def test_the_command_line_report_reads_the_same_answer(monkeypatch, caplog):
-    from types import SimpleNamespace
-
-    from modules import tech_support_report
-
-    def connect(diag):
-        diag._scope = SimpleNamespace(
-            motor_connected=False, motion_expected=True, led_connected=False
-        )
-
-    prompts = []
-    monkeypatch.setattr(tech_support_report.FirmwareDiagnostics, 'connect_standalone', connect)
-    # Enter at the power-cycle prompt: the retry asks the board again.
-    monkeypatch.setattr('builtins.input', prompts.append)
-    monkeypatch.setattr(tech_support_report.TechSupportReport, 'generate', _not_saved)
-    monkeypatch.setattr('sys.argv', ['tech_support_report'])
-
-    with caplog.at_level('INFO', logger=tech_support_report.logger.name):
-        assert tech_support_report.main() == 1
-
-    assert len(prompts) == 1
-    assert caplog.text.count('Motor board: Not found') == 2
-
-
 def test_a_board_that_reports_no_axes_is_not_a_homing_pass(tmp_path, monkeypatch):
     import dataclasses
 
@@ -154,10 +130,3 @@ def test_a_board_that_reports_no_axes_is_not_a_homing_pass(tmp_path, monkeypatch
 
     assert 'passed' not in result
     assert 'no axes' in result['error']
-
-
-def _not_saved(*args, **kwargs):
-    # The report itself is not under test: it stands in as one that was not saved.
-    from modules.exceptions import SupportReportNotSavedError
-
-    raise SupportReportNotSavedError('support report', OSError('not made in this test'))

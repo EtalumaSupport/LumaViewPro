@@ -68,7 +68,7 @@ def test_the_report_records_it_against_the_axis(session, monkeypatch, reason):
 
     monkeypatch.setattr(session.scope._motion_driver, 'zhome', refused)
 
-    result = TechSupportReport(scope=session.scope).diag.run_homing_test()
+    result = TechSupportReport(session).diag.run_homing_test()
 
     assert result['passed'] is False
     assert result['axes']['Z']['status'] == 'FAIL'

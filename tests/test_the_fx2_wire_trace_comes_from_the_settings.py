@@ -119,25 +119,3 @@ def test_the_illumination_cache_check_traces_by_the_sessions_setting(tmp_path, c
     finally:
         session.shutdown()
         session.scope.disconnect()
-
-
-def test_the_support_report_scope_never_traces(monkeypatch):
-    # No real port is opened in the suite: both boards are answered null.
-    monkeypatch.setattr(
-        lumascope_module.motor_registry,
-        'create_with_fallback',
-        lambda name='auto', **kwargs: (NullMotionBoard(), None),
-    )
-    monkeypatch.setattr(
-        lumascope_module.led_registry,
-        'create_with_fallback',
-        lambda name='auto', **kwargs: (NullLEDBoard(), None),
-    )
-
-    scope = lumascope_module.Lumascope.create_diagnostic(source_path=installation_of_its_own())
-    try:
-        # The diagnostic scope is built without __init__, so the flag its
-        # illumination API reads is set by create_diagnostic itself.
-        assert scope._fx2_debug_wire is False
-    finally:
-        scope.disconnect()

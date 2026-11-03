@@ -434,23 +434,17 @@ class Lumascope:
         return motorconfig_defaults
 
     def _init_minimal(self, simulated: bool) -> None:
-        """Shared init for state slots both __init__ and create_diagnostic need.
+        """The state slots every scope carries, set before its drivers connect.
 
         Sets the non-driver state that every Lumascope instance must
         carry: transformers, locks, camera cache, objective state slots,
-        the scope's two lanes. Both __init__ and
-        create_diagnostic call this first; each then does its
+        the scope's two lanes. __init__ calls this first, then does its
         driver-connection-specific work.
-
-        Pre-#35, create_diagnostic open-coded a subset of these
-        assignments and left ~12 attributes unset, which made diagnostic
-        instances second-class. Centralizing here makes the slot list
-        the single point of truth.
 
         A real scope takes its installation's instance lock first, before
         a lane starts or a driver opens a port, so a scope refused here has
-        opened nothing. It is the one step both constructors run, so no real
-        scope is built without it; a simulated scope takes none.
+        opened nothing, and no real scope is built without it; a simulated
+        scope takes none.
 
         Raises:
             ScopeInUseError: another process, or another real scope in this
@@ -468,7 +462,7 @@ class Lumascope:
         self._motion_expected = True
 
         # Driver slot defaults -- __init__ overrides _camera_driver with
-        # the real driver; create_diagnostic leaves it None.
+        # the driver bring-up connects.
         self._camera_driver = None
         self._settings_reader: Callable[[str], Any] | None = None
         self._settings_writer: Callable[[dict[str, Any]], None] | None = None
@@ -2198,122 +2192,6 @@ class Lumascope:
             part
             for part, connected in ((Part.LED, led), (Part.MOTOR, motion), (Part.CAMERA, camera))
             if not connected
-        )
-
-    @classmethod
-    def create_diagnostic(cls, source_path: 'str | os.PathLike | None' = None) -> 'Lumascope':
-        """Create a minimal Lumascope for diagnostics (no camera init).
-
-        Internal degraded-mode constructor for support reports -- not
-        part of the L2 API surface.
-
-        Connects to LED and motor boards only. For use by tools like
-        the tech support report that need board access without the full
-        application stack.
-
-        Args:
-            source_path: The data folder to read the catalogues from; None
-                (default) is the installation's own folder.
-
-        Returns:
-            Lumascope: Instance with led/motion connected, camera=None.
-
-        Raises:
-            InstallationFileError: an installation file it reads is missing
-                or unusable. Nothing was opened.
-            ScopeInUseError: ``'scope_in_use'``, as ``Lumascope()``.
-                Nothing was opened.
-        """
-        instance = cls.__new__(cls)
-        instance._init_diagnostic(source_path)
-        return instance
-
-    @_torn_down_if_it_raises
-    def _init_diagnostic(self, source_path: 'str | os.PathLike | None') -> None:
-        """``create_diagnostic``'s construction, on the instance it made without ``__init__``."""
-        # The same read __init__ makes, first, before anything is started:
-        # one construction path for the installation's files on every
-        # scope, and a missing one stops the diagnostic with nothing to
-        # tear down.
-        motorconfig_defaults = self._read_catalogues(get_source_root(source_path))
-        # Shared state-slot init (audit #35) -- same call __init__ makes.
-        self._init_minimal(simulated=False)
-
-        # Connect boards through the registries, as __init__ does -- motion
-        # driver first so MotionAPI._driver resolves correctly at
-        # construction time. The diagnostic has no settings to say what the
-        # model expects, so it is held to every board, and it reports
-        # nothing: its record is on the scope for whoever asks.
-        self._led_driver, led_fallback = led_registry.create_with_fallback('auto')
-        self._motion_driver, motor_fallback = motor_registry.create_with_fallback(
-            'auto', motorconfig_defaults=motorconfig_defaults
-        )
-        self._bring_up_parts = {
-            Part.MOTOR: _board_status(Part.MOTOR, self._motion_driver, motor_fallback),
-            Part.LED: _board_status(Part.LED, self._led_driver, led_fallback),
-        }
-        self._bring_up_substitutions = []
-        self._camera_failure = None
-
-        # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
-        from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
-
-        self.motion = MotionAPI(self, self._motion_driver)
-        present_axes = self._motion_driver.detect_present_axes()
-        self.motion._init_axes(present_axes, self._motion_driver.detect_homed_axes())
-        self.motion._start_monitor()
-
-        self._frame_buffer = None
-
-        # Diagnostic instances have no settings to name a configured
-        # model, so identity resolves from the motor-reported model alone
-        # -- empty (and loud on LED use) when the hardware reports none.
-        # That is the honest answer for a support tool: it must never
-        # invent an identity for a unit it is diagnosing.
-        self._configured_model = None
-        self._fx2_debug_wire = False
-        self.channel_identity = self._resolve_layer_identity()
-
-        # Build capabilities -- diagnostic instances still need this so
-        # any code that reads scope.capabilities.* works.
-        self.capabilities = ScopeCapabilities.from_drivers(
-            motion=self._motion_driver,
-            led=self._led_driver,
-            camera=None,
-            channel_identity=self.channel_identity,
-            scope_models=self._scope_models,
-            timing_record=None,
-        )
-
-        # Sub-API wiring -- diagnostic instances are first-class enough
-        # that disconnect / scope.camera / scope.imaging / scope.illumination
-        # do not raise AttributeError. CameraAPI and ImagingAPI tolerate no
-        # camera driver; IlluminationAPI gets the connected LED driver
-        # (real or NullLEDBoard).
-        from modules.lumascope_api.camera import CameraAPI
-        from modules.lumascope_api.illumination import IlluminationAPI
-        from modules.lumascope_api.imaging import ImagingAPI
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-        from modules.lumascope_api.protocols import ProtocolsAPI
-        from modules.lumascope_api.runtime_state import RuntimeState
-        from modules.lumascope_api.simulation import SimulationAPI
-
-        self.illumination = IlluminationAPI(self, self._led_driver)
-        self.camera = CameraAPI(self, self.frame_validity)
-        self.imaging = ImagingAPI(self, self.camera, self.frame_validity)
-        self.diagnostics = DiagnosticsAPI(self)
-        self.protocols = ProtocolsAPI(self)
-        self.runtime_state = RuntimeState(self)
-        self._simulation = SimulationAPI(self)
-
-        # No hardware when neither board came up, read from the record as
-        # __init__ reads it; the diagnostic probes no camera.
-        self._no_hardware = not any(status.up for status in self._bring_up_parts.values())
-
-        logger.info(
-            '[SCOPE API ] Diagnostic scope created '
-            f'(LED={self.led_connected}, '
-            f'Motor={self.motor_connected})'
         )
 
     ########################################################################

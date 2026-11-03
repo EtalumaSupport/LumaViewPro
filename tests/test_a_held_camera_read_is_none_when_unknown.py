@@ -62,10 +62,10 @@ def test_every_held_read_is_a_published_property():
     assert unpublished == []
 
 
-def test_with_no_camera_every_held_read_is_none(diagnostic_scope):
-    held = {name: getattr(diagnostic_scope.camera, name) for name in _HELD}
+def test_with_no_camera_every_held_read_is_none(no_hardware_scope):
+    held = {name: getattr(no_hardware_scope.camera, name) for name in _HELD}
     assert held == dict.fromkeys(_HELD)
-    assert diagnostic_scope.camera.active is False
+    assert no_hardware_scope.camera.active is False
 
 
 def test_after_bring_up_every_held_read_is_known(session):

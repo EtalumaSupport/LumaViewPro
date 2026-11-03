@@ -16,12 +16,12 @@ import modules.tech_support_report as tech_support_report
 from modules.tech_support_report import TechSupportReport
 
 
-def test_delimiter_does_not_append_to_the_newest_log_file(tmp_path, caplog):
+def test_delimiter_does_not_append_to_the_newest_log_file(sim_session, tmp_path, caplog):
     decoy = tmp_path / 'camera.log'
     decoy.write_text('camera line\n')
     original = decoy.read_text()
 
-    report = TechSupportReport()
+    report = TechSupportReport(sim_session)
     with (
         patch.object(tech_support_report, '_get_lvp_logs_dir', return_value=tmp_path),
         caplog.at_level(logging.INFO, logger='modules.tech_support_report'),
@@ -34,8 +34,8 @@ def test_delimiter_does_not_append_to_the_newest_log_file(tmp_path, caplog):
     ), 'the delimiter must travel through the logging system'
 
 
-def test_the_delimiter_names_the_report_once(caplog):
-    report = TechSupportReport()
+def test_the_delimiter_names_the_report_once(sim_session, caplog):
+    report = TechSupportReport(sim_session)
     with caplog.at_level(logging.INFO, logger='modules.tech_support_report'):
         report._write_log_delimiter()
 

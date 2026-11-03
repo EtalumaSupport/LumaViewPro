@@ -54,14 +54,11 @@ try:
     )
 
     # --- support report / logs zip ---------------------------------------
-    from modules.tech_support_report import TechSupportReport
-
-    r = TechSupportReport(scope=s.scope)
     print(
-        'TechSupportReport.generate signature ok:',
-        hasattr(r, 'generate'),
-        '| generate_logs_only:',
-        hasattr(r, 'generate_logs_only'),
+        'ScopeSession.make_support_report:',
+        hasattr(s, 'make_support_report'),
+        '| make_logs_zip:',
+        hasattr(s, 'make_logs_zip'),
     )
     print(
         'Session/API surface matching "support"/"report":',

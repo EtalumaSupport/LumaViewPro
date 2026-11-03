@@ -343,10 +343,10 @@ def test_an_answered_model_is_what_the_board_reports_until_cleared(scope):
     assert scope.diagnostics.get_motor_info().model == 'LS850T'
 
 
-def test_every_member_refuses_on_a_real_scope(diagnostic_scope):
-    refused = _refused(diagnostic_scope.simulation.unplug, 'motor')
+def test_every_member_refuses_on_a_real_scope(no_hardware_scope):
+    refused = _refused(no_hardware_scope.simulation.unplug, 'motor')
     assert (refused.reason, refused.argument) == ('needs_simulated_scope', 'unplug')
-    refused = _refused(diagnostic_scope.simulation.clear)
+    refused = _refused(no_hardware_scope.simulation.clear)
     assert refused.reason == 'needs_simulated_scope'
 
 

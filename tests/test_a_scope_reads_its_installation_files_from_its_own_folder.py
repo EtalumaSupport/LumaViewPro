@@ -160,16 +160,6 @@ class TestABadFileInTheScopesFolder:
 
         assert refused.value.file_path == root / 'data' / name
 
-    def test_stops_the_diagnostic_scope(self, mutate, name, says):
-        root = _folder(mutate)
-        before = set(threading.enumerate())
-
-        with pytest.raises(InstallationFileError, match=says) as refused:
-            Lumascope.create_diagnostic(source_path=str(root))
-
-        assert refused.value.file_path == root / 'data' / name
-        assert set(threading.enumerate()) <= before
-
 
 def test_the_identity_resolves_against_the_release_vocabulary():
     # The folder's own layer order is reversed; the ids still come from the
@@ -234,17 +224,6 @@ def test_a_broken_vocabulary_stops_a_scope_before_a_lane_starts(tmp_path, monkey
 
     with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
         Lumascope(simulate=True, sim_model='LS850T', warn_pre_release=False)
-
-    assert refused.value.file_path == path
-    assert set(threading.enumerate()) <= before
-
-
-def test_a_broken_vocabulary_stops_the_diagnostic_scope_before_it_starts(tmp_path, monkeypatch):
-    path = _broken_vocabulary(tmp_path, monkeypatch)
-    before = set(threading.enumerate())
-
-    with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
-        Lumascope.create_diagnostic()
 
     assert refused.value.file_path == path
     assert set(threading.enumerate()) <= before

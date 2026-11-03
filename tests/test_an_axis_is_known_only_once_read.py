@@ -19,10 +19,9 @@ from tests.scope_fakes import build_scope
 
 
 def test_a_homed_axis_whose_read_fails_starts_unknown():
-    """``create_diagnostic`` (the support report's scope, hardware only) builds
-    its state with ``_init_axes`` and made no read, so the read is
-    ``_init_axes``'s own and is pinned there: a simulated scope's store
-    rebuilt, every axis reported homed, over a board whose Z read fails."""
+    """The read of an axis reported homed is ``_init_axes``'s own and is
+    pinned there: a simulated scope's store rebuilt, every axis reported
+    homed, over a board whose Z read fails."""
     scope = build_scope(simulate=True)
     motion = scope.motion
     scope.simulation.drop_replies('motor', count=None, command='TARGET_RZ')

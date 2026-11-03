@@ -7519,27 +7519,19 @@ class TestConnectionCheckShapeUniformOnLumascope:
         """The property must be defensive against a missing / None camera
         driver -- mirrors motor_connected / led_connected falling back to
         False rather than raising. Forcing _camera_driver=None proves the
-        getattr-default path: this matches the shape of create_diagnostic
-        instances (which today leave _camera_driver unset per audit #35;
-        the property gracefully degrades regardless)."""
+        getattr-default path."""
         sim_scope._camera_driver = None
         assert sim_scope.camera_connected is False
 
 
-class TestCreateDiagnosticSharesInitMinimal:
-    """Freeze audit Finding #35 -- create_diagnostic bypassed __init__
-    via cls.__new__(cls) and open-coded a subset of __init__'s state
-    assignments, leaving ~12 instance attributes unset. #22's
-    camera_connected work surfaced one concrete instance (_camera_driver
-    missing). The audit-recommended fix: extract a shared _init_minimal
-    helper that both __init__ and create_diagnostic call. The slot list
-    is now single-pointed-of-truth."""
+class TestInitSetsTheSharedSlots:
+    """The constructor sets the composition-root slots ``_init_minimal`` owns."""
 
-    # Slots that _init_minimal sets on every Lumascope instance, regardless
-    # of which constructor path was used. If a future refactor drops one,
-    # this guard catches it. State that lives on sub-APIs (imaging.*,
-    # motion.*, runtime_state.*) is asserted by sub-API-owned guards;
-    # this list only covers the composition-root-owned slots.
+    # Slots that _init_minimal sets on every Lumascope instance. If a
+    # future refactor drops one, this guard catches it. State that lives
+    # on sub-APIs (imaging.*, motion.*, runtime_state.*) is asserted by
+    # sub-API-owned guards; this list only covers the composition-root-owned
+    # slots.
     REQUIRED_SHARED_SLOTS = (
         '_simulated',
         '_camera_driver',
@@ -7552,24 +7544,9 @@ class TestCreateDiagnosticSharesInitMinimal:
         scope = build_scope(simulate=True, register_atexit=False)
         try:
             for slot in self.REQUIRED_SHARED_SLOTS:
-                assert hasattr(scope, slot), (
-                    f'__init__ must set {slot} (via _init_minimal) per audit #35.'
-                )
+                assert hasattr(scope, slot), f'__init__ must set {slot} (via _init_minimal).'
         finally:
             scope.disconnect()
-
-    def test_create_diagnostic_sets_all_shared_slots(self, diagnostic_scope):
-        for slot in self.REQUIRED_SHARED_SLOTS:
-            assert hasattr(diagnostic_scope, slot), (
-                f'create_diagnostic must set {slot} (via _init_minimal) per audit #35.'
-            )
-
-    def test_create_diagnostic_camera_driver_is_none(self, diagnostic_scope):
-        """The diagnostic path leaves _camera_driver=None (the
-        _init_minimal default); camera_connected returns False without
-        the getattr-default belt-and-suspenders firing."""
-        assert diagnostic_scope._camera_driver is None
-        assert diagnostic_scope.camera_connected is False
 
 
 class TestLedSentinelReturnsAreNone:

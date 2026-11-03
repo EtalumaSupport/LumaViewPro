@@ -43,21 +43,21 @@ def _make_two_same_named_runs(tmp_path: pathlib.Path):
     return tmp_path / 'capture'
 
 
-def _run_step_protocols(tmp_path, monkeypatch):
+def _run_step_protocols(session, tmp_path, monkeypatch):
     capture_dir = _make_two_same_named_runs(tmp_path)
     monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture_dir)
     monkeypatch.setattr(tech_support_report, '_get_protocol_dir', lambda: None)
     monkeypatch.setattr(tech_support_report, '_get_lvp_data_dir', lambda: None)
 
-    report = TechSupportReport()
+    report = TechSupportReport(session)
     bundle_tmp = tmp_path / 'bundle'
     bundle_tmp.mkdir()
     report._step_protocols(bundle_tmp)
     return report, bundle_tmp / 'recent_protocols'
 
 
-def test_same_named_protocols_all_survive_in_the_bundle(tmp_path, monkeypatch):
-    _, dest = _run_step_protocols(tmp_path, monkeypatch)
+def test_same_named_protocols_all_survive_in_the_bundle(sim_session, tmp_path, monkeypatch):
+    _, dest = _run_step_protocols(sim_session, tmp_path, monkeypatch)
 
     copied = sorted(p.name for p in dest.iterdir() if p.suffix == '.tsv')
     assert len(copied) == 2, (
@@ -68,8 +68,8 @@ def test_same_named_protocols_all_survive_in_the_bundle(tmp_path, monkeypatch):
     assert any('marker-OLD' in c for c in contents), 'the older record was lost'
 
 
-def test_index_and_metadata_name_the_files_actually_on_disk(tmp_path, monkeypatch):
-    report, dest = _run_step_protocols(tmp_path, monkeypatch)
+def test_index_and_metadata_name_the_files_actually_on_disk(sim_session, tmp_path, monkeypatch):
+    report, dest = _run_step_protocols(sim_session, tmp_path, monkeypatch)
 
     on_disk = {p.name for p in dest.iterdir() if p.suffix == '.tsv'}
     index_text = (dest / '_index.txt').read_text()

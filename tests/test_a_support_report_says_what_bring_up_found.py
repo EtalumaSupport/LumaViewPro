@@ -20,7 +20,6 @@ import pytest
 from drivers.registry import DriverFallback
 from modules.lumascope_api.bring_up import Part
 from modules.scope_session import ScopeSession
-from modules.tech_support_report import TechSupportReport
 from tests.settings_fixtures import complete_settings
 from tests.test_bring_up_is_a_record import _bring_up
 
@@ -65,15 +64,6 @@ def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_cause(monkeypatch, t
         'port_in_use',
         'port in use',
     )
-
-
-def test_a_report_with_no_scope_says_why_it_has_no_record(tmp_path):
-    report = TechSupportReport()
-    report.diag.build_failure = FileNotFoundError('scopes.json is missing')
-    zip_path = report.generate_logs_only(output_dir=tmp_path / 'out')
-    body = _read(zip_path, 'bring_up.json')
-    assert body['record'] is None
-    assert 'scopes.json is missing' in body['why']
 
 
 class _BrokenEntryPoint:

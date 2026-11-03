@@ -36,7 +36,7 @@ def test_a_failed_z_home_is_recorded_in_its_own_words(session, monkeypatch):
 
     monkeypatch.setattr(session.scope._motion_driver, 'zhome', fails)
 
-    result = TechSupportReport(scope=session.scope).diag.run_homing_test()
+    result = TechSupportReport(session).diag.run_homing_test()
 
     assert result['passed'] is False
     assert result['axes']['Z']['status'] == 'FAIL'
@@ -56,7 +56,7 @@ def test_a_turret_home_whose_z_park_failed_is_recorded_as_the_turrets_result(ses
     # The Z home drives by its own command; the park is the turret home's move.
     monkeypatch.setattr(session.scope._motion_driver, 'move_abs_pos', fails)
 
-    result = TechSupportReport(scope=session.scope).diag.run_homing_test()
+    result = TechSupportReport(session).diag.run_homing_test()
 
     assert result['passed'] is False
     assert result['axes']['T']['status'] == 'FAIL'

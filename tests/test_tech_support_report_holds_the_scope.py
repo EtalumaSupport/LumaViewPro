@@ -31,6 +31,15 @@ SKIPPED_FILES = (
 )
 
 
+def test_a_report_is_made_only_on_a_session():
+    # The claim the hardware steps hold is the session's, so a report with
+    # no session, or on a bare scope, would drive the hardware unheld.
+    with pytest.raises(TypeError):
+        TechSupportReport()
+    with pytest.raises(TypeError):
+        TechSupportReport(scope=object())
+
+
 @pytest.fixture
 def report_and_calls(monkeypatch):
     """A report over a session whose nine scope steps are spies.

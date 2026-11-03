@@ -227,13 +227,13 @@ def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_sess
     assert post.category == 'Scheduler'
 
 
-def test_the_support_report_writes_a_temperature_failure_as_one(sim_scope, tmp_path):
+def test_the_support_report_writes_a_temperature_failure_as_one(sim_session, tmp_path):
     """The camera block still writes, and says the temperatures were not read."""
     from modules.tech_support_report import TechSupportReport
 
-    report = TechSupportReport(scope=sim_scope)
+    report = TechSupportReport(sim_session)
     with patch.object(
-        sim_scope._camera_driver,
+        sim_session.scope._camera_driver,
         'get_all_temperatures',
         side_effect=CameraReadFailedError('temperature read failed'),
     ):

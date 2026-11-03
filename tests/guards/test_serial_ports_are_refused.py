@@ -45,12 +45,12 @@ def _run(tmp_path, test, *extra):
     )
 
 
-def test_a_touch_the_diagnostic_path_swallowed_still_fails_the_test_by_name(tmp_path):
-    done = _run(tmp_path, 'test_the_diagnostic_path_swallows_the_refusal_into_null_boards')
+def test_a_touch_a_real_scope_swallowed_still_fails_the_test_by_name(tmp_path):
+    done = _run(tmp_path, 'test_a_real_scope_swallows_the_refusal_into_null_boards')
     assert done.returncode != 0, done.stdout + done.stderr
     assert conftest.SERIAL_REFUSAL_BANNER in done.stdout
     assert (
-        'serial_refusal_victim.py::test_the_diagnostic_path_swallows_the_refusal_into_null_boards'
+        'serial_refusal_victim.py::test_a_real_scope_swallows_the_refusal_into_null_boards'
         in done.stdout
     )
     assert 'first: enumerate' in done.stdout

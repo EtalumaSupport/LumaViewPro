@@ -106,7 +106,6 @@ def test_every_real_scope_is_refused_while_another_process_holds_the_lock(no_har
     root = _installation_on(port)
     builds = {
         'Lumascope()': lambda: Lumascope(source_path=root, warn_pre_release=False),
-        'create_diagnostic()': lambda: Lumascope.create_diagnostic(source_path=root),
         'create(simulate=False)': lambda: ScopeSession.create(
             complete_settings(), source_path=str(root), warn_pre_release=False
         ),
@@ -279,26 +278,6 @@ def test_a_take_closed_twice_gives_back_one_take():
     assert not _another_process_can_take(port)
     second.close()
     assert _another_process_can_take(port)
-
-
-def test_the_support_reports_retry_builds_its_second_scope(no_hardware, monkeypatch):
-    from modules.tech_support_report import FirmwareDiagnostics
-
-    root = installation_of_its_own()
-    real_create = Lumascope.create_diagnostic.__func__
-    monkeypatch.setattr(
-        Lumascope, 'create_diagnostic', classmethod(lambda cls: real_create(cls, root))
-    )
-    diag = FirmwareDiagnostics()
-
-    diag.connect_standalone()
-    first = diag.scope
-    diag.connect_standalone()
-
-    try:
-        assert (diag.build_failure, diag.scope is not first) == (None, True)
-    finally:
-        diag.scope.disconnect()
 
 
 def test_a_simulated_scope_takes_no_lock(no_hardware):

@@ -166,7 +166,7 @@ class TestNothingElseMovesTheTurret:
         motion = session.scope.motion
         motion.move_turret(2)
 
-        result = TechSupportReport(scope=session.scope).diag.run_homing_test()
+        result = TechSupportReport(session).diag.run_homing_test()
 
         assert result['passed'] is True, result
         # The turret home left the turret in slot 1, and the record says so.
