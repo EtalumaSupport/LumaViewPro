@@ -30,8 +30,8 @@ class AccordionItemXyStageControl(LoggedAccordionItem):
 
 
 class ChannelDrawer(LoggedAccordionItem):
-    """One layer's drawer: its controls, titled by the layer's label beside a
-    swatch of its colour.
+    """One layer's drawer: its controls, titled by the layer's label (a
+    fluorescence layer's as its excitation) beside a swatch of its colour.
 
     One class for every catalogue key. What differs between layers is the
     layer's record, applied by ``ImageSettings.show_drawers``; a key added to
@@ -53,6 +53,16 @@ _CHROME_LIGHTENING = 0.4
 
 def _lightened(color: layer_record.Color) -> layer_record.Color:
     return tuple(weight + (1.0 - weight) * _CHROME_LIGHTENING for weight in color)
+
+
+def _drawer_title(record: layer_record.ChannelRecord) -> str:
+    """A drawer's title: a fluorescence layer's label is a bare wavelength
+    (``'488 nm'``), so its drawer says what that wavelength is; any other
+    layer's label is already its name. The label itself is what files
+    record, so only the title says more."""
+    if record.modality == layer_record.Modality.FLUORESCENCE:
+        return f'{record.label} Excitation'
+    return record.label
 
 
 # ============================================================================
@@ -119,7 +129,7 @@ class ImageSettings(BoxLayout):
         Visibility, titles and controls are per layer from the identity, so a
         filterset carrying only some channels (an Ex488-only unit) shows
         exactly what the unit has. A drawer is titled by its layer's label
-        beside a swatch of its colour, and has illumination controls where
+        (``_drawer_title``) beside a swatch of its colour, and has illumination controls where
         the unit's row drives an LED. A layer the unit lacks stops being
         acquired.
         """
@@ -134,7 +144,7 @@ class ImageSettings(BoxLayout):
             color = colors[layer]
             drawer.color_rgba = (*color, 1.0)
             drawer.chrome_rgba = (*_lightened(color), 1.0)
-            drawer.title = record.label
+            drawer.title = _drawer_title(record)
             control = drawer.ids['control']
             control.illumination_support = bool(record.led_addresses)
             # Luminescence is long and dim: its exposure sums frames, and

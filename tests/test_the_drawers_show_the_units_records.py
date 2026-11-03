@@ -2,7 +2,8 @@
 """The image-settings panel shows a drawer for each layer the unit has, drawn from its record.
 
 ``ImageSettings.show_drawers`` takes the unit's identity: each layer it holds
-is shown in catalogue order, titled by its record's label beside a swatch of
+is shown in catalogue order, titled by its record's label (a fluorescence
+layer's as its excitation, ``'405 nm Excitation'``) beside a swatch of
 its display colour, its controls drawn in that colour lightened, with
 illumination where its row drives an LED and summing for luminescence; each
 layer it lacks is hidden and stops being acquired. The identities are the
@@ -133,7 +134,8 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
     for record in identity.channels:
         drawer = panel._drawers[record.key_name]
         control = drawer.ids['control']
-        assert drawer.title == record.label
+        if record.modality != 'fluorescence':
+            assert drawer.title == record.label
         color = layer_record.parse_display_color(record.display_color)
         assert drawer.color_rgba == (*color, 1.0)
         # The chrome is the colour moved toward white, so no plane is darker.
@@ -150,7 +152,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
 def test_a_fluorescence_drawer_is_titled_by_its_excitation_and_lumi_sums(panel):
     ImageSettings.show_drawers(panel, _identity('LS850'))
     blue = panel._drawers[LED0]
-    assert blue.title == '405 nm'
+    assert blue.title == '405 nm Excitation'
     assert blue.color_rgba == (0.0, 0.0, 1.0, 1.0)
     assert blue.chrome_rgba == pytest.approx((0.4, 0.4, 1.0, 1.0))
     assert blue.ids['control'].exposure_summing_support is False
@@ -190,8 +192,8 @@ def test_a_channel_added_by_data_gets_a_drawer_on_each_unit_carrying_it(
         assert panel.ids['accordion_id'].top_to_bottom() == [r.key_name for r in identity.channels]
         present = {r.key_name for r in identity.channels}
         for key, title, color in (
-            ('Ex445', '445 nm', (0.0, 1.0, 1.0, 1.0)),
-            ('Ex640', '640 nm', (1.0, 0.0, 1.0, 1.0)),
+            ('Ex445', '445 nm Excitation', (0.0, 1.0, 1.0, 1.0)),
+            ('Ex640', '640 nm Excitation', (1.0, 0.0, 1.0, 1.0)),
         ):
             drawer = panel._drawers[key]
             if key not in present:

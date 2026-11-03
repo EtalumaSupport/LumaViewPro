@@ -2313,13 +2313,15 @@
 	# A run moves the shown channel; a person opens a drawer between runs.
 	disabled: app.lock.run_lockout
 	log_item: root.layer
-	# A swatch of the layer's colour before its label, drawn over the title bar.
+	# A swatch of the layer's colour before its label, drawn over the title bar:
+	# a rounded rectangle with the buttons' corner radius.
 	canvas.after:
 		Color:
 			rgba: self.color_rgba
-		Rectangle:
-			pos: (self.container_title.x + dp(10), self.container_title.center_y - dp(6)) if self.container_title else (0, 0)
-			size: (dp(12), dp(12)) if self.container_title else (0, 0)
+		RoundedRectangle:
+			pos: (self.container_title.x + dp(10), self.container_title.center_y - dp(8)) if self.container_title else (0, 0)
+			size: (dp(28), dp(16)) if self.container_title else (0, 0)
+			radius: [dp(6)]
 	LayerControl:
 		id: control
 		layer: root.layer
