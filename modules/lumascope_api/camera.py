@@ -2848,7 +2848,7 @@ class CameraAPI:
         self._commit_camera_writes({'black_level': _value_in_effect(result, float(value))})
         return result
 
-    def _read_fresh(self, key: str) -> object | None:
+    def _read_fresh(self, key: str) -> object:
         """Read ``key`` from the camera now, and hold what it answered.
 
         The one fresh read of a held camera setting (``_LIVE_SETTING_READS``),
@@ -2945,7 +2945,7 @@ class CameraAPI:
         return exposure_ms / 1000 if common_utils.is_valid_exposure_ms(exposure_ms) else 0.0
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_gain_db(self) -> float | None:
+    def read_gain_db(self) -> float:
         """Read the camera's gain from the camera, in dB.
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -2953,7 +2953,7 @@ class CameraAPI:
         engineering diagnostic ahead of it can outlast.
 
         Returns:
-            float | None: The gain; None when unknown.
+            float: The gain.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -2964,7 +2964,7 @@ class CameraAPI:
         return self._read_on_lane(self._read_fresh, 'read_gain_db', args=('gain_db',))
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_exposure_ms(self) -> float | None:
+    def read_exposure_ms(self) -> float:
         """Read the camera's exposure time from the camera, in milliseconds.
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -2972,7 +2972,7 @@ class CameraAPI:
         engineering diagnostic ahead of it can outlast.
 
         Returns:
-            float | None: The exposure; None when unknown.
+            float: The exposure.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -2983,7 +2983,7 @@ class CameraAPI:
         return self._read_on_lane(self._read_fresh, 'read_exposure_ms', args=('exposure_ms',))
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_auto_gain(self) -> CameraAutoMode | None:
+    def read_auto_gain(self) -> CameraAutoMode:
         """Read the camera's auto-gain mode from the camera.
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -2993,7 +2993,7 @@ class CameraAPI:
         A camera without hardware auto-gain answers ``OFF`` unasked.
 
         Returns:
-            CameraAutoMode | None: The mode; None when unknown.
+            CameraAutoMode: The mode.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -3004,7 +3004,7 @@ class CameraAPI:
         return self._read_on_lane(self._read_fresh, 'read_auto_gain', args=('auto_gain',))
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_auto_exposure(self) -> CameraAutoMode | None:
+    def read_auto_exposure(self) -> CameraAutoMode:
         """Read the camera's auto-exposure mode from the camera.
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -3014,7 +3014,7 @@ class CameraAPI:
         A camera without hardware auto-exposure answers ``OFF`` unasked.
 
         Returns:
-            CameraAutoMode | None: The mode; None when unknown.
+            CameraAutoMode: The mode.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -3057,7 +3057,7 @@ class CameraAPI:
         )
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_binning(self) -> int | None:
+    def read_binning(self) -> int:
         """Read the camera's binning factor from the camera.
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -3065,7 +3065,7 @@ class CameraAPI:
         engineering diagnostic ahead of it can outlast.
 
         Returns:
-            int | None: The factor, 1 or more; None when unknown.
+            int: The factor, 1 or more.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -3076,7 +3076,7 @@ class CameraAPI:
         return self._read_on_lane(self._read_fresh, 'read_binning', args=('binning',))
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_frame_size(self) -> FrameSize | None:
+    def read_frame_size(self) -> FrameSize:
         """Read the size of the frames the camera delivers, from the camera.
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -3084,8 +3084,7 @@ class CameraAPI:
         engineering diagnostic ahead of it can outlast.
 
         Returns:
-            FrameSize | None: The delivered size, in pixels after binning;
-                None when unknown.
+            FrameSize: The delivered size, in pixels after binning.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -3094,10 +3093,10 @@ class CameraAPI:
             CameraReadFailedError: The camera did not answer the read.
         """
         size = self._read_on_lane(self._read_fresh, 'read_frame_size', args=('frame_size',))
-        return FrameSize(size['width'], size['height']) if size is not None else None
+        return FrameSize(size['width'], size['height'])
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_pixel_format(self) -> str | None:
+    def read_pixel_format(self) -> str:
         """Read the camera's pixel format from the camera (e.g. ``'Mono12'``).
 
         Runs on the camera lane, admitted whatever holds the scope, behind what
@@ -3107,7 +3106,7 @@ class CameraAPI:
         The format follows ``set_image_mode``, which chooses it.
 
         Returns:
-            str | None: The format; None when unknown.
+            str: The format.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the

@@ -2273,9 +2273,9 @@ class TechSupportReport:
         capabilities = self.scope.capabilities
         limits = capabilities.camera_limits
 
-        def frame_size() -> str | None:
+        def frame_size() -> str:
             size = camera.read_frame_size()
-            return f'{size.width}x{size.height}' if size is not None else None
+            return f'{size.width}x{size.height}'
 
         # A read the camera did not answer is written as such, and the rest
         # still are. Temperatures are flattened into the block, one

@@ -5343,7 +5343,7 @@ Nothing.
 ### `CameraAPI.read_auto_exposure`
 
 ```python
-def read_auto_exposure(self) -> CameraAutoMode | None
+def read_auto_exposure(self) -> CameraAutoMode
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5359,7 +5359,7 @@ A camera without hardware auto-exposure answers `OFF` unasked.
 
 **Returns**
 
-CameraAutoMode | None: The mode; None when unknown.
+CameraAutoMode: The mode.
 
 **Raises**
 
@@ -5376,7 +5376,7 @@ CameraAutoMode | None: The mode; None when unknown.
 ### `CameraAPI.read_auto_gain`
 
 ```python
-def read_auto_gain(self) -> CameraAutoMode | None
+def read_auto_gain(self) -> CameraAutoMode
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5392,7 +5392,7 @@ A camera without hardware auto-gain answers `OFF` unasked.
 
 **Returns**
 
-CameraAutoMode | None: The mode; None when unknown.
+CameraAutoMode: The mode.
 
 **Raises**
 
@@ -5409,7 +5409,7 @@ CameraAutoMode | None: The mode; None when unknown.
 ### `CameraAPI.read_binning`
 
 ```python
-def read_binning(self) -> int | None
+def read_binning(self) -> int
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5423,7 +5423,7 @@ engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-int | None: The factor, 1 or more; None when unknown.
+int: The factor, 1 or more.
 
 **Raises**
 
@@ -5514,7 +5514,7 @@ float | None: The floor; None when the camera declares none.
 ### `CameraAPI.read_exposure_ms`
 
 ```python
-def read_exposure_ms(self) -> float | None
+def read_exposure_ms(self) -> float
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5528,7 +5528,7 @@ engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-float | None: The exposure; None when unknown.
+float: The exposure.
 
 **Raises**
 
@@ -5582,7 +5582,7 @@ float | None: Frames per second; None when the camera reports none.
 ### `CameraAPI.read_frame_size`
 
 ```python
-def read_frame_size(self) -> FrameSize | None
+def read_frame_size(self) -> FrameSize
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5596,7 +5596,7 @@ engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-FrameSize | None: The delivered size, in pixels after binning; None when unknown.
+FrameSize: The delivered size, in pixels after binning.
 
 **Raises**
 
@@ -5613,7 +5613,7 @@ FrameSize | None: The delivered size, in pixels after binning; None when unknown
 ### `CameraAPI.read_gain_db`
 
 ```python
-def read_gain_db(self) -> float | None
+def read_gain_db(self) -> float
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5627,7 +5627,7 @@ engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-float | None: The gain; None when unknown.
+float: The gain.
 
 **Raises**
 
@@ -5644,7 +5644,7 @@ float | None: The gain; None when unknown.
 ### `CameraAPI.read_pixel_format`
 
 ```python
-def read_pixel_format(self) -> str | None
+def read_pixel_format(self) -> str
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
@@ -5660,7 +5660,7 @@ The format follows `set_image_mode`, which chooses it.
 
 **Returns**
 
-str | None: The format; None when unknown.
+str: The format.
 
 **Raises**
 
