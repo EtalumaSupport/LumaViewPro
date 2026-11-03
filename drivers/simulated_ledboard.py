@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 from typing import ClassVar
-from lvp_logger import logger
+from lib.log_helpers import logger
 from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma

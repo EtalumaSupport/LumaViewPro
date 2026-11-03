@@ -7,7 +7,7 @@ import threading
 import time
 from typing import ClassVar
 from collections.abc import Mapping
-from lvp_logger import logger
+from lib.log_helpers import logger
 
 from drivers.serialboard import CONNECT_FAILURES, SerialBoard
 from drivers.serial_backend import PYSERIAL, SerialBackend

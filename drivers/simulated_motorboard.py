@@ -21,7 +21,7 @@ import threading
 import time
 from typing import ClassVar
 from collections.abc import Callable, Iterable, Mapping
-from lvp_logger import logger
+from lib.log_helpers import logger
 from drivers.exceptions import (
     BoardNoReplyError,
     BoardPortFailedError,

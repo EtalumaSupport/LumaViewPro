@@ -120,7 +120,6 @@ def _fragile_pin_counts():
 # the assertion to a seam or justifies the read; never raise one.
 _FRAGILE_PIN = {
     'tests/test_audit_fixes.py': 55,
-    'tests/test_camera_log_routing.py': 1,
     # 2 -> 1: the read of lumaviewpro.py's banner call went with the call;
     # the session's bring-up writing the banner is driven in a real process
     # by tests/test_every_session_host_logs_its_environment_once.py.

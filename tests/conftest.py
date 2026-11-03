@@ -1004,47 +1004,42 @@ def pytest_configure(config):
     ).start()
 
 
+# The loggers the drivers write to (lib/log_helpers) and the protocol lane's.
+_DRIVER_LOG_NAMES = ('lvp_logger', 'LVP.camera', 'LVP.protocol')
+
+
 def _enable_driver_logging(config):
-    """Point the stand-in lvp_logger's `logger`/`camera_logger` at one DEBUG
-    logger writing to a timestamped file + stdout.
+    """Write the drivers' loggers, at DEBUG, to a timestamped file + stdout.
 
     The suite's loggers go to each test's captured log, at the level the
     test's session set; a --run-ids-hardware bench test needs the driver's
-    whole narrative at DEBUG, in a file kept with the run. Runs in
-    pytest_configure, before collection imports the drivers, so their
-    module-level `from lvp_logger import logger` binds to this logger.
+    whole narrative at DEBUG, in a file kept with the run. A logger is found
+    by its name, so the handlers go on the named loggers the drivers write to
+    (lib/log_helpers: 'lvp_logger', 'LVP.camera') and the protocol lane's
+    ('LVP.protocol'), whoever imported them first. The bench tests that read
+    this build a driver, not a session, so no session's level lowers them.
     Off by default (flag-gated).
     """
     import time
 
     from modules.log_stamp import make_formatter
 
-    real = logging.getLogger('lvp_driver_test')
-    real.setLevel(logging.DEBUG)
-    real.propagate = False
-    real.handlers.clear()
-
     # In the one log folder, beside the bench run's results file, so the
     # support zip carries the driver's narrative with the run it explains.
     log_path = str(bench_results_dir() / f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
     file_handler = logging.FileHandler(log_path, mode='w')
     file_handler.setFormatter(make_formatter('%(levelname)s %(message)s'))
-    real.addHandler(file_handler)
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(logging.Formatter('[driver] %(message)s'))
-    real.addHandler(stream_handler)
-
-    lvp = sys.modules.get('lvp_logger')
-    if lvp is not None:
-        lvp.logger = real
-        lvp.camera_logger = real
-        # And the protocol lane's (protocol_image_writer), or its
-        # narrative is missing from --driver-log bench captures.
-        lvp.protocol_logger = real
+    loggers = [logging.getLogger(name) for name in _DRIVER_LOG_NAMES]
+    for driver_logger in loggers:
+        driver_logger.setLevel(logging.DEBUG)
+        driver_logger.addHandler(file_handler)
+        driver_logger.addHandler(stream_handler)
 
     config._driver_log_path = log_path
     config._driver_log_handlers = (file_handler, stream_handler)
-    config._driver_logger = real
+    config._driver_loggers = loggers
     print(f'\n[--driver-log] driver logging -> {log_path}')
 
 
@@ -1053,10 +1048,10 @@ def pytest_unconfigure(config):
     handlers = getattr(config, '_driver_log_handlers', None)
     if not handlers:
         return
-    logger = config._driver_logger
     for handler in handlers:
         handler.close()
-        logger.removeHandler(handler)
+        for driver_logger in config._driver_loggers:
+            driver_logger.removeHandler(handler)
     print(f'\n[--driver-log] driver log written to {config._driver_log_path}')
 
 

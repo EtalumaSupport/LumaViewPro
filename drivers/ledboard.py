@@ -7,7 +7,7 @@ import re
 import time
 
 import serial
-from lvp_logger import logger
+from lib.log_helpers import logger
 from drivers.exceptions import (
     BoardNoReplyError,
     BoardPortFailedError,

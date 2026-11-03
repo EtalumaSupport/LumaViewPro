@@ -16,15 +16,9 @@ import ids_peak_ipl
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
 
-from lvp_logger import logger
+from lib.log_helpers import camera_logger as _cam_log
+from lib.log_helpers import logger
 
-try:
-    from lvp_logger import camera_logger as _cam_log
-except ImportError:
-    # Fall back to the main logger so every _cam_log call site stays
-    # safe -- the dedicated camera log is an enhancement, not a
-    # dependency, and dozens of call sites use _cam_log unguarded.
-    _cam_log = logger
 from drivers.camera import (
     Camera,
     Frame,
@@ -1508,7 +1502,7 @@ class IDSCamera(Camera):
                 f'[CAM Class ] stop_grabbing: stream stalled {stall_age:.0f}s -- device '
                 'presumed dead; skipping remote-device writes, host-side stop only'
             )
-        elif _cam_log is not None:
+        else:
             _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
             # When no handler exists yet, treat as quiesced (nothing to race).
@@ -1632,8 +1626,7 @@ class IDSCamera(Camera):
             _cam_log.warning('[CAM Class ] start_grabbing skipped: camera not connected')
             return
         if self.is_grabbing():
-            if _cam_log is not None:
-                _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
+            _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
             return
         # A prior stop() whose grab threads never quiesced leaves the stream
         # wedged: its buffer pool is un-revoked AND its threads still hold the data
@@ -1649,8 +1642,7 @@ class IDSCamera(Camera):
                 'quiesced (stream wedged); not stacking a fresh buffer pool'
             )
             return
-        if _cam_log is not None:
-            _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
+        _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
             # Reclaim any pool a prior unclean-but-now-quiesced stop left announced
             # BEFORE allocating fresh, so the announced count cannot grow cycle over
@@ -2761,16 +2753,14 @@ class IDSCamera(Camera):
                 rate = self._set_free_run_frame_rate()
                 if rate is not None:
                     rate_note = f' AcquisitionFrameRate->{rate:.1f}fps'
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
-                )
+            _cam_log.info(
+                f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
+            )
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return us_value
         except Exception as e:
             _raise_if_unanswered(e, access, f'Exposure {exposure_ms} ms')
-            if _cam_log is not None:
-                _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
+            _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
             return False
 
@@ -3019,7 +3009,7 @@ class IDSCamera(Camera):
             'U3vStreamChannelTransferRequestCount', int(value), 'set_num_max_queued_urbs'
         )
 
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
+    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
         if not self.active:
             _cam_log.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
             return
@@ -3028,17 +3018,15 @@ class IDSCamera(Camera):
         # AcquisitionFrameRateTarget while acquisition is running (same
         # runtime-parameter class as ExposureTime, see exposure_t above).
         try:
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'ids AcquisitionFrameRateTargetEnable.SetValue({enabled})'
-                    + (f' AcquisitionFrameRateTarget.SetValue({fps})' if enabled else '')
-                )
+            _cam_log.info(
+                f'ids AcquisitionFrameRateTargetEnable.SetValue({enabled})'
+                + (f' AcquisitionFrameRateTarget.SetValue({fps})' if enabled else '')
+            )
             self.remote_nodemap.FindNode('AcquisitionFrameRateTargetEnable').SetValue(enabled)
             if enabled:
                 self.remote_nodemap.FindNode('AcquisitionFrameRateTarget').SetValue(fps)
         except Exception as e:
-            if _cam_log is not None:
-                _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
+            _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
 
     def _set_hardware_binning(self, size: int) -> bool:
@@ -3189,8 +3177,7 @@ class IDSCamera(Camera):
                 did not answer the read of the Gain range the factor is
                 reconciled to, so Gain was not written."""
         if not self.active:
-            if _cam_log is not None:
-                _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
+            _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
             return False
 
@@ -3218,18 +3205,14 @@ class IDSCamera(Camera):
             # overshoots Gain.Maximum() by a float epsilon at the cap, so the
             # camera rejects its own reported maximum gain without this clamp.
             factor = min(max(factor, gain_node.Minimum()), gain_node.Maximum())
-            if _cam_log is not None:
-                _cam_log.info(
-                    f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)'
-                )
+            _cam_log.info(f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)')
             access = 'write'
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return 20.0 * math.log10(factor)
         except Exception as e:
             _raise_if_unanswered(e, access, f'Gain {value} dB')
-            if _cam_log is not None:
-                _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
+            _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return False
 
@@ -3339,8 +3322,7 @@ class IDSCamera(Camera):
                     )
                     return False
             node = self.remote_nodemap.FindNode('BlackLevel')
-            if _cam_log is not None:
-                _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
+            _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
             access = 'write'
             node.SetValue(float(value))
             access = 'read_back'

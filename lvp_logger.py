@@ -153,8 +153,10 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
     logger.critical(f'Logger ] CRASH - Uncaught Exception:\n{tb_text}')
 
 
-# ensures logger is specific to the file importing lvp_logger
-logger = logging.getLogger(__name__)
+# The main and camera loggers are named in lib/log_helpers, where the drivers
+# and lib/ take them without importing this module; this module configures them.
+from lib.log_helpers import camera_logger, logger
+
 _lvp_parent = logging.getLogger('LVP')
 
 # The root logger is the single owner of the bundle file handlers (set up
@@ -295,7 +297,6 @@ serial_logger.addHandler(error_file_handler)
 # pylon_callback_trace.csv when profile_trace_enabled is set in
 # settings.json. Always-on (not engineering-gated) to match serial.log
 # behavior.
-camera_logger = logging.getLogger('LVP.camera')
 # DEBUG level (was INFO): camera.log is the firehose for camera debugging.
 # Every per-frame check, every SDK-call return value, every state
 # transition lands here. Main log stays uncluttered via propagate=False;
@@ -430,7 +431,7 @@ class _MainLogFloor(logging.Filter):
     """LVP's records at the level its loggers allow; anyone else's from INFO up."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', __name__)
+        return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', logger.name)
 
 
 file_handler.addFilter(_MainLogFloor())

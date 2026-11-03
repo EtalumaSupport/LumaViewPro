@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 import contextlib
 from dataclasses import dataclass
 import re
@@ -12,15 +12,9 @@ from typing import Any
 import numpy as np
 
 from lib import profile_trace
-from lvp_logger import logger
+from lib.log_helpers import camera_logger as _cam_log
+from lib.log_helpers import logger
 
-try:
-    from lvp_logger import camera_logger as _cam_log
-except ImportError:
-    # Fall back to the general logger, never None: the _cam_log call sites below
-    # are unguarded, so a None fallback turns every one into an AttributeError the
-    # moment the dedicated camera logger is unavailable.
-    _cam_log = logger
 from drivers import host_clock
 from drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from drivers.camera_profiles import CameraProfile, lookup_profile
@@ -823,7 +817,7 @@ class Camera(ABC):
         pass
 
     @contextlib.contextmanager
-    def update_camera_config(self):
+    def update_camera_config(self) -> Iterator[None]:
         """Cross-thread-safe, re-entrant guard around the camera grab loop.
 
         Combines the CAM-3 (cross-thread serialization) and CAM-4
@@ -841,16 +835,11 @@ class Camera(ABC):
             nested patterns (init_camera_config wrapping
             set_pixel_format) stay visible in diagnostic logs.
         """
-        try:
-            from lvp_logger import camera_logger as _cam_log
-        except Exception:
-            _cam_log = None
         with self._lifecycle_lock:
             self._update_config_depth += 1
             depth = self._update_config_depth
             was_grabbing = False
-            if _cam_log is not None:
-                _cam_log.info(f'update_camera_config:enter depth={depth}')
+            _cam_log.info(f'update_camera_config:enter depth={depth}')
             try:
                 if depth == 1:
                     was_grabbing = self.is_grabbing()
@@ -862,11 +851,10 @@ class Camera(ABC):
                 end_depth = self._update_config_depth
                 if end_depth == 0 and was_grabbing:
                     self.start_grabbing()
-                if _cam_log is not None:
-                    _cam_log.info(
-                        f'update_camera_config:exit depth={depth} '
-                        f'restarted={was_grabbing and end_depth == 0}'
-                    )
+                _cam_log.info(
+                    f'update_camera_config:exit depth={depth} '
+                    f'restarted={was_grabbing and end_depth == 0}'
+                )
 
     def open_and_start(self) -> bool:
         """Release the start gate: begin streaming exactly once.

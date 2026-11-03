@@ -36,12 +36,7 @@ import weakref
 from datetime import datetime
 from pathlib import Path
 
-try:
-    from lvp_logger import logger
-except ImportError:
-    import logging
-
-    logger = logging.getLogger(__name__)
+from lib.log_helpers import logger
 
 
 # Diagnostic trace gate, toggled explicitly via enable() / disable() (not

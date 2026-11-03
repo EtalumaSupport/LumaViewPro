@@ -89,15 +89,9 @@ from collections.abc import Callable, Iterable, Iterator
 import numpy as np
 
 from lib.lumascope_error import Fault, RefusalCause
-from lvp_logger import logger
+from lib.log_helpers import camera_logger as _cam_log
+from lib.log_helpers import logger
 
-try:
-    from lvp_logger import camera_logger as _cam_log
-except ImportError:
-    # Fall back to the main logger so every _cam_log call site stays
-    # safe -- the dedicated camera log is an enhancement, not a
-    # dependency, and dozens of call sites use _cam_log unguarded.
-    _cam_log = logger
 from drivers.camera import (
     Camera,
     Frame,
@@ -2585,11 +2579,9 @@ class FX2Camera(Camera):
 
     def _start_grabbing(self) -> None:
         if self._grabbing:
-            if _cam_log is not None:
-                _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
+            _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
             return
-        if _cam_log is not None:
-            _cam_log.info('fx2 start_grabbing')
+        _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
         self._fx2.start_stream(self.cam_image_handler.hand_over)
         # After the stream started, so a start that raised leaves the camera
@@ -2601,11 +2593,9 @@ class FX2Camera(Camera):
 
     def _stop_grabbing(self) -> None:
         if not self._grabbing:
-            if _cam_log is not None:
-                _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
+            _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
             return
-        if _cam_log is not None:
-            _cam_log.info('fx2 stop_grabbing')
+        _cam_log.info('fx2 stop_grabbing')
         self._grabbing = False
         self._fx2.stop_stream()
 
@@ -2951,10 +2941,9 @@ class FX2Camera(Camera):
             return False
         target_ms = float(exposure_ms)
         rows = shutter_width_for(target_ms / 1000.0, column_size_for(self._width))
-        if _cam_log is not None:
-            _cam_log.info(
-                f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
-            )
+        _cam_log.info(
+            f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
+        )
         try:
             self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
         except Exception as e:
@@ -3018,10 +3007,9 @@ class FX2Camera(Camera):
         if not self.is_connected():
             return False
         reg = _gain_db_to_register(g)
-        if _cam_log is not None:
-            _cam_log.info(
-                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
-            )
+        _cam_log.info(
+            f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
+        )
         try:
             self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
         except Exception as e:

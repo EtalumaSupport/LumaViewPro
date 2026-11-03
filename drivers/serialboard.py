@@ -14,7 +14,7 @@ import time
 import serial
 from enum import Enum
 from typing import ClassVar
-from lvp_logger import logger
+from lib.log_helpers import logger
 from lib.profile_trace import TimedLock
 import threading
 

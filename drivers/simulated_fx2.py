@@ -29,7 +29,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from lvp_logger import logger
+from lib.log_helpers import logger
 from drivers.fx2driver import (
     COLUMN_SIZE_OVER_WIDTH,
     FRAME_DELIM,

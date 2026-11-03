@@ -86,6 +86,8 @@ import json
 import pathlib
 from dataclasses import dataclass, field, replace
 
+from lib.log_helpers import logger
+
 
 @dataclass
 class GainInfo:
@@ -414,16 +416,7 @@ def lookup_profile(model_name: str | None) -> CameraProfile:
             result.model_name = model_name  # Use the actual full model name
             return result
 
-    logger = None
-    try:
-        from lvp_logger import logger as _logger
-
-        logger = _logger
-    except ImportError:
-        pass
-
-    if logger:
-        logger.warning(f'[CAM Prof  ] No profile found for model: {model_name}, using defaults')
+    logger.warning(f'[CAM Prof  ] No profile found for model: {model_name}, using defaults')
 
     result = copy.deepcopy(_DEFAULT)
     result.model_name = model_name

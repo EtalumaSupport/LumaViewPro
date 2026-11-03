@@ -32,7 +32,7 @@ import time
 
 import psutil
 
-from lvp_logger import logger
+from lib.log_helpers import logger
 
 # Frames of traceback tracemalloc keeps per allocation. Deliberately 1 (the
 # allocating line only): tracemalloc stores this many frame records for EVERY

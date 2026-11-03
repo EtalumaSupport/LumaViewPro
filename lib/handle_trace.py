@@ -48,12 +48,7 @@ try:
 except ImportError:
     _proc = None
 
-try:
-    from lvp_logger import logger
-except ImportError:
-    import logging
-
-    logger = logging.getLogger(__name__)
+from lib.log_helpers import logger
 
 
 # Module-level gate flipped by enable() (settings-based path) OR by the

@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from typing import ClassVar
 
 from drivers.exceptions import ConfigReadError
-from lvp_logger import logger
+from lib.log_helpers import logger
 
 
 def read_only_axes_config(axes_config: dict) -> Mapping:

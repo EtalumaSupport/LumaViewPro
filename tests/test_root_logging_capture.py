@@ -89,3 +89,44 @@ def test_a_debug_console_made_after_kivy_loaded_logs_without_looping(tmp_path):
 
     assert 'LOGGED' in ran.stdout, ran.stderr[-2000:]
     assert 'a line logged after Kivy loaded' in ran.stderr
+
+
+# The drivers and lib/ take their loggers from lib/log_helpers, never from
+# lvp_logger; the real lvp_logger configures those same objects by name.
+_A_DRIVERS_LINES = r"""
+import sys
+sys.path.insert(0, sys.argv[1])
+import modules.settings_init as settings_init
+settings_init.load_debug_setting = lambda directory: True
+import lvp_logger
+from lib.log_helpers import camera_logger, logger
+logger.debug('a driver debug line')
+camera_logger.info('a camera line')
+for handler in lvp_logger.logging.getLogger().handlers + camera_logger.handlers:
+    handler.flush()
+print(lvp_logger.log_dir)
+"""
+
+
+def test_a_drivers_lines_land_in_the_main_and_camera_logs(tmp_path):
+    # A folder of links: a source run keeps its logs in the folder it was
+    # launched from, so this run's logs are the test's own.
+    folder = tmp_path / 'launch'
+    folder.mkdir()
+    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt', 'data'):
+        (folder / item).symlink_to(ROOT / item)
+    script = tmp_path / 'driver_lines.py'
+    script.write_text(_A_DRIVERS_LINES)
+
+    ran = subprocess.run(
+        [sys.executable, str(script), str(folder)],
+        cwd=str(folder),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert ran.returncode == 0, ran.stderr[-2000:]
+    log_dir = Path(ran.stdout.splitlines()[-1])
+    assert 'a driver debug line' in (log_dir / 'lumaviewpro.log').read_text(encoding='utf-8')
+    assert 'a camera line' in (log_dir / 'camera.log').read_text(encoding='utf-8')
