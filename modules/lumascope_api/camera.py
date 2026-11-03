@@ -820,7 +820,7 @@ class CameraAPI:
             return None
         armed = self.frame_validity.changes().get(FrameValiditySource.AUTO_GAIN)
         frame = driver.grab()
-        deadline = time.monotonic() + max(self._grab_sizing_exposure_s() * 3, 1.0)
+        deadline = time.monotonic() + self._grab_wait_s()
         while armed is not None and (frame is None or frame.seq <= armed.at_seq):
             left = deadline - time.monotonic()
             if left <= 0:
@@ -1196,6 +1196,13 @@ class CameraAPI:
     # format, and on Pylon the conversion-gain mode and line-noise reduction)
     # and then writes the black level, gain, exposure and the auto-gain arm.
     _CAMERA_RESTORE_TIMEOUT_S = 5 * _CAMERA_GEOMETRY_TIMEOUT_S + 4 * _CAMERA_WRITE_TIMEOUT_S
+
+    # The shortest a grab waits for the camera's next frame before the camera
+    # is judged to have delivered none. A liveness verdict, not a budget: a
+    # camera whose next frame is only slow to arrive -- the first frame after
+    # a start, or a host busy enough to delay it -- must not be judged to have
+    # stopped, so it matches the other capture paths' 5 s new-frame wait.
+    _GRAB_WAIT_FLOOR_S = 5.0
 
     def _dispatch_camera(
         self,
@@ -1665,10 +1672,12 @@ class CameraAPI:
         Raises:
             Nothing.
         """
+        # The lock waits for a frame taken under the arm before it writes.
+        wait_s = self._grab_wait_s() + self._CAMERA_WRITE_TIMEOUT_S
         return self._dispatch_camera(
             self._no_layers_write(self._lock_auto_gain_impl),
             'lock_auto_gain',
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+            timeout_s=wait_s,
             satisfied_when_absent=AutoGainLock(state=None),
         )
 
@@ -2943,6 +2952,11 @@ class CameraAPI:
         """
         exposure_ms = self.longest_exposure_ms
         return exposure_ms / 1000 if common_utils.is_valid_exposure_ms(exposure_ms) else 0.0
+
+    def _grab_wait_s(self) -> float:
+        """How long a grab waits for the camera's next frame: three exposures,
+        and never less than ``_GRAB_WAIT_FLOOR_S``."""
+        return max(self._grab_sizing_exposure_s() * 3, self._GRAB_WAIT_FLOOR_S)
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_gain_db(self) -> float:

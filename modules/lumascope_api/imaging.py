@@ -949,7 +949,7 @@ class ImagingAPI:
         hold_start = time.monotonic()
         hold_mark = _FeedMark.read(self._driver)
         exposure_s = self._camera._grab_sizing_exposure_s()
-        grab_timeout_s = max(exposure_s * 3, 1.0)
+        grab_timeout_s = self._camera._grab_wait_s()
 
         # The deadline is frozen at entry: the pending frame count and the
         # exposure are read once and never re-raised, so invalidations
@@ -1024,8 +1024,7 @@ class ImagingAPI:
             # exposure fails healthy long-exposure frames and reports the
             # staleness as a drain failure. Plumbing only: the budget
             # above stays frozen.
-            exposure_s = self._camera._grab_sizing_exposure_s()
-            grab_timeout_s = max(exposure_s * 3, 1.0)
+            grab_timeout_s = self._camera._grab_wait_s()
 
             # The camera's clock, mapped once per cycle and before its drain:
             # the clock rule's drain, the grab's judge and the frame's record
