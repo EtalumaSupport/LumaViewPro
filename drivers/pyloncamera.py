@@ -4593,11 +4593,11 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 except Exception:
                     owned = None
                 try:
-                    self._worker.enqueue('fail', owned, None)
+                    self._worker.enqueue('fail', owned, None, error_code='exception')
                     _outcome = 'exception_grabsucceeded'
                 except queue.Full:
+                    # Counted in the worker's drop burst, which logs it.
                     _outcome = 'queue_full_dropped_failure'
-                    _log_safely('Stage A: worker queue full on failure -- dropping')
                 return
 
             # H2/H3 diagnostic: Stage A is otherwise silent on the success
@@ -4649,9 +4649,9 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 except queue.Full:
                     # Stage B is wedged; drop this frame rather than
                     # block the native thread. Bench-monitored via the
-                    # pylon_stage_a_worker_queue_full_per_min budget.
+                    # pylon_stage_a_worker_queue_full_per_min budget, read
+                    # from the worker's drop-burst summaries.
                     _outcome = 'queue_full_dropped_frame'
-                    _log_safely('Stage A: worker queue full -- dropping frame')
             else:
                 try:
                     err_code = grabResult.GetErrorCode()
@@ -4681,11 +4681,11 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     # GetErrorDescription / GetBlockID across threads.
                     try:
                         owned = pylon.GrabResult(grabResult)
-                        self._worker.enqueue('fail', owned, None)
+                        self._worker.enqueue('fail', owned, None, error_code=err_code)
                         _outcome = 'failure_enqueued'
                     except queue.Full:
+                        # Counted in the worker's drop burst, which logs it.
                         _outcome = 'queue_full_dropped_failure'
-                        _log_safely('Stage A: worker queue full on failure -- dropping')
         except Exception as e:
             _outcome = 'exception_outer'
             _log_safely(f'OnImageGrabbed unexpected error: {e}')
@@ -4760,6 +4760,45 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
             return True
 
 
+def _error_code_words(code: int | str | None) -> str:
+    """A failed grab's error code as Basler documents it: hex, or what stood in for one."""
+    if isinstance(code, int):
+        return f'0x{code:08X}'
+    return 'unknown' if code is None else code
+
+
+class _DropBurst:
+    """The grabs Stage A dropped since the worker queue last took one.
+
+    A field bundle held 568 per-drop warnings in four bursts, and the failed
+    grabs among them named no error code, so neither the bursts' bounds nor
+    whether the failures were buffer underruns could be read. A burst is said
+    at its start and summarized at its end instead. Written only on Stage A's
+    thread; ``stop`` reads it after StopGrabbing has returned.
+    """
+
+    def __init__(self) -> None:
+        self.started = time.monotonic()
+        self.frames = 0
+        self.failures: dict[str, int] = {}
+
+    def add(self, kind: str, error_code: int | str | None) -> None:
+        if kind == 'frame':
+            self.frames += 1
+        else:
+            words = _error_code_words(error_code)
+            self.failures[words] = self.failures.get(words, 0) + 1
+
+    def summary(self, ended: str) -> str:
+        failed = sum(self.failures.values())
+        codes = ', '.join(f'{words} x{n}' for words, n in sorted(self.failures.items()))
+        return (
+            f'Stage A: {ended} after {time.monotonic() - self.started:.1f} s; '
+            f'the burst dropped {self.frames} frame(s) and {failed} failed grab(s)'
+            + (f' (error codes: {codes})' if codes else '')
+        )
+
+
 class _PylonImageGrabWorker:
     """Stage B worker for the OnImageGrabbed two-stage split.
 
@@ -4815,6 +4854,8 @@ class _PylonImageGrabWorker:
         self._worker_queue: queue.Queue = queue.Queue(maxsize=depth)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # The drops since the queue last took a grab; None while it takes them.
+        self._drop_burst: _DropBurst | None = None
 
     def start(self) -> None:
         """Spawn the worker thread (daemon=True).
@@ -4838,6 +4879,8 @@ class _PylonImageGrabWorker:
         kind: str,
         grabResult: pylon.GrabResult,
         handed_over: HandOver | None,
+        *,
+        error_code: int | str | None = None,
     ) -> None:
         """Hand a Stage A item off to Stage B.
 
@@ -4846,6 +4889,11 @@ class _PylonImageGrabWorker:
         grab thread. Returns silently if the worker is shutting down
         (stop_event already set); the caller's `grabResult` local will
         release the SDK buffer when Stage A returns.
+
+        The drops are logged as bursts: the first drop since the queue last
+        took a grab is said once, later drops are counted, and the next
+        grab the queue takes closes the burst with one summary (its frames,
+        its failed grabs by error code, its length).
 
         Args:
             kind: 'frame' for a successful grab, 'fail' for a failure
@@ -4856,10 +4904,27 @@ class _PylonImageGrabWorker:
             handed_over: A frame's ``hand_over()``, taken by Stage A where
                 the driver first had it; None for a failure, which is no
                 frame.
+            error_code: A failure's ``GetErrorCode()``, or ``'exception'``
+                when ``GrabSucceeded()`` raised; counted if the failure is
+                dropped. None for a frame.
         """
         if self._stop_event.is_set():
             return
-        self._worker_queue.put_nowait((kind, grabResult, handed_over))
+        try:
+            self._worker_queue.put_nowait((kind, grabResult, handed_over))
+        except queue.Full:
+            if self._drop_burst is None:
+                self._drop_burst = _DropBurst()
+                _log_safely(
+                    f'Stage A: worker queue full -- dropping a '
+                    f'{"frame" if kind == "frame" else "failed grab"}; further drops '
+                    'are counted until the queue takes a grab again'
+                )
+            self._drop_burst.add(kind, error_code)
+            raise
+        if self._drop_burst is not None:
+            _log_safely(self._drop_burst.summary('the worker queue took a grab again'))
+            self._drop_burst = None
 
     def stop(self, timeout: float = 1.0) -> None:
         """Signal stop, post sentinel, join with bounded timeout.
@@ -4878,6 +4943,13 @@ class _PylonImageGrabWorker:
                 exit. Bounded so a wedged worker can't deadlock
                 disconnect.
         """
+        # StopGrabbing has returned (the contract above), so Stage A no
+        # longer writes the burst: one still open is summarized here.
+        if self._drop_burst is not None:
+            _log_safely(
+                self._drop_burst.summary('the worker stopped before the queue took a grab again')
+            )
+            self._drop_burst = None
         self._stop_event.set()
         try:
             self._worker_queue.put_nowait(('stop', None, None))
