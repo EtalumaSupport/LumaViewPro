@@ -67,13 +67,37 @@
             size: self.size
             radius: [dp(6)]
 
-# Fix checkbox visibility on macOS Metal backend (#466)
+# Icon buttons -- use in place of Button / ToggleButton for a button drawn as
+# an image. A disabled Kivy button draws background_disabled_*, whose default
+# is a plain grey square, so a locked icon would vanish; these keep the icon
+# and dim it instead. icon_tint colours the image (the LED toggle lights in
+# its layer's colour); the dim is applied on top of it.
+<IconButton@Button>:
+    icon_tint: 1, 1, 1, 1
+    background_disabled_normal: self.background_normal
+    background_disabled_down: self.background_down
+    background_color: self.icon_tint[0], self.icon_tint[1], self.icon_tint[2], (0.3 if self.disabled else 1)
+
+<IconToggleButton@ToggleButton>:
+    icon_tint: 1, 1, 1, 1
+    background_disabled_normal: self.background_normal
+    background_disabled_down: self.background_down
+    background_color: self.icon_tint[0], self.icon_tint[1], self.icon_tint[2], (0.3 if self.disabled else 1)
+
+# Fix checkbox visibility on macOS Metal backend (#466). A disabled checkbox
+# draws background_*_disabled_*, Kivy's own atlas images, which show as
+# nothing on the panels, so a locked checkbox or radio vanished; it keeps
+# these images instead, dimmed as a locked icon button is.
 <CheckBox>:
     background_checkbox_normal: 'data/icons/checkbox_off.png'
     background_checkbox_down: 'data/icons/checkbox_on.png'
     background_radio_normal: 'data/icons/radio_off.png'
     background_radio_down: 'data/icons/radio_on.png'
-    color: 1, 1, 1, 1
+    background_checkbox_disabled_normal: 'data/icons/checkbox_off.png'
+    background_checkbox_disabled_down: 'data/icons/checkbox_on.png'
+    background_radio_disabled_normal: 'data/icons/radio_off.png'
+    background_radio_disabled_down: 'data/icons/radio_on.png'
+    color: (1, 1, 1, 0.3) if self.disabled else (1, 1, 1, 1)
 
 # Rounded style for file/folder chooser buttons (extend Button in Python)
 <FileChooseBTN>:
@@ -252,7 +276,7 @@
         spacing: '5dp'
         pos: (root.width - 9*dp(40))/2, root.status_line_height
 
-		Button:
+		IconButton:
 			id: open_last_save_folder
 			# Read-only folder open: intentionally stays live during a protocol
 			# so the operator can reach saved files mid-run.
@@ -284,7 +308,7 @@
                     pos: self.pos
                     size: self.size
 
-        ToggleButton:
+        IconToggleButton:
             id: live_btn
 			# A freeze is the display's alone, so it stays live during a run.
 			tooltip_text: 'Freeze live image'
@@ -296,7 +320,7 @@
             state: 'normal'
             on_press: root.cam_toggle()
 
-        Button:
+        IconButton:
             id: capture_btn
             disabled: app.lock.controls_locked
 			tooltip_text: 'Snap live image'
@@ -307,7 +331,7 @@
             size: '40dp', '40dp'
             on_release: root.live_capture()
 
-        ToggleButton:
+        IconToggleButton:
             id: composite_btn
             disabled: root.composite_held or root.composite_pending
 			tooltip_text: 'Acquire composite fluorescence image for channels set to acquire\nincluding either bright field or phase contrast'
@@ -318,7 +342,7 @@
             size: '40dp', '40dp'
             on_release: root.composite_capture()
 
-        ToggleButton:
+        IconToggleButton:
             id: record_btn
             disabled: app.lock.run_lockout
 			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(time limit set in Advanced Settings)'
@@ -329,7 +353,7 @@
             size: '40dp', '40dp'
             on_press: root.record_button()
 
-        Button:
+        IconButton:
             id: fit_btn
 			tooltip_text: 'Fit live image to window'
             border: 0, 0, 0, 0
@@ -339,7 +363,7 @@
             size: '40dp', '40dp'
             on_release: root.fit_image()
 
-        Button:
+        IconButton:
             id: one2one_btn
 			tooltip_text: 'Show live image as\n1 camera pixel to 1 screen pixel'
             border: 0, 0, 0, 0
@@ -558,7 +582,7 @@
 				    spacing: '5dp'
 
 				    Label:
-				    Button:
+				    IconButton:
 				        id: fast_up
 						tooltip_text: 'Coarse Up'
 						border: 0, 0, 0, 0
@@ -567,7 +591,7 @@
 						background_normal: './data/icons/UU_normal.png'
 						background_down: './data/icons/UU_down.png'
 						on_release: root.coarse_up()
-				    Button:
+				    IconButton:
 				        id: slow_up
 						tooltip_text: 'Fine Up'
 						border: 0, 0, 0, 0
@@ -576,7 +600,7 @@
 						background_normal: './data/icons/U_normal.png'
 						background_down: './data/icons/U_down.png'
 						on_release: root.fine_up()
-				    Button:
+				    IconButton:
 				        id: slow_down
 						tooltip_text: 'Fine Down'
 						border: 0, 0, 0, 0
@@ -585,7 +609,7 @@
 						background_normal: './data/icons/D_normal.png'
 						background_down: './data/icons/D_down.png'
 						on_release: root.fine_down()
-				    Button:
+				    IconButton:
 				        id: fast_down
 						tooltip_text: 'Coarse Down'
 						border: 0, 0, 0, 0
@@ -1010,7 +1034,7 @@
 						size_hint_y: None
 						height: '30dp'
 
-						Button: # COARSE LEFT
+						IconButton: # COARSE LEFT
 							border: 0, 0, 0, 0
 							size_hint: None, None
 							tooltip_text: 'Coarse Left'
@@ -1019,7 +1043,7 @@
 							background_down: './data/icons/LL_down.png'
 							on_release: root.coarse_left()
 
-						Button: # FINE LEFT
+						IconButton: # FINE LEFT
 							id: slow_up
 							tooltip_text: 'Fine Left'
 							border: 0, 0, 0, 0
@@ -1029,7 +1053,7 @@
 							background_down: './data/icons/L_down.png'
 							on_release: root.fine_left()
 
-						Button: # FINE RIGHT
+						IconButton: # FINE RIGHT
 							id: slow_down
 							tooltip_text: 'Fine Right'
 							border: 0, 0, 0, 0
@@ -1039,7 +1063,7 @@
 							background_down: './data/icons/R_down.png'
 							on_release: root.fine_right()
 			
-						Button: # COARSE RIGHT
+						IconButton: # COARSE RIGHT
 							id: fast_down
 							tooltip_text: 'Coarse Right'
 							border: 0, 0, 0, 0
@@ -1097,7 +1121,7 @@
 						size_hint_y: None
 						height: '30dp'
 
-						Button: # COARSE FORWARD
+						IconButton: # COARSE FORWARD
 							id: fast_down
 							tooltip_text: 'Coarse upward'
 							border: 0, 0, 0, 0
@@ -1106,7 +1130,7 @@
 							background_normal: './data/icons/DD_normal.png'
 							background_down: './data/icons/DD_down.png'
 							on_release: root.coarse_back()
-						Button: # FINE FORWARD
+						IconButton: # FINE FORWARD
 							border: 0, 0, 0, 0
 							tooltip_text: 'Fine upward'
 							size_hint: None, None
@@ -1114,7 +1138,7 @@
 							background_normal: './data/icons/D_normal.png'
 							background_down: './data/icons/D_down.png'
 							on_release: root.fine_back()
-						Button: # FINE BACK
+						IconButton: # FINE BACK
 							border: 0, 0, 0, 0
 							tooltip_text: 'Fine downward'
 							size_hint: None, None
@@ -1122,7 +1146,7 @@
 							background_normal: './data/icons/U_normal.png'
 							background_down: './data/icons/U_down.png'
 							on_release: root.fine_fwd()
-						Button: # COARSE BACK
+						IconButton: # COARSE BACK
 							border: 0, 0, 0, 0
 							tooltip_text: 'Coarse downward'
 							size_hint: None, None
@@ -1429,7 +1453,7 @@
 					width: '75dp'
 					font_size: '12sp'
 
-				Button:
+				IconButton:
 					id: prev_step_btn
 					disabled: app.lock.run_lockout
 					tooltip_text: 'Move to previous Step'
@@ -1472,7 +1496,7 @@
 					disabled: True
 					multiline: False
 					valign: 'center'
-				Button:
+				IconButton:
 					id: next_step_btn
 					disabled: app.lock.run_lockout
 					tooltip_text: 'Move to next Step'
@@ -1874,7 +1898,7 @@
 			font_size: '12sp'
 			text_size: self.size
 
-		ToggleButton:
+		IconToggleButton:
 			id: enable_timestamp_overlay_btn
 			on_release: root.log_timestamp_overlay()
 			tooltip_text: 'Add real time values to lower left corner of video'
@@ -2645,7 +2669,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_scale_bar_btn
 					tooltip_text: 'Show scale bar in lower right corner of image'
 					size_hint: None, None
@@ -2668,7 +2692,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_crosshairs_btn
 					disabled: app.lock.run_lockout
 					tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
@@ -2692,7 +2716,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_live_image_histogram_equalization_btn
 					disabled: app.lock.run_lockout
 					tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
@@ -2717,7 +2741,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: show_tooltips_btn
 					size_hint: None, None
 					tooltip_text: 'Display hint while hovering over controls'
@@ -2747,7 +2771,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_bullseye_btn_id
 					size_hint: None, None
 					size: '45dp', '30dp'
@@ -2848,7 +2872,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
+				IconToggleButton:
 					id: enable_led_btn
 					disabled: app.lock.run_lockout
 					size_hint: None, None
@@ -2859,7 +2883,7 @@
 					background_normal: './data/icons/ToggleL.png'
 					# One white image, lit in the layer's colour while on.
 					background_down: './data/icons/ToggleRW.png'
-					background_color: root.bg_color if self.state == 'down' else (1, 1, 1, 1)
+					icon_tint: root.bg_color if self.state == 'down' else (1, 1, 1, 1)
 					on_release: root.led_toggle()
 
 			BoxLayout:
