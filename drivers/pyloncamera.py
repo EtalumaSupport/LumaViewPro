@@ -4783,6 +4783,7 @@ class _DropBurst:
         self.failures: dict[str, int] = {}
 
     def add(self, kind: str, error_code: int | str | None) -> None:
+        """Count one dropped grab: a frame, or a failed grab under its error code."""
         if kind == 'frame':
             self.frames += 1
         else:
@@ -4790,6 +4791,7 @@ class _DropBurst:
             self.failures[words] = self.failures.get(words, 0) + 1
 
     def summary(self, ended: str) -> str:
+        """The burst's one closing line, ``ended`` saying how it ended."""
         failed = sum(self.failures.values())
         codes = ', '.join(f'{words} x{n}' for words, n in sorted(self.failures.items()))
         return (

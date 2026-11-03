@@ -45,7 +45,7 @@ _UI_THREAD = {
         'called from after_the_startup_motion and on_start, both on the Clock',
     ),
     ('lumaviewpro.py', 'LumaViewProApp.on_request_close'): (2, "Kivy's close request"),
-    ('lumaviewpro.py', 'LumaViewProApp.on_start'): (3, "Kivy's start, on the UI thread"),
+    ('lumaviewpro.py', 'LumaViewProApp.on_start'): (4, "Kivy's start, on the UI thread"),
     ('lumaviewpro.py', 'LumaViewProApp.on_start.after_the_startup_motion'): (
         1,
         'run by startup_motion_settled, posted through schedule_ui, or inline from on_start',
