@@ -1051,6 +1051,8 @@ def _run_cleanup_kwargs(**overrides):
         'ending': ending,
         'record_cleanup_failures': lambda steps: None,
         'failed_before': (),
+        'video_save_wait_s': None,
+        'video_as_frames': False,
     }
     kwargs.update(overrides)
     return kwargs

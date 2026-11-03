@@ -2798,9 +2798,11 @@ class SequencedCaptureRunner:
             # execution-record row must land before the run's writes close
             # (_close_run_writes), so wait it out here (bounded).
             writer = self._image_writer
+            video_save_wait_s = None
             if writer is not None and writer.video_busy:
                 logger.info('[Protocol] Waiting for video write drain before run cleanup')
-                writer.wait_for_video_drains()
+                video_save_wait_s = writer.wait_for_video_drains()
+            run._pending.record_video_save_wait(video_save_wait_s)
 
             # One read, here, after the last lane cleanup waits on has
             # drained -- so a fault that lands during that drain is still
@@ -2838,6 +2840,8 @@ class SequencedCaptureRunner:
                 ending=ending,
                 record_cleanup_failures=run._pending.record_cleanup_failures,
                 failed_before=halt_failed,
+                video_save_wait_s=video_save_wait_s,
+                video_as_frames=self._video_as_frames,
             )
             build = self._start_hyperstack_build(on_end=run._files_event_done)
             build_settled = True

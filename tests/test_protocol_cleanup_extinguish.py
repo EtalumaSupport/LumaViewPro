@@ -162,6 +162,8 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
         ending=RunEnding('completed', 'completed', 'The run finished normally.'),
         record_cleanup_failures=lambda steps: None,
         failed_before=(),
+        video_save_wait_s=None,
+        video_as_frames=False,
     )
     return applied, told
 

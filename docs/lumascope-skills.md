@@ -843,7 +843,11 @@ current), or as an MP4 played at the frames' own times; either way a
 timestamps and the rate. A rate is a limit: with one set, the manifest's
 `frame_budget` is the frames the limit and the duration allow, and a camera
 slower than the limit ends at the duration with fewer (`frames_selected`).
-Frames of one channel are also built into a hyperstack.
+Every frame is kept however slowly the disk saves them, so saving can run on
+after the recording ends: the manifest's `save_wait_s`, a manual recording's
+answer (`RecordingFinished.save_wait_s`) and a run's
+(`RunOutcome.video_save_wait_s`) say how long, and a wait over 10 s is told
+once saving finishes. Frames of one channel are also built into a hyperstack.
 
 ## Protocols and runs
 

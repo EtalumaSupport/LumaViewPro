@@ -180,6 +180,8 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, led_end_policy):
         ending=ending,
         record_cleanup_failures=lambda steps: None,
         failed_before=(),
+        video_save_wait_s=None,
+        video_as_frames=False,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1

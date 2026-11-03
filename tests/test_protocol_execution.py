@@ -721,6 +721,44 @@ class TestSingleScanVideo:
         assert described['plate_pos_mm']['y'] == pytest.approx(step['Y'], abs=0.01)
 
 
+class TestARunsSlowVideoSaveIsToldAtItsEnd:
+    """A run whose end waited past the notice bound for its video steps to
+    finish saving is told so once, at its end, and states the wait on its
+    outcome. The runner has no clock seam, so the bound is set below a
+    wait the slowed writes make real.
+    """
+
+    def test_a_wait_past_the_bound_is_told_once_and_rides_the_outcome(
+        self, executor, scope, tmp_path, monkeypatch, centre_posts
+    ):
+        import modules.protocol_cleanup as protocol_cleanup
+        from modules.protocol_recording import ProtocolVideoStep
+
+        monkeypatch.setattr(protocol_cleanup, 'RECORDING_SAVE_WAIT_NOTICE_S', 0.2)
+        real_write = ProtocolVideoStep._write_frame
+
+        def _slow_write(self, *args):
+            # Slower than the simulated camera delivers, so saving runs on
+            # past the step's end.
+            time.sleep(0.1)
+            return real_write(self, *args)
+
+        monkeypatch.setattr(ProtocolVideoStep, '_write_frame', _slow_write)
+        protocol = _make_single_step_protocol(
+            color='BF', acquire='video', video_config={'duration': 0.5}
+        )
+
+        completed, ended = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+
+        assert completed
+        waited_s = ended['outcome'].video_save_wait_s
+        assert waited_s is not None and waited_s > 0.2
+        (told,) = [n for n in centre_posts if n.title == 'Recording Saved Slowly']
+        assert told.message.startswith(
+            f'Every frame was kept. The run waited {waited_s:.0f} s at its end'
+        )
+
+
 class TestFullProtocol:
     """Test 7: Full protocol with multiple scans."""
 

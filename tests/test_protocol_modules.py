@@ -349,6 +349,8 @@ class TestRunCleanup:
             'ending': ending,
             'record_cleanup_failures': lambda steps: None,
             'failed_before': (),
+            'video_save_wait_s': None,
+            'video_as_frames': False,
         }
         defaults.update(overrides)
         # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a

@@ -35,6 +35,10 @@ _NOTICES = [
     ),
     (exc.SlowFileWritesNotice(), 'slow_file_writes'),
     (
+        exc.RecordingSavedLateNotice(save_wait_s=45.0, as_frames=True, protocol_run=False),
+        'recording_saved_late',
+    ),
+    (
         exc.ProtocolStepsInvalidNotice(
             errors=['Step 1 (a): Exposure must be more than 0 ms, got 0.0']
         ),

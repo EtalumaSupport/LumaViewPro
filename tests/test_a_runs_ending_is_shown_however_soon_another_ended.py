@@ -218,7 +218,7 @@ def test_two_recordings_stopped_by_a_full_disk_both_say_so(
         lambda *_: (not controller.is_recording, 100.0),
     )
     try:
-        ends = [controller.start().result(timeout=COMPLETION_TIMEOUT) for _ in range(2)]
+        ends = [controller.start().result(timeout=COMPLETION_TIMEOUT).end_reason for _ in range(2)]
     finally:
         scheduler.shutdown()
 

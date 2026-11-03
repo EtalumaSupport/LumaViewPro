@@ -862,10 +862,10 @@ class TestARecordingIsAnOperation:
         finally:
             release.set()
 
-        assert recording.result(timeout=15) == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'user_stop'
         following = controller.start()
         following.stop()
-        assert following.result(timeout=15) == 'user_stop'
+        assert following.result(timeout=15).end_reason == 'user_stop'
 
     def test_its_stop_leaves_a_recording_started_before_it_is_done(self, tmp_path):
         # A new recording may start from the finish's last announce, before
@@ -888,7 +888,7 @@ class TestARecordingIsAnOperation:
 
         assert controller.is_recording
         held[1].stop()
-        assert held[1].result(timeout=15) == 'user_stop'
+        assert held[1].result(timeout=15).end_reason == 'user_stop'
 
     def test_a_stop_while_its_end_is_announced_leaves_its_end_reason(self, tmp_path):
         # The finish's last announce runs the claim's listener once a new
@@ -907,7 +907,7 @@ class TestARecordingIsAnOperation:
         feed_frames(scope, clock, 30, fps=10.0)  # past its 2 s duration
         controller._scheduler.fire()
 
-        assert held[0].result(timeout=15) == 'duration_elapsed'
+        assert held[0].result(timeout=15).end_reason == 'duration_elapsed'
         assert controller.end_reason == 'duration_elapsed'
 
     def test_one_stopped_through_its_operation_says_so_when_its_finish_fails(
@@ -926,7 +926,7 @@ class TestARecordingIsAnOperation:
         feed_frames(scope, clock, 3, fps=10.0)
         recording.stop()
 
-        assert recording.result(timeout=15) == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'user_stop'
         assert controller.end_reason == 'user_stop'
 
 
@@ -952,7 +952,7 @@ class TestFinishThreadResilience:
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
 
-        assert recording.result(timeout=15) == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'user_stop'
         assert made['writer'].close_calls == 1
         assert 'error' in recorder.severities()
         assert not controller.is_busy
@@ -1729,7 +1729,7 @@ class TestTheEndReason:
             assert controller.end_reason == 'user_stop'
         finally:
             writing.set()
-        assert recording.result(timeout=15) == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'user_stop'
 
     def test_a_stop_after_the_duration_ended_it_leaves_duration_elapsed(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, duration_s=2)
@@ -1739,4 +1739,111 @@ class TestTheEndReason:
         controller.stop()
 
         assert controller.end_reason == 'duration_elapsed'
-        assert recording.result(timeout=15) == 'duration_elapsed'
+        assert recording.result(timeout=15).end_reason == 'duration_elapsed'
+
+
+SAVED_SLOWLY = 'Recording Saved Slowly'
+
+
+class _WriterDied(BaseException):
+    """What escapes a write and kills the writer lane: not an Exception, so it
+    is not a frame's write failure."""
+
+
+class TestASlowSaveIsToldOnceItFinishes:
+    """A recording whose saving ran on past the 10 s notice bound after it
+    ended is told so once its saving finishes, and only when every frame was
+    kept; the wait rides the operation's answer and the manifest either way.
+
+    The writes are held on their way to disk while the test's clock moves
+    past the bound, so the engine's steady clock, which the test's clock
+    drives here, measures the wait without the test waiting it out.
+    """
+
+    @staticmethod
+    def _hold_writes(monkeypatch, *, dies=False):
+        writing = threading.Event()
+        real_write = ManualRecordingController._write_frame
+
+        def _held_write(self, *args):
+            writing.wait(timeout=15)
+            if dies:
+                raise _WriterDied
+            return real_write(self, *args)
+
+        monkeypatch.setattr(ManualRecordingController, '_write_frame', _held_write)
+        return writing
+
+    @staticmethod
+    def _manifest(tmp_path):
+        (path,) = tmp_path.rglob('*manifest.json')
+        return json.loads(path.read_text())
+
+    def test_saving_past_the_bound_is_told_once_after_it_finishes(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        writing = self._hold_writes(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+        clock.advance(11.0)
+        assert SAVED_SLOWLY not in [n.title for n in centre_posts], (
+            'told while the recording was still saving'
+        )
+        writing.set()
+
+        finished = recording.result(timeout=15)
+
+        assert finished.save_wait_s == pytest.approx(11.0)
+        assert self._manifest(tmp_path)['save_wait_s'] == pytest.approx(11.0)
+        assert self._manifest(tmp_path)['frames_written'] == 4
+        (told,) = [n for n in centre_posts if n.title == SAVED_SLOWLY]
+        assert told.message.startswith(
+            'Every frame was kept. Saving finished 11 s after the recording ended'
+        )
+
+    def test_saving_that_keeps_up_is_not_told(self, tmp_path, centre_posts):
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+
+        finished = recording.result(timeout=15)
+
+        assert finished.save_wait_s is not None and finished.save_wait_s < 10.0
+        assert SAVED_SLOWLY not in [n.title for n in centre_posts]
+
+    def test_a_backlog_discarded_while_saving_is_not_told_and_states_no_wait(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        writing = self._hold_writes(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+        clock.advance(11.0)
+        controller.discard_pending()
+        writing.set()
+
+        finished = recording.result(timeout=15)
+
+        assert finished.save_wait_s is None
+        assert SAVED_SLOWLY not in [n.title for n in centre_posts]
+
+    def test_a_writer_that_died_is_told_as_its_death_not_as_a_slow_save(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        writing = self._hold_writes(monkeypatch, dies=True)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        recording = controller.start()
+        feed_frames(scope, clock, 4, fps=10.0)
+        recording.stop()
+        clock.advance(11.0)
+        writing.set()
+
+        recording.result(timeout=15)
+
+        titles = [n.title for n in centre_posts]
+        assert SAVED_SLOWLY not in titles
+        assert any(n.severity == Severity.ERROR for n in centre_posts), "the writer's death is told"

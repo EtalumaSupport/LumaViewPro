@@ -448,7 +448,7 @@ def test_a_recording_on_a_camera_removed_under_it_ends_camera_disconnected(make_
 
     session.scope.simulation.remove_camera()
 
-    assert recording.result(timeout=_RECORDING_WAIT_S) == 'camera_disconnected'
+    assert recording.result(timeout=_RECORDING_WAIT_S).end_reason == 'camera_disconnected'
 
 
 def test_a_recording_asked_to_start_on_a_removed_camera_is_refused_before_it_makes_anything(

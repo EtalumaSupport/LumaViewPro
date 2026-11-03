@@ -362,6 +362,37 @@ class SlowFileWritesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an
         )
 
 
+class RecordingSavedLateNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A recording kept every frame, and saving them finished long after it ended.
+
+    Told once saving has finished, never during a recording: the notice is a
+    pop-up, which would take the person's next tap, Stop included. The
+    raiser passes the facts; the words are the type's.
+    """
+
+    title = 'Recording Saved Slowly'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'recording_saved_late': None}
+
+    def __init__(self, *, save_wait_s: float, as_frames: bool, protocol_run: bool):
+        waited = (
+            f'The run waited {save_wait_s:.0f} s at its end for its videos to finish saving'
+            if protocol_run
+            else f'Saving finished {save_wait_s:.0f} s after the recording ended'
+        )
+        if as_frames:
+            because = (
+                'this computer saves video frames as files more slowly than the recording '
+                'keeps them. Recording to MP4, or a lower Recording max FPS in Advanced '
+                'Settings, avoids the wait.'
+            )
+        else:
+            because = (
+                'this computer saves video more slowly than the recording keeps it. A lower '
+                'Recording max FPS in Advanced Settings avoids the wait.'
+            )
+        super().__init__(f'Every frame was kept. {waited}, because {because}')
+
+
 class SingleScanNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """A timed run will perform one scan, because of its period and duration."""
 

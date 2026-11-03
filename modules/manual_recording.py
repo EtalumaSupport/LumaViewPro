@@ -63,6 +63,7 @@ from modules.exceptions import (
     RecordingFramesUnstampedError,
     RecordingPositionNotRecordedNotice,
     RecordingRefusedError,
+    RecordingSavedLateNotice,
     RecordingStoppedError,
     VideoFramesDroppedError,
     VideoWriterFailedError,
@@ -90,6 +91,7 @@ from modules.recording_manifest import gather_host_provenance
 from modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from modules.video_recording import (
     END_REASON_START_FAILED,
+    RecordingFinished,
     PreRollEnd,
     RecordingConfig,
     VideoRecordingEngine,
@@ -318,7 +320,7 @@ class ManualRecordingController:
     # ------------------------------------------------------------------
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
-    def start(self, *, false_color_on: bool = False) -> 'Operation[str]':
+    def start(self, *, false_color_on: bool = False) -> 'Operation[RecordingFinished]':
         """Snapshot configuration and open a recording; returns its operation.
 
         Channel IDENTITY (what was imaged) and false-color RENDERING (how
@@ -337,7 +339,8 @@ class ManualRecordingController:
         Returns:
             The recording's ``Operation``: done once its frames, MP4 close and
             any hyperstack build are over and a new recording may start, with
-            the recording's ``end_reason``. Its ``stop()`` stops this
+            its ``RecordingFinished``: the ``end_reason``, and how long saving
+            ran on after the recording ended. Its ``stop()`` stops this
             recording as ``stop`` does, and does nothing once it has stopped,
             so it never stops a recording started later.
 
@@ -1107,8 +1110,22 @@ class ManualRecordingController:
                         solicited=False,
                         category='Recording',
                     )
+                save_wait_s = result.save_wait_to_tell(writer_dropped)
+                if save_wait_s is not None:
+                    notifications.report_outcome(
+                        RecordingSavedLateNotice(
+                            save_wait_s=save_wait_s,
+                            as_frames=self._writer is None,
+                            protocol_run=False,
+                        ),
+                        solicited=False,
+                        category='Recording',
+                    )
                 logger.info(f'[ManualRecord] Finished: {result.summary()}')
-            end_reason = engine.end_reason
+            finished = RecordingFinished(
+                end_reason=engine.end_reason,
+                save_wait_s=None if result is None else result.save_wait_s,
+            )
             # Once it reads False a new recording may start and rebind every
             # per-recording slot this thread reads above. The claim was
             # released when the drain ended, so this end is no transition of
@@ -1116,7 +1133,7 @@ class ManualRecordingController:
             # last, so whoever reads its result may start the next recording.
             self._finishing = False
             self._claim.announce()
-            concurrent.futures.Future.set_result(operation, end_reason)
+            concurrent.futures.Future.set_result(operation, finished)
 
     def _build_hyperstack(self) -> None:
         plan = self._plan

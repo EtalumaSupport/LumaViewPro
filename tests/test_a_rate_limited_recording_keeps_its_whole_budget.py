@@ -75,7 +75,7 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
         post_processing=post_processing,
     )
     try:
-        assert controller.start().result(timeout=30) == 'frame_budget_filled'
+        assert controller.start().result(timeout=30).end_reason == 'frame_budget_filled'
     finally:
         scheduler.shutdown()
 

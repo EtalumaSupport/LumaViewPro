@@ -830,14 +830,19 @@ class ProtocolImageWriter:
         for step in self._video_steps:
             step.discard_pending()
 
-    def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
+    def wait_for_video_drains(self, timeout_s: float = 600.0) -> float | None:
         """Block until every video step's drain and finish complete.
 
         Called by the runner before the execution record reconciles, so a
-        drain tail's row cannot land after the record closes. True when
-        everything finished inside the timeout.
+        drain tail's row cannot land after the record closes.
+
+        Returns:
+            The seconds waited, when every step finished inside the timeout
+            having written every frame it kept (``kept_every_frame``); None
+            otherwise, since then "every frame was kept" is not true to say.
         """
-        deadline = time.monotonic() + timeout_s
+        started = time.monotonic()
+        deadline = started + timeout_s
         finished = True
         for step in self._video_steps:
             remaining = deadline - time.monotonic()
@@ -847,7 +852,10 @@ class ProtocolImageWriter:
                     f'{timeout_s:.0f} s; its execution-record row may be missing'
                 )
                 finished = False
-        return finished
+        waited_s = time.monotonic() - started
+        if not finished or not all(step.kept_every_frame for step in self._video_steps):
+            return None
+        return waited_s
 
     def _record_video_step_row(
         self,

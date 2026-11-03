@@ -194,6 +194,10 @@ class ProtocolVideoStep:
         self._timestamp_overlay = timestamp_overlay
         self._global_max_fps = global_max_fps
         self._video_sizing_fps = video_sizing_fps
+        # Whether the finished step kept and wrote every frame it selected,
+        # with its backlog saved, not discarded: what the run's end needs to
+        # say "every frame was kept" when it waited for the step's saving.
+        self._kept_every_frame = False
         self._channel_colors = channel_colors
         self._autogain_settings = autogain_settings
         self._events = events
@@ -252,6 +256,16 @@ class ProtocolVideoStep:
     def pending_writes(self) -> int:
         """Frames enqueued but not yet on disk."""
         return self._engine.pending_writes if self._engine is not None else 0
+
+    @property
+    def kept_every_frame(self) -> bool:
+        """True once the step has finished having written every frame it kept.
+
+        False while it is unfinished, and for a step whose backlog was
+        discarded, whose writer died, or that lost a frame to a write or a
+        missing camera timestamp.
+        """
+        return self._kept_every_frame
 
     def wait_until_finished(self, timeout: float | None = None) -> bool:
         """Block until the drain and finish complete; True when finished."""
@@ -846,6 +860,12 @@ class ProtocolVideoStep:
                         solicited=False,
                         category='Protocol',
                     )
+                self._kept_every_frame = (
+                    result.save_wait_s is not None
+                    and not result.aborted
+                    and dropped == 0
+                    and result.frames_unstamped == 0
+                )
                 logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
 
     # ------------------------------------------------------------------

@@ -428,6 +428,7 @@ class CaptureTally:
     'reason',
     'status',
     'title',
+    'video_save_wait_s',
 )
 @dataclasses.dataclass(frozen=True)
 class RunOutcome:
@@ -438,7 +439,8 @@ class RunOutcome:
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
     did not finish, whether a scan's focus was written into the caller's
-    protocol, and last which steps' autofocus did not focus. A
+    protocol, which steps' autofocus did not focus, and last how long the
+    run's end waited for its videos to save. A
     non-composite run carries merged=False and an empty merge_reason
     under whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
@@ -498,6 +500,10 @@ class RunOutcome:
             focus as it was. Counted once per scan and step, so a scan run
             again that focuses the step clears it. Empty when every
             autofocus focused, and for a run with none.
+        video_save_wait_s: Seconds the run's end waited for its video steps
+            to finish saving, when every step finished having written every
+            frame it kept; None when nothing was waited for, or when a step
+            did not finish, was discarded or lost a frame.
     """
 
     status: RunStatus
@@ -514,6 +520,7 @@ class RunOutcome:
     cleanup_failures: tuple[str, ...] | None
     focus_written: bool | None
     focus_failures: tuple[FocusFailure, ...]
+    video_save_wait_s: float | None
 
     @classmethod
     def from_ending(
@@ -529,6 +536,7 @@ class RunOutcome:
         af_focus_z_um: float | None = None,
         focus_written: bool | None = None,
         focus_failures: tuple[FocusFailure, ...] = (),
+        video_save_wait_s: float | None = None,
     ) -> RunOutcome:
         """Compose the caller's answer from the run's recorded ending.
 
@@ -557,6 +565,7 @@ class RunOutcome:
             cleanup_failures=cleanup_failures,
             focus_written=focus_written,
             focus_failures=focus_failures,
+            video_save_wait_s=video_save_wait_s,
         )
 
 
@@ -580,6 +589,7 @@ class PendingRunOutcome:
         self._cleanup_failures: tuple[str, ...] | None = None
         self._focus_written: bool | None = None
         self._focus_failures: tuple[FocusFailure, ...] = ()
+        self._video_save_wait_s: float | None = None
         self._settled = threading.Event()
         # Told once the outcome settles, on the thread that settles it.
         self._on_settled: list[Callable[[RunOutcome], None]] = []
@@ -637,6 +647,16 @@ class PendingRunOutcome:
         """
         with self._lock:
             self._cleanup_failures = steps
+
+    def record_video_save_wait(self, waited_s: float | None) -> None:
+        """Record how long the run's end waited for its videos to save.
+
+        Held here for the reason the captures are; recorded by cleanup
+        before the outcome settles, None when there is no wait to state
+        (``RunOutcome.video_save_wait_s``).
+        """
+        with self._lock:
+            self._video_save_wait_s = waited_s
 
     def record_focus_written(self, written: bool) -> None:
         """Record whether a scan's focus was written into the caller's protocol.
@@ -698,6 +718,7 @@ class PendingRunOutcome:
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
                 focus_failures=self._focus_failures,
+                video_save_wait_s=self._video_save_wait_s,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []
@@ -736,6 +757,7 @@ class PendingRunOutcome:
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
                 focus_failures=self._focus_failures,
+                video_save_wait_s=self._video_save_wait_s,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []
@@ -775,6 +797,7 @@ class PendingRunOutcome:
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
                 focus_failures=self._focus_failures,
+                video_save_wait_s=self._video_save_wait_s,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []

@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 from modules.coord_transformations import PlateLocation
-from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
+from modules.exceptions import (
+    RecordingSavedLateNotice,
+    RunCleanupFailedError,
+    SlowFileWritesNotice,
+)
+from modules.video_recording import RECORDING_SAVE_WAIT_NOTICE_S
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedReading,
@@ -138,6 +143,12 @@ def run_cleanup(
     # The steps the run took before this was called that did not finish,
     # (name, what happened) each: told in the same summary.
     failed_before: tuple[tuple[str, str], ...],
+    # How long the run's end waited for its video steps' saving, when every
+    # step finished having written every frame it kept; None otherwise, and
+    # when there was nothing to wait for (wait_for_video_drains).
+    video_save_wait_s: float | None,
+    # Whether the run saved its videos as frames, for the words of the wait.
+    video_as_frames: bool,
 ) -> bool:
     """Core cleanup logic -- restores state, ends executors.
 
@@ -363,6 +374,20 @@ def run_cleanup(
         from modules.notification_center import notifications
 
         notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
+
+    # Saving that ran on long after the run's recordings ended, told once at
+    # the run's end beside the slow-writes notice; a person who left the run
+    # unattended reads it when they come back.
+    if video_save_wait_s is not None and video_save_wait_s > RECORDING_SAVE_WAIT_NOTICE_S:
+        from modules.notification_center import notifications
+
+        notifications.report_outcome(
+            RecordingSavedLateNotice(
+                save_wait_s=video_save_wait_s, as_frames=video_as_frames, protocol_run=True
+            ),
+            solicited=False,
+            category='Protocol',
+        )
 
     # run_ended and files_written are the run's to send, once it has let go
     # of the scope.

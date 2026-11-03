@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib import profile_trace
 from lvp_logger import logger
+from modules.api_surface import api_fields
 from modules.activity_claim import (
     ActivityClaim,
     BorrowedClaim,
@@ -152,6 +153,11 @@ def wait_for_changes_in_force(
 # and misleads anyone reading the tree afterwards.
 END_REASON_START_FAILED = 'start_failed'
 
+# How long saving may run on past a recording's end before the person is
+# told, once it finishes, that every frame was kept and how long saving took.
+# PERFORMANCE_BUDGETS.md row recording_save_wait_notice_s.
+RECORDING_SAVE_WAIT_NOTICE_S = 10.0
+
 # Queue sentinel closing the writer lane's drain loop. Enqueued exactly
 # once per recording, when selection closes.
 _END_OF_RECORDING = object()
@@ -219,6 +225,24 @@ class RecordingConfig:
         return frame_budget(self.fps, self.duration_s)
 
 
+@api_fields('end_reason', 'save_wait_s')
+@dataclass(frozen=True)
+class RecordingFinished:
+    """What a manual recording's operation answers once it is done.
+
+    Attributes:
+        end_reason: Why frame selection ended ('user_stop',
+            'duration_elapsed', 'frame_budget_filled', 'camera_stalled',
+            ...), the manifest's ``end_reason``; None when the recording
+            never got as far as recording.
+        save_wait_s: Seconds saving ran on after the recording ended; None
+            when its backlog was discarded or it has no measured result.
+    """
+
+    end_reason: str | None
+    save_wait_s: float | None
+
+
 @dataclass(frozen=True)
 class RecordingResult:
     """Measured truth of a finished recording (the manifest's source).
@@ -260,6 +284,9 @@ class RecordingResult:
             budget did, 'discarded' on a discard-first close. A support
             bundle needs this to tell a user stop from a camera death,
             which the frame counts alone cannot.
+        save_wait_s: Seconds from selection closing to the last queued
+            frame written: how long saving ran on after the recording
+            ended. None when the backlog was discarded.
     """
 
     frames_selected: int
@@ -276,6 +303,7 @@ class RecordingResult:
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
     end_reason: str
+    save_wait_s: float | None
 
     @property
     def aborted(self) -> bool:
@@ -289,10 +317,32 @@ class RecordingResult:
         the limit reads as the frames it delivered of those it was allowed.
         """
         budget = '' if self.frame_budget is None else f' of a {self.frame_budget}-frame budget'
+        saved = (
+            '' if self.save_wait_s is None else f', saved {self.save_wait_s:.1f} s after it ended'
+        )
         return (
             f'{self.frames_written} written{budget}, {self.write_failures} failed, '
-            f'measured {self.measured_fps:.2f} fps over {self.measured_duration_s:.2f} s'
+            f'measured {self.measured_fps:.2f} fps over {self.measured_duration_s:.2f} s{saved}'
         )
+
+    def save_wait_to_tell(self, writer_dropped: int) -> float | None:
+        """The save wait the person is told of, or None when there is none to tell.
+
+        Told only when it is longer than ``RECORDING_SAVE_WAIT_NOTICE_S`` and
+        "every frame was kept" is true: the backlog was not discarded, the
+        writer did not die, and no frame was lost to a write failure, to the
+        caller's own writer (``writer_dropped``, the MP4 encoder's count) or
+        to a missing camera timestamp. Each of those is told in its own words.
+        """
+        if (
+            self.save_wait_s is None
+            or self.save_wait_s <= RECORDING_SAVE_WAIT_NOTICE_S
+            or self.aborted
+            or self.write_failures + writer_dropped > 0
+            or self.frames_unstamped > 0
+        ):
+            return None
+        return self.save_wait_s
 
 
 class VideoRecordingEngine:
@@ -370,6 +420,9 @@ class VideoRecordingEngine:
         self._writer_failure: BaseException | None = None
         self._manifest_failure: OSError | None = None
         self._result: RecordingResult | None = None
+        # The steady clock when selection closed, which the save wait is
+        # measured from.
+        self._selection_closed_ns: int | None = None
 
     @property
     def is_recording(self) -> bool:
@@ -481,6 +534,7 @@ class VideoRecordingEngine:
                 self._manifest_failure = None
                 self._end_reason = ''
                 self._result = None
+                self._selection_closed_ns = None
                 self._writer_thread = threading.Thread(
                     target=self._drain_loop, name='VideoRecordingWriter', daemon=True
                 )
@@ -673,6 +727,7 @@ class VideoRecordingEngine:
         if self._selection_closed:
             return
         self._selection_closed = True
+        self._selection_closed_ns = self._steady_clock()
         self._end_reason = reason
         self._recording = False
         self._queue.put(_END_OF_RECORDING)
@@ -766,6 +821,13 @@ class VideoRecordingEngine:
 
     def _finalize_locked(self) -> None:
         """Measure the finished recording and record it; the caller holds the lock."""
+        # Measured to where the queue drained, before the manifest is written,
+        # so the manifest carries it.
+        save_wait_s = (
+            None
+            if self._discarding or self._selection_closed_ns is None
+            else (self._steady_clock() - self._selection_closed_ns) / 1e9
+        )
         timestamps = tuple(self._timestamps)
         if len(timestamps) >= 2:
             span = timestamps[-1] - timestamps[0]
@@ -792,6 +854,7 @@ class VideoRecordingEngine:
                 measured_duration=measured_duration,
                 grade=grade,
                 timestamps=timestamps,
+                save_wait_s=save_wait_s,
             )
         self._result = RecordingResult(
             frames_selected=self._frames_selected,
@@ -808,6 +871,7 @@ class VideoRecordingEngine:
             frame_timestamps_s=timestamps,
             manifest_path=manifest_path,
             end_reason=self._end_reason,
+            save_wait_s=save_wait_s,
         )
 
     def _manifest_name(self) -> str | None:
@@ -838,6 +902,7 @@ class VideoRecordingEngine:
         measured_duration: float,
         grade: TimestampSource,
         timestamps: tuple,
+        save_wait_s: float | None,
     ) -> pathlib.Path | None:
         # Caller metadata first, engine truth second: on any key collision
         # the engine's measured fields win -- a caller cannot overwrite
@@ -856,6 +921,7 @@ class VideoRecordingEngine:
                 'frame_budget': self._config.frame_budget,
                 'measured_fps': measured_fps,
                 'measured_duration_s': measured_duration,
+                'save_wait_s': save_wait_s,
                 # Chunk dicts are stored verbatim: their keys are the
                 # camera driver's vocabulary, which the engine does not
                 # interpret -- downstream readers do.

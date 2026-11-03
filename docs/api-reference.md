@@ -106,6 +106,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`ProtocolRunner`](#ProtocolRunner)
 - [`ProtocolSizeAdvisory`](#ProtocolSizeAdvisory)
 - [`RESTRegistry`](#RESTRegistry)
+- [`RecordingFinished`](#RecordingFinished)
 - [`Remedy`](#Remedy)
 - [`RunEnded`](#RunEnded)
 - [`RunEvents`](#RunEvents)
@@ -4087,7 +4088,7 @@ Nothing.
 ### `ManualRecordingController.start`
 
 ```python
-def start(self, *, false_color_on: bool = False) -> Operation[str]
+def start(self, *, false_color_on: bool = False) -> Operation[RecordingFinished]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
@@ -4110,7 +4111,7 @@ move; a start that would make the name false is refused.
 
 **Returns**
 
-The recording's `Operation`: done once its frames, MP4 close and any hyperstack build are over and a new recording may start, with the recording's `end_reason`. Its `stop()` stops this recording as `stop` does, and does nothing once it has stopped, so it never stops a recording started later.
+The recording's `Operation`: done once its frames, MP4 close and any hyperstack build are over and a new recording may start, with its `RecordingFinished`: the `end_reason`, and how long saving ran on after the recording ended. Its `stop()` stops this recording as `stop` does, and does nothing once it has stopped, so it never stops a recording started later.
 
 **Raises**
 
@@ -12117,6 +12118,19 @@ so a route it expects to serve is never silently missing.
 
 Nothing.
 
+<a id="RecordingFinished"></a>
+## `RecordingFinished`
+
+A record: it crosses the wire as its data.  
+Returned by: [`ManualRecordingController.start`](#ManualRecordingController.start).
+
+What a manual recording's operation answers once it is done.
+
+**Fields**
+
+- <a id="RecordingFinished.end_reason"></a>`end_reason`: `str | None` -- Why frame selection ended ('user_stop', 'duration_elapsed', 'frame_budget_filled', 'camera_stalled', ...), the manifest's `end_reason`; None when the recording never got as far as recording.
+- <a id="RecordingFinished.save_wait_s"></a>`save_wait_s`: `float | None` -- Seconds saving ran on after the recording ended; None when its backlog was discarded or it has no measured result.
+
 <a id="Remedy"></a>
 ## `Remedy`
 
@@ -12221,7 +12235,8 @@ RunEnding whatever ended the run recorded; the next three describe
 the merge, the next two the autofocus characterization data, then
 what the run captured, which steps putting the scope back after it
 did not finish, whether a scan's focus was written into the caller's
-protocol, and last which steps' autofocus did not focus. A
+protocol, which steps' autofocus did not focus, and last how long the
+run's end waited for its videos to save. A
 non-composite run carries merged=False and an empty merge_reason
 under whatever status it ended in, and a run that saved
 no autofocus data carries af_data_saved=False, so a caller reads one
@@ -12243,6 +12258,7 @@ shape for every run kind.
 - <a id="RunOutcome.reason"></a>`reason`: `str` -- Why the RUN ended ('stopped', 'position_lost', 'captures_failed', ...).
 - <a id="RunOutcome.status"></a>`status`: `RunStatus` -- How the run ended.
 - <a id="RunOutcome.title"></a>`title`: `str` -- Short human sentence, suitable as a popup heading.
+- <a id="RunOutcome.video_save_wait_s"></a>`video_save_wait_s`: `float | None` -- Seconds the run's end waited for its video steps to finish saving, when every step finished having written every frame it kept; None when nothing was waited for, or when a step did not finish, was discarded or lost a frame.
 
 <a id="RunProgress"></a>
 ## `RunProgress`
@@ -16723,6 +16739,21 @@ asked for the recording reports it where its flight ends.
 | `other_led_lit` | state | 409 |
 | `post_processing_running` | state | 409 |
 | `recording_active` | state | 409 |
+
+<a id="RecordingSavedLateNotice"></a>
+### `RecordingSavedLateNotice`
+
+A notice; bases `Notice`, `Exception`.
+
+A recording kept every frame, and saving them finished long after it ended.
+
+Told once saving has finished, never during a recording: the notice is a
+pop-up, which would take the person's next tap, Stop included. The
+raiser passes the facts; the words are the type's.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `recording_saved_late` | -- | 409 |
 
 <a id="RecordingStoppedError"></a>
 ### `RecordingStoppedError`
