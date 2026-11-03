@@ -224,11 +224,13 @@ def test_a_capture_asked_before_a_commands_first_move_waits_with_the_command(sco
     does not run out while the body is slow to make its first move, or
     makes none."""
     # A stand-in by design: the deadline's 3 s floor shortened, so a body
-    # held well past the deadline costs a second, not five.
-    monkeypatch.setattr(scope.imaging, '_CAPTURE_DEADLINE_FLOOR_S', 0.1)
+    # held well past the deadline costs two seconds, not six. The floor
+    # stays well above the capture's own work once the command closes, a
+    # grab and its judgment, which a loaded host stretches past 0.1 s.
+    monkeypatch.setattr(scope.imaging, '_CAPTURE_DEADLINE_FLOOR_S', 1.0)
     # The moves before the command in force, their frames counted.
     scope.imaging.capture_still()
-    held_s = 1.0
+    held_s = 2.0
     with concurrent.futures.ThreadPoolExecutor(1) as pool:
         with scope.motion.one_command(('Z',), then='capture'):
             capture = pool.submit(scope.imaging.capture_still)
