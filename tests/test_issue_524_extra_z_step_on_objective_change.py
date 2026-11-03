@@ -170,7 +170,7 @@ def _add_layer_config():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
         'focus': 7000.0,
     }
 

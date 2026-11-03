@@ -22,7 +22,7 @@ from tests.protocol_fixtures import protocol_from_file
 # the step ceiling this suite exists to keep deleted.
 LARGE_STEP_COUNT = 12_000
 
-GLOBAL_MAX_FPS = 10.0
+VIDEO_FPS = 10.0
 
 
 def _large_protocol():
@@ -51,7 +51,7 @@ def test_the_size_advisory_is_reachable_on_a_loaded_protocol(tmp_path):
     """Asserted at the API tier, where the advisory's threshold and sentence live."""
     reloaded = _reload(_large_protocol(), tmp_path)
 
-    advisory = reloaded.size_advisory(global_max_fps=GLOBAL_MAX_FPS)
+    advisory = reloaded.size_advisory(video_fps=VIDEO_FPS)
 
     assert advisory is not None
 

@@ -29,6 +29,7 @@ from modules.lumascope_api.bring_up import Part
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 
+from modules.acquire_mode import AcquireMode
 from modules.activity_claim import (
     ActivityClaim,
     ActivityHolder,
@@ -85,6 +86,7 @@ from modules.run_outcome import (
 
 from modules.scheduler import Scheduler
 from modules.sequential_io_executor import SequentialIOExecutor
+from modules.video_cadence import video_sizing_fps
 from lvp_logger import logger
 import threading
 
@@ -319,6 +321,10 @@ class RunPlan:
     # these itself: a headless run gets exactly what its caller resolved.
     timestamp_overlay: bool
     video_max_fps: int
+    # The rate a video step is sized at for the run's disk checks, read once
+    # at prepare (video_cadence.video_sizing_fps); None only when the run has
+    # no video step to size.
+    video_sizing_fps: float | None
     # Whether the run names its files with the turret position. Stated by
     # the caller from the store its world owns -- the GUI's live flag, or
     # the mode a headless session was built in -- so the engine never
@@ -335,6 +341,12 @@ class RunPlan:
     # it runs inside nor release that activity's claim when it ends. None
     # for a run that takes the scope for itself.
     borrowed_claim: BorrowedClaim | None = None
+
+
+# The longest a run's start waits for the camera's delivered rate to be
+# measured: its stream check publishes the first rate two of its 1 s ticks
+# after the stream starts, and one more tick covers a check that ran late.
+DELIVERED_RATE_WAIT_S = 3.0
 
 
 class SequencedCaptureRunner:
@@ -1177,7 +1189,9 @@ class SequencedCaptureRunner:
                 running, files still writing, post-processing still running
                 (``'post_processing_running'``), empty protocol, validation
                 errors, hardware not connected, a camera that is not
-                streaming, an axis position not
+                streaming, a video step with no Recording max FPS while
+                the camera delivers nothing (``'camera_not_delivering'``),
+                an axis position not
                 known, the stage's lid open, a save location that cannot
                 be used, a sequence_name that is a path rather than a
                 name).
@@ -1246,6 +1260,30 @@ class SequencedCaptureRunner:
                 message=(
                     'The camera is connected but is not delivering frames. Start its '
                     'live feed and try again.'
+                ),
+            )
+
+        # The rate a video step is sized at for the disk check: the limit,
+        # else the camera's delivered rate. A video step with no limit keeps
+        # every delivered frame, so with nothing delivered it cannot be sized,
+        # and a run sized at no rate would reserve no disk for its video.
+        # The camera is asked only when its rate is what sizes a video step,
+        # and waited for, since a stream that has just started has no rate
+        # measured yet.
+        has_video = AcquireMode.VIDEO in set(protocol.steps()['Acquire'])
+        video_fps = video_sizing_fps(
+            video_max_fps,
+            self._scope.imaging.wait_for_delivered_rate(DELIVERED_RATE_WAIT_S).frame_rate_fps
+            if has_video and video_max_fps <= 0
+            else 0.0,
+        )
+        if video_fps is None and has_video:
+            self._refuse(
+                reason='camera_not_delivering',
+                message=(
+                    'The camera is not delivering frames, so the disk a video step will '
+                    'write cannot be sized. Start its live image, or set a Recording '
+                    'max FPS, and try again.'
                 ),
             )
 
@@ -1455,6 +1493,7 @@ class SequencedCaptureRunner:
             stage_offset=stage_offset,
             timestamp_overlay=timestamp_overlay,
             video_max_fps=video_max_fps,
+            video_sizing_fps=video_fps,
             ag_ae_max_exposure_ms=ag_ae_max_exposure_ms,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
@@ -1650,6 +1689,7 @@ class SequencedCaptureRunner:
             self._video_as_frames = plan.video_as_frames
             self._timestamp_overlay = plan.timestamp_overlay
             self._video_max_fps = plan.video_max_fps
+            self._video_sizing_fps = plan.video_sizing_fps
             self._ag_ae_max_exposure_ms = plan.ag_ae_max_exposure_ms
             self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
@@ -1763,6 +1803,7 @@ class SequencedCaptureRunner:
                 image_capture_config=self._image_capture_config,
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
+                video_sizing_fps=self._video_sizing_fps,
                 engineering_mode=self._engineering_mode,
                 channel_colors=self._channel_colors,
                 run_claim=self._held_claim.lend(),

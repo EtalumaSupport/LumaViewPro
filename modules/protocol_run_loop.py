@@ -239,24 +239,31 @@ class ProtocolRunLoop:
                 # Check disk space once per scan, against the per-run estimate
                 # summed once on the first check and reused thereafter.
                 # As with the connection probe: the handler computes the
-                # numbers, the abort happens outside it. Inside, the
-                # proceeding-anyway catch below would swallow the abort and
-                # walk straight into the next step.
+                # numbers, the abort happens outside it. The estimate is
+                # outside the catch: prepare() sized the run, so a failure of
+                # it is LumaViewPro's own and ends the run where it happens
+                # instead of switching the disk guard off.
                 disk_ok, free_mb = True, 0.0
-                try:
-                    if p._parent_dir is not None:
-                        if run_required_mb is None:
-                            num_steps = p._protocol.num_steps()
-                            run_required_mb = max(
-                                MIN_REQUIRED_DISK_MB,
-                                p._protocol.estimate_write_mb(
-                                    video_as_frames=p._video_as_frames,
-                                    global_max_fps=p._video_max_fps,
-                                ),
-                            )
+                if p._parent_dir is not None:
+                    if run_required_mb is None:
+                        num_steps = p._protocol.num_steps()
+                        run_required_mb = max(
+                            MIN_REQUIRED_DISK_MB,
+                            p._protocol.estimate_write_mb(
+                                video_as_frames=p._video_as_frames,
+                                video_fps=p._video_sizing_fps,
+                            ),
+                        )
+                    try:
                         disk_ok, free_mb = check_disk_space_ok(p._parent_dir, run_required_mb)
-                except Exception as e:
-                    logger.debug(f'[PROTOCOL] Disk space check failed (proceeding anyway): {e}')
+                    except OSError as e:
+                        # The probe's own failure: the folder's free space
+                        # cannot be read, and the scan proceeds unguarded,
+                        # said where it is seen.
+                        logger.warning(
+                            f'[PROTOCOL] Free disk at {p._parent_dir} could not be read '
+                            f'(proceeding without the disk check this scan): {e}'
+                        )
                 if not disk_ok:
                     msg = (
                         f'Insufficient disk space: {free_mb:.0f} MB free, '

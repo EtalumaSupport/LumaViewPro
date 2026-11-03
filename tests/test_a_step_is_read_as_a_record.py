@@ -49,9 +49,7 @@ def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
         15.0,
         6000.0,
     )
-    assert step.video_config == VideoConfig(
-        duration_s=row['Video Config']['duration'], frame_rate_fps=row['Video Config']['fps']
-    )
+    assert step.video_config == VideoConfig(duration_s=row['Video Config']['duration'])
     assert step.stim_config == (
         None
         if row['Stim_Config'] is None

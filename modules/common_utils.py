@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 import psutil
 
 from modules.acquire_mode import AcquireMode
-from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -1522,7 +1521,7 @@ def _coerce_positive_float(value) -> float:
         result = float(value)
     except (TypeError, ValueError):
         return 0.0
-    # NaN != NaN; a NaN duration/fps means "unknown", treated as 0.
+    # NaN != NaN; a NaN duration means "unknown", treated as 0.
     return result if result == result and result > 0 else 0.0
 
 
@@ -1530,44 +1529,44 @@ def estimate_step_write_mb(
     step: 'pd.Series | Mapping[str, object] | None',
     *,
     video_as_frames: bool = False,
-    global_max_fps: float,
+    video_fps: float | None,
 ) -> float:
     """Estimate the disk a single protocol step will write, in MB.
 
     One owner for write-size estimation, shared by the pre-scan free-space check
     and the per-write threshold so the two cannot drift. An image step writes
     one file. A video step scales with the recording: the frame count is
-    duration_s * the EFFECTIVE recording rate -- the step's configured fps run
-    through the same rate-authority clamp the recording itself uses -- and each
-    frame costs about one image when saved as individual TIFFs
-    (video_as_frames) or a compressed fraction of that in an MP4. Sizing from
-    the effective rate keeps the guard honest both ways: a configured rate the
-    camera cannot deliver no longer over-reserves, and a global cap below the
-    configured rate no longer aborts a run that would have fit.
+    duration_s * the rate the recording is sized at (``video_sizing_fps``: the
+    global limit, else the camera's delivered rate), and each frame costs
+    about one image when saved as individual TIFFs (video_as_frames) or a
+    compressed fraction of that in an MP4.
 
-    Total by construction: a None / malformed step or Video Config sizes to the
-    single-image estimate rather than raising, so the broad except around the
-    disk check can never silently disable the guard.
+    A None / malformed step or Video Config sizes to the single-image
+    estimate.
 
     Args:
         step: A protocol step (pandas Series / dict / None); reads Acquire +
             Video Config.
         video_as_frames: Run-level flag -- video saved as individual frames
             rather than a compressed MP4.
-        global_max_fps: The run's snapshot of the global "Recording max FPS" cap
-            (0 = uncapped). Required so a video step can never be sized at a
-            rate the recording will not run at.
+        video_fps: The rate a video step is sized at
+            (``video_cadence.video_sizing_fps``); None when it is not known,
+            which only a protocol with no video step may pass.
 
     Returns:
         Estimated megabytes the step will write to disk.
+
+    Raises:
+        ValueError: ``step`` is a video step and ``video_fps`` is None.
     """
     get = getattr(step, 'get', None)
     if get is None or get('Acquire') != AcquireMode.VIDEO:
         return ESTIMATED_IMAGE_STEP_MB
+    if video_fps is None:
+        raise ValueError('A video step cannot be sized without the rate it records at.')
     video_config = read_video_config(step)
     duration_s = _coerce_positive_float(video_config.get('duration'))
-    fps = effective_recording_fps(_coerce_positive_float(video_config.get('fps')), global_max_fps)
-    frames = max(1, int(duration_s * fps))
+    frames = max(1, int(duration_s * video_fps))
     if video_as_frames:
         return frames * ESTIMATED_IMAGE_STEP_MB
     return max(

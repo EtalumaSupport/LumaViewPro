@@ -178,7 +178,7 @@ def _make_single_step_protocol(color='BF'):
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1, 'fps': 5},
+        'Video Config': {'duration': 1},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'A1_test',
@@ -773,6 +773,7 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
     'not_connected': _FUNNEL_LOOP,
     'camera_not_streaming': _FUNNEL_LOOP,
+    'camera_not_delivering': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
     'lid_open_before_motion': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
@@ -871,6 +872,16 @@ class TestTheRefusalFunnel:
             mp.setattr(scope.imaging, 'is_streaming', lambda: False)
             return _make_single_step_protocol()
 
+        def camera_not_delivering(mp):
+            # Streaming, with no rate measured within the start's wait (this
+            # bare scope runs no stream check, so none ever is), and a video
+            # step with no Recording max FPS: the disk the step will write
+            # cannot be sized.
+            row = _make_single_step_protocol().step_row(step_index=0)
+            return _build_real_protocol(
+                [{**row, 'Acquire': 'video', 'Video Config': {'duration': 1}}]
+            )
+
         def position_unknown(mp):
             # Stated rather than inherited from the fixture's un-homed scope,
             # so the scenario still refuses if the fixture ever homes.
@@ -924,6 +935,7 @@ class TestTheRefusalFunnel:
             ('validation_failed', validation_failed),
             ('not_connected', not_connected),
             ('camera_not_streaming', camera_not_streaming),
+            ('camera_not_delivering', camera_not_delivering),
             ('position_unknown', position_unknown),
             ('layer_not_on_scope', layer_not_on_scope),
             ('lid_open_before_motion', lid_open),

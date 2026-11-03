@@ -56,7 +56,7 @@ _COMMON = {
     'sum': 1,
     'auto_gain': False,
     'file_root': 'BF_',
-    'video_config': {'duration': 5, 'fps': 30},
+    'video_config': {'duration': 5},
 }
 
 OLD_SHAPE = {**_COMMON, 'ill_ma': 25.0, 'exp_ms': 14.56}

@@ -646,17 +646,18 @@ def _read_step_cell(df: pd.DataFrame, column: str, position: int) -> object:
         ) from None
 
 
-@api_fields('duration_s', 'frame_rate_fps')
+@api_fields('duration_s')
 @dataclasses.dataclass(frozen=True)
 class VideoConfig:
-    """What a video step records: its length in seconds and its frame rate.
+    """What a video step records: its length in seconds.
 
+    A step carries no rate: every recording keeps every frame the camera
+    delivers, or samples down to the one global limit (``video.max_fps``).
     None where the step's config does not say; a step that records no video
-    may carry neither.
+    may not say.
     """
 
     duration_s: float | None
-    frame_rate_fps: float | None
 
 
 @api_fields('enabled', 'illumination_ma', 'frequency_hz', 'pulse_width_ms', 'pulse_count')
@@ -855,9 +856,7 @@ def _step_record(row: pd.Series) -> StepRecord:
             fields[_STEP_FIELDS[column]] = None
     video, stims = row['Video Config'], row['Stim_Config']
     fields['video_config'] = (
-        None
-        if video is None
-        else VideoConfig(duration_s=video.get('duration'), frame_rate_fps=video.get('fps'))
+        None if video is None else VideoConfig(duration_s=video.get('duration'))
     )
     fields['stim_config'] = None if stims is None else _stimulation_records(stims, row['Name'])
     return StepRecord(**fields)
@@ -959,7 +958,7 @@ _STEP_LAYER_VALUES = (
     ('Sum', 'sum'),
 )
 
-_VIDEO_KEYS = ('fps', 'duration')
+_VIDEO_KEYS = ('duration',)
 _STIM_KEYS = ('frequency', 'pulse_width', 'pulse_count', 'illumination_ma')
 
 
@@ -968,8 +967,8 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
 
     The rules a write of them to the layer's settings holds
     (``settings_paths.refused_layer_values``): the step's exposure,
-    illumination, gain and sum, its video's rate and length (both required
-    when it records video), and each stimulation config it carries.
+    illumination, gain and sum, its video's length (required when it
+    records video), and each stimulation config it carries.
     """
     # Deferred: settings_paths imports this module.
     from modules.settings_paths import refused_layer_values
@@ -1317,7 +1316,12 @@ class Protocol:
     # landed on the stack's floor. The version moves with the column so a
     # build that cannot place by it refuses the file instead of loading it.
     COLUMNS[10] = COLUMNS[9] + ['Z-Stack Offset']
-    CURRENT_VERSION: ClassVar[int] = 10
+    # v11 changes no column: a step's Video Config holds its duration and no
+    # longer its fps. A step's fps capped its recording below the one global
+    # limit with no control to see or change it; a build that still read it
+    # would record a v11 step at its old default, so it refuses the file.
+    COLUMNS[11] = COLUMNS[10]
+    CURRENT_VERSION: ClassVar[int] = 11
     CURRENT_COLUMNS: ClassVar[tuple[str, ...]] = tuple(COLUMNS[CURRENT_VERSION])
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -2174,7 +2178,7 @@ class Protocol:
         """
         return self._config['steps'].copy()
 
-    def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
+    def estimate_write_mb(self, *, video_as_frames: bool = False, video_fps: float | None) -> float:
         """Estimate the disk this whole protocol will write, in MB.
 
         One owner for "how big is this protocol", so the pre-run free-space
@@ -2195,22 +2199,19 @@ class Protocol:
         of the protocol -- folding it in would project gigabytes for a
         three-step protocol.
 
-        Total by construction, like the per-step estimator it sums: it must
-        not raise on any protocol, because the run loop calls it inside a
-        broad except where a raise would silently disable the disk guard.
-
         Args:
             video_as_frames: Run-level flag -- video saved as individual
                 frames rather than a compressed MP4.
-            global_max_fps: The run's snapshot of the global video FPS cap
-                (0 = uncapped), so a video step is never sized at a rate the
-                recording will not run at.
+            video_fps: The rate a video step is sized at
+                (``video_cadence.video_sizing_fps``); None when it is not
+                known, which only a protocol with no video step may pass.
 
         Returns:
             Estimated megabytes the whole protocol will write.
 
         Raises:
-            Nothing.
+            ValueError: the protocol has a video step and ``video_fps`` is
+                None.
         """
         steps = self._config['steps']
         n_steps = len(steps)
@@ -2224,7 +2225,7 @@ class Protocol:
         video_mask = (steps['Acquire'] == AcquireMode.VIDEO).to_numpy()
         n_video = int(video_mask.sum())
         image_mb = common_utils.estimate_step_write_mb(
-            None, video_as_frames=video_as_frames, global_max_fps=global_max_fps
+            None, video_as_frames=video_as_frames, video_fps=video_fps
         )
         total = float((n_steps - n_video) * image_mb)
         # Positional, matching step()'s own .iloc, so this total and a
@@ -2233,12 +2234,12 @@ class Protocol:
             total += common_utils.estimate_step_write_mb(
                 steps.iloc[pos],
                 video_as_frames=video_as_frames,
-                global_max_fps=global_max_fps,
+                video_fps=video_fps,
             )
         return total
 
     def size_advisory(
-        self, *, video_as_frames: bool = False, global_max_fps: float
+        self, *, video_as_frames: bool = False, video_fps: float | None
     ) -> ProtocolSizeAdvisory | None:
         """Describe this protocol if it is large enough to warn about, else None.
 
@@ -2253,8 +2254,11 @@ class Protocol:
         Args:
             video_as_frames: True when the run saves a video step as individual frames
                 rather than one compressed file, which writes more.
-            global_max_fps: The run's video frame-rate cap, 0 for none, so a video step
-                is sized at the rate it will record at.
+            video_fps: The rate a video step is sized at
+                (``video_cadence.video_sizing_fps``); None when it is not
+                known (no limit set and the camera delivering nothing), and
+                the advisory then sizes the still steps and says the video
+                steps are not sized.
 
         Raises:
             Nothing.
@@ -2263,15 +2267,30 @@ class Protocol:
         if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
             return None
 
-        projected_mb = self.estimate_write_mb(
-            video_as_frames=video_as_frames, global_max_fps=global_max_fps
-        )
+        n_video = int((self._config['steps']['Acquire'] == AcquireMode.VIDEO).sum())
+        if video_fps is None and n_video:
+            projected_mb = float(
+                (num_steps - n_video)
+                * common_utils.estimate_step_write_mb(
+                    None, video_as_frames=video_as_frames, video_fps=None
+                )
+            )
+            unsized = (
+                f' Its {n_video:,} video step{"" if n_video == 1 else "s"} '
+                f'{"is" if n_video == 1 else "are"} not sized while the camera '
+                'is not delivering frames.'
+            )
+        else:
+            projected_mb = self.estimate_write_mb(
+                video_as_frames=video_as_frames, video_fps=video_fps
+            )
+            unsized = ''
         return ProtocolSizeAdvisory(
             num_steps=num_steps,
             projected_mb=projected_mb,
             message=(
                 f'{num_steps:,} steps, about '
-                f'{common_utils.format_disk_size_mb(projected_mb)} of images. '
+                f'{common_utils.format_disk_size_mb(projected_mb)} of images.{unsized} '
                 f'Check free disk before running.'
             ),
         )
@@ -3761,9 +3780,10 @@ class Protocol:
         elif 2 <= config['version'] < cls.CURRENT_VERSION:
             # v6 introduced the Layer Settings header block; v7 added the
             # Auto_Named column; v8 the Label column; v9 the Channel Group
-            # ID and Turret Slot columns; v10 the Z-Stack Offset column.
-            # Older versions load with the missing columns recovered or
-            # defaulted below.
+            # ID and Turret Slot columns; v10 the Z-Stack Offset column; v11
+            # dropped the fps from each step's Video Config. Older versions
+            # load with the missing columns recovered or defaulted below, and
+            # a stored fps dropped.
             allowed = True
 
         if not allowed:
@@ -3989,7 +4009,7 @@ class Protocol:
             protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
         # Added in v3
-        DEFAULT_VIDEO_CONFIG = {'fps': 5, 'duration': 5}
+        DEFAULT_VIDEO_CONFIG = {'duration': 5}
 
         # Added in v4
         DEFAULT_SUM_CONFIG = 1
@@ -4035,12 +4055,12 @@ class Protocol:
                 ) from None
 
         def _with_video_defaults(video_config):
-            """A legacy save that stored only some keys (an older one held just
-            'duration') takes the default for the rest, rather than failing
-            validation on fps 0."""
+            """A step's Video Config as this version holds it: its duration,
+            the default where a legacy save stored none. A pre-v11 save's
+            fps is dropped: a recording's one rate limit is the global one."""
             if not isinstance(video_config, dict):
                 return video_config
-            return {**DEFAULT_VIDEO_CONFIG, **video_config}
+            return {**DEFAULT_VIDEO_CONFIG, **{k: v for k, v in video_config.items() if k != 'fps'}}
 
         def _typed_column(values, dtype) -> pd.Series:
             """A per-row column for the steps frame, typed explicitly.

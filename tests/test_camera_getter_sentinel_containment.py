@@ -307,6 +307,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
         image_capture_config=ImageCaptureConfig.from_image_mode('12bit_scientific'),
         timestamp_overlay=True,
         video_max_fps=0,
+        video_sizing_fps=None,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),

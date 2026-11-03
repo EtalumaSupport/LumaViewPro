@@ -1911,7 +1911,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             thread. ``'not_connected'`` -- a part the work needs is not
             connected, and none reconnects during a session.
             ``'camera_not_streaming'`` -- the camera is connected and
-            delivers no frames. ``'position_unknown'`` -- an axis this
+            delivers no frames. ``'camera_not_delivering'`` -- the run has
+            a video step and no Recording max FPS, and no delivered rate
+            of the camera's was measured within the run start's wait, so
+            the disk the step will write cannot be sized. ``'position_unknown'`` -- an axis this
             scope has does not know its position, so the scope has to be
             homed first. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
@@ -2003,6 +2006,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'autofocus_running': RefusalCause.STATE,
         'not_connected': RefusalCause.RESTART,
         'camera_not_streaming': RefusalCause.STATE,
+        'camera_not_delivering': RefusalCause.STATE,
         'position_unknown': RefusalCause.STATE,
         'lid_open_before_motion': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
@@ -2054,6 +2058,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'autofocus_running': 'Autofocus Running',
         'not_connected': 'Hardware Disconnected',
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
+        'camera_not_delivering': 'Camera Not Delivering Frames',
         'position_unknown': 'Scope Not Homed',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',

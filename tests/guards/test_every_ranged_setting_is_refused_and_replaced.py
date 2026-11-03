@@ -64,7 +64,6 @@ _OUT_OF_RANGE = {
     '*.gain_db': -3.0,
     '*.illumination_ma': -1.0,
     '*.sum': 0,
-    '*.video_config.fps': 0,
     '*.video_config.duration': settings_paths.VIDEO_STEP_DURATION_S_MAX + 1,
     '*.composite_brightness_threshold': 101.0,
     '*.stim_config.frequency': settings_paths.STIM_FREQUENCY_HZ_RANGE[1] + 1,

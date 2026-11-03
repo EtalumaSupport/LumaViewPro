@@ -1885,6 +1885,7 @@ def _bare_protocol_writer(**overrides):
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'timestamp_overlay': True,
         'video_max_fps': 0,
+        'video_sizing_fps': None,
         'engineering_mode': False,
         'run_claim': lent_run_claim(),
         'labware': plate(),
@@ -1993,21 +1994,6 @@ def test_not_saving_capture_builds_record_task_without_crash():
         enable_image_saving=False,
     )
     assert file_io_executor.put.called
-
-
-def test_global_fps_cap_bounds_the_disk_estimate():
-    """The estimator sizes a video step at the EFFECTIVE rate -- the same
-    rate-authority clamp the recording runs at -- so a global cap below the
-    configured fps shrinks the reservation instead of over-reserving and
-    falsely aborting a run that fits."""
-    from modules.common_utils import estimate_step_write_mb
-
-    step = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
-    uncapped = estimate_step_write_mb(step, video_as_frames=True, global_max_fps=0)
-    capped = estimate_step_write_mb(step, video_as_frames=True, global_max_fps=10)
-    assert capped * 3 == uncapped, (
-        'a global 10 fps cap on a 30 fps step must size a third of the frames'
-    )
 
 
 class TestPIW3_FalseColor16bitCachedAtRunStart:
@@ -9643,7 +9629,7 @@ class TestPS11VideoCancelledRecordsRow:
 
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
-        step = _protocol_step(Acquire='video', **{'Video Config': {'fps': 5, 'duration': 1}})
+        step = _protocol_step(Acquire='video', **{'Video Config': {'duration': 1}})
         writer.capture(
             save_folder=str(tmp_path),
             step=step,
@@ -9693,7 +9679,7 @@ class TestVideoCameraLostFeedsStrikeCounter:
 
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
-        step = _protocol_step(Acquire='video', **{'Video Config': {'fps': 5, 'duration': 1}})
+        step = _protocol_step(Acquire='video', **{'Video Config': {'duration': 1}})
         writer.capture(
             save_folder=str(tmp_path),
             step=step,
@@ -10059,35 +10045,34 @@ class TestStepWriteEstimateSingleOwner:
         from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
         assert (
-            estimate_step_write_mb({'Acquire': 'image'}, global_max_fps=0)
-            == ESTIMATED_IMAGE_STEP_MB
+            estimate_step_write_mb({'Acquire': 'image'}, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
         )
         # A step with no Acquire key is treated as an image step.
-        assert estimate_step_write_mb({}, global_max_fps=0) == ESTIMATED_IMAGE_STEP_MB
+        assert estimate_step_write_mb({}, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
 
     def test_short_video_floored_at_legacy_estimate(self):
         from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
-        step = {'Acquire': 'video', 'Video Config': {'duration': 1, 'fps': 30}}
-        assert estimate_step_write_mb(step, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
+        step = {'Acquire': 'video', 'Video Config': {'duration': 1}}
+        assert estimate_step_write_mb(step, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
 
-    def test_long_video_scales_with_duration_and_fps(self):
+    def test_long_video_scales_with_duration(self):
         from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
-        short = {'Acquire': 'video', 'Video Config': {'duration': 5, 'fps': 30}}
-        long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
-        assert estimate_step_write_mb(long_clip, global_max_fps=0) > estimate_step_write_mb(
-            short, global_max_fps=0
+        short = {'Acquire': 'video', 'Video Config': {'duration': 5}}
+        long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600}}
+        assert estimate_step_write_mb(long_clip, video_fps=30.0) > estimate_step_write_mb(
+            short, video_fps=30.0
         )
-        assert estimate_step_write_mb(long_clip, global_max_fps=0) > ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(long_clip, video_fps=30.0) > ESTIMATED_VIDEO_STEP_MB
 
     def test_video_as_frames_costs_one_image_per_frame(self):
         from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
-        step = {'Acquire': 'video', 'Video Config': {'duration': 10, 'fps': 30}}
-        # 10 s * 30 fps = 300 frames, each a full image when saved as frames.
+        step = {'Acquire': 'video', 'Video Config': {'duration': 10}}
+        # 10 s at a 30 fps sizing rate = 300 frames, each a full image when saved as frames.
         assert (
-            estimate_step_write_mb(step, video_as_frames=True, global_max_fps=0)
+            estimate_step_write_mb(step, video_as_frames=True, video_fps=30.0)
             == 300 * ESTIMATED_IMAGE_STEP_MB
         )
 
@@ -10126,14 +10111,14 @@ class TestStepWriteEstimateSingleOwner:
         # A None step (a parameter default at some call sites) must not raise --
         # a raise here is swallowed by the disk-check except, silently skipping
         # the free-space guard.
-        assert estimate_step_write_mb(None, global_max_fps=0) == ESTIMATED_IMAGE_STEP_MB
+        assert estimate_step_write_mb(None, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
         # A NaN Video Config cell (a truthy float from an unpopulated DataFrame
         # row) must not raise; the video sizes to the floor, not a crash.
         nan_cfg = {'Acquire': 'video', 'Video Config': float('nan')}
-        assert estimate_step_write_mb(nan_cfg, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
-        # Non-numeric duration/fps coerce to 0 (a missing dimension), floored.
-        bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc', 'fps': 'x'}}
-        assert estimate_step_write_mb(bad_nums, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(nan_cfg, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
+        # A non-numeric duration coerces to 0 (a missing dimension), floored.
+        bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc'}}
+        assert estimate_step_write_mb(bad_nums, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_read_video_config_guards_every_non_dict(self):
         from modules.common_utils import read_video_config

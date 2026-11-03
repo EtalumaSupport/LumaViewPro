@@ -628,7 +628,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
     with pytest.raises(ProtocolError):
         proto.modify_step(
@@ -658,7 +658,7 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
     with pytest.raises(ProtocolError):
         proto.insert_step(

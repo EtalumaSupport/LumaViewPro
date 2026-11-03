@@ -102,7 +102,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
 def test_validate_for_run_allows_image_and_video_step_sharing_name():
     # A video step renders with its 'video' post token, so an image step
     # and a video step may legitimately share a Name without colliding.
-    video_cfg = {'duration': 5.0, 'fps': 5}
+    video_cfg = {'duration': 5.0}
     p = _make_protocol(
         [
             _valid_step(Well='A1', X=60.0, Y=40.0, Z=5000.0, Acquire='image'),
@@ -165,7 +165,7 @@ def _insert_layer_config():
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': 'image',
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
 
 

@@ -112,6 +112,7 @@ from modules.config_helpers import DisplayRates, log_environment_once
 from modules.coord_transformations import PlateLocation
 from modules.acquire_mode import AcquireMode
 from modules.axes import StageAxis
+from modules.video_cadence import video_sizing_fps
 from modules.zstack_config import ZStackReference
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
@@ -4160,9 +4161,9 @@ class ScopeSession:
 
         The one size estimate a client asks for: the two settings the
         estimate needs (whether video is saved as frames, and the global FPS
-        cap) are the session's, resolved the way the run path resolves them,
-        so the advisory and the run it is advising about cannot be sized
-        differently.
+        limit) are the session's, resolved the way the run path resolves
+        them, and a video step is sized at the limit, else at the rate the
+        camera is delivering now, as the run's start sizes it.
 
         Args:
             protocol: The protocol sized, as a full run of it would be.
@@ -4178,7 +4179,10 @@ class ScopeSession:
         )
         return protocol.size_advisory(
             video_as_frames=run_settings['video_as_frames'],
-            global_max_fps=run_settings['video_max_fps'],
+            video_fps=video_sizing_fps(
+                run_settings['video_max_fps'],
+                self.scope.imaging.get_delivered_rate().frame_rate_fps,
+            ),
         )
 
     @api(in_process=True, reads=True)

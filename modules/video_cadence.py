@@ -15,32 +15,51 @@ loop consuming it must terminate instead of hanging or lying.
 import math
 
 
-def effective_recording_fps(requested_fps: float | None, global_max_fps: float) -> float | None:
+def effective_recording_fps(global_max_fps: float) -> float | None:
     """The one rate authority: the limit a recording samples at, or None.
 
-    A recording runs at the camera's own delivery rate unless a limit
-    applies: ``min(requested, global max if nonzero)``. The global
-    "Recording max FPS" limit applies over a present per-caller request; a
-    global value of 0 means no global limit. None means no limit at all
-    -- every delivered frame is kept, so the camera's maximum is recorded
-    without anything having to know it in advance. A camera slower than
-    the limit simply records slower; the manifest's measured rate says so.
+    One limit governs every recording, manual or a protocol's video step:
+    the user's global "Recording max FPS". A value above 0 is the limit;
+    0 means none, and None is returned -- every delivered frame is kept,
+    so the camera's maximum is recorded without anything having to know
+    it in advance. A camera slower than the limit simply records slower;
+    the manifest's measured rate says so.
 
     Args:
-        requested_fps: The caller's rate -- a protocol step's Video
-            Config fps -- or None when the caller asks for none (manual
-            recording, which is limited only by the global setting).
         global_max_fps: The user's global limit (``video.max_fps``); 0
             means none.
 
     Returns:
         The limit in frames per second, or None to keep every frame.
     """
-    if requested_fps is None:
-        return global_max_fps if global_max_fps > 0 else None
-    if global_max_fps > 0:
-        return min(requested_fps, global_max_fps)
-    return requested_fps
+    return global_max_fps if global_max_fps > 0 else None
+
+
+def video_sizing_fps(global_max_fps: float, delivered_fps: float) -> float | None:
+    """The rate a video recording is sized at for the disk it will write.
+
+    The recording keeps the limit's frames when one is set and every
+    delivered frame when not, so it is sized at the limit, else at the rate
+    the camera is delivering now. The delivered rate reflects the camera's
+    current exposure and frame size, which a step may change, so the size
+    can err either way; the running recording's disk floor catches an
+    under-estimate.
+
+    Args:
+        global_max_fps: The user's global limit (``video.max_fps``); 0
+            means none.
+        delivered_fps: The camera's delivered rate
+            (``ImagingAPI.get_delivered_rate().frame_rate_fps``); 0 when it
+            is delivering nothing.
+
+    Returns:
+        The rate in frames per second, or None when no limit is set and the
+        camera is delivering nothing, so a recording cannot be sized.
+    """
+    limit = effective_recording_fps(global_max_fps)
+    if limit is not None:
+        return limit
+    return delivered_fps if delivered_fps > 0 else None
 
 
 # Feed-death detection bounds; PERFORMANCE_BUDGETS.md rows

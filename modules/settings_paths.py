@@ -476,7 +476,6 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.gain_db': _non_negative,
     '*.illumination_ma': _non_negative,
     '*.sum': _refuse_non_count,
-    '*.video_config.fps': _positive,
     '*.video_config.duration': _video_step_duration,
     '*.composite_brightness_threshold': _composite_threshold,
     '*.stim_config.frequency': _stim_frequency,
@@ -536,7 +535,7 @@ def refused_layer_values(
     The one table of layer ranges, read for values that are not yet in the
     settings: a protocol step's, or its Layer Settings row's. ``values``
     maps a ranged number under the layer (``'exposure_ms'``,
-    ``'video_config.fps'``, ``'stim_config.frequency'``) to its value. The
+    ``'video_config.duration'``, ``'stim_config.frequency'``) to its value. The
     rule is the layer's whatever ``layer`` names, so a step whose colour is
     no layer is still judged; ``layer`` names the refusal's path. A hardware
     ceiling (the LED board's maximum) is not judged here.

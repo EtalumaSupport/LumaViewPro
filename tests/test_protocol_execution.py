@@ -43,7 +43,9 @@ from tests.protocol_drives import (
     held_run_claim,
     wait_for_run_end,
 )
+from modules.acquire_mode import AcquireMode
 from tests.scope_fakes import (
+    measure_delivery_like_a_session,
     build_scope,
     channel_reading,
     configure_turret_like_bringup,
@@ -156,7 +158,7 @@ def _make_single_step_protocol(
 ):
     """Create a real Protocol with a single step."""
     if video_config is None:
-        video_config = {'duration': 1, 'fps': 5}
+        video_config = {'duration': 1}
     if stim_config is None:
         stim_config = {}
 
@@ -213,7 +215,7 @@ def _make_multi_step_protocol(steps_config):
         'illumination_ma': 50.0,
         'false_color': False,
         'sum_count': 1,
-        'video_config': {'duration': 1, 'fps': 5},
+        'video_config': {'duration': 1},
         'stim_config': {},
         'x': 10.0,
         'y': 20.0,
@@ -287,6 +289,11 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     heartbeat = StepHeartbeat(events.step_started)
 
+    if AcquireMode.VIDEO in set(protocol.steps()['Acquire']):
+        # A video step with no Recording max FPS is sized at the camera's
+        # delivered rate, which only the stream check a session starts
+        # measures; this harness's scope has none of its own.
+        measure_delivery_like_a_session(executor._scope)
     plan = executor.prepare(
         protocol=protocol,
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -658,7 +665,7 @@ class TestSingleScanVideo:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.5, 'fps': 5},
+            video_config={'duration': 0.5},
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -666,7 +673,8 @@ class TestSingleScanVideo:
         assert manifests, 'the MP4 leg must write a per-recording manifest'
         manifest = json.loads(manifests[0].read_text())
         assert manifest['frames_written'] > 0
-        assert manifest['configured_fps'] == 5
+        # No Recording max FPS: every delivered frame is kept, at no rate.
+        assert manifest['configured_fps'] is None
         assert manifest['write_failures'] == 0
         mp4s = list(tmp_path.rglob('*.mp4'))
         assert mp4s and mp4s[0].stat().st_size > 0, 'the MP4 must land beside its manifest'
@@ -675,7 +683,7 @@ class TestSingleScanVideo:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.5, 'fps': 5},
+            video_config={'duration': 0.5},
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
         assert completed
@@ -701,7 +709,7 @@ class TestSingleScanVideo:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.5, 'fps': 5},
+            video_config={'duration': 0.5},
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
         assert completed
@@ -1258,7 +1266,7 @@ class TestVideoWithStimulation:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.5, 'fps': 5},
+            video_config={'duration': 0.5},
             stim_config=stim_config,
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1277,7 +1285,7 @@ class TestVideoWithStimulation:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.5, 'fps': 5},
+            video_config={'duration': 0.5},
             stim_config=stim_config,
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1742,7 +1750,7 @@ class TestVideoEdgeCases:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.1, 'fps': 10},
+            video_config={'duration': 0.1},
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1751,7 +1759,7 @@ class TestVideoEdgeCases:
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
-            video_config={'duration': 0.5, 'fps': 1},
+            video_config={'duration': 0.5},
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1874,10 +1882,7 @@ class TestDiskSpaceCheck:
         mock_check.return_value = (False, 2200.0)  # 2.2 GB free; 5*500=2500 MB required
 
         protocol = _make_multi_step_protocol(
-            [
-                {'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1, 'fps': 5}}
-                for _ in range(5)
-            ]
+            [{'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1}} for _ in range(5)]
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'Protocol did not abort for video steps requiring more disk space'

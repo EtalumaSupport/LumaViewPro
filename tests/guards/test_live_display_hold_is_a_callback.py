@@ -58,6 +58,7 @@ def _writer(events):
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         timestamp_overlay=True,
         video_max_fps=0,
+        video_sizing_fps=None,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),

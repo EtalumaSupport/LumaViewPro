@@ -45,7 +45,8 @@ from tests.protocol_drives import (
     StepHeartbeat,
     wait_for_run_end,
 )
-from tests.scope_fakes import configure_turret_like_bringup
+from tests.scope_fakes import configure_turret_like_bringup, measure_delivery_like_a_session
+from modules.acquire_mode import AcquireMode
 from unittest.mock import MagicMock
 from modules.layer_record import release_colors
 from modules.coord_transformations import PlateLocation
@@ -113,7 +114,7 @@ def _stim_config_enabled(channels=(LED1,)):
 
 
 def _default_video_config():
-    return {'duration': 1.0, 'fps': 5}
+    return {'duration': 1.0}
 
 
 def _make_step(
@@ -322,6 +323,11 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     heartbeat = StepHeartbeat(events.step_started)
 
+    if AcquireMode.VIDEO in set(protocol.steps()['Acquire']):
+        # A video step with no Recording max FPS is sized at the camera's
+        # delivered rate, which only the stream check a session starts
+        # measures; this harness's scope has none of its own.
+        measure_delivery_like_a_session(executor._scope)
     plan = executor.prepare(
         protocol=protocol,
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -368,7 +374,7 @@ class TestRoundTripBasic:
         assert step['Illumination'] == 200.0
 
     def test_video_step_config_preserved(self, tmp_path):
-        vc = {'duration': 5.0, 'fps': 30}
+        vc = {'duration': 5.0}
         proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
         reloaded = _save_and_reload(proto, tmp_path)
         step = reloaded.step_row(step_index=0)
@@ -377,7 +383,6 @@ class TestRoundTripBasic:
             f'Video Config is {type(step["Video Config"])}, not dict'
         )
         assert step['Video Config']['duration'] == 5.0
-        assert step['Video Config']['fps'] == 30
 
     def test_stim_config_preserved(self, tmp_path):
         sc = _stim_config_enabled(channels=[LED1, LED0])
@@ -454,11 +459,10 @@ class TestRoundTripBasic:
         assert isinstance(step['Video Config'], dict)
         assert step['Video Config']['duration'] == 8
 
-    def test_legacy_video_config_without_fps_defaults(self, tmp_path):
+    def test_legacy_video_config_of_its_duration_alone_loads_and_validates(self, tmp_path):
         """Legacy TSVs from older LVP versions stored Video Config with only
-        'duration' and no 'fps' key. Without defaults merged on load, validate_steps
-        reads fps=0 and blocks every video step with 'fps must be > 0'. The loader
-        must merge DEFAULT_VIDEO_CONFIG so missing keys fall back to current defaults.
+        'duration'. That is the whole of a step's Video Config now: it loads as
+        stored and validates, with no rate merged in.
         """
         stim_config = (
             "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
@@ -470,7 +474,7 @@ class TestRoundTripBasic:
         )
         video_only_duration = "{'duration': 8}"
 
-        tsv = tmp_path / 'legacy_no_fps.tsv'
+        tsv = tmp_path / 'legacy_duration_only.tsv'
         tsv.write_text(
             'LumaViewPro Protocol\n'
             'Version\t5\n'
@@ -495,14 +499,12 @@ class TestRoundTripBasic:
 
         vc = step['Video Config']
         assert isinstance(vc, dict)
-        assert vc['duration'] == 8, 'loader must preserve stored duration'
-        assert 'fps' in vc, 'loader must merge default fps when missing'
-        assert vc['fps'] > 0, 'defaulted fps must satisfy validate_steps'
+        assert vc == {'duration': 8}, 'loader must keep the stored duration, and only it'
 
         errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        fps_errors = [e for e in errors if 'Video Config fps' in e]
-        assert fps_errors == [], (
-            f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
+        video_errors = [e for e in errors if 'Video Config' in e]
+        assert video_errors == [], (
+            f'legacy-format Video Config must not produce Video Config errors; got {video_errors}'
         )
 
     def test_legacy_labware_alias_is_canonical_once_loaded(self, tmp_path):
@@ -576,7 +578,7 @@ class TestRoundTripMultiStep:
                 name=f'A1_{LED1}_vid',
                 color=LED1,
                 acquire='video',
-                video_config={'duration': 3.0, 'fps': 10},
+                video_config={'duration': 3.0},
             ),
         ]
         proto = _build_protocol(steps)
@@ -601,7 +603,7 @@ class TestRoundTripMultiStep:
     def test_video_with_stim(self, tmp_path):
         """OG protocol pattern: video capture with stimulation enabled."""
         sc = _stim_config_enabled(channels=[LED1])
-        vc = {'duration': 5.0, 'fps': 30}
+        vc = {'duration': 5.0}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
@@ -615,7 +617,6 @@ class TestRoundTripMultiStep:
         vid_step = reloaded.step_row(step_index=1)
         assert vid_step['Acquire'] == 'video'
         assert isinstance(vid_step['Video Config'], dict)
-        assert vid_step['Video Config']['fps'] == 30
 
         # Verify stim config survived
         assert isinstance(vid_step['Stim_Config'], dict)
@@ -667,7 +668,7 @@ class TestRoundTripMultiStep:
     def test_double_save_load(self, tmp_path):
         """Save -> load -> save -> load preserves data (no drift)."""
         sc = _stim_config_enabled(channels=[LED2, LED0])
-        vc = {'duration': 2.0, 'fps': 15}
+        vc = {'duration': 2.0}
         steps = [
             _make_step(name='A1_BF', color='BF'),
             _make_step(name='A1_vid', color=LED1, acquire='video', video_config=vc, stim_config=sc),
@@ -681,7 +682,6 @@ class TestRoundTripMultiStep:
         r2 = _save_and_reload(r1, tmp_path / 'round2')
 
         step = r2.step_row(step_index=1)
-        assert step['Video Config']['fps'] == 15
         assert step['Stim_Config'][LED2]['enabled'] is True
         assert step['Stim_Config'][LED0]['enabled'] is True
         assert step['Stim_Config'][LED1]['enabled'] is False
@@ -770,7 +770,7 @@ class TestExecuteSingleStep:
         assert completed, 'Fluorescence image protocol did not complete'
 
     def test_video_capture(self, executor, scope, tmp_path):
-        vc = {'duration': 0.5, 'fps': 5}
+        vc = {'duration': 0.5}
         steps = [_make_step(acquire='video', video_config=vc)]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
@@ -844,7 +844,7 @@ class TestExecuteMultiStep:
                 name=f'A1_{LED1}_vid',
                 color=LED1,
                 acquire='video',
-                video_config={'duration': 0.5, 'fps': 5},
+                video_config={'duration': 0.5},
             ),
         ]
         proto = _build_protocol(steps)
@@ -862,7 +862,7 @@ class TestExecuteWithStim:
                 name=f'A1_{LED2}_stim',
                 color=LED2,
                 acquire='video',
-                video_config={'duration': 0.5, 'fps': 5},
+                video_config={'duration': 0.5},
                 stim_config=sc,
             ),
         ]
@@ -891,7 +891,7 @@ class TestExecuteSaveLoadRun:
     def test_video_stim_save_load_run(self, executor, scope, tmp_path):
         """OG protocol pattern: save with stim+video, reload, run."""
         sc = _stim_config_enabled(channels=[LED1])
-        vc = {'duration': 0.5, 'fps': 5}
+        vc = {'duration': 0.5}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
             _make_step(
@@ -1060,18 +1060,10 @@ class TestRoundTripMetadata:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.capture_root() == 'experiment_42'
 
-    def test_video_config_various_fps(self, tmp_path):
-        """Different fps values round-trip correctly."""
-        for fps in [0.5, 1, 5, 10, 30, 60]:
-            vc = {'duration': 2.0, 'fps': fps}
-            proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
-            reloaded = _save_and_reload(proto, tmp_path / f'fps_{fps}')
-            assert reloaded.step_row(step_index=0)['Video Config']['fps'] == fps
-
     def test_video_config_various_durations(self, tmp_path):
         """Different duration values round-trip correctly."""
         for dur in [0.1, 1.0, 10.0, 60.0, 300.0]:
-            vc = {'duration': dur, 'fps': 5}
+            vc = {'duration': dur}
             proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
             reloaded = _save_and_reload(proto, tmp_path / f'dur_{dur}')
             assert reloaded.step_row(step_index=0)['Video Config']['duration'] == dur
@@ -1261,7 +1253,7 @@ class TestExecuteDisabledSaving:
         assert completed, 'Protocol with saving disabled did not complete'
 
     def test_no_saving_video(self, executor, scope, tmp_path):
-        steps = [_make_step(acquire='video', video_config={'duration': 0.3, 'fps': 5})]
+        steps = [_make_step(acquire='video', video_config={'duration': 0.3})]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(
             executor,
@@ -1555,7 +1547,7 @@ class TestRealPathExecution:
         steps = [
             _make_step(
                 acquire='video',
-                video_config={'duration': 0.3, 'fps': 5},
+                video_config={'duration': 0.3},
             )
         ]
         proto = _build_protocol(steps)
@@ -1701,7 +1693,7 @@ class TestProtocolSaveLoadFieldLevel:
     def test_every_field_preserved(self, tmp_path):
         """Check that ALL 21 step fields round-trip correctly."""
         sc = _stim_config_enabled(channels=[LED2])
-        vc = {'duration': 3.5, 'fps': 15}
+        vc = {'duration': 3.5}
         step = _make_step(
             name='Test_Step_1',
             label='Test_Step_1',
@@ -1756,7 +1748,6 @@ class TestProtocolSaveLoadFieldLevel:
         assert s['Acquire'] == 'video'
         assert isinstance(s['Video Config'], dict)
         assert s['Video Config']['duration'] == 3.5
-        assert s['Video Config']['fps'] == 15
         assert isinstance(s['Stim_Config'], dict)
         assert s['Stim_Config'][LED2]['enabled'] is True
 
@@ -1848,7 +1839,7 @@ def _layer_config(
         'exposure_ms': exposure,
         'sum': sum,
         'acquire': acquire,
-        'video_config': video_config or {'duration': 1, 'fps': 5},
+        'video_config': video_config or {'duration': 1},
     }
 
 
@@ -1923,7 +1914,7 @@ class TestProtocolInsertStep:
 
     def test_insert_with_video_config(self):
         proto = _build_protocol([_make_step()])
-        vc = {'duration': 5.0, 'fps': 30}
+        vc = {'duration': 5.0}
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
             turret_slot=-1,
@@ -1939,7 +1930,6 @@ class TestProtocolInsertStep:
         step = proto.step_row(step_index=1)
         assert step['Acquire'] == 'video'
         assert isinstance(step['Video Config'], dict)
-        assert step['Video Config']['fps'] == 30
 
     def test_insert_with_stim_config(self):
         proto = _build_protocol([_make_step()])
@@ -2075,7 +2065,7 @@ class TestProtocolModifyStep:
     def test_modify_to_video_with_stim(self):
         proto = _build_protocol([_make_step(acquire='image', z_slice=-1, zstack_group_id=-1)])
         sc = _stim_config_enabled(channels=[LED0])
-        vc = {'duration': 3.0, 'fps': 15}
+        vc = {'duration': 3.0}
         proto.modify_step(
             turret_slot=-1,
             step_index=0,
@@ -2088,7 +2078,6 @@ class TestProtocolModifyStep:
         )
         step = proto.step_row(step_index=0)
         assert step['Acquire'] == 'video'
-        assert step['Video Config']['fps'] == 15
         assert step['Stim_Config'][LED0]['enabled'] is True
 
     def test_modify_save_load_run(self, real_executor, scope, tmp_path):
@@ -2466,9 +2455,12 @@ class TestFeedLossEndsVideoStep:
     def test_mid_step_feed_death_ends_step_and_run_completes(self, executor, scope, tmp_path):
         # Duration far past the 5 s stall floor so the wall cap cannot
         # be the thing that ends the step.
-        vc = {'duration': 60, 'fps': 5}
+        vc = {'duration': 60}
         steps = [_make_step(acquire='video', video_config=vc)]
         proto = _build_protocol(steps)
+        # Measured before the feed is killed: the run's start sizes the step
+        # at the delivered rate.
+        measure_delivery_like_a_session(scope)
 
         def _kill_feed_soon():
             time.sleep(1.5)
@@ -2489,6 +2481,3 @@ class TestFeedLossEndsVideoStep:
         assert manifests, 'the recording manifest must exist'
         manifest = json.loads(manifests[0].read_text())
         assert manifest['end_reason'] == 'camera_stalled'
-        # The dead feed means the recording never reached the frames the
-        # configured rate promised over the configured duration.
-        assert manifest['frames_written'] < vc['fps'] * vc['duration']

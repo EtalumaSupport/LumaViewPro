@@ -214,20 +214,14 @@ class TestValidateAcquireMode:
             _make_protocol([_valid_step(Acquire='timelapse')])
 
     def test_video_mode_valid(self):
-        vc = {'fps': 30, 'duration': 10}
+        vc = {'duration': 10}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
         assert p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000) == []
 
 
 class TestValidateVideoConfig:
-    def test_video_mode_zero_fps(self):
-        vc = {'fps': 0, 'duration': 10}
-        p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
-        errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Video Config fps: it must be above 0' in e for e in errors)
-
     def test_video_mode_zero_duration(self):
-        vc = {'fps': 30, 'duration': 0}
+        vc = {'duration': 0}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         assert any('Video Config duration: it must be above 0' in e for e in errors)
@@ -235,7 +229,7 @@ class TestValidateVideoConfig:
     def test_a_video_longer_than_the_layers_range_is_refused(self):
         # The layer ranges are the settings', one table: a video past the
         # longest a step records is refused here as a write of it would be.
-        vc = {'fps': 30, 'duration': 3601}
+        vc = {'duration': 3601}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         assert any(

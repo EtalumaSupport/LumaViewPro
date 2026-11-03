@@ -44,8 +44,7 @@
         "exposure_ms": 2.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         }
     },
     "PC": {
@@ -60,8 +59,7 @@
         "exposure_ms": 5.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         }
     },
     "DF": {
@@ -76,8 +74,7 @@
         "exposure_ms": 30.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         }
     },
     "channel_defaults": {
@@ -93,8 +90,7 @@
             "exposure_ms": 100.0,
             "acquire": null,
             "video_config": {
-                "duration": 5,
-                "fps": 30
+                "duration": 5
             },
             "stim_config": {
                 "enabled": false,
@@ -118,8 +114,7 @@
         "exposure_ms": 100.0,
         "acquire": null,
         "video_config": {
-            "duration": 5,
-            "fps": 30
+            "duration": 5
         },
         "composite_brightness_threshold": 50
     },

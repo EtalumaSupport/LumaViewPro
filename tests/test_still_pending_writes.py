@@ -51,6 +51,7 @@ def _writer(file_io_executor=None):
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         timestamp_overlay=False,
         video_max_fps=0,
+        video_sizing_fps=None,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),

@@ -27,7 +27,7 @@ from modules.image_utils import read_file_record
 from tests.video_step_drives import video_step_on
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
-EVERY_FRAME = {'Video Config': {'fps': 1000, 'duration': 1}}
+EVERY_FRAME = {'Video Config': {'duration': 1}}
 
 
 class _Delivered:

@@ -122,7 +122,7 @@ def _make_protocol(steps_config):
         'acquire': 'image',
         'false_color': False,
         'sum_count': 1,
-        'video_config': {'duration': 1, 'fps': 5},
+        'video_config': {'duration': 1},
         'stim_config': {},
         'x': 10.0,
         'y': 20.0,

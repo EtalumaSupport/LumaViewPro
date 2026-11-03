@@ -60,7 +60,7 @@ def _legacy_current(data_dir):
     # absent entirely, the way a file older than the video feature has it
     current['BF'].pop('video_config', None)
     current['BF']['acquire'] = 'stack'
-    current[_OLD_NAME[LED1]]['video_config'] = {'duration': 12, 'fps': 0}
+    current[_OLD_NAME[LED1]]['video_config'] = {'duration': 12, 'fps': 30}
     # a plate the catalogue renamed after this file was written
     current['protocol']['labware'] = 'Center Dish'
     # A key the running version ships and this older file predates.
@@ -88,11 +88,12 @@ def test_legacy_file_is_fully_prepared(tmp_path):
     # a preference for a toggle nothing reads any more
     assert 'disable_protocol_accordions' not in prepared
     # present-but-unusable values, which the default merge cannot see
-    assert prepared['BF']['video_config'] == {'duration': 5, 'fps': 30}
+    assert prepared['BF']['video_config'] == {'duration': 5}
     assert prepared['BF']['acquire'] is None
-    # a rate the recorder would divide by, repaired without losing the
-    # duration beside it -- the merge cannot do this, nothing is missing
-    assert prepared[LED1]['video_config'] == {'duration': 12, 'fps': 30}
+    # a layer's own recording rate, which every step it made recorded at
+    # below the one global limit, dropped without losing the duration beside
+    # it -- the merge cannot do this, nothing is missing
+    assert prepared[LED1]['video_config'] == {'duration': 12}
     # the old channel names, each block read as its LED's key
     assert not set(_OLD_NAME.values()) & set(prepared)
     # a retired plate name, folded to its catalogue key so the one store
@@ -164,7 +165,7 @@ def test_a_headless_session_gets_the_same_preparation(tmp_path, monkeypatch):
     assert session.settings['image_output_format']['sequenced'] == 'OME-TIFF Hyperstack'
     assert 'manual_video' not in session.settings
     assert 'disable_protocol_accordions' not in session.settings
-    assert session.settings[LED1]['video_config'] == {'duration': 12, 'fps': 30}
+    assert session.settings[LED1]['video_config'] == {'duration': 12}
     assert 'stimulation_enabled' in session.settings
 
 

@@ -110,7 +110,7 @@ class TestAProtocolsConfigCells:
     @staticmethod
     def _protocol_with_numpy_config():
         row = _make_single_step_protocol().steps().iloc[0].to_dict()
-        video = {'duration': np.int64(1), 'fps': np.float32(5.0)}
+        video = {'duration': np.float32(1.5)}
         row['Video Config'] = video
         return _build_real_protocol([row]), video
 
@@ -119,9 +119,9 @@ class TestAProtocolsConfigCells:
 
         cell = protocol.step_row(0)['Video Config']
 
-        assert cell == {'duration': 1, 'fps': 5.0}
-        assert type(cell['duration']) is int and type(cell['fps']) is float
-        assert type(video['duration']) is np.int64, "the caller's dict was changed"
+        assert cell == {'duration': 1.5}
+        assert type(cell['duration']) is float
+        assert type(video['duration']) is np.float32, "the caller's dict was changed"
 
     def test_the_protocol_is_written_and_read_back(self, tmp_path):
         protocol, _ = self._protocol_with_numpy_config()
@@ -130,7 +130,7 @@ class TestAProtocolsConfigCells:
         protocol.to_file(path)
 
         reopened = protocol_from_file(path)
-        assert reopened.step_row(0)['Video Config'] == {'duration': 1, 'fps': 5.0}
+        assert reopened.step_row(0)['Video Config'] == {'duration': 1.5}
 
 
 def test_a_method_holding_numpy_is_saved_as_python(tmp_path):

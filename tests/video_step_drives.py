@@ -23,7 +23,7 @@ from tests.stock_channels import LED0
 
 # A one-second step at 5 fps, manual gain, as the protocol editor writes it.
 VIDEO_STEP = {
-    'Video Config': {'fps': 5, 'duration': 1},
+    'Video Config': {'duration': 1},
     'Color': LED0,
     'False_Color': False,
     'Auto_Gain': False,
@@ -63,6 +63,7 @@ def video_step_on(
         'capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'timestamp_overlay': True,
         'global_max_fps': 0,
+        'video_sizing_fps': 30.0,
         'autogain_settings': {},
         'events': RunEvents(),
         'aborted_event': threading.Event(),

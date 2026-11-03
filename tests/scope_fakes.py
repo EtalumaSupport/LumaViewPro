@@ -352,6 +352,38 @@ def swap_lanes(scope, *, io=None, camera=None):
     return scope
 
 
+def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
+    """Measure the scope's delivered rate as a session does, and wait for the first.
+
+    A session starts the imaging API's stream check at bring-up; a bare scope
+    has none, so it reads ``NOT_DELIVERING``, and a run with a video step and
+    no Recording max FPS is refused ``camera_not_delivering``. This starts the
+    check on a scheduler of its own, stopped with the test's other teardowns,
+    and returns once the camera's rate is measured (two of the check's 1 s
+    ticks). A scope whose rate is already measured is left as it is.
+    """
+    from modules.scheduler import ThreadingTimerScheduler
+
+    if scope.imaging.get_delivered_rate().frame_rate_fps > 0:
+        return
+
+    scheduler = ThreadingTimerScheduler(name_prefix='TestStreamCheck')
+    scope.imaging.start_stream_check(scheduler)
+
+    def stop():
+        scope.imaging.stop_stream_check()
+        scheduler.shutdown()
+
+    _TEARDOWNS.append(stop)
+    deadline = time.monotonic() + timeout_s
+    while scope.imaging.get_delivered_rate().frame_rate_fps <= 0:
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f'the simulated camera delivered no measured rate in {timeout_s} s'
+            )
+        time.sleep(0.05)
+
+
 def teardown_mark() -> int:
     """How many teardowns are waiting: the mark a test starts at."""
     return len(_TEARDOWNS)

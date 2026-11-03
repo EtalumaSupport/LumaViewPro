@@ -79,7 +79,7 @@ def _make_single_step_protocol():
         'Tile Group ID': 0,
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
-        'Video Config': {'duration': 1, 'fps': 5},
+        'Video Config': {'duration': 1},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'A1_test',

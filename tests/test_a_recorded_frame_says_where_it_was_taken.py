@@ -587,7 +587,7 @@ def _video_step(name):
     return {
         **_step(name, 0, x=20.0, gain=1.0),
         'Acquire': 'video',
-        'Video Config': {'duration': 0.5, 'fps': 5},
+        'Video Config': {'duration': 0.5},
     }
 
 

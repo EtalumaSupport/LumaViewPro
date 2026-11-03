@@ -83,7 +83,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Tile Group ID': -1,
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
-        'Video Config': {'duration': 5, 'fps': 30},
+        'Video Config': {'duration': 5},
         'Stim_Config': {},
         'Step Index': 0,
         'Label': f'A1_{color}_AG',

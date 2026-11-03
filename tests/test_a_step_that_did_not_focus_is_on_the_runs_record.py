@@ -104,7 +104,7 @@ def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_sc
     ]
     for step in steps:
         step['Acquire'] = 'video'
-        step['Video Config'] = {'duration': 0.4, 'fps': 5}
+        step['Video Config'] = {'duration': 0.4}
     runs = tmp_path / 'runs'
     with open_composite_session(settings) as (_session, runner):
         _run(runner, runs, steps)

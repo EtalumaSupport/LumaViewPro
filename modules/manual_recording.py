@@ -416,7 +416,7 @@ class ManualRecordingController:
         # Manual recording asks for no rate of its own: it records every
         # frame the camera delivers, limited only by the user's setting
         # when one is set.
-        effective_fps = effective_recording_fps(None, max_fps)
+        effective_fps = effective_recording_fps(max_fps)
 
         duration_s = get_manual_video_max_duration(settings)
         video_as_frames = settings['video_as_frames']

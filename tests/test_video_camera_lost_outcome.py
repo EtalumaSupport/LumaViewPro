@@ -21,7 +21,7 @@ def _make_recorder(scope, tmp_path, clock, **overrides):
     return video_step_on(
         scope,
         tmp_path,
-        step={'Video Config': {'fps': 5, 'duration': 10}, 'Color': 'BF'},
+        step={'Video Config': {'duration': 10}, 'Color': 'BF'},
         video_as_frames=False,
         clock=lambda: clock['t'],
         elapsed_clock=lambda: clock['t'],

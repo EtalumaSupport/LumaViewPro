@@ -59,7 +59,7 @@ def test_a_video_steps_first_frame_is_not_moved_by_a_step_of_the_wall_clock(sim_
     step = video_step_on(
         sim_scope,
         tmp_path,
-        step={'Video Config': {'fps': 1000, 'duration': 1}},
+        step={'Video Config': {'duration': 1}},
         events=RunEvents(video_progress=on_progress),
         clock=_stepped_wall_clock,
     )

@@ -38,7 +38,10 @@ def test_a_video_steps_last_frame_held_on_its_way_is_kept(sim_scope, tmp_path, m
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
     sim_scope.simulation.delay_delivery(BACKLOG_FRAMES)
     step = video_step_on(
-        sim_scope, tmp_path, step={'Video Config': {'fps': 10, 'duration': 2}, 'Exposure': 2.0}
+        sim_scope,
+        tmp_path,
+        step={'Video Config': {'duration': 2}, 'Exposure': 2.0},
+        global_max_fps=10,
     )
     assert step.run_blocking() == 'completed'
     assert step.wait_until_finished(timeout=20.0)

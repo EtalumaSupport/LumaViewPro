@@ -40,7 +40,7 @@ LAYER_CONFIG = {
     'exposure_ms': 10.0,
     'sum': 1,
     'acquire': 'image',
-    'video_config': {'duration': 5, 'fps': 5},
+    'video_config': {'duration': 5},
     'focus': None,
 }
 PLATE_POSITION = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)

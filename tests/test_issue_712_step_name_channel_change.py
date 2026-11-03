@@ -69,7 +69,7 @@ def _modify_layer_config(acquire='image'):
         'exposure_ms': 5.0,
         'sum': 1,
         'acquire': acquire,
-        'video_config': {'duration': 5, 'fps': 30},
+        'video_config': {'duration': 5},
     }
 
 

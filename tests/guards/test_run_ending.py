@@ -504,14 +504,13 @@ class TestTheRunLoopsOwnEndings:
         runner = run_loop_ready_runner(protocol_step())
         runner._parent_dir = '/tmp'
         # Real numbers: the estimate is compared with max() against a float, so
-        # a mock here raises and the probe's own handler would (correctly)
-        # proceed -- masking the case under test.
+        # a mock here raises and the run ends as a crash -- masking the case
+        # under test.
         runner._protocol.estimate_write_mb.return_value = 500.0
         runner._protocol.num_steps.return_value = 1
-        # start() always sets this; the bare harness does not, and without it
-        # the estimate raises and the probe's handler proceeds -- masking the
-        # case under test.
-        runner._video_max_fps = 30.0
+        # start() always sets this from the run's plan; the bare harness does
+        # not, and the run loop reads it to size the run.
+        runner._video_sizing_fps = 30.0
         monkeypatch.setattr(prl, 'check_disk_space_ok', lambda folder, needed: (False, 12.0))
 
         runner._run_loop_executor.run_loop(runner._last_run())

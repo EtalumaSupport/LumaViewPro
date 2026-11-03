@@ -118,7 +118,10 @@ class ProtocolVideoStep:
             depth).
         timestamp_overlay: Run-scoped snapshot of the overlay choice.
         global_max_fps: Run-scoped snapshot of the global "Recording max
-            FPS" cap (0 = uncapped); D15 -- never read live mid-run.
+            FPS" limit (0 = none), never read live mid-run.
+        video_sizing_fps: The rate the run sized its video steps at
+            (``RunPlan.video_sizing_fps``), which the step's disk pre-flight
+            sizes it at too, so the run's and the step's checks agree.
         autogain_settings: The runner's autogain settings dict.
         events: The run's events; this step sends its ``video_progress``.
         aborted_event: The run's abort event; checked every wait tick.
@@ -165,6 +168,7 @@ class ProtocolVideoStep:
         capture_config: Any,
         timestamp_overlay: bool,
         global_max_fps: float,
+        video_sizing_fps: float | None,
         channel_colors: layer_record.ChannelColors,
         autogain_settings: dict,
         events: RunEvents,
@@ -189,6 +193,7 @@ class ProtocolVideoStep:
         self._capture_config = capture_config
         self._timestamp_overlay = timestamp_overlay
         self._global_max_fps = global_max_fps
+        self._video_sizing_fps = video_sizing_fps
         self._channel_colors = channel_colors
         self._autogain_settings = autogain_settings
         self._events = events
@@ -275,9 +280,9 @@ class ProtocolVideoStep:
         step = self._step
         video_config = step['Video Config']
         duration_s = float(video_config['duration'])
-        fps = effective_recording_fps(float(video_config['fps']), self._global_max_fps)
+        fps = effective_recording_fps(self._global_max_fps)
 
-        # Per-step disk pre-flight at the effective rate: the whole-run
+        # Per-step disk pre-flight at the run's sizing rate: the whole-run
         # estimate ran at scan start, but a long recording must re-check
         # against what is free NOW, before frames start landing.
         required_mb = max(
@@ -285,7 +290,7 @@ class ProtocolVideoStep:
             estimate_step_write_mb(
                 step,
                 video_as_frames=self._video_as_frames,
-                global_max_fps=self._global_max_fps,
+                video_fps=self._video_sizing_fps,
             ),
         )
         try:
@@ -400,8 +405,9 @@ class ProtocolVideoStep:
             # whole run hangs on a step that never began.
             self._unwind_failed_start(engine)
             raise
+        rate = 'every delivered frame' if fps is None else f'{fps:.2f} fps limit'
         logger.info(
-            f'[PROTOCOL-VIDEO] Recording started: {fps:.2f} fps, {duration_s:.0f} s, '
+            f'[PROTOCOL-VIDEO] Recording started: {rate}, {duration_s:.0f} s, '
             f'{"frames" if self._video_as_frames else "mp4"} -> {self._output_dir}'
         )
 

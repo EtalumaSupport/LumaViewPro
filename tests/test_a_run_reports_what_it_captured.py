@@ -393,7 +393,7 @@ class TestARunWhoseCleanupFailedSaysWhich:
 def _video(name, index):
     step = _step(name, index, x=20.0, gain=1.0)
     step['Acquire'] = 'video'
-    step['Video Config'] = {'duration': 1.0, 'fps': 5}
+    step['Video Config'] = {'duration': 1.0}
     return step
 
 

@@ -447,6 +447,8 @@ class ImagingAPI:
         # thread sees one window's rate.
         self._delivery_reading: tuple[int, int, float] | None = None
         self._delivered_rate: tuple[DeliveredRate, float] | None = None
+        # Notified each time a rate is published, for wait_for_delivered_rate.
+        self._delivered_rate_published = threading.Condition()
 
         # Camera temp logging scheduler handle.
         self._camera_temp_event = None
@@ -2701,6 +2703,40 @@ class ImagingAPI:
             return NOT_DELIVERING
         return rate
 
+    @api(in_process=True, reads=True)
+    def wait_for_delivered_rate(self, wait_s: float) -> DeliveredRate:
+        """Read the delivered rate, waiting up to ``wait_s`` for one to be measured.
+
+        A stream that has just started has no window measured yet: the rate
+        is measured over the stream check's 1 s ticks, so the first one is
+        published up to two ticks after the stream starts, and
+        ``get_delivered_rate`` reads 0 until then. A caller that needs the
+        rate, not the absence of one, waits here for it.
+
+        In-process: it blocks the caller's thread.
+
+        Args:
+            wait_s: The longest to wait, in seconds.
+
+        Returns:
+            DeliveredRate: The rate as ``get_delivered_rate`` answers it once
+                one is measured; ``NOT_DELIVERING`` when none is measured
+                within ``wait_s``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``wait_s`` is not a wait every host can hold.
+        """
+        refuse_unless_wait_s(wait_s, 'the wait for a measured delivered rate')
+        deadline = time.monotonic() + wait_s
+        with self._delivered_rate_published:
+            while True:
+                rate = self.get_delivered_rate()
+                remaining = deadline - time.monotonic()
+                if rate.frame_rate_fps > 0 or remaining <= 0:
+                    return rate
+                self._delivered_rate_published.wait(remaining)
+
     def _sample_delivery(self, streaming: bool) -> None:
         """Take the delivered rate over the window since the last reading."""
         driver = self._driver
@@ -2727,13 +2763,15 @@ class ImagingAPI:
             # swap) whose count started again from 0: no window yet.
             return
         interval_s = now - previous[2]
-        self._delivered_rate = (
-            DeliveredRate(
-                frame_rate_fps=(frames - previous[0]) / interval_s,
-                bytes_per_s=(wire_bytes - previous[1]) / interval_s,
-            ),
-            now,
-        )
+        with self._delivered_rate_published:
+            self._delivered_rate = (
+                DeliveredRate(
+                    frame_rate_fps=(frames - previous[0]) / interval_s,
+                    bytes_per_s=(wire_bytes - previous[1]) / interval_s,
+                ),
+                now,
+            )
+            self._delivered_rate_published.notify_all()
 
     def _check_stream(self) -> None:
         # A grab that is wanted and not running stopped when nobody asked,

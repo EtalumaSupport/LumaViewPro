@@ -678,10 +678,13 @@ class ProtocolImageWriter:
         # frame. The user's choice, snapshotted at run start like the rest
         # of the run config; required so no writer can silently decide it.
         timestamp_overlay: bool,
-        # The run's snapshot of the global "Recording max FPS" cap (0 =
-        # uncapped). Required so video-step sizing and the recording rate
-        # can never read live settings mid-run.
+        # The run's snapshot of the global "Recording max FPS" limit (0 =
+        # none). Required so the recording rate can never read live
+        # settings mid-run.
         video_max_fps: float,
+        # The rate the run sized its video steps at (RunPlan.video_sizing_fps);
+        # None only for a run with no video step.
+        video_sizing_fps: float | None,
         # Whether this run stamps the turret position into every filename.
         # A run value the caller states, like the two above: the flag's
         # live store is the GUI's, and reading it from here left every
@@ -723,6 +726,7 @@ class ProtocolImageWriter:
         self._config = image_capture_config
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
+        self._video_sizing_fps = video_sizing_fps
         self._engineering_mode = engineering_mode
         self._channel_colors = channel_colors
         self._run_claim = run_claim
@@ -1443,6 +1447,7 @@ class ProtocolImageWriter:
                         capture_config=self._config,
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,
+                        video_sizing_fps=self._video_sizing_fps,
                         channel_colors=self._channel_colors,
                         autogain_settings=autogain_settings,
                         events=self._events,
@@ -1740,7 +1745,7 @@ class ProtocolImageWriter:
             try:
                 required_mb = max(
                     common_utils.MIN_PER_WRITE_DISK_MB,
-                    common_utils.estimate_step_write_mb(step, global_max_fps=self._video_max_fps),
+                    common_utils.estimate_step_write_mb(step, video_fps=self._video_sizing_fps),
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
             except Exception as e:

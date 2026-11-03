@@ -75,7 +75,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Tile Group ID': -1,
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
-        'Video Config': {'duration': 1.0, 'fps': 5},
+        'Video Config': {'duration': 1.0},
         'Stim_Config': {},
         'Step Index': index,
         'Auto_Named': False,

@@ -232,7 +232,7 @@ class TestStepEstimation:
 
     def test_video_step(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
-        vc = {'fps': 30, 'duration': 10.0}
+        vc = {'duration': 10.0}
         step = _valid_step(Acquire='video', **{'Video Config': vc})
         est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.capture_time_s >= 10.0

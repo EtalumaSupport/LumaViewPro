@@ -147,7 +147,7 @@ class TestEveryStoredCellIsReadOnly:
                 'exposure_ms': 2.0,
                 'sum': 1,
                 'acquire': 'image',
-                'video_config': {'fps': 5, 'duration': 5},
+                'video_config': {'duration': 5},
             },
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
