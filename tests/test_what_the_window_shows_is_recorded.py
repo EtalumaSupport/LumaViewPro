@@ -29,20 +29,29 @@ def record(caplog):
     gui_logger._shown.clear()
 
 
-def _bound_popup():
-    """A progress popup whose title and words record as Kivy's bindings would."""
+def _bound_popup(title=''):
+    """A progress popup whose title, words and time on the screen record as Kivy's bindings would.
+
+    ``title`` is the one given at construction, set before any binding exists.
+    """
     from ui.progress_popup import CustomPopup
 
     class _Popup:
         # a stand-in by design: Kivy is stubbed in the test process; each
-        # property fires its binding on a change only, as a Kivy property does
+        # property fires its binding on a change only, as a Kivy property
+        # does. It does not run CustomPopup.__init__, so the bindings
+        # themselves are proven by the sim walk, not here.
         progress = 0
         _showing_outcome = False
-        _title = ''
         _text = ''
+        _open = False
         _record_title = CustomPopup._record_title
         _record_words = CustomPopup._record_words
+        _record_on_screen = getattr(CustomPopup, '_record_on_screen', None)
         show_outcome = getattr(CustomPopup, 'show_outcome', None)
+
+        def __init__(self, title):
+            self._title = title
 
         @property
         def title(self):
@@ -64,10 +73,26 @@ def _bound_popup():
                 self._text = value
                 self._record_words(self, value)
 
-        def dismiss(self):
-            pass
+        @property
+        def _is_open(self):
+            return self._open
 
-    return _Popup()
+        @_is_open.setter
+        def _is_open(self, value):
+            if value != self._open:
+                self._open = value
+                if self._record_on_screen is not None:
+                    self._record_on_screen(self, value)
+
+        def open(self):
+            # Kivy's open sets _is_open before it returns
+            self._is_open = True
+
+        def dismiss(self):
+            # Kivy clears _is_open once the popup has left the window
+            self._is_open = False
+
+    return _Popup(title)
 
 
 def test_a_change_is_recorded_once(record):
@@ -157,11 +182,78 @@ def test_a_dialog_records_its_close_on_leaving_the_screen(record):
 def test_a_progress_popup_records_its_title_and_the_first_words_under_it(record):
     # a body names the popup, then writes its words, then its progress
     popup = _bound_popup()
+    popup.open()
     popup.title = 'Stitch'
     popup.text = 'Stitching tiles...'
     popup.text = '3/10: A1.tiff'
 
     assert record() == [
+        'DISPLAY PROGRESS_POPUP Stitch',
+        'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
+    ]
+
+
+def test_a_progress_popup_opened_again_under_its_title_records_it_again(record):
+    # each opening is a new popup that opens untitled and is named by its body
+    for _ in range(2):
+        popup = _bound_popup()
+        popup.open()
+        popup.title = 'Stitch'
+        popup.text = 'Stitching tiles...'
+        popup.dismiss()
+
+    assert (
+        record()
+        == [
+            'DISPLAY PROGRESS_POPUP Stitch',
+            'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
+            'DISPLAY PROGRESS_POPUP None',
+            'DISPLAY PROGRESS_POPUP_WORDS None',
+        ]
+        * 2
+    )
+
+
+def test_a_progress_popup_titled_before_it_opens_records_its_title(record):
+    # a support report's popup is named at construction, then opened
+    for _ in range(2):
+        popup = _bound_popup(title='Generating Support Report...')
+        popup.open()
+        popup.text = 'Collecting logs...'
+        popup.dismiss()
+
+    assert (
+        record()
+        == [
+            'DISPLAY PROGRESS_POPUP Generating Support Report...',
+            'DISPLAY PROGRESS_POPUP_WORDS Generating Support Report... | Collecting logs...',
+            'DISPLAY PROGRESS_POPUP None',
+            'DISPLAY PROGRESS_POPUP_WORDS None',
+        ]
+        * 2
+    )
+
+
+def test_a_progress_popup_off_the_screen_records_nothing_written_to_it(record):
+    # a cancelled build goes on writing to the popup it was given
+    cancelled = _bound_popup()
+    cancelled.open()
+    cancelled.title = 'Stitch'
+    cancelled.text = 'Stitching tiles...'
+    cancelled.dismiss()
+    cancelled.text = '3/10: A1.tiff'
+    cancelled.show_outcome('Stitched 9 tiles.')
+
+    rerun = _bound_popup()
+    rerun.open()
+    rerun.title = 'Stitch'
+    rerun.text = 'Stitching tiles...'
+
+    assert record() == [
+        'DISPLAY PROGRESS_POPUP Stitch',
+        'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
+        'DISPLAY PROGRESS_POPUP None',
+        'DISPLAY PROGRESS_POPUP_WORDS None',
         'DISPLAY PROGRESS_POPUP Stitch',
         'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
     ]
@@ -213,6 +305,7 @@ def test_a_builds_outcome_is_recorded_once_whatever_came_before_it(
         return SimpleNamespace(message='Enhance complete.')
 
     popup = _bound_popup()
+    popup.open()
     popup.title = 'Enhance'
     post_processing._run_build(_build, popup, 'ENHANCE')
 
@@ -232,6 +325,7 @@ def test_a_background_builds_outcome_lands_behind_its_progress(record):
     )
     try:
         popup = _bound_popup()
+        popup.open()
         popup.title = 'Stitch'
         proxy = progress_popup._PopupProxy(popup)
 

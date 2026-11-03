@@ -116,19 +116,37 @@ def show_popup(function):
 class CustomPopup(Popup):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # The popup opens before its body names it, so the DIALOG line at
-        # open carries no title; its title, and the first words shown under
-        # it, are recorded as they arrive. The words that follow under one
-        # title are its progress; the words show_outcome puts up are the
-        # build's outcome, a stage of their own.
+        # The record follows the popup's time on the screen: its title and
+        # the first words shown under it are recorded as they arrive while it
+        # is open. The words that follow under one title are its progress;
+        # the words show_outcome puts up are the build's outcome, a stage of
+        # their own.
         self._showing_outcome = False
-        self.bind(title=self._record_title, text=self._record_words)
+        self.bind(
+            title=self._record_title, text=self._record_words, _is_open=self._record_on_screen
+        )
+
+    def _record_on_screen(self, _popup, is_open: bool) -> None:
+        # One popup's title and words compare equal to the last popup's, so
+        # an opening states its own start (a title given at construction is
+        # set before the bindings exist) and a leaving states the screen
+        # cleared, or a second opening under one title records nothing. A
+        # popup opened untitled is named by its body, recorded as it arrives.
+        if is_open:
+            if self.title:
+                gui_logger.display('PROGRESS_POPUP', self.title)
+        else:
+            gui_logger.display('PROGRESS_POPUP', None)
+            gui_logger.display('PROGRESS_POPUP_WORDS', None)
 
     def _record_title(self, _popup, title: str) -> None:
-        gui_logger.display('PROGRESS_POPUP', title or None)
+        if self._is_open:
+            gui_logger.display('PROGRESS_POPUP', title or None)
 
     def _record_words(self, _popup, text: str) -> None:
-        if text:
+        # A cancelled build goes on writing to its popup after it has left
+        # the screen; those words were never shown.
+        if text and self._is_open:
             stage = f'{self.title} | done' if self._showing_outcome else self.title
             gui_logger.display('PROGRESS_POPUP_WORDS', f'{self.title} | {text}', stage=stage)
 
