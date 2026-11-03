@@ -432,6 +432,9 @@ def test_runs_complete_while_clients_poll_the_camera_temperature(tmp_path):
                     op.stop()
                     op.result(timeout=run_bound_s)
                     outcomes.append(f'did not end within {run_bound_s} s')
+                # The outcome settles before the run's files do, and the next
+                # start is refused ('files_writing') until they have.
+                op.files.result(timeout=run_bound_s)
         finally:
             stop.set()
             for reader in readers:
