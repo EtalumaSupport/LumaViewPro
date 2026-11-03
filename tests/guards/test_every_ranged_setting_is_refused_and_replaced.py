@@ -72,7 +72,6 @@ _OUT_OF_RANGE = {
     '*.stim_config.pulse_count': settings_paths.STIM_PULSE_COUNT_RANGE[1] + 1,
     '*.stim_config.illumination_ma': -1,
     '*.display_color': '#800080',
-    'rest_api.port': settings_paths.REST_API_PORT_RANGE[1] + 1,
 }
 
 # The settings that hold a closed set, whose write refuses a value outside it
@@ -81,13 +80,11 @@ _CLOSED_SETS = frozenset(
     {'zstack.position', 'image_output_format.live', 'image_output_format.sequenced'}
 )
 
-# A whole-number setting's fraction, inside its bounds: the board, the
-# encoder and a socket each take a whole number, so a fraction is outside
-# the range too.
+# A whole-number setting's fraction, inside its bounds: the board and the
+# encoder each take a whole number, so a fraction is outside the range too.
 _A_FRACTION = {
     'motion.acceleration_max_pct': 62.5,
     'jpg_quality': 85.5,
-    'rest_api.port': 8000.5,
 }
 
 _CASES = sorted(

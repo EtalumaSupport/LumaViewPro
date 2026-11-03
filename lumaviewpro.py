@@ -1399,20 +1399,18 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.session.unload_plugins()
 
     def _start_the_rest_server(self) -> None:
-        """Serve the API beside the window, on its own session, when ``rest_api.enabled`` is set.
+        """Serve the API beside the window, on its own session, unless ``rest_api.enabled`` is false.
 
         This computer only (``127.0.0.1``), on ``rest_api.port``, on a
         thread and loop of its own; ``python -m rest`` is the headless way.
+        Only false leaves it off: any other value is the server's to judge,
+        so a mistyped one is reported rather than read as off.
         """
-        if not ctx.session.get_setting('rest_api.enabled'):
+        if ctx.session.get_setting('rest_api.enabled') is False:
             return
         from rest.server import serve_beside
 
-        self._rest_server = serve_beside(
-            ctx.session,
-            port=ctx.session.get_setting('rest_api.port'),
-            shut_down=self._shut_the_session_down,
-        )
+        self._rest_server = serve_beside(ctx.session, shut_down=self._shut_the_session_down)
 
     def _end_the_session(self) -> None:
         """The session's close: inside the REST server's close while one serves, else directly.

@@ -1,13 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The GUI starts REST beside its window once the startup motion settles, never after its close began.
 
-``rest_api.enabled`` set, the window starts the server on its own session
-(``rest.server.serve_beside``) after the metrics, as the headless launcher
-serves after its own; unset, nothing listens. Everything that follows the
-startup motion is refused by the fact the window's close sets first, on the
-Kivy thread: the session's own closing is set later, on the close's thread,
-so a close in the motion's own tick would otherwise run all of it -- a
-server among it -- after the close began.
+Unless ``rest_api.enabled`` is false, the window starts the server on its
+own session (``rest.server.serve_beside``) after the metrics, as the
+headless launcher serves after its own; false, nothing listens.
+Everything that follows the startup motion is refused by the fact the
+window's close sets first, on the Kivy thread: the session's own closing
+is set later, on the close's thread, so a close in the motion's own tick
+would otherwise run all of it -- a server among it -- after the close
+began.
 
 Scanned rather than executed, as ``test_close_request_gate`` is:
 ``lumaviewpro.py`` builds a Kivy widget tree at import.
@@ -90,5 +91,7 @@ def test_the_server_starts_after_the_metrics_from_the_enabled_setting():
     assert len(started) == 1, called
     assert called.index('ctx.session.enable_metrics') < started[0], called
     start = _function(app, '_start_the_rest_server')
-    assert "ctx.session.get_setting('rest_api.enabled')" in ast.unparse(start)
+    # Only false leaves it off: any other value reaches the server's judge,
+    # which refuses it, rather than being read as off.
+    assert "ctx.session.get_setting('rest_api.enabled') is False" in ast.unparse(start)
     assert 'serve_beside' in _called(start)

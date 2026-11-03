@@ -131,6 +131,13 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
     }
 )
 
+# A section whose one reader judges it where it is used and answers a value
+# it cannot use by not acting on it: the load neither judges nor replaces
+# it, since the shipped value is not always the narrower one (an empty
+# client list admits every client), and a save writes back what the user
+# wrote. ``rest_api``'s reader is the REST server's judge (``rest.server``).
+JUDGED_BY_ITS_READER: typing.Final[frozenset[str]] = frozenset({'rest_api'})
+
 # A preference of the person at the display: it changes no capture, no file
 # and no hardware -- each is read only by the GUI's own widgets, or the
 # plugin's -- so it is written by anyone while a control session is held,
@@ -208,9 +215,6 @@ JPG_QUALITY_RANGE: typing.Final = (1, 100)
 
 VIDEO_STEP_DURATION_S_MAX: typing.Final = 3600
 """The longest video a protocol step records, in seconds."""
-
-REST_API_PORT_RANGE: typing.Final = (1024, 65535)
-"""The REST server's port, inclusive: above the ones the system reserves."""
 
 STIM_FREQUENCY_HZ_RANGE: typing.Final = (0.5, 6.0)
 STIM_PULSE_WIDTH_MS_RANGE: typing.Final = (5, 25)
@@ -372,13 +376,6 @@ def _jpg_quality(path: str, value: float) -> None:
     _refuse_outside(path, value, *JPG_QUALITY_RANGE)
 
 
-def _rest_api_port(path: str, value: float) -> None:
-    # A socket takes a whole port; bool is excluded by name: True is an int.
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
-    _refuse_outside(path, value, *REST_API_PORT_RANGE)
-
-
 def _non_negative(path: str, value: float) -> None:
     _refuse_below(path, value, 0, inclusive=True)
 
@@ -487,7 +484,6 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.stim_config.pulse_count': _stim_pulse_count,
     '*.stim_config.illumination_ma': _non_negative,
     '*.display_color': _display_color,
-    'rest_api.port': _rest_api_port,
 }
 
 
@@ -720,12 +716,15 @@ def _values_the_writer_refuses(
     """Every value in ``settings`` the writer's own rule refuses, with the refusal.
 
     Every setting the template holds is checked by the writer's rule, so
-    the load and a handed dict hold one rule with the write. Yields the
+    the load and a handed dict hold one rule with the write, but for a
+    section judged by its reader (``JUDGED_BY_ITS_READER``). Yields the
     dotted path, the dict holding the value and its key, the shipped value,
     and the refusal the writer would raise.
     """
     for path, shipped in _leaf_paths(template):
         *parents, leaf = path.split('.')
+        if parents and parents[0] in JUDGED_BY_ITS_READER:
+            continue
         stored = settings
         for segment in parents:
             stored = stored.get(segment)

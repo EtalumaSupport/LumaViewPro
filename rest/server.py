@@ -26,6 +26,7 @@ serving closes nothing: its host shuts its session down itself.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import enum
 import logging
 import signal
@@ -36,6 +37,7 @@ from types import FrameType
 
 import uvicorn
 
+from modules.api_surface import api
 from modules.exceptions import RestServerNotStartedError
 from modules.scope_session import ScopeSession
 from rest.app import Closing, build_app
@@ -44,7 +46,10 @@ _log = logging.getLogger('lvp_logger.rest')
 
 # The one address every host serves on: there are no credentials, so only
 # this computer may reach the scope.
-HOST = '127.0.0.1'
+_ADDRESS = '127.0.0.1'
+
+_PORT_RANGE = (1024, 65535)
+"""The REST server's port, inclusive: above the ones the system reserves."""
 
 # Seconds the close waits for the calls' threads once the session has shut
 # down; a call still running then is logged by name and the server stops.
@@ -76,8 +81,12 @@ class Server(uvicorn.Server):
         closing: Closing,
         *,
         shut_down: Callable[[], None],
+        sockets: list[socket.socket] | None = None,
     ) -> None:
         super().__init__(config)
+        # Bound by the builder on its caller's thread; None binds from the
+        # configuration as uvicorn does, on the server's thread.
+        self._sockets = sockets
         self._session = session
         self._closing = closing
         self._shut_down = shut_down
@@ -90,6 +99,10 @@ class Server(uvicorn.Server):
         self.close_begun = False
         # What the host's shutdown raised, if it did.
         self.close_failed: BaseException | None = None
+
+    def run(self, sockets: list[socket.socket] | None = None) -> None:
+        """Serve on this thread until the close; on the builder's sockets unless others are given."""
+        super().run(sockets if sockets is not None else self._sockets)
 
     @property
     def serving(self) -> bool:
@@ -203,34 +216,107 @@ class Server(uvicorn.Server):
         self.should_exit = True
 
 
-def serve_beside(session: ScopeSession, *, port: int, shut_down: Callable[[], None]) -> Server:
-    """Serve *session*'s API on ``HOST``:*port* on a thread of its own, beside a host's own main loop.
+@dataclasses.dataclass(frozen=True)
+class _Served:
+    """What a host serves, as the judge read it from ``rest_api``."""
 
-    For a host that keeps the main thread -- the GUI. The port is bound
-    here, on the caller's thread, so a port already taken is raised here and
-    nothing serves; uvicorn binding it on the server's thread would end that
-    thread instead, with the host never told. The server closes through
-    *shut_down*, the host's close of the session, when the host calls
-    ``close()``.
+    address: str
+    port: int
+
+
+def _judged(section: object) -> _Served:
+    """What to serve, read from the ``rest_api`` settings, or the refusal of every value that cannot be used.
+
+    The one judge of ``rest_api``: the load leaves the section as the user
+    wrote it, since the shipped value is not always the narrower one, and
+    only a host that serves can answer a value it cannot use by not serving.
+    A host serves no section it cannot read in full: ``enabled`` is judged
+    though only the GUI acts on it.
 
     Raises:
-        RestServerNotStartedError: The port could not be taken.
+        RestServerNotStartedError: Naming each value that cannot be used.
     """
+    if type(section) is not dict:
+        raise RestServerNotStartedError(
+            _ADDRESS, None, (('rest_api', f'it must be a block of settings, not {section!r}'),)
+        )
+    refused = []
+    enabled = section.get('enabled')
+    if type(enabled) is not bool:
+        refused.append(('rest_api.enabled', f'it must be true or false, not {enabled!r}'))
+    port = section.get('port')
+    low, high = _PORT_RANGE
+    # A socket takes a whole port; bool is excluded by name: True is an int.
+    if type(port) is not int or not low <= port <= high:
+        refused.append(
+            ('rest_api.port', f'it must be a whole number from {low} to {high}, not {port!r}')
+        )
+    if refused:
+        raise RestServerNotStartedError(_ADDRESS, port, tuple(refused))
+    return _Served(_ADDRESS, port)
+
+
+@api(in_process=True)
+def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Server:
+    """The one way to serve *session*'s API: judged, bound and configured here, served by ``run()``.
+
+    Every host serves through it -- the GUI (``serve_beside``),
+    ``python -m rest``, and a program serving a session it brought up
+    itself. The address and port are *session*'s ``rest_api`` settings,
+    judged first. The port is bound and the configuration loaded on the
+    caller's thread, so a failure is raised here and nothing serves; uvicorn
+    doing either on the server's thread would end that thread instead, with
+    the host never told. ``run()`` serves on the thread that calls it until
+    the close: SIGINT, SIGTERM or the host's ``close()``.
+
+    Args:
+        session: The session served, whose ``rest_api`` settings say where.
+        shut_down: The host's close of *session*, run inside the server's
+            close; the server never closes the session any other way. When
+            ``run()`` returns with ``close_begun`` false, the server
+            stopped before it served and the host shuts *session* down
+            itself.
+
+    Raises:
+        RestServerNotStartedError: A ``rest_api`` setting cannot be used, or
+            the port could not be taken.
+    """
+    served = _judged(session.get_setting('rest_api'))
     try:
-        sock = socket.create_server((HOST, port))
+        sock = socket.create_server((served.address, served.port))
     except OSError as e:
-        raise RestServerNotStartedError(HOST, port, e) from e
-    app = build_app(session)
-    server = Server(
-        # No logging configuration of uvicorn's own: its records reach the
-        # host's log at their own level. Its stderr handler would put them in
-        # a GUI's stderr capture, which records every line as a warning.
-        uvicorn.Config(app, host=HOST, port=port, log_config=None),
-        session,
-        app.state.closing,
-        shut_down=shut_down,
-    )
-    threading.Thread(
-        target=server.run, kwargs={'sockets': [sock]}, name='rest-server', daemon=True
-    ).start()
+        raise RestServerNotStartedError(served.address, served.port, e) from e
+    try:
+        app = build_app(session)
+        config = uvicorn.Config(
+            app,
+            host=served.address,
+            port=served.port,
+            # No logging configuration of uvicorn's own: its records reach the
+            # host's log at their own level. Its stderr handler would put them
+            # in a GUI's stderr capture, which records every line as a warning.
+            log_config=None,
+            # The peer is the client: no header names another.
+            proxy_headers=False,
+        )
+        config.load()
+    except BaseException:
+        sock.close()
+        raise
+    return Server(config, session, app.state.closing, shut_down=shut_down, sockets=[sock])
+
+
+def serve_beside(session: ScopeSession, *, shut_down: Callable[[], None]) -> Server:
+    """Serve *session*'s API on a thread of its own, beside a host's own main loop.
+
+    For a host that keeps the main thread -- the GUI. Built by
+    ``build_server``, so a failure is raised here, on the caller's thread,
+    and nothing serves. The server closes through *shut_down*, the host's
+    close of the session, when the host calls ``close()``.
+
+    Raises:
+        RestServerNotStartedError: As ``build_server`` raises it.
+    """
+    server = build_server(session, shut_down=shut_down)
+    threading.Thread(target=server.run, name='rest-server', daemon=True).start()
     return server

@@ -1122,15 +1122,14 @@ class CameraDriverRepairFailedError(Fault, Exception):
 
 
 class RestServerNotStartedError(Fault, Exception):
-    """The REST server served beside the application could not take its port.
+    """The REST server was not started: a ``rest_api`` setting cannot be used, or its port could not be taken.
 
-    Raised by ``rest.server.serve_beside``, chained from the ``OSError`` of
+    Raised by ``rest.server.build_server``, through which every host serves,
+    before anything is served. A setting that cannot be used is named with
+    why; a port that could not be taken is chained from the ``OSError`` of
     the bind, so the words name the address and the operating system's own
-    reason -- most often another program on the port. Nothing is served; the
-    application runs on without it.
-
-    Attributes:
-        port: The port that could not be taken.
+    reason -- most often another program on the port. The GUI runs on
+    without a server; the headless server exits.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'rest_server_not_started': None}
@@ -1138,13 +1137,23 @@ class RestServerNotStartedError(Fault, Exception):
 
     words_for_person = True
 
-    def __init__(self, host: str, port: int, cause: OSError):
-        reason = cause.strerror or type(cause).__name__
-        super().__init__(
-            f'The REST server was not started on {host}:{port} ({reason}). LumaViewPro runs '
-            'without it; if another program uses that port, set rest_api.port to a free one.'
-        )
-        self.port = port
+    def __init__(
+        self, address: str, port: object, cause: OSError | tuple[tuple[str, str], ...]
+    ) -> None:
+        if isinstance(cause, OSError):
+            reason = cause.strerror or type(cause).__name__
+            words = (
+                f'The REST server was not started on {address}:{port} ({reason}). If another '
+                'program uses that port, set rest_api.port to a free one.'
+            )
+        else:
+            # Each refused setting as its path and why.
+            refused = '; '.join(f'{path}: {why}' for path, why in cause)
+            words = (
+                f'The REST server was not started: its settings cannot be used ({refused}). '
+                'Correct rest_api in the settings file while LumaViewPro is closed.'
+            )
+        super().__init__(words)
 
 
 @api_fields('loc', 'msg', 'type')

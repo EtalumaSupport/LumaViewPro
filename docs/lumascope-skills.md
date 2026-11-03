@@ -1050,21 +1050,29 @@ session did not close cleanly.
 
 LumaViewPro serves the same API beside its window when `rest_api.enabled` is
 set in its settings (shipped `false`). To serve a session your own program has
-brought up, build the application and serve it with uvicorn:
+brought up, build its server, the one every host serves through:
 
 ```python norun
-import uvicorn
-from rest.app import build_app
+from rest.server import build_server
 
-uvicorn.run(build_app(session), host='127.0.0.1', port=8000)    # until Ctrl-C
-session.shutdown()
+server = build_server(session, shut_down=session.shutdown)
+server.run()    # until Ctrl-C, whose close shuts the session down
+if not server.close_begun:    # it stopped before it served
+    session.shutdown()
 ```
 
-Serve it on `127.0.0.1` only: it has no credentials, so anyone who can reach
-the port drives the scope. `GET /api` answers the versions served; the OpenAPI
-3.1 description of every route is at `/api/v1/openapi.json`, with an
-interactive reference at `/docs`. Each route's description lists the refusals
-and faults its member declares, under the status each answers.
+The server reads `rest_api` from the session's settings and serves on
+`127.0.0.1` only: it has no credentials, so anyone who can reach the port
+drives the scope. A `rest_api` setting it cannot use, or a port another
+program holds, is refused with `RestServerNotStartedError` before anything is
+served, from every host: LumaViewPro shows it and runs on without a server,
+and `python -m rest` prints it and exits `1`. The settings are read from the
+file as written, so correct them with LumaViewPro closed.
+
+`GET /api` answers the versions served; the OpenAPI 3.1 description of every
+route is at `/api/v1/openapi.json`, with an interactive reference at `/docs`.
+Each route's description lists the refusals and faults its member declares,
+under the status each answers.
 
 ### Routes
 

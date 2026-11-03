@@ -154,6 +154,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`ZProject`](#ZProject)
 - [`modules.notification_center`](#modules.notification_center)
 - [`rest.app`](#rest.app)
+- [`rest.server`](#rest.server)
 - [Closed sets](#closed-sets)
 - [Outcomes](#outcomes)
 - [Routes](#routes)
@@ -164,7 +165,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 ## `ScopeSession`
 
 Made by [`ScopeSession.create`](#ScopeSession.create); every member below is on the wire under `/api/v1/` unless it is in-process.  
-Taken by: [`rest.app.build_app`](#rest.app.build_app).
+Taken by: [`rest.app.build_app`](#rest.app.build_app), [`rest.server.build_server`](#rest.server.build_server).
 
 Owns the shared, GUI-independent state for one microscope session.
 
@@ -13106,6 +13107,44 @@ Its close is `app.state.closing`; its live view `app.state.live`.
 
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `route_shadowed`
 
+<a id="rest.server"></a>
+## `rest.server`
+
+Functions of the module; each is in-process, since the wire routes only a class's members.
+
+<a id="rest.server.build_server"></a>
+### `rest.server.build_server`
+
+```python
+def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Server
+```
+
+Marks: in-process.
+
+The one way to serve *session*'s API: judged, bound and configured here, served by `run()`.
+
+Every host serves through it -- the GUI (`serve_beside`),
+`python -m rest`, and a program serving a session it brought up
+itself. The address and port are *session*'s `rest_api` settings,
+judged first. The port is bound and the configuration loaded on the
+caller's thread, so a failure is raised here and nothing serves; uvicorn
+doing either on the server's thread would end that thread instead, with
+the host never told. `run()` serves on the thread that calls it until
+the close: SIGINT, SIGTERM or the host's `close()`.
+
+**Args**
+
+- `session`: The session served, whose `rest_api` settings say where.
+- `shut_down`: The host's close of *session*, run inside the server's close; the server never closes the session any other way. When `run()` returns with `close_begun` false, the server stopped before it served and the host shuts *session* down itself.
+
+**Raises**
+
+- `RestServerNotStartedError`: A `rest_api` setting cannot be used, or the port could not be taken.
+
+**Refusals**
+
+- [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
+
 ## Closed sets
 
 A closed set crosses the wire as its value, and in Python equals its value's string.
@@ -16690,16 +16729,14 @@ caller changing nothing.
 
 A fault; bases `Fault`, `Exception`.
 
-The REST server served beside the application could not take its port.
+The REST server was not started: a `rest_api` setting cannot be used, or its port could not be taken.
 
-Raised by `rest.server.serve_beside`, chained from the `OSError` of
+Raised by `rest.server.build_server`, through which every host serves,
+before anything is served. A setting that cannot be used is named with
+why; a port that could not be taken is chained from the `OSError` of
 the bind, so the words name the address and the operating system's own
-reason -- most often another program on the port. Nothing is served; the
-application runs on without it.
-
-**Attributes**
-
-- `port`: The port that could not be taken.
+reason -- most often another program on the port. The GUI runs on
+without a server; the headless server exits.
 
 | Reason | Cause | REST status |
 |---|---|---|
