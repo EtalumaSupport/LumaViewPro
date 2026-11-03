@@ -4321,6 +4321,10 @@ class PylonCamera(Camera):
             (('TemperatureState',), 'temperature_state'),
             (('BslTemperatureMax',), 'temperature_max_degC'),
             (('BslTemperatureStatusErrorCount',), 'temperature_status_error_count'),
+            # Which instant the Timestamp chunk stamps (ace 2 and dart,
+            # per Basler doc data-chunks.html); the sentinel on a camera
+            # whose chunk is the legacy one.
+            (('BslChunkTimestampSelector',), 'chunk_timestamp_selector'),
         ):
             result['config'][key] = self._safe_node(nm, *names)
 
