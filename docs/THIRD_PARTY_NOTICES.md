@@ -40,7 +40,7 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | libusb1 (python-libusb1) | 3.4.0 | LGPL-2.1-or-later | https://github.com/vpelletier/python-libusb1 |
 | libusb-package | 1.0.30.0 | Apache-2.0 (packaging; carries the LGPL-2.1 libusb library below) | https://github.com/pyocd/libusb-package |
 
-The IDS license terms permit distributing the IDS software only in products that operate with IDS cameras. Each ids-peak wheel carries those terms (`LICENSE`) and the licenses of the open-source components inside it (`third_party_licenses.txt`, `third_party_copyrights.txt`; ids-peak's GenICam licenses under `genicam/`).
+The IDS license terms permit distributing the IDS software only in products that operate with IDS cameras. Each ids-peak wheel carries those terms (`LICENSE`) and the licenses of the open-source components inside it (`third_party_licenses.txt`, `third_party_copyrights.txt`; ids-peak's GenICam licenses under `genicam/`). The installation carries them where the wheels put them: `ids_peak-<version>.dist-info/licenses/`, and the same for `ids_peak_ipl`, `ids_peak_icv` and `ids_peak_afl`, in the installation folder.
 
 ## C / C++ libraries bundled inside the imagecodecs wheel
 
@@ -61,7 +61,7 @@ These libraries are statically or dynamically linked into `imagecodecs` and are 
 | Brotli | MIT | https://github.com/google/brotli |
 | JPEG XL / libjxl (if enabled) | BSD-3-Clause | https://github.com/libjxl/libjxl |
 
-**Authoritative per-build list**: the imagecodecs wheel carries each codec's license text in its `imagecodecs/licenses/` folder. The installer does not yet carry that folder; copying it in is a build step still to come.
+**Authoritative per-build list**: the imagecodecs wheel carries each codec's license text in its `imagecodecs/licenses/` folder, and the installation carries that folder, in the installation folder; the wrapper's own license is in `imagecodecs-<version>.dist-info/licenses/`.
 
 ## Bundled binaries (not pip-installed)
 
@@ -107,5 +107,6 @@ Full license text for each distinct license used above is provided alongside thi
 - `docs/licenses/LICENSE.Apache-2.0.txt`
 - `docs/licenses/LICENSE.matplotlib.txt`
 - `docs/licenses/LICENSE.LGPL-2.1.txt`
-- Not yet in `docs/licenses/`: the CC0-1.0 text NumPy names, the IDS license terms and the licenses the ids-peak and imagecodecs wheels list; carrying them is a build step still to come.
+- `docs/licenses/LICENSE.CC0-1.0.txt`
+- The IDS license terms and the licenses the ids-peak and imagecodecs wheels list are not copied here: the installation carries them where each wheel puts them (above).
 - `docs/licenses/LICENSE.FLAC.txt`, `LICENSE.freetype.txt`, `LICENSE.harfbuzz.txt`, `LICENSE.jpeg.txt`, `LICENSE.modplug.txt`, `LICENSE.mpg123.txt`, `LICENSE.ogg-vorbis.txt`, `LICENSE.opus.txt`, `LICENSE.opusfile.txt`, `LICENSE.png.txt`, `LICENSE.tiff.txt`, `LICENSE.webp.txt`, `LICENSE.zlib.txt` — SDL2 sub-component licenses, pre-existing.
