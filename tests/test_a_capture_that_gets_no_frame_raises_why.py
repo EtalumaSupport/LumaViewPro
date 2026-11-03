@@ -206,6 +206,7 @@ def test_a_camera_that_is_not_streaming_is_refused_as_that(sim_scope):
     assert refused.value.title == 'Camera Not Streaming'
 
 
+@pytest.mark.slow
 def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
     # The camera is still there, so the live view keeps adjusting after a
     # capture that got nothing; only a removal skips the re-arm.

@@ -34,6 +34,7 @@ def _steps(n):
 
 
 class TestAProtocolRun:
+    @pytest.mark.slow
     def test_three_stalled_captures_end_it_each_row_naming_no_frame(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             session.scope.simulation.stall_stream(0.0, 600.0)
