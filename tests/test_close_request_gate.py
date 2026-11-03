@@ -285,3 +285,23 @@ def test_the_close_stops_the_window_listening_before_the_scope_goes():
     assert listener_handed_to(prepare, 'remove_run_state_listener') == listener_handed_to(
         _method(class_node, 'on_start'), 'add_run_state_listener'
     ), 'the close removes a different run-state listener from the one the window added'
+
+
+def test_the_close_names_each_piece_of_live_work_with_its_progress():
+    """Each line the close's popups show is the item's name, with its percent
+    when it reports one, else its count left. Run on the Session's own
+    WorkItem, so a renamed field fails here rather than at the user's close."""
+    from modules.live_work import WorkItem, WorkKind
+    from ui.ui_helpers import work_item_text
+
+    work = (
+        WorkItem(WorkKind.POST_PROCESSING, 'A stack of run1', progress_pct=42.4),
+        WorkItem(WorkKind.RUN_FILES, "A run's images", left=3),
+        WorkItem(WorkKind.PROTOCOL, 'A protocol run'),
+    )
+
+    assert [work_item_text(item) for item in work] == [
+        'A stack of run1 (42%)',
+        "A run's images (3 left)",
+        'A protocol run',
+    ]

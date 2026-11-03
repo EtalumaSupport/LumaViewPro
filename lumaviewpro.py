@@ -511,21 +511,13 @@ from ui.ui_helpers import (
     draw_shared_run_displays,
     run_reported,
     run_unasked,
+    work_item_text,
 )
 
 # Imported for kv: <MainDisplay> builds a HomingBanner by name.
 from ui.homing_banner import HomingBanner
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
-
-
-def _work_item_text(item) -> str:
-    """One piece of the session's live work, as the close's popups show it."""
-    if item.percent is not None:
-        return f'{item.name} ({item.percent:.0f}%)'
-    if item.left is not None:
-        return f'{item.name} ({item.left} left)'
-    return item.name
 
 
 class LumaViewProApp(TooltipMixin, App):
@@ -1288,7 +1280,7 @@ class LumaViewProApp(TooltipMixin, App):
                 title='Confirm Exit',
                 message=(
                     'LumaViewPro is still doing:\n'
-                    + '\n'.join(f'- {_work_item_text(item)}' for item in work)
+                    + '\n'.join(f'- {work_item_text(item)}' for item in work)
                     + '\n\nExiting stops a running protocol or recording, keeping what it '
                     'captured, and lets the rest finish before LumaViewPro closes.'
                     '\n\nAre you sure you want to exit?'
@@ -1331,7 +1323,7 @@ class LumaViewProApp(TooltipMixin, App):
                 work = ctx.session.live_work.work
                 message = (
                     'Finishing before LumaViewPro closes:\n'
-                    + '\n'.join(_work_item_text(item) for item in work)
+                    + '\n'.join(work_item_text(item) for item in work)
                     if work
                     else 'Closing LumaViewPro...'
                 )

@@ -774,6 +774,15 @@ def live_histo_reverse():
 _DRAIN_TITLE = 'Writing protocol scan files to disk...'
 
 
+def work_item_text(item: live_work.WorkItem) -> str:
+    """One piece of the session's live work, as the close's popups show it."""
+    if item.progress_pct is not None:
+        return f'{item.name} ({item.progress_pct:.0f}%)'
+    if item.left is not None:
+        return f'{item.name} ({item.left} left)'
+    return item.name
+
+
 def draw_shared_run_displays(lock, work) -> None:
     """Draw the displays every run shares -- equalization, title, LED toggles.
 
