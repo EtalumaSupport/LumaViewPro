@@ -65,7 +65,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Illumination': 1.0,
         'Gain': gain,
         'Auto_Gain': False,
-        'Exposure': 10.0,
+        'Exposure': 2.5,  # the 10x's light: brightfield falls as the square of the magnification
         'Sum': sum_count,
         'Objective': '10x Oly',
         'Well': name,
@@ -210,7 +210,7 @@ class TestALateWriteRecordsItsFrame:
 
         metadata, _ = files['C1']
         assert metadata.get('frames_summed') == 3, metadata.get('frames_summed')
-        assert metadata.get('exposure_time_ms') == 10.0, metadata.get('exposure_time_ms')
+        assert metadata.get('exposure_time_ms') == 2.5, metadata.get('exposure_time_ms')
 
     def test_an_autofocused_file_records_the_z_it_was_taken_at(self, tmp_path, monkeypatch):
         """Autofocus leaves the stage at its best focus and the frame is taken

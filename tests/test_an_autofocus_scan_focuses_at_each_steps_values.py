@@ -15,7 +15,7 @@ from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _A
 
 # The one step _AfRig's protocol holds asks for these.
 STEP_GAIN_DB = 1.0
-STEP_EXPOSURE_MS = 10.0
+STEP_EXPOSURE_MS = 2.5
 
 
 def _sweep_targets(tmp_path, run_mode):

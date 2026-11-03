@@ -71,7 +71,7 @@ def _make_af_step_protocol():
         'Illumination': 1.0,
         'Gain': 1.0,
         'Auto_Gain': False,
-        'Exposure': 10.0,
+        'Exposure': 2.5,  # the 10x's light: brightfield falls as the square of the magnification
         'Sum': 1,
         'Objective': '10x Oly',
         'Well': 'A1',

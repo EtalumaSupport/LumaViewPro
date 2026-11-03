@@ -329,6 +329,9 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
         'LS820',
         acquiring=('BF',),
         zstack={'range': 20.0, 'step_size': 10.0, 'position': 'center'},
+        # The 10x's light: brightfield falls as the square of the
+        # magnification, and the shipped 2 ms is the 20x's.
+        BF={'exposure_ms': 0.5},
     )
     # Mid-travel: homed Z sits at 0, where a stack's lower slices fall outside.
     session.scope.motion.move_z(5000.0)

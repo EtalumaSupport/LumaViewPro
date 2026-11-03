@@ -37,6 +37,7 @@ ADDED_LAYERS = read_installation_file(resolve_data_file('scopes.json'))['LayerOr
         'display_color': '#ff00ff',
         'step_order': 9,
         'sim_light_per_ma_s': 0.0126,
+        'sim_light_magnification_power': 0,
     }
 ]
 

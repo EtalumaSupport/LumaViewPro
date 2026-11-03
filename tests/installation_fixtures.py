@@ -53,6 +53,7 @@ def _fluorescence_record(key: str, color: str, step_order: int) -> dict:
         'display_color': color,
         'step_order': step_order,
         'sim_light_per_ma_s': 0.0126,
+        'sim_light_magnification_power': 0,
     }
 
 

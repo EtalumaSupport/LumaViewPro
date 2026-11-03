@@ -60,7 +60,7 @@ def test_a_manual_step_whose_exposure_was_not_taken_is_not_captured(tmp_path):
     ), outcome
     [failed] = outcome.captures.failed
     assert (failed.step_index, failed.step_name) == (0, 'C0')
-    assert failed.cause.startswith('The camera rejected the exposure change to 10 ms.'), failed
+    assert failed.cause.startswith('The camera rejected the exposure change to 2.5 ms.'), failed
     images = _images(tmp_path / 'runs')
     assert len(images) == 1 and 'C1' in images[0], images
 
@@ -82,7 +82,7 @@ def test_a_manual_step_writes_its_gain_and_exposure_and_no_auto_gain_mode(tmp_pa
     for path in (tmp_path / 'runs').rglob('*.tiff'):
         metadata = read_file_record(path) or {}
         taken[path.name.split('_')[0]] = (metadata.get('gain_db'), metadata.get('exposure_time_ms'))
-    assert taken == {'C0': (3.0, 10.0), 'C1': (5.0, 10.0)}
+    assert taken == {'C0': (3.0, 2.5), 'C1': (5.0, 2.5)}
 
 
 def test_an_auto_gain_step_whose_arm_was_refused_is_not_captured(tmp_path):
@@ -136,7 +136,7 @@ def test_three_steps_in_a_row_end_the_run_naming_the_last(tmp_path):
     assert (outcome.status, outcome.reason) == ('failed', 'camera_failure'), outcome
     assert outcome.message.startswith(
         'The camera failed 3 steps in a row; the last: The camera rejected the exposure '
-        'change to 10 ms.'
+        'change to 2.5 ms.'
     ), outcome.message
     assert _images(tmp_path / 'runs') == []
 

@@ -209,12 +209,17 @@ class TestCatalogueRecords:
             'manual_max_illumination_ma': {'manual_max_illumination_ma': 50.5},
             'display_color': {'display_color': [1, 0, 1]},
             'step_order': {'step_order': 1.5},
+            'sim_light_magnification_power': {'sim_light_magnification_power': 'square'},
         }
         wrong = {
             field: self._refused(tmp_path, [{**CATALOGUE[0], **change}])
             for field, change in cases.items()
         }
         assert [field for field, why in wrong.items() if field not in why] == []
+
+    def test_a_magnification_power_on_a_layer_with_no_light_is_refused(self, tmp_path):
+        unlit = {**CATALOGUE[0], 'sim_light_per_ma_s': None}
+        assert 'sim_light_magnification_power' in self._refused(tmp_path, [unlit])
 
     def test_a_colour_is_its_red_green_and_blue_weights(self):
         assert parse_display_color('#ff8000') == (1.0, 128 / 255, 0.0)

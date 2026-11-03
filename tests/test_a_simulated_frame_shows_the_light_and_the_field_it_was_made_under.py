@@ -32,6 +32,7 @@ import pytest
 from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_specimen import NOMINAL_UM_PER_PX
 from modules import common_utils
+from modules.layer_record import SIM_LIGHT_MAGNIFICATION
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.settings_fixtures import complete_settings
@@ -202,8 +203,17 @@ def _pixel_size(scope) -> float:
 
 
 def _lit_frame(scope) -> np.ndarray:
-    """A frame with the brightfield lit at its shipped settings, as floats."""
-    return _shown(scope, 'BF', *_SHIPPED['BF']).astype(np.float32)
+    """A brightfield frame as bright as the shipped settings make it on the 20x, as floats.
+
+    Brightfield falls as the square of the magnification, so the shipped
+    light clips the field on a 4x or a 10x; the exposure is set for the
+    objective, as a person sets it, so the picture is the sample's. The
+    exposure, not the current: the LED is set in whole mA.
+    """
+    ma, ms, db = _SHIPPED['BF']
+    magnification = scope.runtime_state.get_current_objective().magnification
+    ms *= (magnification / SIM_LIGHT_MAGNIFICATION) ** 2
+    return _shown(scope, 'BF', ma, ms, db).astype(np.float32)
 
 
 def _image_shift(before: np.ndarray, after: np.ndarray) -> tuple[float, float]:
@@ -271,6 +281,30 @@ def test_an_objective_change_rescales_the_image_by_the_ratio_of_the_pixel_sizes(
     size = 600
     shrunk = _seen_at(close, close_scale, wide_scale, size)
     assert _likeness(shrunk, _centre(wide, size)) > 0.8
+
+
+def test_brightfield_falls_as_the_square_of_the_magnification_and_fluorescence_does_not():
+    """BF at its shipped settings is a quarter as bright on a 40x as on the 20x, a ninth on a 60x.
+
+    As a clear field does on the LS850T (/3.84 and /3.99 per doubling), and
+    as the catalogue's BF power says; a layer the bench has not read, here a
+    fluorescence one, renders the same through each. Each frame is lit after
+    its objective is chosen, so the LED's write times the light it shows.
+    """
+    means = {}
+    with _session('LS850') as session:
+        scope = session.scope
+        for objective in ('20x Oly', '40x w/collar', '60x w/collar'):
+            session.select_objective(objective)
+            for layer in ('BF', LED1):
+                means[objective, layer] = float(_shown(scope, layer, *_SHIPPED[layer]).mean())
+
+    at_20x = means['20x Oly', 'BF']
+    # The sample is drawn at each objective's scale, so its mean moves a few
+    # per cent with the scale alone.
+    for objective, fraction in (('40x w/collar', 1 / 4), ('60x w/collar', 1 / 9)):
+        assert 0.85 < means[objective, 'BF'] / (at_20x * fraction) < 1.15, means
+        assert 0.85 < means[objective, LED1] / means['20x Oly', LED1] < 1.15, means
 
 
 def test_the_classic_and_the_ls850_image_one_sample():

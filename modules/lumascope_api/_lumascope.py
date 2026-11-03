@@ -872,15 +872,28 @@ class Lumascope:
 
         def _sim_light_of(address: int) -> float:
             """The light per mA-second the layer ``address`` lights renders in
-            the simulators (the catalogue's); 0 for an address no layer names
-            or a layer with no LED. Read while a frame is made, after the
-            illumination API and the identity exist."""
-            from modules.layer_record import release_layer
+            the simulators through the current objective: the catalogue's,
+            falling with the objective's magnification by the layer's power;
+            the catalogue's own when no objective is known, as
+            ``_sim_pixel_size`` draws at no scale then. 0 for an address no
+            layer names or a layer with no LED. Read while a frame is made,
+            after the illumination API, the identity and runtime_state exist."""
+            from modules.layer_record import SIM_LIGHT_MAGNIFICATION, release_layer
 
             name = self.illumination.ch2color(address)
             if name is None:
                 return 0.0
-            return release_layer(name).sim_light_per_ma_s or 0.0
+            layer = release_layer(name)
+            if layer.sim_light_per_ma_s is None:
+                return 0.0
+            objective = self.runtime_state.get_current_objective()
+            if objective is None:
+                return layer.sim_light_per_ma_s
+            return (
+                layer.sim_light_per_ma_s
+                * (SIM_LIGHT_MAGNIFICATION / objective.magnification)
+                ** layer.sim_light_magnification_power
+            )
 
         def _sim_stage_xy() -> tuple[float | None, float | None]:
             """Where the stage stands, so the simulated sample follows it; an

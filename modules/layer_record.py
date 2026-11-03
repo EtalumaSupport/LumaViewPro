@@ -104,6 +104,12 @@ def format_display_color(color: Color) -> str:
     return '#' + ''.join(f'{round(weight * 255):02x}' for weight in color)
 
 
+# The objective a layer's simulated light is stated through: the release's
+# default objective (`settings.json` `objective_id`, the 20x), so a default
+# simulated session renders each layer at its stated light.
+SIM_LIGHT_MAGNIFICATION = 20.0
+
+
 @dataclass(frozen=True)
 class CatalogueLayer:
     """What a layer of one key is in this release, on every unit that has it.
@@ -121,13 +127,20 @@ class CatalogueLayer:
     `step_order` is where the layer's steps are inserted in a new protocol,
     which is not its display order.
     `sim_light_per_ma_s` is the light the simulated cameras render for the
-    layer, per mA of LED current and second of exposure at unity gain;
-    None for a layer with no LED. Each value puts the layer's shipped
-    defaults (`settings.json`) at brightness 1.0, the specimen at its own
-    grey levels: 1 / (exposure s x linear gain x mA), so BF's 2 ms, 1 dB
-    and 5 mA give 89.1 and fluorescence's 100 ms, 10 dB and 250 mA 0.0126.
+    layer, per mA of LED current and second of exposure at unity gain,
+    through an objective of `SIM_LIGHT_MAGNIFICATION`; None for a layer
+    with no LED. Each value puts the layer's shipped defaults
+    (`settings.json`) at brightness 1.0, the specimen at its own grey
+    levels: 1 / (exposure s x linear gain x mA), so BF's 2 ms, 1 dB and
+    5 mA give 89.1 and fluorescence's 100 ms, 10 dB and 250 mA 0.0126.
     The defaults are what makes each layer look right on a scope, so they
     carry the light each modality delivers.
+    `sim_light_magnification_power` is how that light falls with the
+    objective: it is multiplied by (`SIM_LIGHT_MAGNIFICATION` / the
+    objective's magnification) to this power; None where
+    `sim_light_per_ma_s` is. On the LS850T a clear brightfield field falls
+    as the square (/3.84 and /3.99 from 10x to 20x to 40x), so BF's is 2;
+    a layer the bench has not read is 0.
     """
 
     key: str
@@ -138,6 +151,7 @@ class CatalogueLayer:
     display_color: str
     step_order: int
     sim_light_per_ma_s: float | None
+    sim_light_magnification_power: float | None
 
 
 @api_fields(
@@ -903,6 +917,11 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
     light = entry['sim_light_per_ma_s']
     if light is not None and not (_is_number(light) and light > 0):
         raise refuse('whose sim_light_per_ma_s is not a positive number or null')
+    power = entry['sim_light_magnification_power']
+    if light is None and power is not None:
+        raise refuse('whose sim_light_magnification_power is set on a layer with no light')
+    if light is not None and not _is_number(power):
+        raise refuse('whose sim_light_magnification_power is not a number')
     return CatalogueLayer(
         key=key,
         modality=modality,
@@ -912,6 +931,7 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
         display_color=entry['display_color'],
         step_order=step_order,
         sim_light_per_ma_s=None if light is None else float(light),
+        sim_light_magnification_power=None if power is None else float(power),
     )
 
 
