@@ -144,6 +144,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # Every failed test phase's whole report -- its traceback, every log
+      # line production wrote during it, its stdout and stderr -- written by
+      # tests/conftest.py whatever the console printed: a flake is read from
+      # the run it failed in, never rerun in the hope it fails again.
+      - name: Failure files of a red run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-failures-${{ matrix.python-version }}-${{ matrix.shard }}
+          path: build/test_failures/**
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Lint
         run: ruff check .
 
