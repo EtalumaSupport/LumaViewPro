@@ -183,8 +183,10 @@ if __name__ == '__main__':
     # tracemalloc captures the resident baseline, not just post-startup growth.
     # No-op unless memory_profile_enabled is set in the live settings.
     from lib import memory_profile
+    from modules.settings_init import load_memory_profile_setting
 
-    memory_profile.start(source_path)
+    memory_gate = load_memory_profile_setting(source_path)
+    memory_profile.start(enabled=memory_gate['enabled'], interval_s=memory_gate['interval_s'])
 
     # A settings or installation file that cannot be used stops the launch by
     # escaping: the crash hook logs it, and the packaged build's bootloader

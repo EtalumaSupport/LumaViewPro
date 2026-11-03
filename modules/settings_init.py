@@ -1155,8 +1155,8 @@ def load_tracemalloc_setting(directory: str) -> bool:
 def load_memory_profile_setting(directory: str) -> dict:
     """memory_profile_enabled and memory_profile_interval_s, before preparation.
 
-    Returns ``{"enabled": bool, "interval_s": float}``; read by
-    lib/memory_profile.py.
+    Returns ``{"enabled": bool, "interval_s": float}``; read by the GUI's
+    launch, which hands them to ``lib.memory_profile.start``.
     """
     enabled, _ = read_before_preparation(directory, 'memory_profile_enabled')
     interval_s, _ = read_before_preparation(directory, 'memory_profile_interval_s')

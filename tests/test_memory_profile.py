@@ -69,19 +69,8 @@ class TestDisabledNoOps:
         assert memory_profile.is_enabled() is False
         memory_profile.snapshot('any_state')  # no throw, no output
 
-    def test_start_disabled_leaves_profiler_off(self, tmp_path):
-        # Point start() at a settings dir with the gate off; it must stay off.
-        _write(tmp_path, 'settings.json', _SHIPPED)
-        # start() is idempotent via a module flag; this test only asserts the
-        # disabled outcome, which holds regardless of prior start() calls.
-        memory_profile.start(str(tmp_path))
-        assert memory_profile.is_enabled() is False
-
-    def test_start_on_a_broken_installation_raises_rather_than_reading_off(
-        self, tmp_path, monkeypatch
-    ):
-        # A first start in this process; there is no settings.json to read.
+    def test_start_disabled_leaves_profiler_off(self, monkeypatch):
+        # A first start in this process, handed the gate off.
         monkeypatch.setattr(memory_profile, '_started', False)
-        with pytest.raises(InstallationFileError) as refused:
-            memory_profile.start(str(tmp_path))
-        assert refused.value.file_path == tmp_path / 'data' / 'settings.json'
+        memory_profile.start(enabled=False, interval_s=5.0)
+        assert memory_profile.is_enabled() is False

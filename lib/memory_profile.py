@@ -1,9 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Gated memory profiler for mapping LumaViewPro's resident footprint.
 
-Off by default. Enable via ``memory_profile_enabled: true`` in the live
-settings (current.json once it exists, else settings.json) -- the same
-merged-settings gate as profile_trace and tracemalloc. When disabled every
+Off by default. The host reads ``memory_profile_enabled`` and
+``memory_profile_interval_s`` from the live settings (current.json once it
+exists, else settings.json) and hands them to ``start()``; this module reads
+no setting, as lib/ sits below the layer that owns them. When disabled every
 entry point here is a cheap no-op.
 
 When enabled, ``start()`` begins tracemalloc as early in process life as the
@@ -14,7 +15,7 @@ and launches a lightweight daemon thread that samples RSS on a fixed cadence.
 diff since the previous snapshot, so a run produces a per-lifecycle-state map
 of where memory went:
 
-    memory_profile.start(source_path)          # __main__, before heavy imports
+    memory_profile.start(enabled=..., interval_s=...)  # __main__, before heavy imports
     ...
     memory_profile.snapshot('cold_start_done') # end of App.on_start
     memory_profile.snapshot('post_homing')     # after homing completes
@@ -57,31 +58,19 @@ def is_enabled() -> bool:
     return _enabled
 
 
-def start(source_path: str) -> None:
-    """Read the gate and, if enabled, begin tracemalloc + RSS sampling.
+def start(*, enabled: bool, interval_s: float) -> None:
+    """If ``enabled``, begin tracemalloc + RSS sampling every ``interval_s`` seconds.
 
     Idempotent. Call as early as possible in __main__ so the tracemalloc
     baseline reflects the resident set, not just post-startup growth.
-
-    Args:
-        source_path: App source/data directory, used to resolve the live
-            settings file for the gate.
-
-    Raises:
-        InstallationFileError: the gate cannot be read because the shipped
-            settings file is missing, unusable, or lacks it; a gate read as
-            off would hide the broken installation behind a missing profile.
     """
     global _started, _enabled, _interval_s, _proc, _t0
     with _lock:
         if _started:
             return
         _started = True
-    from modules.settings_init import load_memory_profile_setting
-
-    cfg = load_memory_profile_setting(source_path)
-    _enabled = cfg['enabled']
-    _interval_s = cfg['interval_s']
+    _enabled = enabled
+    _interval_s = interval_s
     if not _enabled:
         return
     try:
