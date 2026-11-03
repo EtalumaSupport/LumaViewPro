@@ -418,6 +418,54 @@ def _serial_failure(item, call) -> str | None:
     )
 
 
+# The checkout's data/ is an installation a person runs LumaViewPro from: its
+# current.json is their live configuration. A test that writes there leaves
+# the next launch on the test's settings, a live folder in a temporary
+# directory pytest deletes among them. Every write into it, an open for
+# writing or a rename onto it, fails the test that made it, by name; a test
+# that needs an installation builds `installation_of_its_own()`. Subprocesses
+# are not watched.
+CHECKOUT_WRITE_BANNER = 'CHECKOUT INSTALLATION WRITTEN'
+_checkout_writes: list[str] = []
+
+
+def _install_checkout_write_recorder():
+    from modules.path_utils import get_source_root
+
+    data = os.path.realpath(get_source_root() / 'data') + os.sep
+
+    def recorded(event, args):
+        if event == 'open':
+            path, mode = args[0], args[1]
+            if not isinstance(mode, str) or not set(mode) & set('wax+'):
+                return
+        elif event == 'os.rename':
+            path = args[1]
+        else:
+            return
+        if isinstance(path, int):
+            return
+        if os.path.realpath(os.fsdecode(path)).startswith(data):
+            _checkout_writes.append(f'{event} {os.fsdecode(path)}')
+
+    sys.addaudithook(recorded)
+
+
+_install_checkout_write_recorder()
+
+
+def _checkout_write_failure(item, call) -> str | None:
+    if not _checkout_writes:
+        return None
+    writes = sorted(set(_checkout_writes))
+    _checkout_writes.clear()
+    return (
+        f"{CHECKOUT_WRITE_BANNER}: {item.nodeid} wrote into the checkout's data/ during "
+        f'{call.when}: {writes}. That folder is the installation a person runs LumaViewPro '
+        'from; build one for the test with tests.settings_fixtures.installation_of_its_own().'
+    )
+
+
 # The full (generation-2) collections run since the current test started,
 # each (start, end) on the scope's steady clock, the clock a capture's
 # give-up line states its wait on: a failed test's report lists them, so a
@@ -454,7 +502,15 @@ def _gen2_section() -> str:
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
-    failures = [f for f in (_serial_failure(item, call), _shipped_lock_failure(item, call)) if f]
+    failures = [
+        f
+        for f in (
+            _serial_failure(item, call),
+            _shipped_lock_failure(item, call),
+            _checkout_write_failure(item, call),
+        )
+        if f
+    ]
     if failures:
         report.outcome = 'failed'
         report.longrepr = '\n\n'.join(failures)

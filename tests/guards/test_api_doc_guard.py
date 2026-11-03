@@ -62,6 +62,7 @@ member, field or class the generator rendered.
 
 import ast
 import collections
+import contextlib
 import dataclasses
 import enum
 import importlib
@@ -77,7 +78,7 @@ import pytest
 
 from lib.lumascope_error import LumascopeError
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 DOC = REPO_ROOT / 'docs' / 'lumascope-skills.md'
 
@@ -723,6 +724,9 @@ class _ChapterSessions:
         # never this machine's current.json.
         settings_init.settings = settings
         session = ScopeSession.create(settings.copy(), simulate=True, warn_pre_release=False)
+        # The swap below rebinds the namespace's names; a session a fence
+        # made under them is kept here, or nothing would shut it down.
+        self._made.extend(v for v in self._namespace.values() if isinstance(v, ScopeSession))
         self._made.append(session)
         session.run_application_session()
         self._namespace.update(session=session, scope=session.scope)
@@ -784,29 +788,35 @@ def guide_fence_failures(text, label):
     ``norun`` is skipped here and still resolved and bound by the checks
     above. A fence that raises ends the chapter: what follows it assumed it
     ran.
+
+    The fences run from an installation of their own, as a reader runs them
+    from theirs: a fence's ``'.'`` is that folder, so one that names
+    ``user_settings_file(root)`` saves there, never into this checkout's
+    ``data/current.json``.
     """
     from modules import settings_init
 
     failures = []
     prepared = settings_init.settings
     try:
-        for heading, fences in guide_chapters(text):
-            runnable = [f for f in fences if f[1] == 'python' and not f[2].get('norun')]
-            if not runnable:
-                continue
-            namespace = {'__name__': '__guide__'}
-            sessions = _ChapterSessions(namespace)
-            try:
-                for start, _, options, source in runnable:
-                    sessions.use(options)
-                    with warnings.catch_warnings():
-                        warnings.simplefilter('ignore', FutureWarning)
-                        failure = _run_fence(label, start, options, source, namespace)
-                    if failure:
-                        failures.append(f'{failure}  (chapter "{heading}")')
-                        break
-            finally:
-                sessions.close()
+        with contextlib.chdir(installation_of_its_own()):
+            for heading, fences in guide_chapters(text):
+                runnable = [f for f in fences if f[1] == 'python' and not f[2].get('norun')]
+                if not runnable:
+                    continue
+                namespace = {'__name__': '__guide__'}
+                sessions = _ChapterSessions(namespace)
+                try:
+                    for start, _, options, source in runnable:
+                        sessions.use(options)
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('ignore', FutureWarning)
+                            failure = _run_fence(label, start, options, source, namespace)
+                        if failure:
+                            failures.append(f'{failure}  (chapter "{heading}")')
+                            break
+                finally:
+                    sessions.close()
     finally:
         settings_init.settings = prepared
     return failures
