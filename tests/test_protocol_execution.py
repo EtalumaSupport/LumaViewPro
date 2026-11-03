@@ -984,6 +984,7 @@ class TestTilingAsymmetric3x5:
 class TestTilingMultiChannel:
     """Tiling with multiple color channels per tile position."""
 
+    @pytest.mark.slow
     def test_2x2_bf_and_red(self, executor, scope, tmp_path):
         bf_tiles = _make_tile_grid_steps(rows=2, cols=2, color='BF')
         red_tiles = _make_tile_grid_steps(rows=2, cols=2, color=LED2)
@@ -1095,6 +1096,7 @@ class TestMultiWell:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
+    @pytest.mark.slow
     def test_six_wells_multi_channel(self, executor, scope, tmp_path):
         wells = [
             ('A1', 10, 20),
@@ -1622,6 +1624,7 @@ class TestAllFeaturesEnabled:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
+    @pytest.mark.slow
     def test_multi_well_multi_channel_tiling_separate_folders(self, executor, scope, tmp_path):
         """2 wells, BF+LED2 channels, 1x3 tiles, separate folders."""
         steps = []

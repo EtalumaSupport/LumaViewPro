@@ -9,6 +9,8 @@ standalone autofocus keeps the arm: it focuses the field the user is
 watching, and its lock scans at what that arm achieved.
 """
 
+import pytest
+
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
@@ -48,6 +50,7 @@ def _sweep_targets(tmp_path, run_mode):
     return sweeps
 
 
+@pytest.mark.slow
 def test_an_autofocus_scan_sweeps_at_the_steps_values_under_a_live_arm(tmp_path):
     sweeps = _sweep_targets(tmp_path, SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN)
     assert sweeps == [('step', STEP_GAIN_DB, STEP_EXPOSURE_MS)]

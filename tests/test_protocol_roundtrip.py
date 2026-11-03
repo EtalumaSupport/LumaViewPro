@@ -1340,6 +1340,7 @@ class TestExecuteCombinations:
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, 'Multi-well multi-channel protocol did not complete'
 
+    @pytest.mark.slow
     def test_multiwell_tiled_multichannel(self, executor, scope, tmp_path):
         """The full real-world protocol pattern."""
         steps = []

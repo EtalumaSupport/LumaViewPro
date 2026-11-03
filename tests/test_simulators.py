@@ -473,6 +473,7 @@ class TestATravelHold:
         self._arrives(board)
         assert board.current_pos('X') == pytest.approx(5000, abs=1)
 
+    @pytest.mark.slow
     def test_a_home_ends_the_hold(self):
         board = self._board()
         self._held(board, axis='Z')

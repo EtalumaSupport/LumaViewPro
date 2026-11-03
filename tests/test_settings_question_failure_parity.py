@@ -481,6 +481,7 @@ class TestTheQuestionIsAskable:
 
 
 class TestTheProvisionalStateIsTheSessions:
+    @pytest.mark.slow
     def test_session_exposes_the_provisional_query_and_remedy(self, session, monkeypatch, tmp_path):
         """The GUI must not reach around the Session into settings_init:
         an L2 caller needs the same query and the same remedy."""

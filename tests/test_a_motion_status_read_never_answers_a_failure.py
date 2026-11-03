@@ -114,6 +114,7 @@ def test_a_failed_switch_read_raises(make_session):
         scope.motion.get_limit_switch_status('Z')
 
 
+@pytest.mark.slow
 def test_a_firmware_board_that_drops_the_switch_reply_raises_no_reply(make_session):
     """The production motor driver against the real firmware: a missing reply
     is the board's no-reply fault, not a TypeError from reading nothing."""

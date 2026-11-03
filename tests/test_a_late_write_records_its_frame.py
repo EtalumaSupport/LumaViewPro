@@ -212,6 +212,7 @@ class TestALateWriteRecordsItsFrame:
         assert metadata.get('frames_summed') == 3, metadata.get('frames_summed')
         assert metadata.get('exposure_time_ms') == 2.5, metadata.get('exposure_time_ms')
 
+    @pytest.mark.slow
     def test_an_autofocused_file_records_the_z_it_was_taken_at(self, tmp_path, monkeypatch):
         """Autofocus leaves the stage at its best focus and the frame is taken
         there; the step row the capture was handed is the one read before the

@@ -204,6 +204,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
         busy_release.set()
 
 
+@pytest.mark.slow
 def test_a_camera_task_queued_as_run_is_pressed_is_refused_and_the_run_completes(lane_session):
     session, runner, tmp_path = lane_session
     hold = _LaneHold(session)

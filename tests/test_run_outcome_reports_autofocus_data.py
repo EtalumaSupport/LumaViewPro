@@ -262,6 +262,7 @@ class TestOutcomeReportsDeliveredAutofocusData:
         assert written.read_text().strip(), 'the reported characterization file is empty'
         assert char_dir in written.parents
 
+    @pytest.mark.slow
     def test_a_later_run_that_saves_nothing_reports_nothing(self, tmp_path):
         """A populated folder from an earlier run is not this run's answer.
 

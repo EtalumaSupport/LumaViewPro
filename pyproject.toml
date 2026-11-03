@@ -20,7 +20,7 @@ faulthandler_timeout = 180
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
-    "slow: a test that takes 5 s or more, a fact about the test; no gate reads the mark, and the push suite runs every test",
+    "slow: a test that takes 5 s or more, a fact about the test; the push suite runs every test, and CI's trunk-push fast check leaves these out (tests.yml)",
 ]
 
 [tool.coverage.run]

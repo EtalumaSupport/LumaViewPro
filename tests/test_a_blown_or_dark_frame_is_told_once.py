@@ -16,6 +16,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from modules.protocol import Protocol
 from tests.test_a_late_write_records_its_frame import _step
@@ -136,6 +137,7 @@ def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
     ], told
 
 
+@pytest.mark.slow
 def test_a_saved_file_states_what_its_frame_was(tmp_path, monkeypatch):
     from modules.image_utils import read_file_record
     from tests.test_manual_capture_member import _files, _open_session, _settings

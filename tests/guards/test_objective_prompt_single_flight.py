@@ -413,6 +413,7 @@ class TestProvisionalSettings:
         stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 
+    @pytest.mark.slow
     def test_an_answer_after_resolution_reaches_disk(self, tmp_path, monkeypatch):
         """Characterization pin: passes before and after this change.
 

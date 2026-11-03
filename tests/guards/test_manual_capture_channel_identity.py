@@ -87,6 +87,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_shown_lit_channel_names_and_colours_the_still(identity_scope, tmp_path):
     """LED2 shown and lit, false colour on: the file is named, labelled and
     rendered as LED2; the toggle only says the frame is rendered in colour."""

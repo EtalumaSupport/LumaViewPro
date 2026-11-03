@@ -175,6 +175,9 @@ _DURATION_GROUPS = groups(_duration_group)
 # A reply that depends on the boards' timing: where the record stopped a move
 # in flight, the position it rests at is set by how far the move had got.
 _TIMED_REPLY_GROUPS = frozenset(name for name in _REPLY_GROUPS if name.startswith('stop_position'))
+# The reply groups that take 5 s or more: the timed ones, and INFO's, which
+# took 59 s on the Mac (2026-11-03).
+_SLOW_REPLY_GROUPS = _TIMED_REPLY_GROUPS | {'query INFO'}
 
 # What the model does not yet do as the board does. Each is fixed in the
 # model, and its entry removed, on its own.
@@ -224,7 +227,7 @@ def _microstep_um(axis: str) -> float:
 
 # parametrize-justified: each group carries its own slow or flaky mark
 @pytest.mark.parametrize(
-    'group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS, slow=_TIMED_REPLY_GROUPS)
+    'group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS, slow=_SLOW_REPLY_GROUPS)
 )
 def test_replies_match_the_bench(request, group):
     replayed = request.getfixturevalue(

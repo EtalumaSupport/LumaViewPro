@@ -297,6 +297,7 @@ class TestTheScopeLanesClosing:
         assert refused.value.reason == 'scope_disconnected'
         assert ex.caller_futures_stats()[2] == 0, 'a waiter registered after the sweep'
 
+    @pytest.mark.slow
     def test_a_put_racing_the_close_is_refused_and_never_runs(self):
         ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
         ex.start()

@@ -38,6 +38,7 @@ def _reload(protocol, tmp_path: pathlib.Path) -> Protocol:
     )
 
 
+@pytest.mark.slow
 def test_a_protocol_the_app_wrote_can_be_read_back(tmp_path):
     """The reproduced defect: the writer's own output was unreadable."""
     reloaded = _reload(_large_protocol(), tmp_path)
@@ -45,6 +46,7 @@ def test_a_protocol_the_app_wrote_can_be_read_back(tmp_path):
     assert reloaded.num_steps() == LARGE_STEP_COUNT
 
 
+@pytest.mark.slow
 def test_the_size_advisory_is_reachable_on_a_loaded_protocol(tmp_path):
     """Asserted at the API tier, where the advisory's threshold and sentence live."""
     reloaded = _reload(_large_protocol(), tmp_path)

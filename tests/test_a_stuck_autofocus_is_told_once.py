@@ -94,6 +94,7 @@ def _wait_until(predicate, timeout_s=RESULT_TIMEOUT_S):
         time.sleep(0.02)
 
 
+@pytest.mark.slow
 def test_a_sweep_that_will_not_stop_is_one_cleanup_failure_and_then_silent(af_session, monkeypatch):
     session, runner = af_session
     sweep = _WedgedSweep(monkeypatch, session)

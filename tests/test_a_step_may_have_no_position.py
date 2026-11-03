@@ -324,6 +324,7 @@ def test_writes_for_an_axis_the_scope_lacks_are_refused(make_session):
     assert no_stage.settings['bookmark'] == bookmark_before
 
 
+@pytest.mark.slow
 def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session, tmp_path):
     session = make_session(
         'LS820',

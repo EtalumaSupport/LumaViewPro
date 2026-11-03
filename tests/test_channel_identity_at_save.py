@@ -129,6 +129,7 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
 
 @pytest.mark.parametrize('false_color_active', [True, False], ids=['fc_on', 'fc_off'])
 @pytest.mark.parametrize('use_crosshairs', [False, True], ids=['plain', 'crosshairs'])
+@pytest.mark.slow
 def test_manual_capture_stamps_the_acquiring_layer(
     identity_scope, tmp_path, false_color_active, use_crosshairs
 ):
@@ -158,6 +159,7 @@ def test_manual_capture_stamps_the_acquiring_layer(
         assert LAYER in path.name, f'{path.name} lost the layer token'
 
 
+@pytest.mark.slow
 def test_manual_capture_records_the_real_drive_current(identity_scope, tmp_path):
     """Metadata looks up the LED current for the channel it is told. Asking for
     brightfield's current while a fluorescence LED was lit recorded 0 mA on

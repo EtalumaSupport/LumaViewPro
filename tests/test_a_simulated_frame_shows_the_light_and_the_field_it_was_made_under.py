@@ -307,6 +307,7 @@ def test_brightfield_falls_as_the_square_of_the_magnification_and_fluorescence_d
         assert 0.85 < means[objective, LED1] / means['20x Oly', LED1] < 1.15, means
 
 
+@pytest.mark.slow
 def test_the_classic_and_the_ls850_image_one_sample():
     """A simulated LS720 (the FX2 sensor) and LS850 at one position and objective see the same cells."""
     frames = {}

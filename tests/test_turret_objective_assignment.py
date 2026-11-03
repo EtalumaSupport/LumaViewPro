@@ -240,6 +240,7 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         assert list(prepared['turret_objectives']) == [1, 2, 3, 4]
         assert prepared['turret_objectives'][1] == '4x Oly', 'the file was set aside'
 
+    @pytest.mark.slow
     def test_a_file_already_holding_duplicates_saves_back_clean(self, tmp_path, monkeypatch):
         """Field files carry the duplicates already. Assigning and saving
         through the session must leave four entries in the written file.

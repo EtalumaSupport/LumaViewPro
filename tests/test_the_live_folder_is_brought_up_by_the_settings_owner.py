@@ -102,6 +102,7 @@ def _warnings_naming(caplog, folder):
     ]
 
 
+@pytest.mark.slow
 def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_path, caplog):
     # Every host hands create the dict it loaded, so create's door is the
     # load path too: an unplugged drive is the person's folder, not a refusal,
@@ -124,6 +125,7 @@ def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_pa
     assert len(_warnings_naming(caplog, unreachable)) == 1
 
 
+@pytest.mark.slow
 def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_path, caplog):
     # A pin, not a red-first test: a dict a script builds and hands to create
     # passes no load, so a warning said only at the load would never reach it.

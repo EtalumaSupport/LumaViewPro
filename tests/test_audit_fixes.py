@@ -8252,6 +8252,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
     resolution. Fix: the fallback resolves via _resolve_settings_path.
     """
 
+    @pytest.mark.slow
     def test_headless_fallback_uses_resolver(self, monkeypatch, tmp_path):
         """With no settings loaded, load_user_settings must resolve the same
         file the GUI reads -- current.json first -- so headless state

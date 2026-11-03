@@ -219,6 +219,7 @@ def _show_lit(session, layer, ma):
     session.light_shown_channel(True)
 
 
+@pytest.mark.slow
 def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
     from modules.image_utils import read_file_record
 
@@ -231,6 +232,7 @@ def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
     assert saved.get('illumination_ma') == 75.0
 
 
+@pytest.mark.slow
 def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
     """The board takes 0 mA as off, and so does the frame's record: an LED
     left on at 0 mA is no other light, and the file states the one that lit

@@ -308,6 +308,7 @@ def _appdata_with_stored_protocol(tmp_path, **stored) -> str:
 
 
 class TestAStoredDefaultOutOfRange:
+    @pytest.mark.slow
     def test_the_replacement_is_told_once_when_the_session_has_a_listener(self, tmp_path):
         root = _appdata_with_stored_protocol(tmp_path, period=0.001)
         settings, _rejected = settings_init.prepare_settings(

@@ -96,6 +96,7 @@ def test_a_held_axis_is_given_up_stalled_and_halted(session, centre_posts):
     assert len(faults) == 1 and faults[0][0] == 'Motor Axis Stalled', faults
 
 
+@pytest.mark.slow
 def test_a_move_that_keeps_moving_is_never_given_up(session, monkeypatch, centre_posts):
     """A full-travel Z move takes seconds, and a turret change holds its slot
     number for most of its turn: neither is a stall, at a window far shorter

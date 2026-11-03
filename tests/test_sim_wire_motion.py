@@ -73,6 +73,7 @@ class TestMovesInInstantMode:
         assert left == 1
         assert board.current_pos('X') < 0
 
+    @pytest.mark.slow
     def test_a_board_that_stops_answering_during_the_wait_raises_its_fault(self, board):
         """A board gone silent is its no-reply fault, not an axis short of its target."""
         assert board.home() is None

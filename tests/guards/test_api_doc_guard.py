@@ -1300,6 +1300,7 @@ def link_failures(path, root):
 class TestEveryPublishedLinkResolves:
     """Polarity 6: a link in a published document reaches its file, and its anchor."""
 
+    @pytest.mark.slow
     def test_every_link_reaches_its_file_and_anchor(self):
         failures = [f for doc in published_docs() for f in link_failures(doc, REPO_ROOT)]
         assert not failures, (

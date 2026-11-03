@@ -106,6 +106,7 @@ def _first_step_observer(session):
 
 
 class TestAStillInFlightFinishesFirst:
+    @pytest.mark.slow
     def test_the_still_saves_and_the_run_starts_after_it(self, lane_session):
         session, runner, tmp_path = lane_session
         still = session.manual_capture.capture(false_color_on=False)
@@ -126,6 +127,7 @@ class TestAStillInFlightFinishesFirst:
         )
         assert seen['lane_busy'] is False, "the run's first step ran while the lane held work"
 
+    @pytest.mark.slow
     def test_a_still_on_an_idle_lane_is_kept_however_late_the_worker_wakes(self, lane_session):
         """Order decides, never thread timing: a still put on an idle camera
         lane is next, so a run that takes the scope before the worker has
@@ -145,6 +147,7 @@ class TestAStillInFlightFinishesFirst:
 
 
 class TestAStillQueuedBehindCameraWork:
+    @pytest.mark.slow
     def test_a_run_that_takes_the_scope_refuses_it_and_lets_go_of_it(self, lane_session):
         """A still not yet running when a run takes the scope is refused, as
         ``ManualCaptureController.capture`` documents: its Future says so and

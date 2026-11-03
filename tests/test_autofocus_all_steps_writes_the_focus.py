@@ -76,6 +76,7 @@ def _reports_of(outcome_type):
 
 
 class TestTheScanWritesTheFocusIntoTheCallersProtocol:
+    @pytest.mark.slow
     def test_every_step_takes_the_focus_found_for_it(self, tmp_path):
         protocol = _two_steps()
         with _focusing_session(tmp_path) as (_session, runner):
@@ -90,6 +91,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
             assert z != STEP_Z_UM, 'a step kept the Z it had before the scan'
             assert SWEEP_LOW_UM <= z <= SWEEP_HIGH_UM, protocol.steps()['Z'].tolist()
 
+    @pytest.mark.slow
     def test_only_the_z_column_changes(self, tmp_path):
         protocol = _two_steps()
         before = protocol.steps().drop(columns=['Z']).copy()
@@ -100,6 +102,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
             "the scan turned every step's autofocus on in its own copy, not the caller's"
         )
 
+    @pytest.mark.slow
     def test_the_focus_is_written_before_run_ended_is_sent(self, tmp_path):
         protocol = _two_steps()
         seen_at_run_ended = []
@@ -118,6 +121,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
             'run_ended was sent before the focus was written'
         )
 
+    @pytest.mark.slow
     def test_the_outcome_names_no_single_focus(self, tmp_path):
         # A run that focuses at several steps has no one focus to report;
         # the per-step answer is the protocol's Z column.
@@ -128,6 +132,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
 
 
 class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
+    @pytest.mark.slow
     def test_a_step_moved_during_the_scan_refuses_the_write_and_says_so_once(self, tmp_path):
         protocol = _two_steps()
 

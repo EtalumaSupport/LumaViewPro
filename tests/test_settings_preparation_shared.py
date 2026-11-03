@@ -148,6 +148,7 @@ def test_a_handed_zstack_label_is_read_as_its_reference(tmp_path):
         session.shutdown()
 
 
+@pytest.mark.slow
 def test_a_headless_session_gets_the_same_preparation(tmp_path, monkeypatch):
     from modules.scope_session import ScopeSession
 
