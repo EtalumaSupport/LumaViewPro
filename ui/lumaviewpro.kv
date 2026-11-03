@@ -274,7 +274,9 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        pos: (root.width - 9*dp(40))/2, root.status_line_height
+        size_hint: None, None
+        size: self.minimum_width, self.minimum_height
+        pos: (root.width - self.width)/2, root.status_line_height
 
 		IconButton:
 			id: open_last_save_folder
@@ -373,28 +375,48 @@
             size: '40dp', '40dp'
             on_release: root.one2one_image()
 
-    # The red STOP: halts the stage and ends whatever is driving it, through
-    # the API's one stop. Bottom right of the live view, one row above the
-    # camera buttons and 40 dp inside the right panel's edge, so a press meant
-    # for another control lands on nothing. Declared last, so nothing draws
-    # over it, the homing banner included. Never locked: it is the control a
-    # run, a home or a recording leaves live. Shown only on a scope with a
-    # motorised axis.
-    Button:
-        id: stop_button_id
-        text: 'STOP'
-        bold: True
-        font_size: '12sp'
-        color: 1, 1, 1, 1
-        background_normal: ''
-        background_down: ''
-        background_color: (0.85, 0.1, 0.1, 1) if self.state == 'normal' else (0.6, 0.05, 0.05, 1)
-        size_hint: None, None
-        size: '48dp', '40dp'
-        pos: imagesettings_id.x - dp(40) - self.width, root.status_line_height + dp(90)
-        opacity: 1 if root.stage_has_motors else 0
-        disabled: not root.stage_has_motors
-        on_press: root.stop_the_stage()
+        # The red STOP: halts the stage and ends whatever is driving it,
+        # through the API's one stop. The last of the camera row, an icon's
+        # width (40 dp) past the others, so it reads apart from them and a
+        # press meant for 1:1 lands on nothing. The row is centred and sized
+        # to its buttons (445 dp); in a window too narrow for that between
+        # the two side panels, its ends draw over the panels' edges, since it
+        # is declared after them. Declared after the homing banner too, so
+        # nothing draws over it. Never locked: it is the control a run, a
+        # home or a recording leaves live. Shown only on a scope with a
+        # motorised axis. A stop-sign octagon, flat side up.
+        Widget:
+            size_hint: None, None
+            size: '30dp', '40dp'
+
+        Button:
+            id: stop_button_id
+            text: 'STOP'
+            bold: True
+            font_size: '11sp'
+            color: 1, 1, 1, 1
+            background_normal: ''
+            background_down: ''
+            background_color: 0, 0, 0, 0
+            size_hint: None, None
+            size: '40dp', '40dp'
+            opacity: 1 if root.stage_has_motors else 0
+            disabled: not root.stage_has_motors
+            on_press: root.stop_the_stage()
+            canvas.before:
+                Color:
+                    rgba: (0.85, 0.1, 0.1, 1) if self.state == 'normal' else (0.6, 0.05, 0.05, 1)
+                Ellipse:
+                    pos: self.pos
+                    size: self.size
+                    segments: 8
+                    angle_start: 22.5
+                    angle_end: 382.5
+                Color:
+                    rgba: 1, 1, 1, 1
+                Line:
+                    width: dp(1.2)
+                    ellipse: (self.x + dp(2), self.y + dp(2), self.width - dp(4), self.height - dp(4), 22.5, 382.5, 8)
 
     # Says a client has control of the scope, at the top of the live view,
     # with the way to take it back. Declared after the side panels, as the
