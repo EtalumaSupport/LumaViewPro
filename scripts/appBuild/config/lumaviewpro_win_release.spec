@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from kivy_deps import sdl2, glew
-from PyInstaller.utils.hooks import copy_metadata, collect_all, collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 app_name = 'lumaviewpro'
 datas = [
@@ -36,13 +36,6 @@ datas = [
     ('lvp_logger.py', '.'),
 ]
 
-for pkg in ('numpy',):
-    try:
-        datas.extend(copy_metadata(pkg))
-    except Exception:
-        pass  # Package may not be installed on all build machines
-
-
 # imagecodecs uses lazy submodule imports for each compression
 # algorithm (lzw_encode, zlib_encode, etc.). PyInstaller can't follow
 # them statically, so the previous {_imcd, _shared}-only hidden-import
@@ -67,11 +60,9 @@ hiddenimports = [
 ]
 
 # imagecodecs keeps the licence text of each codec library it links in its
-# own licenses/ folder, and its own licence in its metadata; collecting only
-# its code left both out of the installation. The licence gate after COLLECT
-# checks they arrived.
+# own licenses/ folder, outside its metadata, so the metadata collection
+# below does not reach it. The licence gate after COLLECT checks it arrived.
 datas += collect_data_files('imagecodecs', includes=['licenses/*'])
-datas += copy_metadata('imagecodecs')
 
 # The FX2's firmware hex and libusb-package's library, each where the
 # frozen app looks for it; the build is refused without either
@@ -163,6 +154,45 @@ if _missing_pure:
         f'The exe would import-fail these bindings at runtime and silently lose '
         f'that camera class. Check the build venv wheels and PyInstaller hooks.'
     )
+
+# Every distribution the bundle holds code or data from ships its whole
+# dist-info folder, at the app root where copy_metadata puts it: its
+# licence files (at the folder's root, or under licenses/ for a PEP 639
+# wheel) travel with its binaries, and importlib.metadata finds it at run
+# time. The set is read from the Analysis, never listed by hand: each
+# top-level name it collected, mapped to its distributions. A name with no
+# distribution is LVP's own or the interpreter's. A folder the Analysis
+# already holds (collect_all's) is not added twice.
+import importlib.metadata as _metadata
+
+_top_level_names = {entry[0].split('.')[0] for entry in a.pure}
+for _dest, _src, _typecode in (*a.binaries, *a.datas):
+    _top_level_names.add(_dest.replace('\\', '/').split('/')[0].split('.')[0])
+_dists_by_top_level = _metadata.packages_distributions()
+_bundled_dist_names = sorted({
+    _name for _top in _top_level_names for _name in _dists_by_top_level.get(_top, ())
+})
+_collected_tops = {_dest.replace('\\', '/').split('/')[0] for _dest, _src, _typecode in a.datas}
+_bundled_dist_infos = []
+for _name in _bundled_dist_names:
+    _folders = {
+        _f.parts[0] for _f in (_metadata.distribution(_name).files or ())
+        if _f.parts[0].endswith('.dist-info')
+    }
+    if len(_folders) != 1:
+        raise SystemExit(
+            f'FATAL: licence collection: the bundled distribution {_name} has '
+            f'{len(_folders)} dist-info folders in the build venv, not one; its '
+            f'licence cannot be collected.'
+        )
+    _bundled_dist_infos.append((_name, _folders.pop()))
+_dist_info_trees = [
+    Tree(str(_metadata.distribution(_name).locate_file(_folder)), prefix=_folder)
+    for _name, _folder in _bundled_dist_infos
+    if _folder not in _collected_tops
+]
+print(f'Licence collection: {len(_bundled_dist_infos)} bundled distributions, '
+      f'{len(_dist_info_trees)} dist-info folders added')
 
 pyz = PYZ(a.pure, a.zipped_data)
 
@@ -259,6 +289,7 @@ coll = COLLECT(
     driver_step.binaries,
     driver_step.datas,
     *[Tree(p) for p in (sdl2.dep_bins + glew.dep_bins)],
+    *_dist_info_trees,
     strip=False,
     upx=True,
     upx_exclude=[],
@@ -378,27 +409,23 @@ if _loose_py:
         f'first {_loose_py[0]}; the Python ships only in the frozen archive.'
     )
 
-# Licence gate. The installation carries the licence texts its camera and
-# codec wheels ship: each ids_peak* wheel's dist-info licenses/ (IDS's terms
-# and its open-source components', collected with the metadata by the
-# collect_all above) and imagecodecs' licenses/ folder (collected as data
-# above). Every such file in the build venv must be in the dist tree at the
-# same relative path, so a collection that drops one fails the build rather
-# than shipping without it.
-import importlib.metadata as _metadata
-
+# Licence gate. The installation carries the licence texts its wheels ship:
+# every bundled distribution's dist-info folder (collected above, before
+# PYZ) and imagecodecs' licenses/ folder (collected as data). Every such
+# file in the build venv must be in the dist tree at the same relative
+# path, so a collection that drops one fails the build rather than
+# shipping without it.
 _licence_sources = []
-for _dist_name in ('ids-peak', 'ids-peak-ipl', 'ids-peak-afl', 'ids-peak-icv', 'imagecodecs'):
-    _dist = _metadata.distribution(_dist_name)
-    for _f in _dist.files or ():
+for _name, _folder in _bundled_dist_infos:
+    for _f in _metadata.distribution(_name).files or ():
         _parts = _f.parts
-        if (len(_parts) > 2 and _parts[1] == 'licenses'
-                and (_parts[0].endswith('.dist-info') or _parts[0] == 'imagecodecs')):
+        if _parts[0] == _folder or (
+                _name == 'imagecodecs' and _parts[:2] == ('imagecodecs', 'licenses')):
             _licence_sources.append(_os.path.join(*_parts))
-if not _licence_sources:
+if not any(_rel.startswith(_os.path.join('imagecodecs', 'licenses')) for _rel in _licence_sources):
     raise SystemExit(
-        'FATAL: licence gate: the build venv lists no licence files for the '
-        'ids_peak* or imagecodecs wheels; the gate has nothing to check.'
+        'FATAL: licence gate: the build venv lists no imagecodecs licenses/ '
+        'files; the gate cannot check the codec licences.'
     )
 _licence_missing = [
     _rel for _rel in _licence_sources
@@ -409,6 +436,7 @@ if _licence_missing:
         f'FATAL: licence gate: {len(_licence_missing)} licence file(s) the bundled '
         f'wheels ship are missing from the dist tree, first {_licence_missing[0]}.'
     )
-print(f'Licence gate: {len(_licence_sources)} wheel licence files present in the dist tree')
+print(f'Licence gate: {len(_licence_sources)} dist-info and codec licence files of '
+      f'{len(_bundled_dist_infos)} distributions present in the dist tree')
 
 check_fx2_dist(_dist_root, _os.path.basename(str(_libusb_path)))

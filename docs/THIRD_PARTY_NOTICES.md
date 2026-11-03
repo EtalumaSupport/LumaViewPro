@@ -108,5 +108,5 @@ Full license text for each distinct license used above is provided alongside thi
 - `docs/licenses/LICENSE.matplotlib.txt`
 - `docs/licenses/LICENSE.LGPL-2.1.txt`
 - `docs/licenses/LICENSE.CC0-1.0.txt`
-- The IDS license terms and the licenses the ids-peak and imagecodecs wheels list are not copied here: the installation carries them where each wheel puts them (above).
+- Each bundled package's own license files are not copied here: the installation carries them where its wheel puts them, in the package's `<name>-<version>.dist-info` folder in the installation folder (the IDS license terms among them), and imagecodecs' codec licenses in `imagecodecs\licenses\`.
 - `docs/licenses/LICENSE.FLAC.txt`, `LICENSE.freetype.txt`, `LICENSE.harfbuzz.txt`, `LICENSE.jpeg.txt`, `LICENSE.modplug.txt`, `LICENSE.mpg123.txt`, `LICENSE.ogg-vorbis.txt`, `LICENSE.opus.txt`, `LICENSE.opusfile.txt`, `LICENSE.png.txt`, `LICENSE.tiff.txt`, `LICENSE.webp.txt`, `LICENSE.zlib.txt` — SDL2 sub-component licenses, pre-existing.
