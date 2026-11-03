@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A protocol's load and a run's preparation each say how many steps and how long.
 
-Both walk every step on the caller's thread -- the GUI's, at a Load, at
-startup and at a Run -- so a large protocol holds that thread for seconds.
-A field bundle's 9 s freeze and the camera drops inside it could be placed
-only by inference from GUI display events, because neither pass logged
-its size or its duration. Each now says both, once, in the main log: the
+Both walk every step -- a load on the GUI's thread at a Load and at startup,
+a preparation on the worker pool at the GUI's Run -- so a large protocol
+spends seconds in each. A field bundle's camera drops inside those windows
+could be placed only by inference from GUI display events, because neither
+pass logged its size or its duration. Each now says both, once, in the main log: the
 log is the product here, so the line is what is asserted.
 """
 

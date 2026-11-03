@@ -1499,8 +1499,9 @@ class SequencedCaptureRunner:
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
         )
-        # The checks walk every step on the starter's thread (the GUI's, at
-        # a Run), so a large protocol holds it before the run's first line.
+        # The checks walk every step before the run's first line, on the
+        # thread that started the run (the worker pool, at the GUI's Run), so
+        # a large protocol spends seconds here.
         logger.info(
             f'[SeqCapExec] Run prepared: {protocol.num_steps()} steps checked '
             f'in {time.monotonic() - started:.2f} s'
