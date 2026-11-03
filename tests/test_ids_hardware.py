@@ -23,6 +23,7 @@ import pytest
 # import succeeds against the conftest mock and the marker below skips
 # the tests at collection time.
 from drivers.idscamera import IDSCamera
+from modules.image_utils import convert_to_8bit
 
 
 @pytest.mark.ids_hardware
@@ -539,7 +540,7 @@ class TestIDS(unittest.TestCase):
             pytest tests/test_ids_hardware.py -k 8bit_direct --run-ids-hardware -s
         """
         time.sleep(1)  # let acquisition settle
-        res = self.camera.crosscheck_8bit_unpack(n_frames=100)
+        res = self.camera.crosscheck_8bit_unpack(convert_to_8bit, n_frames=100)
 
         print('\n[IDS 8-bit direct-unpack cross-check]')
         for k in (

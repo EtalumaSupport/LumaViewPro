@@ -4,6 +4,7 @@ import math
 import re
 import threading
 import time
+from collections.abc import Callable
 from typing import Any, ClassVar, NoReturn
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
@@ -2241,7 +2242,9 @@ class IDSCamera(Camera):
         results['numpy'] = _stat(numpy_ms)
         return results
 
-    def crosscheck_8bit_unpack(self, n_frames: int = 100) -> dict:
+    def crosscheck_8bit_unpack(
+        self, reference_8bit: Callable[[Any, int], Any], n_frames: int = 100
+    ) -> dict:
         """Bench gate for the direct 10->8 delivery: prove the SDK's
         packed->Mono8 ConvertTo matches the prior native-then-rescale path.
 
@@ -2252,7 +2255,11 @@ class IDSCamera(Camera):
         This loop verifies that on REAL frames before the direct path is trusted:
 
           A (new): img.ConvertTo(Mono8)
-          B (old): convert_to_8bit(img.ConvertTo(native), native_significant_bits)
+          B (old): reference_8bit(img.ConvertTo(native), native_significant_bits)
+
+        ``reference_8bit`` is the host's rescale (``modules.image_utils.
+        convert_to_8bit``), handed in by the caller: a driver imports nothing
+        from the layer above it.
 
         Returns the per-pixel max abs diff and the count of pixels exceeding
         1 LSB. The hardware test asserts max_abs_diff <= 1 and over_1lsb == 0.
@@ -2260,8 +2267,6 @@ class IDSCamera(Camera):
         a no-op match).
         """
         import numpy as np
-
-        from modules.image_utils import convert_to_8bit
 
         results = {
             'n_requested': n_frames,
@@ -2302,7 +2307,7 @@ class IDSCamera(Camera):
             direct = direct_img.get_numpy().copy()
             native_img = img.ConvertTo(native_target)
             native = native_img.get_numpy().copy()
-            oracle = convert_to_8bit(native, native_bits)
+            oracle = reference_8bit(native, native_bits)
 
             diff = np.abs(direct.astype(np.int16) - oracle.astype(np.int16))
             results['n_compared'] += 1
