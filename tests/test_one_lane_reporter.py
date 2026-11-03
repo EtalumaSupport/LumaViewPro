@@ -264,7 +264,7 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
                 # The lane runs its queue in order: once a task queued after
                 # the silent one has run, that one was popped and decided
                 # under the claim. The override key admits it past the holder.
-                held_lane.call(IOTask(action=lambda: None), 'settle', _WAIT_S, override=key)
+                held_lane.call_overriding(IOTask(action=lambda: None), 'settle', _WAIT_S, key)
             finally:
                 held.release()
 

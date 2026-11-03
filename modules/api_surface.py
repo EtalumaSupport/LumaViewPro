@@ -157,6 +157,9 @@ class Admission(enum.StrEnum):
 
     # ``SequentialIOExecutor.call``: the blocking dispatch.
     LANE_CALL = 'lane_call'
+    # ``SequentialIOExecutor.call_overriding``: the blocking dispatch,
+    # admitted whatever holds the scope.
+    LANE_OVERRIDE = 'lane_override'
     # ``SequentialIOExecutor.submit``: put on the lane without waiting.
     LANE_SUBMIT = 'lane_submit'
     # ``ActivityClaim.enter_guarded_write``: a setting or a file written.

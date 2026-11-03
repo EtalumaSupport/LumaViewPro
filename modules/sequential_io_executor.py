@@ -856,14 +856,7 @@ class SequentialIOExecutor:
             return fut
         return refusal
 
-    def call(
-        self,
-        task: IOTask,
-        member: str,
-        timeout_s: float | None,
-        *,
-        override: object | None = None,
-    ) -> object:
+    def call(self, task: IOTask, member: str, timeout_s: float | None) -> object:
         """Run ``task`` on this lane and wait for its result: the blocking dispatch.
 
         The public hardware members come through here. Refused work raises
@@ -875,11 +868,6 @@ class SequentialIOExecutor:
         work runs inline on that worker, under the claim the same way, and
         its declared slow-task budget is raised onto the running task, which
         is the one the lane times.
-
-        ``override`` is the key ``ask_claim`` returned, for a member the API
-        admits whatever holds the scope: a read that has to touch the device
-        from this lane's thread. It passes a run's protocol fence the same
-        way, through the door the run's own work uses.
 
         Raises:
             BlockingCallRefusedError: ``'blocking_on_worker'``, called from
@@ -901,6 +889,41 @@ class SequentialIOExecutor:
                 ``'lane_closed'``, the lane closed while the task ran. Either
                 way it may still finish.
         """
+        return self._wait_on(task, member, timeout_s, None)
+
+    def call_overriding(
+        self, task: IOTask, member: str, timeout_s: float | None, key: object | None
+    ) -> object:
+        """Run ``task`` on this lane whatever holds the scope, and wait for its result.
+
+        ``call`` for a member the API admits whatever holds the scope: a read
+        that has to touch the device from this lane's thread. ``key`` is the
+        one ``ask_claim`` returned, which the composition root keeps; None on
+        a lane that asks no claim, which refuses nothing of a holder either.
+        The task skips the claim, counts no falsifying change, and during a
+        run goes through the door the run's own work uses; one still queued
+        when the run ends is carried back and served after it.
+
+        Raises:
+            BlockingCallRefusedError: ``'blocking_on_worker'``, called from
+                another lane's worker, which never waits on a lane;
+                ``'blocking_inline'``, called inside the GUI's inline
+                boundary.
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the
+                scope's lane closed before the task started, or before the
+                call was made (another executor raises the closed answer its
+                closer states).
+            LaneCallStillRunningError: ``'call_overran'``, ``timeout_s``, the
+                API's own bound, ran out with the task queued or running;
+                ``'lane_closed'``, the lane closed while the task ran. Either
+                way it may still finish.
+        """
+        return self._wait_on(task, member, timeout_s, key)
+
+    def _wait_on(
+        self, task: IOTask, member: str, timeout_s: float | None, override: object | None
+    ) -> object:
+        """``call``'s and ``call_overriding``'s one body: submit, or run inline, and wait."""
         worker = getattr(_lane_worker, 'executor', None)
         if worker is self:
             self._stamp(task, override)

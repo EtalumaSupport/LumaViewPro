@@ -4089,7 +4089,7 @@ Nothing.
 def start(self, *, false_color_on: bool = False) -> Operation[str]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/manual_recording/start`.
 
 Snapshot configuration and open a recording; returns its operation.
@@ -5148,11 +5148,15 @@ Nothing.
 def get_black_level_range(self) -> tuple[float, float] | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/get_black_level_range`.
 
 Read the range `set_black_level` accepts, live, in the units of
 `read_black_level`.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 The camera's own minimum and maximum for its current pixel format;
 the range changes with the format. `set_black_level` refuses a value
@@ -5171,7 +5175,8 @@ tuple[float, float] | None: `(minimum, maximum)`; None when the camera has no bl
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.get_pixel_alignment"></a>
@@ -5341,10 +5346,14 @@ Nothing.
 def read_auto_exposure(self) -> CameraAutoMode | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_auto_exposure`.
 
 Read the camera's auto-exposure mode from the camera.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 A camera without hardware auto-exposure answers `OFF` unasked.
 
@@ -5359,7 +5368,8 @@ CameraAutoMode | None: The mode; None when unknown.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_auto_gain"></a>
@@ -5369,10 +5379,14 @@ CameraAutoMode | None: The mode; None when unknown.
 def read_auto_gain(self) -> CameraAutoMode | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_auto_gain`.
 
 Read the camera's auto-gain mode from the camera.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 A camera without hardware auto-gain answers `OFF` unasked.
 
@@ -5387,7 +5401,8 @@ CameraAutoMode | None: The mode; None when unknown.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_binning"></a>
@@ -5397,10 +5412,14 @@ CameraAutoMode | None: The mode; None when unknown.
 def read_binning(self) -> int | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_binning`.
 
 Read the camera's binning factor from the camera.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
@@ -5413,7 +5432,8 @@ int | None: The factor, 1 or more; None when unknown.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_black_level"></a>
@@ -5423,10 +5443,14 @@ int | None: The factor, 1 or more; None when unknown.
 def read_black_level(self) -> float | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_black_level`.
 
 Read the camera's black level from the camera.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 The value is the camera's own black level parameter, in the camera's
 own units, as the vendors' EMVA 1288 sheets state it: on a Basler
@@ -5446,7 +5470,8 @@ float | None: The black level; None when the camera reports none.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_exposure_min_ms"></a>
@@ -5456,10 +5481,14 @@ float | None: The black level; None when the camera reports none.
 def read_exposure_min_ms(self) -> float | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_exposure_min_ms`.
 
 Read from the camera the shortest exposure it takes now, in milliseconds.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 On IDS bodies the floor rises above the value read at connect
 (`capabilities.camera_limits.exposure_min_ms`) as the pixel clock,
@@ -5477,7 +5506,8 @@ float | None: The floor; None when the camera declares none.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_exposure_ms"></a>
@@ -5487,10 +5517,14 @@ float | None: The floor; None when the camera declares none.
 def read_exposure_ms(self) -> float | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_exposure_ms`.
 
 Read the camera's exposure time from the camera, in milliseconds.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
@@ -5503,7 +5537,8 @@ float | None: The exposure; None when unknown.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_frame_rate_fps"></a>
@@ -5513,11 +5548,15 @@ float | None: The exposure; None when unknown.
 def read_frame_rate_fps(self) -> float | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_frame_rate_fps`.
 
 Read from the camera the frame rate its current settings allow, in
 frames per second.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 The camera's own figure: Basler's resulting acquisition frame rate,
 IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
@@ -5535,7 +5574,8 @@ float | None: Frames per second; None when the camera reports none.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_frame_size"></a>
@@ -5545,10 +5585,14 @@ float | None: Frames per second; None when the camera reports none.
 def read_frame_size(self) -> FrameSize | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_frame_size`.
 
 Read the size of the frames the camera delivers, from the camera.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
@@ -5561,7 +5605,8 @@ FrameSize | None: The delivered size, in pixels after binning; None when unknown
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_gain_db"></a>
@@ -5571,10 +5616,14 @@ FrameSize | None: The delivered size, in pixels after binning; None when unknown
 def read_gain_db(self) -> float | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_gain_db`.
 
 Read the camera's gain from the camera, in dB.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
@@ -5587,7 +5636,8 @@ float | None: The gain; None when unknown.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_pixel_format"></a>
@@ -5597,10 +5647,14 @@ float | None: The gain; None when unknown.
 def read_pixel_format(self) -> str | None
 ```
 
-Marks: reads (changes nothing).  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/camera/read_pixel_format`.
 
 Read the camera's pixel format from the camera (e.g. `'Mono12'`).
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 The format follows `set_image_mode`, which chooses it.
 
@@ -5615,7 +5669,8 @@ str | None: The format; None when unknown.
 
 **Refusals by REST status**
 
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.remove_exposure_listener"></a>
@@ -6074,14 +6129,16 @@ the lane's one blocking dispatch with a wait bound.
 def get_camera_link_info(self) -> CameraLink | None
 ```
 
-Marks: reads (changes nothing); enters: `lane_call`.  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/diagnostics/get_camera_link_info`.
 
 Read the camera's link, live.
 
 Runs on the camera lane, admitted whatever holds the scope, like the
 temperature read: the reads are node reads that must not interleave
-with a camera write, and a run does not stop them.
+with a camera write, and a run does not stop them. It waits behind
+what is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
@@ -6093,8 +6150,7 @@ CameraLink | None: The link, each field None where the camera does not report it
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -6105,14 +6161,16 @@ CameraLink | None: The link, each field None where the camera does not report it
 def get_camera_temperatures_degc(self) -> dict[str, float] | None
 ```
 
-Marks: reads (changes nothing); enters: `lane_call`.  
+Marks: reads (changes nothing); enters: `lane_override`.  
 Route: `GET /api/v1/scope/diagnostics/get_camera_temperatures_degc`.
 
 Get all camera temperature sensor readings.
 
 Runs on the camera lane, admitted whatever holds the scope: the read
 sets the camera's temperature selector, which must not interleave
-with another camera write, but a run does not stop it.
+with another camera write, but a run does not stop it. It waits
+behind what is queued there, up to 170 s, which a long summed capture
+or an engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
@@ -6124,8 +6182,7 @@ dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -7122,46 +7179,6 @@ The travel moves are refused against, or `None` if the axis has no configured li
 **Refusals by REST status**
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
-<a id="MotionAPI.get_limit_switch_status"></a>
-### `MotionAPI.get_limit_switch_status`
-
-```python
-def get_limit_switch_status(self, axis: Axis) -> tuple[int, int]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/get_limit_switch_status`.
-
-Get the limit switch status for an axis.
-
-Tells a caller WHY a move stopped short: an axis that reached a limit
-reports it here rather than raising, so the difference between "the
-move finished" and "the stage ran out of travel" is only visible by
-asking.
-
-**Args**
-
-- `axis`: Axis name ("X", "Y", "Z", "T").
-
-**Returns**
-
-tuple[int, int]: `(left, right)`, each 1 when that switch is engaged and 0 when clear.
-
-**Raises**
-
-- `BoardNoReplyError`: `'board_no_reply'`, the board did not answer the read.
-- `BoardReplyUnreadableError`: `'board_reply_unreadable'`, the board's answer is not a status.
-- `BoardPortFailedError`: `'board_port_failed'`, the port to the board failed or is not open.
-- `BoardReportedError`: `'board_reported_error'`, the board refused the read.
-- `ArgumentRefusedError`: `'not_offered'`, `axis` is no axis name.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis (see `refuse_absent`); a switch the scope does not have is never answered as clear.
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardReplyUnreadableError`](#BoardReplyUnreadableError): `board_reply_unreadable`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`BoardReportedError`](#BoardReportedError): `board_reported_error`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="MotionAPI.get_target_positions"></a>
@@ -11700,7 +11717,7 @@ def start_autofocus(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus`.
 
 Autofocus once on *channel*, at the current stage position.
@@ -11761,7 +11778,7 @@ def start_autofocus_all_steps(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus_all_steps`.
 
 Autofocus at every step of *protocol*, and write the focus into it.
@@ -11813,7 +11830,7 @@ def start_composite(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_composite`.
 
 Assemble a composite run and launch it, returning once committed.
@@ -11861,7 +11878,7 @@ def start_protocol(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_protocol`.
 
 Run a full protocol (multiple scans over time).
@@ -11905,7 +11922,7 @@ def start_single_scan(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_single_scan`.
 
 Run a single scan through the protocol steps.
@@ -11950,7 +11967,7 @@ def start_zstack(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_zstack`.
 
 Capture a z-stack on *channel*, around the current stage position.
@@ -13151,7 +13168,7 @@ the achieved values and a run continues.
 
 Returned by: [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position).  
 Held in: [`PositionOutOfRangeError.axis`](#PositionOutOfRangeError.axis), [`ScopeCapabilities.axes`](#ScopeCapabilities.axes).  
-Taken by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits), [`MotionAPI.get_limit_switch_status`](#MotionAPI.get_limit_switch_status), [`SimulationAPI.fail_home`](#SimulationAPI.fail_home), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).
+Taken by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits), [`SimulationAPI.fail_home`](#SimulationAPI.fail_home), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).
 
 An axis a motion member names: a stage axis, or the turret, T.
 
@@ -17605,7 +17622,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
 | `GET` | `/api/v1/scope/motion/get_axis_limits` | [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits) |
-| `GET` | `/api/v1/scope/motion/get_limit_switch_status` | [`MotionAPI.get_limit_switch_status`](#MotionAPI.get_limit_switch_status) |
 | `GET` | `/api/v1/scope/motion/get_target_positions` | [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions) |
 | `POST` | `/api/v1/scope/motion/home` | [`MotionAPI.home`](#MotionAPI.home) |
 | `GET` | `/api/v1/scope/motion/interlocks` | [`MotionAPI.interlocks`](#MotionAPI.interlocks) |

@@ -13,7 +13,6 @@ import enum
 import pathlib
 import re
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -288,13 +287,15 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
-    @api(reads=True, admitted_by=(Admission.LANE_CALL,))
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def get_camera_temperatures_degc(self) -> dict[str, float] | None:
         """Get all camera temperature sensor readings.
 
         Runs on the camera lane, admitted whatever holds the scope: the read
         sets the camera's temperature selector, which must not interleave
-        with another camera write, but a run does not stop it.
+        with another camera write, but a run does not stop it. It waits
+        behind what is queued there, up to 170 s, which a long summed capture
+        or an engineering diagnostic ahead of it can outlast.
 
         Returns:
             dict[str, float] | None: Each sensor's temperature in degC, by
@@ -309,8 +310,10 @@ class DiagnosticsAPI:
             CameraReadFailedError: ``'camera_read_failed'``, a camera is
                 active and the read failed.
         """
-        return self._read_camera_or_none(
-            self._get_camera_temperatures_degc_impl, 'get_camera_temperatures_degc'
+        return self._scope.camera._read_on_lane(
+            self._get_camera_temperatures_degc_impl,
+            'get_camera_temperatures_degc',
+            satisfied_when_absent=None,
         )
 
     def _get_camera_temperatures_degc_impl(self) -> dict[str, float] | None:
@@ -319,13 +322,15 @@ class DiagnosticsAPI:
             return None
         return driver.get_all_temperatures()
 
-    @api(reads=True, admitted_by=(Admission.LANE_CALL,))
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def get_camera_link_info(self) -> CameraLink | None:
         """Read the camera's link, live.
 
         Runs on the camera lane, admitted whatever holds the scope, like the
         temperature read: the reads are node reads that must not interleave
-        with a camera write, and a run does not stop them.
+        with a camera write, and a run does not stop them. It waits behind
+        what is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         Returns:
             CameraLink | None: The link, each field None where the camera
@@ -336,25 +341,8 @@ class DiagnosticsAPI:
             CameraReadFailedError: ``'camera_read_failed'``, a field the
                 camera reports could not be read.
         """
-        return self._read_camera_or_none(self._get_camera_link_info_impl, 'get_camera_link_info')
-
-    def _read_camera_or_none[T](self, impl: Callable[[], T | None], name: str) -> T | None:
-        """Run a camera read on the camera lane; None with no camera connected.
-
-        Asked before dispatch, so after ``disconnect()`` -- when the lane
-        would refuse -- the read still answers that there is no camera to
-        read. A camera that leaves while the read is queued is answered the
-        same way at the lane.
-        """
-        camera = self._scope.camera
-        if not self._scope.camera_connected:
-            return None
-        return camera._dispatch_camera(
-            impl,
-            name,
-            timeout_s=camera._CAMERA_WRITE_TIMEOUT_S,
-            override=True,
-            satisfied_when_absent=None,
+        return self._scope.camera._read_on_lane(
+            self._get_camera_link_info_impl, 'get_camera_link_info', satisfied_when_absent=None
         )
 
     def _get_camera_link_info_impl(self) -> CameraLink | None:

@@ -77,7 +77,7 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_single_scan(
         self,
         protocol: Protocol,
@@ -124,7 +124,7 @@ class ProtocolRunner:
             return_to_position=return_to_position,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_protocol(
         self,
         protocol: Protocol,
@@ -165,7 +165,7 @@ class ProtocolRunner:
             events=events,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_composite(
         self,
         *,
@@ -228,7 +228,7 @@ class ProtocolRunner:
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_autofocus(
         self,
         channel: str | None,
@@ -347,7 +347,7 @@ class ProtocolRunner:
             claim=claim,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_autofocus_all_steps(
         self,
         protocol: Protocol,
@@ -398,7 +398,7 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start_zstack(
         self,
         channel: str | None,

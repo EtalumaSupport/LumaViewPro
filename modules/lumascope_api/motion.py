@@ -1629,7 +1629,7 @@ class MotionAPI:
             _api_log.warning(f'{axis} moving with {e.reason}: the stage stopped every axis')
             return False
 
-    @api(reads=True)
+    @api(in_process=True, reads=True, engineering=True)
     def get_limit_switch_status(self, axis: Axis) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
@@ -1637,6 +1637,10 @@ class MotionAPI:
         reports it here rather than raising, so the difference between "the
         move finished" and "the stage ran out of travel" is only visible by
         asking.
+
+        A bench read, not a client's: it asks the board on the caller's
+        thread and waits for the board's exchange, which a home holds until
+        it replies, up to 240 s on an EL-0940.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").

@@ -1282,8 +1282,8 @@ class ImagingAPI:
         return grab_record(
             captured_at=captured_at,
             chunks=chunks,
-            read_exposure_ms=self._camera.read_exposure_ms,
-            read_gain_db=self._camera.read_gain_db,
+            read_exposure_ms=lambda: self._camera._read_fresh('exposure_ms'),
+            read_gain_db=lambda: self._camera._read_fresh('gain_db'),
             black_level=self._black_level_for_record(),
             lit=dict(lit),
             frames_summed=frames_summed,
@@ -1454,7 +1454,7 @@ class ImagingAPI:
         raises ``CameraReadFailedError`` and fails the capture rather than
         saving a frame whose black level is unknown.
         """
-        return self._camera.read_black_level()
+        return self._camera._read_black_level_impl()
 
     @api(in_process=True, engineering=True)
     def capture_still(
@@ -1782,16 +1782,13 @@ class ImagingAPI:
             stop_ns = mark.at_ns + timeout_ns
 
             while True:
-                # Acquire cam_lock for camera grab -- prevents concurrent
-                # set_gain_db/set_exposure from another thread mid-frame.
-                with self._camera._cam_lock:
-                    frame = (
-                        self._driver.grab_new_capture(new_capture_timeout_s)
-                        if force_new_capture
-                        else self._driver.grab()
-                    )
-                    if frame is not None:
-                        self.frame_validity.count_frame(frame.seq, by=Counter.GRAB)
+                frame = (
+                    self._driver.grab_new_capture(new_capture_timeout_s)
+                    if force_new_capture
+                    else self._driver.grab()
+                )
+                if frame is not None:
+                    self.frame_validity.count_frame(frame.seq, by=Counter.GRAB)
 
                 if frame is None:
                     # A camera that is gone will not deliver; don't retry for
@@ -1852,16 +1849,13 @@ class ImagingAPI:
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it
                     # silently (the prior behavior) hid real data corruption.
-                    with self._camera._cam_lock:
-                        retry = (
-                            self._driver.grab_new_capture(new_capture_timeout_s)
-                            if force_new_capture
-                            else self._driver.grab()
-                        )
-                        if retry is not None:
-                            self.frame_validity.count_frame(retry.seq, by=Counter.GRAB)
-                    # Saturation walk is outside cam_lock -- no camera state needed,
-                    # and the walk would otherwise block concurrent set_gain_db/set_exposure.
+                    retry = (
+                        self._driver.grab_new_capture(new_capture_timeout_s)
+                        if force_new_capture
+                        else self._driver.grab()
+                    )
+                    if retry is not None:
+                        self.frame_validity.count_frame(retry.seq, by=Counter.GRAB)
                     retry_saturation = (
                         self.saturated_fraction(retry.image, retry.significant_bits)
                         if retry is not None
@@ -2447,20 +2441,19 @@ class ImagingAPI:
         it says "not grabbing" is the question put on the lane, behind what
         is queued, so a streaming camera costs nothing. The lane read
         changes nothing a holder depends on, so it is admitted whatever
-        holds the scope. False when no camera is attached.
+        holds the scope (``CameraAPI._read_on_lane``). False when no camera
+        is attached.
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'``, the lane
-                is closed.
+                closed as the question was put.
+            LaneCallStillRunningError: ``'call_overran'``, what is queued
+                ahead outlasted the restore's bound, 170 s.
         """
         if self.is_streaming():
             return True
-        return self._camera._dispatch_camera(
-            self.is_streaming,
-            'is_streaming_once_settled',
-            timeout_s=self._camera._CAMERA_GEOMETRY_TIMEOUT_S,
-            override=True,
-            satisfied_when_absent=False,
+        return self._camera._read_on_lane(
+            self.is_streaming, 'is_streaming_once_settled', satisfied_when_absent=False
         )
 
     # --- Operation flags ---

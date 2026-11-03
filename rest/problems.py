@@ -79,6 +79,7 @@ TYPE_PREFIX = 'urn:lumascope:problem:'
 # The function each door is, whose ``Raises:`` states the door's refusals.
 DOORS: dict[Admission, object] = {
     Admission.LANE_CALL: SequentialIOExecutor.call,
+    Admission.LANE_OVERRIDE: SequentialIOExecutor.call_overriding,
     Admission.LANE_SUBMIT: SequentialIOExecutor.submit,
     Admission.GUARDED_WRITE: ActivityClaim.enter_guarded_write,
 }

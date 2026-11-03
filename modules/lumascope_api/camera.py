@@ -32,7 +32,6 @@ from modules.request_fields import key_path, refuse_unless_kind, required
 from drivers import host_clock
 from drivers.camera import Frame
 from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
-from lib import profile_trace
 from lib.lumascope_error import Fault
 from lvp_logger import logger
 from modules.exceptions import (
@@ -642,11 +641,10 @@ class CameraAPI:
         # capture: every camera write invalidates it, the capture drains it.
         self.frame_validity = frame_validity
 
-        # _state_lock guards _auto_gain_arm and _held_layer; _cam_lock
-        # serializes access to the camera driver itself (any path that
-        # touches the SDK reads/writes goes through this lock).
+        # _state_lock guards _auto_gain_arm and _held_layer. The camera
+        # driver itself is serialized by the camera lane: every read and
+        # write of the camera runs there.
         self._state_lock = threading.Lock()
-        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='camera._cam_lock')
 
         # Camera change listeners -- push-based UI update mechanism.
         # A gain listener is called with the gain in dB, an exposure listener
@@ -683,13 +681,6 @@ class CameraAPI:
         # never-read is told from a real value (a 1x binning, a 0 dB gain).
         self._camera_cache_lock = threading.Lock()
         self._camera_cache = _no_camera_cache()
-        # Per-key write generation, bumped by every authoritative cache
-        # write (_commit_camera_writes). A validated live READ snapshots
-        # the generation before touching the driver and commits only if
-        # it is unchanged, so a read that was in flight while a setter
-        # landed can never overwrite the setter's newer truth with the
-        # pre-write hardware value.
-        self._camera_cache_write_gen: dict[str, int] = {}
         # The exposure a write replaced with a shorter one, and the host
         # monotonic time by which a frame begun under it has ended; None
         # when none is pending. Guarded by _camera_cache_lock and written
@@ -721,7 +712,7 @@ class CameraAPI:
         for key in _LIVE_SETTING_READS:
             self._refresh_held(key)
         try:
-            self.read_black_level()
+            self._read_black_level_impl()
         except CameraReadFailedError as failed:
             logger.warning(f'[SCOPE API ] {failed}; the black level held stays unknown')
         logger.info('[SCOPE API ] Camera cache populated')
@@ -749,9 +740,6 @@ class CameraAPI:
         # A non-physical reading (the drivers' negative failed-read
         # sentinel) is unknown -- NOT keep-prior: the pre-auto cached value
         # is known-stale here (hardware moved during the auto cycle).
-        # Committed as an authoritative write (generation bump): a stale
-        # getter read racing this resync must not resurrect the pre-auto
-        # value.
         self._commit_camera_writes(
             {
                 'gain_db': float(gain) if common_utils.is_valid_gain_db(gain) else None,
@@ -773,9 +761,10 @@ class CameraAPI:
         Every key: a cached read that went on
         describing the departed camera once decided a write -- a frame edit
         at the old size compared equal to the stale cache, skipped the
-        camera and was stored with no camera behind it. Committed as an
-        authoritative write, so a read in flight cannot re-commit a value of
-        the camera that left.
+        camera and was stored with no camera behind it. A lane read still in
+        flight may hold its value afterwards, where nothing reads it: every
+        held read asks ``camera_connected`` first, which stays False once the
+        camera is gone.
         """
         self._commit_camera_writes(_no_camera_cache())
         self._forget_held_layer()
@@ -1005,10 +994,7 @@ class CameraAPI:
         """Cache write-through for authoritative values.
 
         Authoritative means the value did not come from a read: a driver
-        write that was applied, or a deliberate invalidation. Bumps each
-        key's write generation so a validated live read that was already
-        in flight when this landed cannot commit its now-stale value over
-        the newer truth.
+        write that was applied, or a deliberate invalidation.
 
         An exposure made shorter is kept as outgoing until a frame begun
         before the write has ended, for ``longest_exposure_ms``.
@@ -1024,8 +1010,6 @@ class CameraAPI:
                     outgoing = (max(pending[0], outgoing[0]), max(pending[1], outgoing[1]))
                 self._outgoing_exposure = outgoing
             self._camera_cache.update(updates)
-            for key in updates:
-                self._camera_cache_write_gen[key] = self._camera_cache_write_gen.get(key, 0) + 1
 
     @property
     def camera_removed(self) -> bool:
@@ -1088,8 +1072,7 @@ class CameraAPI:
         prior = self.gain_db
 
         def _write_gain():
-            with self._cam_lock:
-                return self._driver.gain(gain_db)
+            return self._driver.gain(gain_db)
 
         ok = self._camera_write(
             _write_gain,
@@ -1162,8 +1145,7 @@ class CameraAPI:
         # marks 'exposure' RED on every write; target + cache only when the write
         # was not rejected.
         def _write_exposure():
-            with self._cam_lock:
-                return self._driver.exposure_t(exposure_ms)
+            return self._driver.exposure_t(exposure_ms)
 
         ok = self._camera_write(
             _write_exposure,
@@ -1223,7 +1205,6 @@ class CameraAPI:
         kwargs=None,
         *,
         timeout_s,
-        override=False,
         falsifies_recording=False,
         satisfied_when_absent=_REFUSED_WHEN_ABSENT,
     ):
@@ -1245,24 +1226,47 @@ class CameraAPI:
         or one made after it, is refused ``scope_disconnected``; one it finds
         running answers ``LaneCallStillRunningError`` ``'lane_closed'``.
 
-        ``override`` admits the task whatever holds the scope, on the key the
-        session registered: only for a read that must touch the camera from
-        its lane's thread but changes nothing a holder depends on.
-
         ``satisfied_when_absent`` is what the command answers with no camera
-        connected: an off whose end state already holds, or a read with no
-        camera to describe. Left out, the command is refused naming the
-        camera.
+        connected: an off whose end state already holds. Left out, the
+        command is refused naming the camera.
         """
         kwargs = kwargs or {}
-        key = self._scope._camera_override_key if override else None
         task = IOTask(
             action=self._asking_for_the_camera(impl, name, satisfied_when_absent),
             args=args,
             kwargs=kwargs,
             falsifies_recording=falsifies_recording,
         )
-        return self._scope._camera_executor.call(task, name, timeout_s, override=key)
+        return self._scope._camera_executor.call(task, name, timeout_s)
+
+    def _read_on_lane(self, impl, name, args=(), *, satisfied_when_absent=_REFUSED_WHEN_ABSENT):
+        """Run one camera read on the camera lane, admitted whatever holds the scope.
+
+        The one way a published camera read reaches the camera: a node read
+        must not interleave with a camera write, and a run, a diagnostic, a
+        home or a control session changes nothing a read reports, so none of
+        them stops it (``call_overriding``). It waits for what is queued
+        ahead as well as for itself, up to the restore's bound, since a
+        restore runs at every run end and autofocus end, when a client is
+        likeliest to be reading; a long summed capture or an engineering
+        diagnostic ahead of it can outlast that.
+
+        The camera is asked for before dispatch, so after ``disconnect()``,
+        when the lane would refuse, the read still answers as it does with
+        no camera: refused naming the camera (``scope_disconnected`` after
+        ``disconnect()``), or ``satisfied_when_absent``. A camera that leaves
+        while the read is queued is answered the same way at the lane.
+        """
+        if not self._scope.camera_connected:
+            if satisfied_when_absent is _REFUSED_WHEN_ABSENT:
+                self.refuse_camera_not_connected(name)
+            return satisfied_when_absent
+        task = IOTask(
+            action=self._asking_for_the_camera(impl, name, satisfied_when_absent), args=args
+        )
+        return self._scope._camera_executor.call_overriding(
+            task, name, self._CAMERA_RESTORE_TIMEOUT_S, self._scope._camera_override_key
+        )
 
     def _submit_camera(self, impl, name, args=(), *, waiter, bound_s):
         """Put one camera command on the camera lane without waiting for it.
@@ -2335,7 +2339,7 @@ class CameraAPI:
             CameraReadFailedError: It is unknown and the camera does not answer.
         """
         value = self._held(key)
-        return value if value is not None else self._read_setting_live(key)
+        return value if value is not None else self._read_fresh(key)
 
     def _delivered_geometry(self, meant: dict) -> dict:
         """The saved geometry keys for the binning and frame the camera holds.
@@ -2669,9 +2673,13 @@ class CameraAPI:
         )
         return True
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_black_level(self) -> float | None:
         """Read the camera's black level from the camera.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         The value is the camera's own black level parameter, in the camera's
         own units, as the vendors' EMVA 1288 sheets state it: on a Basler
@@ -2689,6 +2697,10 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
+        return self._read_on_lane(self._read_black_level_impl, 'read_black_level')
+
+    def _read_black_level_impl(self) -> float | None:
+        """``read_black_level``'s body, on the lane; bring-up's populate calls it too."""
         return self._hold_read(
             'black_level',
             lambda: self._read_unheld(
@@ -2696,10 +2708,14 @@ class CameraAPI:
             ),
         )
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def get_black_level_range(self) -> tuple[float, float] | None:
         """Read the range ``set_black_level`` accepts, live, in the units of
         ``read_black_level``.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         The camera's own minimum and maximum for its current pixel format;
         the range changes with the format. ``set_black_level`` refuses a value
@@ -2720,13 +2736,20 @@ class CameraAPI:
             CameraReadFailedError: ``'camera_read_failed'``, the camera has a
                 black level setting and the read failed.
         """
+        return self._read_on_lane(self._get_black_level_range_impl, 'get_black_level_range')
+
+    def _get_black_level_range_impl(self) -> tuple[float, float] | None:
         self.refuse_camera_not_connected('get_black_level_range')
         return self._driver.get_black_level_range()
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_frame_rate_fps(self) -> float | None:
         """Read from the camera the frame rate its current settings allow, in
         frames per second.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         The camera's own figure: Basler's resulting acquisition frame rate,
         IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
@@ -2743,8 +2766,13 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_unheld(
-            'read_frame_rate_fps', 'frame rate', lambda driver: driver.get_resulting_frame_rate()
+        return self._read_on_lane(
+            lambda: self._read_unheld(
+                'read_frame_rate_fps',
+                'frame rate',
+                lambda driver: driver.get_resulting_frame_rate(),
+            ),
+            'read_frame_rate_fps',
         )
 
     @api(sets='black_level', admitted_by=(Admission.LANE_CALL,))
@@ -2808,8 +2836,7 @@ class CameraAPI:
         self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
 
         def _write_black_level():
-            with self._cam_lock:
-                return self._driver.set_black_level(float(value))
+            return self._driver.set_black_level(float(value))
 
         result = self._camera_write(
             _write_black_level,
@@ -2828,8 +2855,7 @@ class CameraAPI:
         held through ``_hold_read``, refused as ``read_<key>``.
 
         Returns:
-            The coerced value; None when a write that left it unknown landed
-            while the read was in flight.
+            The coerced value.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -2860,25 +2886,17 @@ class CameraAPI:
         return self._hold_read(key, read)
 
     def _hold_read(self, key: str, read: Callable[[], object]) -> object:
-        """Run ``read`` and hold its answer as ``key``, unless a write landed meanwhile.
+        """Run ``read`` and hold its answer as ``key``.
 
-        Fresh reads run on the caller's thread, not the camera lane, so a
-        setter's write-through can land while one is in flight. The hold is
-        generation-guarded: if an authoritative write (``_commit_camera_writes``)
-        landed during the read, the read is discarded and the newer value is
-        answered, so a slow read never overwrites a setter's write.
+        Runs on the camera lane, as every camera write does, so no write
+        lands while the read is in flight.
 
         Raises:
             CameraReadFailedError: As ``read`` raises it; nothing is held.
         """
-        with self._camera_cache_lock:
-            gen_before = self._camera_cache_write_gen.get(key, 0)
         value = read()
         with self._camera_cache_lock:
-            if self._camera_cache_write_gen.get(key, 0) == gen_before:
-                self._camera_cache[key] = value
-            else:
-                value = self._camera_cache[key]
+            self._camera_cache[key] = value
         return value
 
     def _refresh_held(self, key: str) -> None:
@@ -2926,9 +2944,13 @@ class CameraAPI:
         exposure_ms = self.longest_exposure_ms
         return exposure_ms / 1000 if common_utils.is_valid_exposure_ms(exposure_ms) else 0.0
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_gain_db(self) -> float | None:
         """Read the camera's gain from the camera, in dB.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         Returns:
             float | None: The gain; None when unknown.
@@ -2939,11 +2961,15 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_fresh('gain_db')
+        return self._read_on_lane(self._read_fresh, 'read_gain_db', args=('gain_db',))
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_exposure_ms(self) -> float | None:
         """Read the camera's exposure time from the camera, in milliseconds.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         Returns:
             float | None: The exposure; None when unknown.
@@ -2954,11 +2980,15 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_fresh('exposure_ms')
+        return self._read_on_lane(self._read_fresh, 'read_exposure_ms', args=('exposure_ms',))
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_auto_gain(self) -> CameraAutoMode | None:
         """Read the camera's auto-gain mode from the camera.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         A camera without hardware auto-gain answers ``OFF`` unasked.
 
@@ -2971,11 +3001,15 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_fresh('auto_gain')
+        return self._read_on_lane(self._read_fresh, 'read_auto_gain', args=('auto_gain',))
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_auto_exposure(self) -> CameraAutoMode | None:
         """Read the camera's auto-exposure mode from the camera.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         A camera without hardware auto-exposure answers ``OFF`` unasked.
 
@@ -2988,11 +3022,15 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_fresh('auto_exposure')
+        return self._read_on_lane(self._read_fresh, 'read_auto_exposure', args=('auto_exposure',))
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_exposure_min_ms(self) -> float | None:
         """Read from the camera the shortest exposure it takes now, in milliseconds.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         On IDS bodies the floor rises above the value read at connect
         (``capabilities.camera_limits.exposure_min_ms``) as the pixel clock,
@@ -3009,13 +3047,22 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_unheld(
-            'read_exposure_min_ms', 'minimum exposure', lambda driver: driver.get_min_exposure()
+        return self._read_on_lane(
+            lambda: self._read_unheld(
+                'read_exposure_min_ms',
+                'minimum exposure',
+                lambda driver: driver.get_min_exposure(),
+            ),
+            'read_exposure_min_ms',
         )
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_binning(self) -> int | None:
         """Read the camera's binning factor from the camera.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         Returns:
             int | None: The factor, 1 or more; None when unknown.
@@ -3026,11 +3073,15 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_fresh('binning')
+        return self._read_on_lane(self._read_fresh, 'read_binning', args=('binning',))
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_frame_size(self) -> FrameSize | None:
         """Read the size of the frames the camera delivers, from the camera.
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         Returns:
             FrameSize | None: The delivered size, in pixels after binning;
@@ -3042,12 +3093,16 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        size = self._read_fresh('frame_size')
+        size = self._read_on_lane(self._read_fresh, 'read_frame_size', args=('frame_size',))
         return FrameSize(size['width'], size['height']) if size is not None else None
 
-    @api(reads=True)
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_pixel_format(self) -> str | None:
         """Read the camera's pixel format from the camera (e.g. ``'Mono12'``).
+
+        Runs on the camera lane, admitted whatever holds the scope, behind what
+        is queued there, up to 170 s, which a long summed capture or an
+        engineering diagnostic ahead of it can outlast.
 
         The format follows ``set_image_mode``, which chooses it.
 
@@ -3060,7 +3115,7 @@ class CameraAPI:
                 ``disconnect()``.
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_fresh('pixel_format')
+        return self._read_on_lane(self._read_fresh, 'read_pixel_format', args=('pixel_format',))
 
     @api(reads=True)
     def get_pixel_alignment(self) -> dict:
@@ -3402,7 +3457,21 @@ class CameraAPI:
                 camera offers could not be read.
             ConfigurationDefectError: ``'scope_not_composed'``, no session bound this
                 scope; read only with a camera active.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, which left while the snapshot waited on its lane or
+                read it.
+            LaneCallStillRunningError: ``'call_overran'``, the snapshot
+                waited past the restore's bound, 170 s; ``'lane_closed'``,
+                the scope disconnected while it was read.
         """
+        # One task on the camera lane, so no camera write lands between the
+        # snapshot's reads. With no camera it reads nothing of one, and is
+        # taken here: the lane after a disconnect would refuse it.
+        if not self._scope.camera_connected:
+            return self._save_camera_state_impl(tag)
+        return self._read_on_lane(self._save_camera_state_impl, 'save_camera_state', args=(tag,))
+
+    def _save_camera_state_impl(self, tag: str) -> dict:
         snapshot = {'tag': tag}
         snapshot.update(self._camera_geometry_now())
         snapshot['gain_db'] = gain_db = self.gain_db
@@ -3465,34 +3534,17 @@ class CameraAPI:
         if not driver or not driver.active:
             return {}
         caps = self._scope.capabilities
-        now = {key: self._read_setting_live(key) for key in ('frame_size', 'pixel_format')}
+        now = {key: self._read_fresh(key) for key in ('frame_size', 'pixel_format')}
         if len(caps.camera_binning_sizes) > 1:
-            now['binning'] = self._read_setting_live('binning')
+            now['binning'] = self._read_fresh('binning')
         if caps.camera_supports_black_level:
-            black_level = self.read_black_level()
+            black_level = self._read_black_level_impl()
             if black_level is None:
                 raise CameraReadFailedError("The camera's black level could not be read")
             now['black_level'] = black_level
         for key in _HELD_TOGGLES:
             now[key] = self._held(key)
         return now
-
-    def _read_setting_live(self, key: str) -> object:
-        """One fresh read of a restorable camera setting, from a camera that must answer.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-            CameraReadFailedError: The read failed, or a write left the
-                setting unknown while it was read.
-        """
-        value = self._read_fresh(key)
-        if value is None:
-            noun = _LIVE_SETTING_READS[key][0]
-            raise CameraReadFailedError(
-                f"The camera's {noun} could not be read: a write left it unknown"
-            )
-        return value
 
     @api(in_process=True, engineering=True)
     @_guarded_write
@@ -3701,11 +3753,11 @@ class CameraAPI:
             if wanted is None:
                 continue
             if key == 'black_level':
-                now = self.read_black_level()
+                now = self._read_black_level_impl()
             elif key in _HELD_TOGGLES:
                 now = self._held(key)
             else:
-                now = self._read_setting_live(key)
+                now = self._read_fresh(key)
             if now == wanted:
                 continue
             if key == 'binning':

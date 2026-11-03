@@ -24,7 +24,6 @@ tests build the camera API over a scripted driver double.
 from __future__ import annotations
 
 import logging
-import threading
 from types import SimpleNamespace
 
 import numpy as np
@@ -222,42 +221,6 @@ def test_populate_none_frame_size_read_keeps_cached_geometry(sim_scope):
     sim_scope.simulation.refuse_camera_read('frame_size', 'failed')
     camera._populate_camera_cache()
     assert camera.frame_size.to_dict() == known
-
-
-# --- Write-generation guard ---------------------------------------------------
-
-
-def test_authoritative_write_beats_in_flight_stale_read(sim_camera, monkeypatch):
-    # A fresh read's driver read is in flight when an authoritative cache write
-    # (_commit_camera_writes: setter write-through / after-auto resync) lands.
-    # The read's value is stale hardware truth from BEFORE the write; the
-    # generation guard must discard it and answer the newer written value.
-    camera, cam = sim_camera
-
-    read_started = threading.Event()
-    release_read = threading.Event()
-
-    def held_gain_read():
-        read_started.set()
-        release_read.wait(timeout=5.0)
-        return 5.0  # pre-write hardware value, stale by the time it returns
-
-    monkeypatch.setattr(cam, 'get_gain', held_gain_read)
-
-    result = {}
-    reader_thread = threading.Thread(target=lambda: result.update(value=camera.read_gain_db()))
-    reader_thread.start()
-    assert read_started.wait(timeout=5.0), 'driver read never started'
-    camera._commit_camera_writes({'gain_db': 20.0})  # setter write-through lands
-    release_read.set()
-    reader_thread.join(timeout=5.0)
-    assert not reader_thread.is_alive()
-
-    assert result['value'] == 20.0, (
-        f'a racing read must answer the newer authoritative write, '
-        f'not its stale hardware read; got {result["value"]}'
-    )
-    assert camera.gain_db == 20.0
 
 
 # --- Populate resilience --------------------------------------------------------

@@ -17,6 +17,7 @@ conversion gain or line-noise reduction.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -197,9 +198,11 @@ def test_a_write_the_camera_never_answered_leaves_its_value_unknown(session):
         ('read_gain_db', 'set_gain_db', 'get_gain', 'gain_db'),
     ],
 )
-def test_a_fresh_read_that_a_write_overtakes_holds_the_write(
+def test_a_write_asked_during_a_fresh_read_lands_after_it_and_is_held(
     session, monkeypatch, read, write, getter, held
 ):
+    """The read and the write share the camera lane, so the write waits for the
+    read in flight, and the value held after both is the write's."""
     camera = session.scope.camera
     driver = session.scope._camera_driver
     getattr(camera, write)(2.0)
@@ -218,8 +221,15 @@ def test_a_fresh_read_that_a_write_overtakes_holds_the_write(
     reader.start()
     assert in_flight.wait(5.0), 'the read never reached the camera'
     monkeypatch.setattr(driver, getter, answered)
-    getattr(camera, write)(4.0)
+    writer = threading.Thread(target=lambda: getattr(camera, write)(4.0))
+    writer.start()
+    deadline = time.monotonic() + 5.0
+    while session.camera_executor.queue_size() == 0 and writer.is_alive():
+        assert time.monotonic() < deadline, 'the write never reached the lane'
+        time.sleep(0.01)
+    assert writer.is_alive(), 'the write landed while the read was in flight'
     release.set()
     reader.join(5.0)
+    writer.join(10.0)
 
     assert getattr(camera, held) == 4.0

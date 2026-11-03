@@ -12,8 +12,8 @@ would describe no such refusal. This guard holds the mark to the code over
 every member a REST route serves:
 
 1. **Named.** A member whose walk reaches a door names it: a call landing on
-   ``SequentialIOExecutor.call`` or ``.submit`` of a lane that asks the
-   claim, or on ``ActivityClaim.enter_guarded_write``.
+   ``SequentialIOExecutor.call``, ``.call_overriding`` or ``.submit`` of a
+   lane that asks the claim, or on ``ActivityClaim.enter_guarded_write``.
 2. **Not stale.** A member whose walk resolves every call it makes names no
    door the walk does not reach.
 
@@ -58,7 +58,11 @@ from tests.ast_seams import Packages
 from tests.settings_fixtures import complete_settings
 
 _PROJECT = Packages({'modules', 'lib', 'drivers', 'rest'})
-_LANE_DOORS = {SequentialIOExecutor.call, SequentialIOExecutor.submit}
+_LANE_DOORS = {
+    SequentialIOExecutor.call,
+    SequentialIOExecutor.call_overriding,
+    SequentialIOExecutor.submit,
+}
 _DOOR_OF = {function: door for door, function in problems.DOORS.items()}
 
 
@@ -503,12 +507,13 @@ def _route_members() -> dict[str, Callable]:
 
 
 def test_the_walk_tells_a_lane_that_asks_the_claim_from_one_that_does_not(walk):
-    """The instrument on known members: a camera write enters the CAMERA lane, a build only the post-processing lane."""
+    """The instrument on known members: a camera write and a camera read enter the CAMERA lane's two waited doors, a build only the post-processing lane."""
     assert Admission.LANE_CALL in walk.reach(vars(CameraAPI)['set_gain_db']).doors
+    assert walk.reach(vars(CameraAPI)['read_gain_db']).doors.keys() == {Admission.LANE_OVERRIDE}
     assert (
         walk.reach(vars(PostProcessingAPI)['build'])
         .doors.keys()
-        .isdisjoint({Admission.LANE_CALL, Admission.LANE_SUBMIT})
+        .isdisjoint({Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.LANE_SUBMIT})
     )
     assert Admission.GUARDED_WRITE in walk.reach(vars(ScopeSession)['update_settings']).doors
 

@@ -312,7 +312,7 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
     def start(self, *, false_color_on: bool = False) -> 'Operation[str]':
         """Snapshot configuration and open a recording; returns its operation.
 

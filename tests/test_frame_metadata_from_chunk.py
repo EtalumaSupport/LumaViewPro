@@ -6,8 +6,8 @@ frame (the same values frame_validity checks the camera settled to). The
 record used to be built when the file was written, re-reading gain/exposure
 live and racing the next step's settings. The capture now builds the frame's
 record beside the grab: from the grab-time chunk (microseconds -> ms for
-exposure, dB for gain), falling back to a fresh read of the camera
-(``read_exposure_ms`` / ``read_gain_db``) only when no chunk is present. The
+exposure, dB for gain), falling back to a fresh read of the camera, on its
+lane beside the grab, only when no chunk is present. The
 save writes what the record says.
 
 Driven behaviorally: a stub imaging API provides distinct chunk vs live
@@ -61,13 +61,12 @@ def _imaging(chunk_reads=None):
     camera = object.__new__(CameraAPI)
     camera._scope = scope
     camera._camera_cache_lock = threading.Lock()
-    camera._camera_cache_write_gen = {}
     camera._camera_cache = {'binning': 1}
     camera._state_lock = threading.Lock()
     camera._held_layer = None
-    camera.read_exposure_ms = lambda: LIVE_EXPOSURE_MS
-    camera.read_gain_db = lambda: LIVE_GAIN_DB
-    camera.read_black_level = lambda: None
+    # The fresh reads a frame's record takes on the lane, beside the grab.
+    camera._read_fresh = {'exposure_ms': LIVE_EXPOSURE_MS, 'gain_db': LIVE_GAIN_DB}.get
+    camera._read_black_level_impl = lambda: None
     imaging = object.__new__(ImagingAPI)
     imaging._scope = scope
     imaging._camera = camera

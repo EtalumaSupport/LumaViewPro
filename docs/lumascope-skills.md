@@ -662,7 +662,9 @@ property named for the setting (`gain_db`, `exposure_ms`, `binning`,
 `frame_size`, ...), answers what the camera last took or reported, with no call
 to the camera, and is None whenever that is unknown. The fresh read, `read_*`
 (`read_gain_db`, `read_exposure_ms`, ...), asks the camera now and raises
-`CameraReadFailedError` when it does not answer.
+`CameraReadFailedError` when it does not answer. It asks from the camera's
+lane, after whatever camera command is queued there, so it never lands inside
+a write; a run, a home or a control session does not refuse it.
 
 ```python
 print(scope.camera.gain_db, scope.camera.read_gain_db())

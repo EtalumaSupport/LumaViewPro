@@ -181,13 +181,21 @@ def test_a_refused_write_counted_twice_is_two_writes(scope):
 
 @pytest.mark.parametrize('answer', ['failed', 'removed'])
 def test_a_failed_frame_size_read_fails_the_snapshot_that_reads_it(scope, answer):
-    """Each failed-read answer a driver gives fails the read that met it, once."""
+    """Each failed-read answer a driver gives fails the read that met it, once.
+
+    A camera gone from the bus during the read has no fault of its own to
+    report: the snapshot, a command on the camera's lane, is refused naming it.
+    """
     bind_settings_like_a_session(scope)
     scope.simulation.refuse_camera_read('frame_size', answer)
+    if answer == 'removed':
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.camera.save_camera_state('test')
+        assert refused.value.reason == 'not_connected'
+        return
     with pytest.raises(CameraReadFailedError):
         scope.camera.save_camera_state('test')
-    if answer != 'removed':
-        assert scope.camera.save_camera_state('test')['frame_size']
+    assert scope.camera.save_camera_state('test')['frame_size']
 
 
 def test_a_failed_read_counted_twice_is_two_reads(scope):

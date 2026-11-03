@@ -52,7 +52,9 @@ from modules.exceptions import (
     CompositeFailedError,
     ControlSessionRefusedError,
     FileWriterStalledError,
+    HardwareCommandRefusedError,
     Holder,
+    LaneCallStillRunningError,
     ProtocolNotSavedError,
     ProtocolRunRefusedError,
     RecordIncompleteError,
@@ -93,6 +95,14 @@ from modules.operation import Operation
 
 # How a run ends when STOP is pressed while it is live.
 _ENDED_BY_STOP = RunEnding(RunStatus.ABORTED, 'stage_stopped', str(RunEndedByStopNotice()))
+# A run whose camera lane would not finish what it held, or answer the
+# run's snapshot, within its bound.
+_CAMERA_LANE_STALLED = RunEnding(
+    RunStatus.FAILED_AT_START,
+    'camera_lane_stalled',
+    'A camera command did not finish, so the run did not start. '
+    'Restart LumaViewPro if the camera stays busy.',
+)
 
 # How often the run loop re-asks whether the camera lane has gone idle
 # before the run takes the camera; a still's grab is tens to hundreds of
@@ -1501,18 +1511,14 @@ class SequencedCaptureRunner:
         the lane's in-flight task is stuck past the threshold that already
         calls the file lane wedged, or the camera's snapshot cannot be read
         (``camera_read_failed``, or ``hardware_disconnected`` for a camera
-        gone from the bus).
+        gone from the bus or a scope disconnected under it), or is not
+        answered within its bound (``camera_lane_stalled``).
         """
         while self.camera_executor.is_busy():
             if self._aborted.is_set() or not self._is_run_live():
                 return None
             if self.camera_executor.in_flight_task_stalled(WRITE_STALL_FATAL_S):
-                return RunEnding(
-                    RunStatus.FAILED_AT_START,
-                    'camera_lane_stalled',
-                    'A camera command did not finish, so the run did not start. '
-                    'Restart LumaViewPro if the camera stays busy.',
-                )
+                return _CAMERA_LANE_STALLED
             time.sleep(_CAMERA_LANE_POLL_S)
         if not self._is_run_live():
             return None
@@ -1531,6 +1537,21 @@ class SequencedCaptureRunner:
                 "The camera's settings could not be read, so the run did not start. "
                 "Check the camera's USB cable, then start the run again.",
             )
+        except LaneCallStillRunningError as unanswered:
+            logger.error(
+                f'[{self.LOGGER_NAME} ] The camera snapshot was not answered: {unanswered}'
+            )
+            if unanswered.reason == 'call_overran':
+                return _CAMERA_LANE_STALLED
+            # 'lane_closed': the scope disconnected while the snapshot was read.
+            return hardware_disconnected_at_start_ending((Part.CAMERA,))
+        except HardwareCommandRefusedError as refused:
+            # The camera left, or the scope disconnected, while the snapshot
+            # waited on the lane.
+            if refused.reason not in ('not_connected', 'scope_disconnected'):
+                raise
+            logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot was refused: {refused}')
+            return hardware_disconnected_at_start_ending((Part.CAMERA,))
         self._original_led_states = self._scope.illumination.get_led_states()
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the

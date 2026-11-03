@@ -69,6 +69,11 @@ def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(de
     ]
 
 
+def test_a_bench_read_has_no_route(described):
+    """The limit switches are read on the bench, not by a client: a home holds the read for minutes."""
+    assert not [p for p in described['paths'] if 'get_limit_switch_status' in p]
+
+
 def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_class(described):
     refusals = _refusals(described, '/api/v1/handles/ProtocolRunner/{handle_id}/start_single_scan')
 
@@ -81,15 +86,17 @@ def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_cl
 
 
 def test_a_read_that_enters_a_lane_names_the_lanes_refusals_and_no_other(described):
-    """``get_camera_temperatures_degc`` reads through the CAMERA lane; its own section names no lane refusal."""
+    """``get_camera_temperatures_degc`` reads through the CAMERA lane, admitted whatever holds
+    the scope; its route names the lane's answers and no holder's refusal."""
     refusals = _refusals(
         described, '/api/v1/scope/diagnostics/get_camera_temperatures_degc', method='get'
     )
 
-    assert refusals['409']['ControlSessionRefusedError'] == ['control_session_held']
-    assert refusals['409']['HardwareCommandRefusedError'] == ['exclusive_activity_running']
-    assert refusals['422']['HardwareCommandRefusedError'] == ['activity_ended']
     assert refusals['503']['HardwareCommandRefusedError'] == ['scope_disconnected']
+    assert refusals['500']['LaneCallStillRunningError'] == ['call_overran', 'lane_closed']
+    assert 'ControlSessionRefusedError' not in refusals.get('409', {})
+    said = {r for classes in refusals.values() for rs in classes.values() for r in rs}
+    assert not said & {'exclusive_activity_running', 'activity_ended'}, said
 
 
 def test_a_guarded_write_names_the_held_session_beside_its_own_refusals(described):

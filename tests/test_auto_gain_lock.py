@@ -143,7 +143,6 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, CameraAPI, _ChunkAeSim]:
     scope._camera_driver = cam
     give_camera_capabilities(scope, cam)
     give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     camera = give_camera_and_imaging(scope)
     imaging = scope.imaging
@@ -386,7 +385,6 @@ def _build_inert() -> tuple[ImagingAPI, CameraAPI, _InertAeSim]:
     scope._camera_driver = cam
     give_camera_capabilities(scope, cam)
     give_stub_lanes(scope)
-    scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     camera = give_camera_and_imaging(scope)
     imaging = scope.imaging

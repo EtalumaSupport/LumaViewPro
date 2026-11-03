@@ -10,11 +10,9 @@ Moved from tests/test_audit_fixes.py (AOC-1, AOC-2) onto the simulated scope.
 """
 
 import logging
-import threading
 
 import numpy as np
 
-from modules.lumascope_api.imaging import ImagingAPI
 from tests.camera_fakes import frames_carrying, grab_a_frame_made_after_now
 
 
@@ -40,39 +38,6 @@ def test_a_frame_below_the_blown_fraction_is_not_retried(sim_scope, monkeypatch)
 
     assert not arrays, 'a below-threshold frame must not trigger a retry'
     assert np.array_equal(out, partial)
-
-
-def test_every_saturation_walk_runs_with_the_camera_lock_released(sim_scope, monkeypatch):
-    """Probed from a helper thread inside every fraction call: each must find
-    the lock acquirable."""
-    imaging = sim_scope.imaging
-    blown = np.full((4, 4), 255, dtype=np.uint8)
-    arrays = [blown, blown]  # first and retry both blown: both walks run
-    frames_carrying(monkeypatch, sim_scope._camera_driver, lambda: arrays.pop(0))
-    measure = ImagingAPI.saturated_fraction
-    lock_was_free = []
-
-    def probing_fraction(frame, significant_bits):
-        seen = {}
-
-        def try_acquire():
-            got = sim_scope.camera._cam_lock.acquire(blocking=False)
-            if got:
-                sim_scope.camera._cam_lock.release()
-            seen['free'] = got
-
-        probe = threading.Thread(target=try_acquire)
-        probe.start()
-        probe.join()
-        lock_was_free.append(seen['free'])
-        return measure(frame, significant_bits)
-
-    monkeypatch.setattr(ImagingAPI, 'saturated_fraction', staticmethod(probing_fraction))
-
-    imaging.get_image(all_ones_check=True)
-
-    assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
-    assert all(lock_was_free), f'a saturation walk held the camera lock: {lock_was_free}'
 
 
 def test_a_failed_retry_grab_keeps_the_first_frame(sim_scope, monkeypatch):
