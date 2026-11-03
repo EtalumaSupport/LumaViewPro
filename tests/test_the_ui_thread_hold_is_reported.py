@@ -6,6 +6,8 @@ executor watchdog ticked on its own timer thread throughout but read only
 the lanes' queues. The session's metrics now post a probe to the UI thread
 each tick; a probe still waiting at the next tick is a hold, logged once
 with the stack the thread is in, and its run logs that the thread ran again.
+A hold shorter than that tick is said by the GUI's Clock, once, when the
+thread runs again.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import pytest
 import modules.metrics_logger as metrics_logger_module
 from modules.kivy_utils import UiDispatcher, ui_backlog
 from modules.scope_session import ScopeSession
-from tests.log_capture import records_of
+from tests.log_capture import messages, records_of
 
 
 def _said(caplog, level) -> list[str]:
@@ -114,3 +116,20 @@ def test_a_failing_queue_snapshot_reaches_the_scheduler(sim_session, monkeypatch
     monkeypatch.setattr(sim_session.executor_bundle, 'snapshot', broken)
     with pytest.raises(RuntimeError, match='snapshot broke'):
         sim_session.metrics_logger.tick_executor_watchdog()
+
+
+def test_a_hold_shorter_than_the_watch_sees_is_said_by_the_clock_once_it_runs(caplog):
+    """The Clock's gap past a second is said once; a gap within its tick says nothing.
+
+    The probe above needs a hold of a tick or more (a minute) to see one; a
+    field bundle's 9-10 s protocol loads froze the GUI and no line said so.
+    """
+    import ui.ui_helpers as ui_helpers
+
+    caplog.set_level(logging.WARNING)
+    ui_helpers.report_ui_thread_hold(ui_helpers.UI_HOLD_TICK_S)
+    assert messages(records_of(caplog, ui_helpers)) == []
+
+    ui_helpers.report_ui_thread_hold(9.04)
+
+    assert messages(records_of(caplog, ui_helpers)) == ['[UI        ] The UI thread was held 9.0 s']

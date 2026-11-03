@@ -31,6 +31,23 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
+# How often the UI thread's Clock looks at its own gap, and the gap it reports.
+UI_HOLD_TICK_S = 0.25
+UI_HOLD_REPORT_S = 1.0
+
+
+def report_ui_thread_hold(dt: float) -> None:
+    """The Clock's interval callback: say once, on return, that the UI thread was held.
+
+    Kivy hands an interval callback the time since its last run, so a gap
+    over ``UI_HOLD_REPORT_S`` is a hold of that length, read with no state
+    of its own. A field bundle's 9-10 s protocol loads froze the GUI with no
+    line saying so; the watchdog's UI probe sees only a hold of a minute or
+    more, and dumps the stack it is in.
+    """
+    if dt > UI_HOLD_REPORT_S:
+        logger.warning(f'[UI        ] The UI thread was held {dt:.1f} s')
+
 
 def run_reported(
     call: typing.Callable[[], object],

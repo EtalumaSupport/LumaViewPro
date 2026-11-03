@@ -508,9 +508,11 @@ from ui.shader import ShaderViewer
 from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
+    UI_HOLD_TICK_S,
     LoggedAccordionItem,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
+    report_ui_thread_hold,
     run_reported,
     run_unasked,
     work_item_text,
@@ -658,6 +660,7 @@ class LumaViewProApp(TooltipMixin, App):
             )
 
         Clock.schedule_interval(_publish_layer_config, 1.0 / 30)
+        Clock.schedule_interval(report_ui_thread_hold, UI_HOLD_TICK_S)
 
         # Clear app initialization flag and apply settings for the default opened layer
         def complete_initialization(dt):
