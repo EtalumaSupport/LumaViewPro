@@ -21,7 +21,6 @@ import pytest
 from modules.scheduler import (
     Scheduler,
     ThreadingTimerScheduler,
-    _CallablePairScheduler,
 )
 
 
@@ -158,33 +157,6 @@ class TestThreadingTimerScheduler:
             sched.shutdown()
 
 
-class TestCallablePairScheduler:
-    """Backwards-compat adapter for the legacy two-callable form."""
-
-    def test_wraps_and_invokes(self):
-        scheduled = []
-        unscheduled = []
-
-        def _sched(cb, interval):
-            scheduled.append((cb, interval))
-            return ('handle', len(scheduled))
-
-        def _unsched(handle):
-            unscheduled.append(handle)
-
-        pair = _CallablePairScheduler(_sched, _unsched)
-        h = pair.schedule_interval(lambda: None, 1.5)
-        assert len(scheduled) == 1
-        assert scheduled[0][1] == 1.5
-        pair.unschedule(h)
-        assert unscheduled == [h]
-        pair.shutdown()
-
-    def test_satisfies_scheduler_protocol(self):
-        pair = _CallablePairScheduler(lambda cb, i: None, lambda h: None)
-        assert isinstance(pair, Scheduler)
-
-
 class TestACallbacksOwnTypeErrorIsItsOwn:
     """A scheduler calls a callback with no arguments, and nothing else.
 
@@ -217,18 +189,3 @@ class TestACallbacksOwnTypeErrorIsItsOwn:
             sched.shutdown()
         assert str(reported[0]) == 'the real failure'
         assert len(calls) == len(reported)
-
-    def test_the_host_clock_scheduler_raises_it_after_one_call(self):
-        scheduled = []
-        calls = []
-
-        def _cb():
-            calls.append(None)
-            raise TypeError('the real failure')
-
-        pair = _CallablePairScheduler(lambda cb, _s: scheduled.append(cb), lambda _h: None)
-        pair.schedule_interval(_cb, 1.0)
-        with pytest.raises(TypeError, match='the real failure'):
-            scheduled[0](1.0)
-        assert len(calls) == 1
-        pair.shutdown()

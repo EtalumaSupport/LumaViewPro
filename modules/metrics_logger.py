@@ -18,8 +18,7 @@ status endpoint can also call the ``snapshot_*`` building blocks
 directly to dump current state on demand without waiting for the
 next tick.
 
-Stays GUI-agnostic -- takes Clock-style scheduler / unscheduler
-callables instead of importing Kivy.
+Stays GUI-agnostic -- takes a ``Scheduler`` instead of importing Kivy.
 """
 
 from __future__ import annotations
@@ -28,12 +27,11 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable
 
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
 from modules.kivy_utils import schedule_ui, ui_thread
-from modules.scheduler import Scheduler, _CallablePairScheduler
+from modules.scheduler import Scheduler
 
 
 # Default cadences. system_metrics is the verbose snapshot (CPU, RAM,
@@ -222,8 +220,7 @@ class MetricsLogger:
 
     def start(
         self,
-        scheduler: Scheduler | Callable[[Callable[..., object], float], object] | None = None,
-        unschedule_fn: Callable[[object], object] | None = None,
+        scheduler: Scheduler,
         *,
         system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
         executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
@@ -233,17 +230,8 @@ class MetricsLogger:
     ) -> None:
         """Schedule all periodic ticks.
 
-        LVP-A-13: ``scheduler`` is now a :class:`modules.scheduler.Scheduler`
-        instance. The legacy two-callable form (``schedule_interval_fn,
-        unschedule_fn``) is auto-wrapped via ``_CallablePairScheduler``
-        for backwards compatibility, so any caller that hasn't migrated
-        yet keeps working unchanged.
-
         Args:
-            scheduler: A ``Scheduler`` instance OR (legacy) a callable
-                matching ``Clock.schedule_interval(func, interval_s)``.
-            unschedule_fn: Legacy. Required when ``scheduler`` is a
-                callable; ignored when ``scheduler`` is a ``Scheduler``.
+            scheduler: The session's scheduler, which fires every tick.
             system_metrics_interval_s: How often to emit the
                 CPU/memory/handles snapshot.
             executor_watchdog_interval_s: How often to emit the executor
@@ -258,28 +246,7 @@ class MetricsLogger:
                 logs beside the camera's; None on a host with none.
         """
         self._display = display
-        # Normalize scheduler argument: Scheduler instance, callable
-        # pair (legacy), or None (rejected).
-        if scheduler is None:
-            raise ValueError(
-                'MetricsLogger.start: scheduler is required (a Scheduler '
-                'instance or, legacy, a schedule_interval callable plus '
-                'unschedule_fn)'
-            )
-        if isinstance(scheduler, Scheduler):
-            self._scheduler = scheduler
-        elif callable(scheduler):
-            if unschedule_fn is None or not callable(unschedule_fn):
-                raise ValueError(
-                    'MetricsLogger.start: legacy callable form requires '
-                    'unschedule_fn (a callable matching Clock.unschedule)'
-                )
-            self._scheduler = _CallablePairScheduler(scheduler, unschedule_fn)
-        else:
-            raise TypeError(
-                f'MetricsLogger.start: scheduler must be a Scheduler or '
-                f'callable; got {type(scheduler).__name__}'
-            )
+        self._scheduler = scheduler
 
         # Initial snapshot -- match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
