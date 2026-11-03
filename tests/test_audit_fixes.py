@@ -8239,7 +8239,7 @@ class TestScopeSessionBuildsFullExecutorBundle:
     so headless callers get the same topology lumaviewpro.py runs.
     """
 
-    def test_the_session_metrics_logger_holds_its_bundle_and_settings(self, tmp_path):
+    def test_the_session_metrics_logger_holds_its_bundle(self, tmp_path):
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
         from modules.executor_registry import ExecutorBundle
@@ -8251,10 +8251,6 @@ class TestScopeSessionBuildsFullExecutorBundle:
             'executor queue depths go unreported'
         )
         assert logger_._bundle is session.executor_bundle
-        assert logger_._settings is session.settings, (
-            "the system tick reads live_folder and profiling from the session's "
-            'settings; an empty dict would log against no folder, silently'
-        )
 
     def test_create_bundle_has_all_four_executors(self, tmp_path):
         from modules.scope_session import ScopeSession

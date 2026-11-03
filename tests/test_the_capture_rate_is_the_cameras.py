@@ -136,7 +136,7 @@ class TestEveryHostLogsIt:
         monkeypatch.setattr(
             config_helpers.common_utils, 'system_metrics', lambda **k: defaultdict(float)
         )
-        monkeypatch.setitem(session.metrics_logger._settings, 'live_folder', str(tmp_path))
+        session.set_live_folder(str(tmp_path))
 
         caplog.set_level(logging.INFO, logger='LVP.metrics')
         session.metrics_logger.tick_system_metrics()

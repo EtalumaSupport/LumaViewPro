@@ -703,14 +703,16 @@ class ScopeSession:
         # them, the bundle the watchdog snapshots and the settings the system
         # tick reads, so it builds the logger with all three at once.
         self.metrics_logger = MetricsLogger(
-            scope=scope, executor_bundle=executor_bundle, settings=settings
+            scope=scope,
+            executor_bundle=executor_bundle,
+            settings_snapshot=self.get_settings_snapshot,
         )
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
         self.manual_recording = ManualRecordingController(
             scope=scope,
-            settings=settings,
+            settings_snapshot=self.get_settings_snapshot,
             shown_layer=lambda: self._shown_layer,
             channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,

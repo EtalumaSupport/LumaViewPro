@@ -8,6 +8,7 @@ post-drain finish. The engine underneath is the real one; the camera is
 a stub delivering frames straight into the registered listener.
 """
 
+import copy
 import itertools
 import json
 import sys
@@ -287,15 +288,19 @@ def make_controller(
     shown='BF',
     claim=None,
     post_processing=None,
+    settings=None,
     **settings_kwargs,
 ):
     # A test outside this module hands its own lane: this module's is set
     # only for its own tests.
     scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
+    store = settings if settings is not None else make_settings(tmp_path, **settings_kwargs)
     controller = ManualRecordingController(
         scope=scope,
-        settings=make_settings(tmp_path, **settings_kwargs),
+        # A private copy per call, as the session's get_settings_snapshot
+        # answers, so a test writing ``store`` writes the live settings.
+        settings_snapshot=lambda: copy.deepcopy(store),
         shown_layer=lambda: shown,
         activity_claim=claim or ActivityClaim(),
         scheduler=ManualFireScheduler(),
@@ -446,6 +451,42 @@ class TestFramesLeg:
         assert manifest['provenance']['software']['lvp_version'] is not None
         assert manifest['timestamp_grade'] == 'camera_frame_start'
         assert all(entry['chunks'] is not None for entry in manifest['frame_index'])
+
+    def test_a_live_folder_moved_while_the_recording_starts_is_the_next_recordings(self, tmp_path):
+        # The settings a recording is made with are the ones of the moment its
+        # start was asked for: a live folder moved while it starts (here, as
+        # it reads the exposure) takes the next recording, not this one's
+        # frames.
+        store = make_settings(tmp_path)
+        moved_to = tmp_path / 'moved'
+        moved_to.mkdir()
+
+        class _CameraWhoseReadMovesTheFolder(_FakeCamera):
+            # a stand-in by design: a write landing inside start's own reads,
+            # a moment no simulated part can place a write at.
+            @property
+            def exposure_ms(self):
+                store['live_folder'] = str(moved_to)
+                return self._exposure_ms
+
+            @exposure_ms.setter
+            def exposure_ms(self, value):
+                self._exposure_ms = value
+
+        scope = _FakeScope()
+        scope.camera = _CameraWhoseReadMovesTheFolder()
+        controller, scope, clock = make_controller(tmp_path, scope=scope, settings=store)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert not list((moved_to / 'Manual').glob('Video_*')), (
+            'a folder moved during the start took part of the recording'
+        )
+        folders = list((tmp_path / 'Manual').glob('Video_*'))
+        assert len(folders) == 1
+        assert len(list(folders[0].glob('ManualVideo_Frame_*.tiff'))) == 3
 
     def test_two_recordings_in_one_second_get_their_own_folders(self, tmp_path):
         # The folder name comes from a one-second-resolution timestamp, and a
@@ -1215,16 +1256,15 @@ class TestD15LiveSettingsBackDoor:
     live settings mid-recording."""
 
     def test_mid_recording_settings_mutation_is_harmless(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, max_fps=0, duration_s=60)
+        store = make_settings(tmp_path, max_fps=0, duration_s=60)
+        controller, scope, clock = make_controller(tmp_path, settings=store)
         controller.start()
         baked = controller._config
 
         # The back door: a protocol load rewrites the live video settings
         # (rate cap, duration, overlay) under the running recording.
-        controller._settings['video'].update(
-            {'max_fps': 1, 'max_duration_s': 1, 'timestamp_overlay': False}
-        )
-        controller._settings['video_as_frames'] = False
+        store['video'].update({'max_fps': 1, 'max_duration_s': 1, 'timestamp_overlay': False})
+        store['video_as_frames'] = False
 
         feed_frames(scope, clock, 5, fps=10.0)
         clock.advance(2.0)  # past the mutated 1 s duration, far under the baked 60 s

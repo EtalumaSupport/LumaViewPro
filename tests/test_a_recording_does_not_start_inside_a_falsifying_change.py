@@ -328,7 +328,7 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
         clock = FakeClock()
         controller = ManualRecordingController(
             scope=scope,
-            settings=make_settings(tmp_path),
+            settings_snapshot=lambda: make_settings(tmp_path),
             shown_layer=lambda: 'BF',
             activity_claim=claim,
             scheduler=ManualFireScheduler(),

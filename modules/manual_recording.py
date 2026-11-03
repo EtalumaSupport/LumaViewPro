@@ -151,8 +151,13 @@ class ManualRecordingController:
     Args:
         scope: The Lumascope instance (frame listener, camera identity,
             exposure, stage position).
-        settings: The live settings dict; read ONLY at ``start`` -- the
-            recording runs from its immutable snapshot.
+        settings_snapshot: Returns a private copy of the session's settings;
+            called once per ``start``, after its refusals, and the recording's
+            own settings (rate, duration, format, folder, overlay) are read
+            from that one copy, so a change made while it starts applies to
+            the next recording, not part of this one. The objective and the
+            plate are read once the recording holds the scope, which refuses
+            a change to either.
         shown_layer: Reads the layer of the session's shown channel, once,
             at ``start``, once the recording holds the scope: it names the
             recording.
@@ -185,7 +190,7 @@ class ManualRecordingController:
         self,
         *,
         scope: Any,
-        settings: dict,
+        settings_snapshot: Callable[[], dict],
         shown_layer: Callable[[], str],
         channel_colors: Callable[[], layer_record.ChannelColors],
         activity_claim: Any,
@@ -197,7 +202,7 @@ class ManualRecordingController:
     ):
         self._post_processing = post_processing
         self._scope = scope
-        self._settings = settings
+        self._settings_snapshot = settings_snapshot
         self._shown_layer = shown_layer
         self._channel_colors = channel_colors
         self._claim = activity_claim
@@ -391,7 +396,7 @@ class ManualRecordingController:
                 reason='post_processing_running', message=POST_PROCESSING_RUNNING_MESSAGE
             )
 
-        settings = self._settings
+        settings = self._settings_snapshot()
         scope = self._scope
 
         scope.camera.refuse_camera_not_connected('start')

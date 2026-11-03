@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import traceback
+from collections.abc import Callable
 
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
@@ -74,7 +75,7 @@ _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 class MetricsLogger:
     """Owns the periodic runtime-health logging surface for LVP."""
 
-    def __init__(self, scope, executor_bundle, settings):
+    def __init__(self, scope, executor_bundle, settings_snapshot: Callable[[], dict]):
         """Hold references; call ``start()`` to begin the schedules.
 
         Args:
@@ -84,12 +85,14 @@ class MetricsLogger:
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
                 -- the executor watchdog reads its ``snapshot()`` and
                 ``thread_states()``.
-            settings: LVP settings dict, passed verbatim to
-                ``config_helpers.log_system_metrics``.
+            settings_snapshot: Returns a private copy of the session's
+                settings; each system tick takes one and hands it to
+                ``config_helpers.log_system_metrics``, since the tick runs on
+                the session's timer, not the thread that writes the settings.
         """
         self._scope = scope
         self._bundle = executor_bundle
-        self._settings = settings
+        self._settings_snapshot = settings_snapshot
         # The host's live display, handed in at start(); None on a host
         # with none.
         self._display: config_helpers.DisplayRates | None = None
@@ -128,7 +131,10 @@ class MetricsLogger:
         """
         try:
             config_helpers.log_system_metrics(
-                self._settings, scope=self._scope, executors=self._bundle, display=self._display
+                self._settings_snapshot(),
+                scope=self._scope,
+                executors=self._bundle,
+                display=self._display,
             )
         except Exception as e:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')

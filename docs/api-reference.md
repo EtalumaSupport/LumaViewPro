@@ -3937,7 +3937,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 **Args**
 
 - `scope`: The Lumascope instance (frame listener, camera identity, exposure, stage position).
-- `settings`: The live settings dict; read ONLY at `start` -- the recording runs from its immutable snapshot.
+- `settings_snapshot`: Returns a private copy of the session's settings; called once per `start`, after its refusals, and the recording's own settings (rate, duration, format, folder, overlay) are read from that one copy, so a change made while it starts applies to the next recording, not part of this one. The objective and the plate are read once the recording holds the scope, which refuses a change to either.
 - `shown_layer`: Reads the layer of the session's shown channel, once, at `start`, once the recording holds the scope: it names the recording.
 - `channel_colors`: Reads every layer's colour, from the Session's one read of it, once, at `start`.
 - `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
