@@ -489,7 +489,7 @@ def desktop_folder() -> pathlib.Path:
 
     Through platformdirs, so a localized Desktop ("Schreibtisch" on German
     Windows) is the one found. The one Desktop for every caller that names
-    it: the GUI's support report and logs zip, and the command-line report.
+    it: the GUI's support report and logs zip.
     """
     import platformdirs
 

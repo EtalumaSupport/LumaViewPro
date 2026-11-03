@@ -3,7 +3,7 @@
 
 IDLE says the cache holds where the axis is. Bring-up set an axis IDLE from
 the board's homed answer alone and read its position in a separate later
-call, which the support report's diagnostic scope never made and which an
+call, which the support report's former diagnostic scope never made and which an
 ``except Exception: pass`` abandoned on any defect: every homed axis then
 stood IDLE on the cache's 0.0 seed, a number nothing read, with moves
 permitted from it. ``MotionAPI._init_axes`` now reads each axis as it

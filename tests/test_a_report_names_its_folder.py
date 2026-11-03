@@ -6,7 +6,7 @@ folder was given -- a folder a REST client cannot name, on a machine it
 may not be sitting at -- and the default sat in two places (the report's
 own and the command line's). The folder is now required; the Desktop is
 one public path helper, ``path_utils.desktop_folder``, that the GUI's two
-calls and the command-line report pass.
+calls pass.
 """
 
 from __future__ import annotations
