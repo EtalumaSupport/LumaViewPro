@@ -66,7 +66,7 @@ class _Camera:
 
 class TestTheRetiredQuantityIsGone:
     def test_header_has_no_target_frame(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
         fv.invalidate('gain', began_ns=None)
         header = _rows(tmp_path)[0].keys()
@@ -74,7 +74,7 @@ class TestTheRetiredQuantityIsGone:
         assert {'frame_seq', 'at_seq', 'remaining'} <= set(header)
 
     def test_invalidate_records_the_ordinal_the_write_was_stamped_against(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         cam.delivered = 7
         fv = FrameValidity(cam)
@@ -88,7 +88,7 @@ class TestTheRetiredQuantityIsGone:
 
 class TestAFrameThatCreditsNothingLeavesARow:
     def test_a_frame_older_than_the_write_records_nocredit(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         cam.delivered = 10
         fv = FrameValidity(cam)
@@ -102,7 +102,7 @@ class TestAFrameThatCreditsNothingLeavesARow:
         assert rows[0]['remaining'] == str(FrameValidity.SKIP_FRAMES['gain'])
 
     def test_a_frame_after_the_write_records_credit_and_the_new_count(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         cam.delivered = 10
         fv = FrameValidity(cam)
@@ -115,7 +115,7 @@ class TestAFrameThatCreditsNothingLeavesARow:
 
 class TestASettledRowNamesOneSource:
     def test_two_sources_settling_together_emit_two_rows(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         fv = FrameValidity(cam)
         fv.invalidate('gain', began_ns=None)
@@ -130,7 +130,7 @@ class TestASettledRowNamesOneSource:
 
     def test_every_settled_row_pairs_with_an_invalidate_row(self, tmp_path):
         """The bench pass criterion, run as a test."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
         fv.invalidate('led', began_ns=None)
         seq = 0
@@ -146,7 +146,7 @@ class TestASettledRowNamesOneSource:
 
 class TestTheDedupeRowIsBoundedButPresent:
     def test_a_repeat_ordinal_is_recorded_while_a_source_is_pending(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
         fv.invalidate('gain', began_ns=None)
         fv.count_frame(5, by=Counter.GRAB)
@@ -155,7 +155,7 @@ class TestTheDedupeRowIsBoundedButPresent:
 
     def test_an_idle_poller_writes_nothing(self, tmp_path):
         """A camera whose ordinal never advances must not fill the file."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         fv = FrameValidity(_Camera())
         fv.count_frame(1, by=Counter.GRAB)
         for _ in range(200):
@@ -167,7 +167,7 @@ class TestTheDedupeRowIsBoundedButPresent:
 class TestEveryRowMatchesTheHeader:
     def test_no_row_is_misaligned(self, tmp_path):
         """A short row still parses, so the damage is wrong numbers, not an error."""
-        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.enable(output_dir=tmp_path, commit=None)
         cam = _Camera()
         fv = FrameValidity(cam)
         fv.invalidate('gain', began_ns=None)

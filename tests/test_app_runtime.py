@@ -89,14 +89,12 @@ import json, sys
 sys.path.insert(0, sys.argv[1])
 from modules import path_utils
 import lvp_logger
-from lib import profile_trace
 from modules.app_environment import init_environment
 env = init_environment(sys.argv[1] + '/lumaviewpro.py')
 print(json.dumps({
     'launch_root': str(path_utils.launch_root()),
     'get_source_root': str(path_utils.get_source_root()),
     'lvp_appdata': lvp_logger.lvp_appdata,
-    'profile_trace': profile_trace._appdata_root(),
     'init_environment': env.source_path,
 }))
 """

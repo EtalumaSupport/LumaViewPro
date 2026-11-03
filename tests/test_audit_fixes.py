@@ -8572,7 +8572,7 @@ class TestProfileTraceGateIsNotEnvVar:
             f'{hits}'
         )
 
-    def test_module_level_gate_reads_settings_not_environ(self):
+    def test_no_environ_read_at_module_scope(self):
         import ast
 
         src = self._profile_trace_source()

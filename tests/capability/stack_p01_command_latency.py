@@ -18,6 +18,7 @@ import traceback
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report
 from lib import profile_trace
+from lvp_logger import git_revision
 
 
 def _serial_rows():
@@ -140,14 +141,16 @@ def body(session):
 
 def main():
     if HARDWARE:
-        profile_trace.enable(output_dir=str(harness.live_dir('stack_p01') / 'profile'))
+        profile_trace.enable(
+            output_dir=str(harness.live_dir('stack_p01') / 'profile'), commit=git_revision()
+        )
         with hardware_session() as (session, _runner):
             body(session)
         sys.exit(report())
     session, _live = harness.make_session(
         'stack_p01', home=True, microscope='LS850T', simulator_tier='firmware'
     )
-    profile_trace.enable(output_dir=str(_live / 'profile'))
+    profile_trace.enable(output_dir=str(_live / 'profile'), commit=git_revision())
     try:
         body(session)
     except BaseException:

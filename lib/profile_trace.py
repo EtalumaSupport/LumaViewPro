@@ -4,14 +4,13 @@
 Default OFF. Zero overhead when disabled -- every trace site is guarded
 by a single module-level flag check.
 
-Enable two ways:
-  1. Set ``profile_trace_enabled: true`` in data/settings.json (or
-     data/current.json) before launching LVP. Optionally set
-     ``profile_trace_output_dir`` to override the output directory.
-  2. Call ``profile_trace.enable()`` programmatically (tests, ad-hoc
-     experiments).
+The host turns it on: ``ScopeSession.create`` calls ``enable()`` when its
+settings hold ``profile_trace_enabled: true`` (into
+``profile_trace_output_dir``, else the data root's ``logs/profile``), and a
+bench probe or a test calls it with its own folder. This module reads no
+setting and knows no root: it sits below every layer that does.
 
-Writes CSV files under `./logs/profile/<timestamp>/` by default:
+Writes CSV files under ``<output_dir>/<timestamp>_run<n>/``:
   - serial_trace.csv        (SerialBoard.exchange_command timings)
   - motion_trace.csv        (motion-monitor poll durations + axis state transitions)
   - frame_validity_trace.csv (invalidate/credit/nocredit/dedupe/settled events)
@@ -48,24 +47,8 @@ except ImportError:
 # Diagnostic trace gate, toggled explicitly via enable() / disable() (not
 # mirrored from a setting). Single global owning its own on/off state -- not
 # the divergent cached-copy shape; reads here always see the latest toggle.
-def _appdata_root():
-    """Where this process may read its config and write its diagnostics.
-
-    On an installed build the working directory is the install folder, which
-    is not writable -- so a CWD-relative output path fails at mkdir, and since
-    the gate below calls enable() at import time, that failure takes the whole
-    application down before it starts. The data root is the per-user
-    directory the application logs already live under; diagnostics belong
-    beside them, and a support bundle collects that tree wholesale.
-    """
-    from modules import path_utils
-
-    return str(path_utils.get_source_root())
-
-
 ENABLE_PROFILE_TRACE = False
 _output_dir = None
-_base_dir = None
 _run_index = 0
 _atexit_registered = False
 _lock = threading.Lock()
@@ -80,12 +63,16 @@ _batch_traces = []
 NO_RECORDING = '-'
 
 
-def enable(output_dir=None):
+def enable(output_dir, *, commit):
     """Open a new run directory and start writing trace CSVs.
 
     Args:
         output_dir: base directory the timestamped run directories go under.
-            Defaults to ``./logs/profile``.
+            An absolute path: an installed build's working directory is its
+            install folder, where mkdir is denied.
+        commit: the build's commit as the host reads it
+            (``lvp_logger.git_revision()``), or None when no commit is known;
+            recorded in the run's ``run_info.json``.
 
     Every call starts a RUN: an already-running one is sealed first (batches
     flushed, handles closed) and a fresh directory opened. This used to return
@@ -94,29 +81,25 @@ def enable(output_dir=None):
     appended both to the same CSVs with nothing in the rows saying which
     configuration produced them.
     """
-    global ENABLE_PROFILE_TRACE, _output_dir, _base_dir, _run_index, _atexit_registered
+    global ENABLE_PROFILE_TRACE, _output_dir, _run_index, _atexit_registered
     if ENABLE_PROFILE_TRACE:
         disable()
-    if output_dir is not None:
-        _base_dir = Path(output_dir)
-    elif _base_dir is None:
-        _base_dir = Path(_appdata_root()) / 'logs' / 'profile'
     _run_index += 1
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     # The run index is in the name, not just the timestamp: two enable() calls
     # inside one second would otherwise resolve to the same directory, which is
     # the merge this exists to prevent.
-    _output_dir = _base_dir / f'{ts}_run{_run_index}'
+    _output_dir = Path(output_dir) / f'{ts}_run{_run_index}'
     _output_dir.mkdir(parents=True, exist_ok=True)
     ENABLE_PROFILE_TRACE = True
     if not _atexit_registered:
         atexit.register(disable)
         _atexit_registered = True
-    _write_run_info()
+    _write_run_info(commit)
     logger.info(f'[PROFILE   ] Trace enabled. Writing to {_output_dir}')
 
 
-def _write_run_info():
+def _write_run_info(commit):
     """Record what produced this run's rows, beside the rows themselves.
 
     Numbers read months later are worth little without the host and build
@@ -135,18 +118,19 @@ def _write_run_info():
             'python': platform.python_version(),
             'defender': _defender_state(),
         }
-        info.update(_build_identity(Path(__file__).resolve().parent.parent))
+        info.update(_build_identity(Path(__file__).resolve().parent.parent, commit))
         (_output_dir / 'run_info.json').write_text(json.dumps(info, indent=2, default=str))
     except Exception as e:
         logger.warning(f'[PROFILE   ] run info write failed: {e}')
 
 
-def _build_identity(repo_root):
+def _build_identity(repo_root, sha):
     """Name the build that produced this run, and say where the name came from.
 
-    The commit is LumaViewPro's one reader's (`lvp_logger.git_revision`),
-    which also answers a source tree downloaded as a zip, from its
-    `.git_archival.txt`, where there is no `.git` to ask. `git_dirty` says
+    The commit ``sha`` is LumaViewPro's one reader's
+    (`lvp_logger.git_revision`), handed in by the host, which also answers
+    a source tree downloaded as a zip, from its `.git_archival.txt`, where
+    there is no `.git` to ask. `git_dirty` says
     what a commit cannot: whether the tree held uncommitted changes, so a
     profile of uncommitted code is not taken for that commit's; None where
     there is no `.git` to ask. version.txt is the fallback when no commit is
@@ -157,9 +141,6 @@ def _build_identity(repo_root):
     to guess which one answered. A bare null would say "unknown" in the one
     place whose whole purpose is stating what produced the rows.
     """
-    import lvp_logger
-
-    sha = lvp_logger.git_revision()
     if sha:
         changes = _git(repo_root, 'status', '--porcelain')
         return {
@@ -472,7 +453,7 @@ class timer:  # noqa: N801 -- deliberate stdlib-style lowercase context-manager 
 class TimedLock:
     """Drop-in wrapper for threading.Lock / threading.RLock that records
     acquire-wait + hold time per acquire-release cycle to `lock_trace.csv`
-    when ``profile_trace_enabled`` is set in settings.json.
+    while tracing is on.
 
     Validates SerialBoard._lock hold-time claim (~32 ms per round-trip,
     documented at drivers/motorboard.py:79) across more sessions, and
@@ -569,32 +550,3 @@ class TimedLock:
     @property
     def name(self):
         return self._name
-
-
-# Production default: instrumentation OFF unless profile_trace_enabled
-# is true in data/settings.json (or data/current.json). Optional sibling
-# key profile_trace_output_dir overrides the default ./logs/profile/<TS>/
-# location. Read at module-import time -- the same timing as
-# load_debug_setting() in lvp_logger.py -- so the gate is decided before
-# any trace site fires. Defaults to OFF + None on any read failure so
-# the tracer infrastructure remains shippable without runtime config.
-def _read_settings_gate():
-    from modules.settings_init import load_profile_trace_setting
-
-    # Same root the trace output uses, so the settings this reads and the
-    # files it decides to write always resolve against one location.
-    result = load_profile_trace_setting(_appdata_root())
-    # Tests that register a bare MagicMock as `modules.settings_init`
-    # (without configuring `load_profile_trace_setting`) cause the call
-    # above to return a MagicMock. The MagicMock is truthy under
-    # `result['enabled']` and Path-stringifiable as `result['output_dir']`,
-    # which produced a stray `LumaViewPro/MagicMock/` directory at the
-    # repo root. Treat any non-dict return as the safe-OFF default.
-    if not isinstance(result, dict):
-        return {'enabled': False, 'output_dir': None}
-    return result
-
-
-_gate = _read_settings_gate()
-if _gate['enabled']:
-    enable(output_dir=Path(_gate['output_dir']) if _gate['output_dir'] else None)

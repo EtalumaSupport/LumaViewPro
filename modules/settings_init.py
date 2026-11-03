@@ -1110,7 +1110,7 @@ def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
 
     For what a process needs before ``prepare_settings`` can run: the
     instance lock a second launch must meet before it touches the files,
-    and the logger, profilers and tracer configured before anything logs.
+    and the logger and profilers configured before anything logs.
     Read only, by preparation's own rule: ``current.json`` is live, and the
     shipped ``settings.json`` answers when ``current.json`` is missing,
     unusable (preparation reports that once it runs), or lacks the key (a
@@ -1144,17 +1144,6 @@ def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
     debug_setting, debug_setting_source = read_before_preparation(directory, 'debug_mode')
     return debug_setting
-
-
-def load_profile_trace_setting(directory: str) -> dict:
-    """profile_trace_enabled and profile_trace_output_dir, before preparation.
-
-    Returns ``{"enabled": bool, "output_dir": str | None}``. Called from
-    lib/profile_trace.py at import, as load_debug_setting is from the logger.
-    """
-    enabled, _ = read_before_preparation(directory, 'profile_trace_enabled')
-    output_dir, _ = read_before_preparation(directory, 'profile_trace_output_dir')
-    return {'enabled': bool(enabled), 'output_dir': output_dir or None}
 
 
 def load_tracemalloc_setting(directory: str) -> bool:

@@ -235,6 +235,27 @@ def _apply_logging(settings: dict) -> None:
     autofocus_functions.enable_af_score_logging(enable=bool(settings['logging']['autofocus']))
 
 
+def _apply_profile_trace(settings: dict) -> None:
+    """Turn the profile tracer on when the settings say so; never turn it off.
+
+    The tracer is process-wide, and lib/ reads no setting, so the session a
+    host builds decides it, on every host, before its scope is constructed
+    (every lane, lock and driver a trace site sits in is built after this).
+    Only on, and only when it is off: a second session in one process (the
+    GUI's fallback onto the template, where the setting is off) keeps the
+    first's run in one directory, and a bench probe that turned it on into
+    its own folder keeps its rows there. The process's exit seals the run.
+    """
+    from lib import profile_trace
+    from lvp_logger import git_revision
+    from modules.path_utils import get_source_root
+
+    if not settings['profile_trace_enabled'] or profile_trace.ENABLE_PROFILE_TRACE:
+        return
+    output_dir = settings['profile_trace_output_dir'] or (get_source_root() / 'logs' / 'profile')
+    profile_trace.enable(output_dir=output_dir, commit=git_revision())
+
+
 def _owner_of(member: settings_paths.SettingMember) -> type:
     """The class an owned setting's member is declared on, which the table names by its name."""
     return {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}[member.owner]
@@ -1632,6 +1653,7 @@ class ScopeSession:
         # place by the unit.
         old_channel_blocks = settings_init.take_old_channel_blocks(settings)
         _apply_logging(settings)
+        _apply_profile_trace(settings)
         if warn_pre_release:
             _fire_pre_release_warning()
 

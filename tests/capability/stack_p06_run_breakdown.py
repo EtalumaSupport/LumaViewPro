@@ -20,6 +20,7 @@ import time
 import harness
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from lib import profile_trace
+from lvp_logger import git_revision
 from tests.stock_channels import LED0
 
 
@@ -95,7 +96,7 @@ def body(session, runner, live):
     protocol = session.new_protocol(tiling='1x1')
     figure('S10.protocol_steps', protocol.num_steps())
     trace_dir = live / 'profile'
-    profile_trace.enable(output_dir=str(trace_dir))
+    profile_trace.enable(output_dir=str(trace_dir), commit=git_revision())
     outcome, started, ended, files_done, record = _run(
         session, runner, protocol, live / 'run', 'stack_run'
     )
