@@ -13,7 +13,7 @@ nothing, so the next interval starts from the Z the step had.
 
 Driven end to end on the simulated scope through the Session: each
 interval's sweep window is read from the Z positions the motion API
-reports, and each interval's focus from the Z its saved frame records.
+reports at rest, and each interval's focus from the Z its saved frame records.
 """
 
 import datetime
@@ -23,6 +23,7 @@ import pytest
 
 from modules.image_utils import read_file_record
 from modules.axes import StageAxis
+from modules.lumascope_api import AxisState
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from tests.protocol_fixtures import protocol_of
@@ -52,13 +53,16 @@ def _two_intervals():
 
 
 def _run_two_intervals(tmp_path, *, first_focal_z_um):
-    """Run the protocol; return it, the lowest Z each interval's sweep reached, and each frame's Z.
+    """Run the protocol; return it, the lowest Z each interval's sweep stood at, and each frame's Z.
 
     The sample's focal plane is at ``first_focal_z_um`` for interval 1 and
     at FOCAL_Z_UM for interval 2. The stage starts at the saved Z, so the
-    lowest Z of an interval that focuses is its sweep's: the first window's
-    low edge and its approach, a fixed distance below the Z the step
-    started from. A sweep that finds no focus goes on lower.
+    lowest Z an interval that focuses stands at is its sweep's first
+    window's low edge, a fixed distance below the Z the step started from.
+    A sweep that finds no focus goes on lower. Only positions reported at
+    rest count: a downward move's backlash leg passes below its target
+    while the axis is moving, and the listener reports polled samples, so
+    whether a sample lands at the leg's bottom is the poll's timing.
     """
     protocol = _two_intervals()
     lowest = {}
@@ -76,7 +80,7 @@ def _run_two_intervals(tmp_path, *, first_focal_z_um):
             lowest[scan_index] = float('inf')
 
         def on_position(axis, at):
-            if axis is StageAxis.Z and lowest and at.position_um is not None:
+            if axis is StageAxis.Z and lowest and at.state is AxisState.IDLE:
                 interval = max(lowest)
                 lowest[interval] = min(lowest[interval], at.position_um)
 
