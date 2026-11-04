@@ -176,3 +176,18 @@ class TestNothingReselectsARunningScope:
             if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant)
         }
         assert 'microscope' not in keys
+
+
+@pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)
+def test_a_lumi_offers_darkfield_and_lights_its_led(sim_session):
+    """A Lumi's illuminator carries the darkfield ring, so the Lumi model
+    offers DF and lights its LED at the board's DF address, as the LS820's."""
+    from modules.lumascope_api.illumination import LedState
+
+    scope = sim_session.scope
+    assert 'DF' in [record.key_name for record in scope.channel_identity.channels]
+
+    scope.illumination.led_on('DF', 10)
+
+    (df,) = [reading for reading in scope.illumination.get_led_states() if reading.name == 'DF']
+    assert (df.address, df.state) == (5, LedState.LIT)
