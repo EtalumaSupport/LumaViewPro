@@ -55,6 +55,7 @@ _OUT_OF_RANGE = {
     'protocol.autogain.min_gain_db': -1.0,
     'protocol.autogain.max_gain_db': -2,
     'profiling.metrics_interval_s': 0,
+    'memory_profile_interval_s': 0,
     'ag_ae_max_exposure_ms.transmitted': 0.0,
     'ag_ae_max_exposure_ms.fluorescence': -5.0,
     'ag_ae_max_exposure_ms.luminescence': -1,

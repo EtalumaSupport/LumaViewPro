@@ -46,10 +46,6 @@ _UI_THREAD = {
     ),
     ('lumaviewpro.py', 'LumaViewProApp.on_request_close'): (2, "Kivy's close request"),
     ('lumaviewpro.py', 'LumaViewProApp.on_start'): (4, "Kivy's start, on the UI thread"),
-    ('lumaviewpro.py', 'LumaViewProApp.on_start.after_the_startup_motion'): (
-        1,
-        'run by startup_motion_settled, posted through schedule_ui, or inline from on_start',
-    ),
     ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit'): (1, _DEBOUNCE),
     ('ui/image_settings.py', 'ImageSettings.__init__'): (1, _CONSTRUCTION),
     ('ui/image_settings.py', 'ImageSettings._init_ui'): (1, _CONSTRUCTION),

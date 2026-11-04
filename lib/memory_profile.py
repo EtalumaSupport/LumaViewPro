@@ -1,25 +1,28 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Gated memory profiler for mapping LumaViewPro's resident footprint.
 
-Off by default. The host reads ``memory_profile_enabled`` and
-``memory_profile_interval_s`` from the live settings (current.json once it
-exists, else settings.json) and hands them to ``start()``; this module reads
-no setting, as lib/ sits below the layer that owns them. When disabled every
-entry point here is a cheap no-op.
+Off by default. ``ScopeSession.create`` hands it ``memory_profile_enabled``
+and ``memory_profile_interval_s`` from the prepared settings, so every
+program that brings a scope up profiles when its settings say so; this
+module reads no setting, as lib/ sits below the layer that owns them. When
+disabled every entry point here is a cheap no-op.
 
-When enabled, ``start()`` begins tracemalloc as early in process life as the
-caller invokes it (call it at the top of __main__, BEFORE the heavy imports,
-so the resident baseline is captured rather than missed), records a baseline,
-and launches a lightweight daemon thread that samples RSS on a fixed cadence.
+When enabled, ``start()`` begins tracemalloc, records a baseline, and
+launches a lightweight daemon thread that samples RSS on a fixed cadence.
+What a process imports before it brings a scope up is not traced.
 ``snapshot(state)`` records RSS + the top tracemalloc allocators + the growth
 diff since the previous snapshot, so a run produces a per-lifecycle-state map
 of where memory went:
 
-    memory_profile.start(enabled=..., interval_s=...)  # __main__, before heavy imports
+    memory_profile.start(enabled=..., interval_s=...)  # ScopeSession.create
     ...
-    memory_profile.snapshot('cold_start_done') # end of App.on_start
-    memory_profile.snapshot('post_homing')     # after homing completes
+    memory_profile.snapshot('post_homing')     # after the startup home succeeds
+    memory_profile.snapshot('cold_start_done') # 5 s after the session's metrics start
     memory_profile.snapshot('post_protocol')   # after a protocol run
+
+The snapshots come from different threads, so each is taken and compared
+against the previous one under the module's lock, and the growth a line
+reports is always since the snapshot logged before it.
 
 All output goes to the standard logger tagged ``[MEM PROFILE]``. tracemalloc
 sees Python-level allocations only (not GL textures or C-level SDK buffers),
@@ -61,18 +64,20 @@ def is_enabled() -> bool:
 def start(*, enabled: bool, interval_s: float) -> None:
     """If ``enabled``, begin tracemalloc + RSS sampling every ``interval_s`` seconds.
 
-    Idempotent. Call as early as possible in __main__ so the tracemalloc
-    baseline reflects the resident set, not just post-startup growth.
+    Only on, and only when it is off: a disabled call changes nothing, so a
+    second session in one process (the GUI's fallback onto the template,
+    where the setting is off) neither stops a running profiler's snapshots
+    nor keeps a later enabled call from starting it. A second enabled call
+    is ignored, as tracemalloc ignores a second start.
     """
     global _started, _enabled, _interval_s, _proc, _t0
+    if not enabled:
+        return
     with _lock:
         if _started:
             return
         _started = True
-    _enabled = enabled
     _interval_s = interval_s
-    if not _enabled:
-        return
     try:
         import tracemalloc
 
@@ -80,6 +85,7 @@ def start(*, enabled: bool, interval_s: float) -> None:
             tracemalloc.start(_TRACEMALLOC_FRAMES)
         _proc = psutil.Process()
         _t0 = time.monotonic()
+        _enabled = True
         logger.info(
             f'[MEM PROFILE] enabled: tracemalloc started, RSS sampled every '
             f'{_interval_s:.1f}s. rss={_rss_mb():.1f} MB at start.'
@@ -103,15 +109,16 @@ def snapshot(state: str) -> None:
     try:
         import tracemalloc
 
-        rss = _rss_mb()
-        elapsed = time.monotonic() - _t0
-        snap = tracemalloc.take_snapshot()
-        logger.info(f'[MEM PROFILE] state={state} t={elapsed:.1f}s rss={rss:.1f} MB')
-        _log_top(snap, f'state={state}')
         global _prev_snapshot
-        if _prev_snapshot is not None:
-            _log_growth(snap, _prev_snapshot, state)
-        _prev_snapshot = snap
+        with _lock:
+            rss = _rss_mb()
+            elapsed = time.monotonic() - _t0
+            snap = tracemalloc.take_snapshot()
+            logger.info(f'[MEM PROFILE] state={state} t={elapsed:.1f}s rss={rss:.1f} MB')
+            _log_top(snap, f'state={state}')
+            if _prev_snapshot is not None:
+                _log_growth(snap, _prev_snapshot, state)
+            _prev_snapshot = snap
     except Exception as e:
         logger.warning(f'[MEM PROFILE] snapshot({state}) failed: {type(e).__name__}: {e}')
 

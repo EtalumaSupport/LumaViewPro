@@ -7,10 +7,9 @@ linear handle growth and you need to identify which per-call site is the
 source without rebuilding the exe between iterations.
 
 Default OFF. Enable via settings.json (customer / bench operators):
-set `settings['profiling']['handle_trace_enabled'] = true`. The
-LumaViewProSettings.start_app() path calls `enable()` at app boot when
-the flag is true. Mirrors the existing `profiling.enabled` flag for
-MemoryLeakProfiler.
+set `settings['profiling']['handle_trace_enabled'] = true`.
+`ScopeSession.create` calls `enable()` when the flag is true, so every
+program that brings a scope up traces when its settings say so.
 
 Usage at call sites (zero-overhead when disabled, see ENABLE gate below):
 

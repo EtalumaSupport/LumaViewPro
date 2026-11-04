@@ -179,15 +179,6 @@ if __name__ == '__main__':
     if DEBUG_MODE:
         logger.info('[LVP Main  ] Debug mode is enabled.')
 
-    # Start the memory profiler before the heavy module/driver/ui imports so
-    # tracemalloc captures the resident baseline, not just post-startup growth.
-    # No-op unless memory_profile_enabled is set in the live settings.
-    from lib import memory_profile
-    from modules.settings_init import load_memory_profile_setting
-
-    memory_gate = load_memory_profile_setting(source_path)
-    memory_profile.start(enabled=memory_gate['enabled'], interval_s=memory_gate['interval_s'])
-
     # A settings or installation file that cannot be used stops the launch by
     # escaping: the crash hook logs it, and the packaged build's bootloader
     # shows its message. Never a SystemExit here, which the bootloader treats
@@ -759,13 +750,6 @@ class LumaViewProApp(TooltipMixin, App):
 
             # The atexit emergency-shutdown hook is registered in Lumascope.__init__
             # so every Lumascope user gets the same safety net automatically.
-
-            # Capture the settled startup footprint a few seconds after the
-            # start has finished, so the camera/UI have finished initializing.
-            # No-op unless the memory profiler is enabled.
-            from lib import memory_profile
-
-            Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
 
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
             from modules.exceptions import LaneCallStillRunningError, SessionClosingError

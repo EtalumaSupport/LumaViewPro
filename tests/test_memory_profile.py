@@ -1,76 +1,63 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for the gated memory profiler + its settings gate.
+"""The memory profiler turns on only, and only when it is off.
 
-The profiler defaults OFF and must be a cheap no-op when disabled (the
-common case in shipping builds). These cover the gate helper (current.json /
-settings.json merged read, default-off) and the disabled-path no-ops.
+A disabled call changes nothing: the GUI's second session in one process
+(its fallback onto the template, where the setting is off) must neither stop
+a running profiler's snapshots nor keep a later enabled call from starting
+it. Disabled, every entry point is a no-op.
 """
 
-import json
+import threading
 
 import pytest
 
 from lib import memory_profile
-from modules.exceptions import InstallationFileError
-from modules.settings_init import load_memory_profile_setting
-
-_SHIPPED = {'memory_profile_enabled': False, 'memory_profile_interval_s': 5.0}
 
 
-def _write(directory, name, payload):
-    data = directory / 'data'
-    data.mkdir(parents=True, exist_ok=True)
-    (data / name).write_text(json.dumps(payload))
+@pytest.fixture
+def fresh_profiler(monkeypatch):
+    """The profiler as a process that has not started it finds it.
+
+    A stand-in by design: tracemalloc and the sampler thread are
+    process-wide and never stop, so the test hands ``start`` a tracer that is
+    already tracing (it starts none) and a thread that never runs.
+    """
+    import tracemalloc
+
+    monkeypatch.setattr(memory_profile, '_started', False)
+    monkeypatch.setattr(memory_profile, '_enabled', False)
+    monkeypatch.setattr(memory_profile, '_prev_snapshot', None)
+    monkeypatch.setattr(tracemalloc, 'is_tracing', lambda: True)
+    monkeypatch.setattr(memory_profile.threading, 'Thread', _UnstartedThread)
 
 
-class TestGate:
-    """Read before preparation: current.json, else the shipped settings.json."""
-
-    def test_an_installation_with_no_settings_is_an_error_not_off(self, tmp_path):
-        with pytest.raises(InstallationFileError) as refused:
-            load_memory_profile_setting(tmp_path)
-        assert refused.value.file_path == tmp_path / 'data' / 'settings.json'
-
-    def test_a_shipped_file_without_the_gate_is_an_error_not_off(self, tmp_path):
-        _write(tmp_path, 'settings.json', {'memory_profile_enabled': False})
-        with pytest.raises(InstallationFileError) as refused:
-            load_memory_profile_setting(tmp_path)
-        assert refused.value.file_path == tmp_path / 'data' / 'settings.json'
-        assert "has no 'memory_profile_interval_s'" in str(refused.value)
-
-    def test_the_shipped_values_answer_with_no_current_json(self, tmp_path):
-        _write(tmp_path, 'settings.json', _SHIPPED)
-        assert load_memory_profile_setting(tmp_path) == {'enabled': False, 'interval_s': 5.0}
-
-    def test_current_json_wins_over_settings(self, tmp_path):
-        _write(tmp_path, 'settings.json', _SHIPPED)
-        _write(
-            tmp_path,
-            'current.json',
-            {'memory_profile_enabled': True, 'memory_profile_interval_s': 2.0},
-        )
-        assert load_memory_profile_setting(tmp_path) == {'enabled': True, 'interval_s': 2.0}
-
-    def test_a_key_current_json_lacks_takes_the_shipped_value(self, tmp_path):
-        _write(tmp_path, 'settings.json', {**_SHIPPED, 'memory_profile_interval_s': 7.0})
-        _write(tmp_path, 'current.json', {'memory_profile_enabled': True})
-        assert load_memory_profile_setting(tmp_path) == {'enabled': True, 'interval_s': 7.0}
-
-    def test_an_unusable_current_json_takes_the_shipped_values(self, tmp_path):
-        _write(tmp_path, 'settings.json', _SHIPPED)
-        (tmp_path / 'data' / 'current.json').write_text('{"memory_profile_enabled": true,,,')
-        assert load_memory_profile_setting(tmp_path) == {'enabled': False, 'interval_s': 5.0}
+class _UnstartedThread(threading.Thread):
+    def start(self):
+        pass
 
 
-class TestDisabledNoOps:
-    def test_snapshot_is_noop_when_disabled(self):
-        # Without start() enabling it, snapshot must not raise (and must not
-        # require tracemalloc to be running).
-        assert memory_profile.is_enabled() is False
-        memory_profile.snapshot('any_state')  # no throw, no output
+def test_a_disabled_call_then_an_enabled_one_starts_it(fresh_profiler):
+    memory_profile.start(enabled=False, interval_s=5.0)
+    memory_profile.start(enabled=True, interval_s=2.0)
 
-    def test_start_disabled_leaves_profiler_off(self, monkeypatch):
-        # A first start in this process, handed the gate off.
-        monkeypatch.setattr(memory_profile, '_started', False)
-        memory_profile.start(enabled=False, interval_s=5.0)
-        assert memory_profile.is_enabled() is False
+    assert memory_profile.is_enabled() is True
+
+
+def test_an_enabled_call_then_a_disabled_one_leaves_it_on(fresh_profiler):
+    memory_profile.start(enabled=True, interval_s=2.0)
+    memory_profile.start(enabled=False, interval_s=5.0)
+
+    assert memory_profile.is_enabled() is True
+
+
+def test_a_disabled_call_leaves_it_off_and_a_snapshot_does_nothing(fresh_profiler, monkeypatch):
+    import tracemalloc
+
+    taken = []
+    monkeypatch.setattr(tracemalloc, 'take_snapshot', lambda: taken.append(1))
+
+    memory_profile.start(enabled=False, interval_s=5.0)
+    memory_profile.snapshot('any_state')
+
+    assert memory_profile.is_enabled() is False
+    assert taken == []

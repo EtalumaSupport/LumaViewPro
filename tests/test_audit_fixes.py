@@ -8593,7 +8593,7 @@ class TestHandleTraceGateIsNotEnvVar:
     as a code constant -- never as an environment variable. The earlier
     LVP_HANDLE_TRACE / LVP_OBJ_SAMPLE_EVERY module-load gate was a
     redundant second path alongside the profiling.handle_trace_enabled
-    settings key that microscope_settings.start_app() already honors. The
+    settings key that ScopeSession.create honors. The
     env block was deleted; this AST scan pins the removal so it can't
     return.
     """

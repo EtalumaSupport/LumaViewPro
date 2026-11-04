@@ -149,6 +149,11 @@ SUPPORT_REPORT_SLOW_TASK_S = 600.0
 # for in turn (derived from those declarations, not measured whole).
 STARTUP_MOTION_SLOW_TASK_S = 135.0
 
+# How long after the metrics start the memory profiler's settled startup
+# footprint is taken, so the camera and the display have finished their own
+# start first.
+COLD_START_SNAPSHOT_DELAY_S = 5.0
+
 # A Session member that writes settings or files, admitted and counted by the
 # session's claim (``guarded_write``).
 _guarded_write = guarded_write(lambda session: session.activity_claim)
@@ -255,6 +260,36 @@ def _apply_profile_trace(settings: dict) -> None:
         return
     output_dir = settings['profile_trace_output_dir'] or (get_source_root() / 'logs' / 'profile')
     profile_trace.enable(output_dir=output_dir, commit=git_revision())
+
+
+def _apply_memory_profile(settings: dict) -> None:
+    """Start the memory profiler when the settings say so; never stop it.
+
+    Process-wide like the profile tracer, and decided by the same rule in
+    the same place: every program that brings a scope up profiles when its
+    settings say so. Only on, and only when it is off, which
+    ``memory_profile.start`` itself holds.
+    """
+    from lib import memory_profile
+
+    memory_profile.start(
+        enabled=settings['memory_profile_enabled'],
+        interval_s=settings['memory_profile_interval_s'],
+    )
+
+
+def _apply_handle_trace(settings: dict) -> None:
+    """Turn the handle trace on when the settings say so; never turn it off.
+
+    Process-wide like the profile tracer, and decided by the same rule in
+    the same place. Before the scope is constructed, so its first labelled
+    tick, on a grab or a save, already counts.
+    """
+    if not settings['profiling']['handle_trace_enabled']:
+        return
+    from lib import handle_trace
+
+    handle_trace.enable()
 
 
 def _owner_of(member: settings_paths.SettingMember) -> type:
@@ -1655,6 +1690,8 @@ class ScopeSession:
         old_channel_blocks = settings_init.take_old_channel_blocks(settings)
         _apply_logging(settings)
         _apply_profile_trace(settings)
+        _apply_memory_profile(settings)
+        _apply_handle_trace(settings)
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -6086,6 +6123,14 @@ class ScopeSession:
         log_environment_once()
         self.metrics_logger.start(self._scheduler, display=display, **start_kwargs)
         self._metrics_started = True
+        # The settled startup footprint, on the session's timer so every host
+        # that starts metrics takes it; a shutdown before it fires cancels it.
+        from lib import memory_profile
+
+        if memory_profile.is_enabled():
+            self._scheduler.schedule_once(
+                lambda: memory_profile.snapshot('cold_start_done'), COLD_START_SNAPSHOT_DELAY_S
+            )
 
     @api(in_process=True)
     def disable_metrics(self) -> None:
@@ -6479,6 +6524,9 @@ class ScopeSession:
             # report above; this line only records what was skipped.
             logger.info('startup turret positioning skipped: the stage reference is unknown')
             return
+        from lib import memory_profile
+
+        memory_profile.snapshot('post_homing')
 
         try:
             if self.scope.capabilities.has_turret:

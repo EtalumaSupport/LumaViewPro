@@ -467,6 +467,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'protocol.autogain.min_gain_db': _non_negative,
     'protocol.autogain.max_gain_db': _non_negative,
     'profiling.metrics_interval_s': _metrics_interval,
+    'memory_profile_interval_s': _positive,
     'ag_ae_max_exposure_ms.transmitted': _positive,
     'ag_ae_max_exposure_ms.fluorescence': _positive,
     'ag_ae_max_exposure_ms.luminescence': _positive,
