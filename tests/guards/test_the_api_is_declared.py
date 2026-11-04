@@ -824,6 +824,7 @@ OPEN_STRINGS: dict[str, str] = {
     'Notification.title field': _PROSE,
     'Objective.description field': _PROSE,
     'Objective.id field': _OBJECTIVE,
+    'Objective.manufacturer field': _CATALOGUE_TEXT,
     'Objective.short_name field': _CATALOGUE_TEXT,
     'ObjectiveQuestion.choices field': _OBJECTIVE,
     'ObjectiveQuestion.proposed field': _OBJECTIVE,

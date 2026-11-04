@@ -10676,7 +10676,9 @@ from the id alone (`objective_short_name`). Autofocus starts at
 across `autofocus_half_range_um` either side of where it starts. A
 jog moves the `jog_*` distance on its axis. `focus_peak_fwhm_dense_um`
 is the objective's measured focus-peak width (full width at half
-maximum), None until it has been measured.
+maximum), None until it has been measured. `manufacturer` names
+who makes the glass; the catalogue lists each maker's objectives
+together (`ObjectiveLoader.objectives`).
 
 **Fields**
 
@@ -10693,6 +10695,7 @@ maximum), None until it has been measured.
 - <a id="Objective.jog_z_coarse_um"></a>`jog_z_coarse_um`: `float` -- (no description)
 - <a id="Objective.jog_z_fine_um"></a>`jog_z_fine_um`: `float` -- (no description)
 - <a id="Objective.magnification"></a>`magnification`: `float` -- (no description)
+- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- (no description)
 - <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- (no description)
 - <a id="Objective.short_name"></a>`short_name`: `str` -- (no description)
 - <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- (no description)
@@ -17852,7 +17855,7 @@ Every fact a saved file's record can state, by its key (`modules/image_utils.FIL
 
 | Key | Kind | Plane key | Unit | Dropped by a sum | Fields |
 |---|---|---|---|---|---|
-| `objective` | shared | `Objective` | -- | no | `id`, `description`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `z_settle_tolerance_um`, `z_settle_timeout_ms`, `focus_peak_fwhm_dense_um` |
+| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `z_settle_tolerance_um`, `z_settle_timeout_ms`, `focus_peak_fwhm_dense_um` |
 | `plate_pos_mm` | shared | -- | -- | no | `x`, `y` |
 | `z_pos_um` | shared | `PositionZ` | um | no | -- |
 | `illumination_ma` | channel | `Illumination` | mA | no | -- |

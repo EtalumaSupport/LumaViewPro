@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import itertools
 import logging
 import typing
 
@@ -15,6 +16,9 @@ from kivy.uix.widget import Widget
 
 from modules import gui_logger
 from modules.kivy_utils import schedule_ui
+
+if typing.TYPE_CHECKING:
+    from modules.objectives_loader import Objective
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -539,6 +543,14 @@ class _CompactSpinnerOption(SpinnerOption):
         super().__init__(**kwargs)
 
 
+class _MakerHeader(SpinnerOption):
+    """A maker's name above its objectives in the list: shown, never chosen."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('font_size', '12sp')
+        super().__init__(bold=True, disabled=True, disabled_color=(1, 1, 1, 1), **kwargs)
+
+
 class _CappedDropDown(DropDown):
     def __init__(self, **kwargs):
         kwargs.setdefault('max_height', dp(280))
@@ -560,7 +572,7 @@ _objective_popup_folded: list[typing.Callable[[], None]] = []
 def show_objective_selection_popup(
     title: str,
     message: str,
-    objectives: list[str],
+    objectives: 'list[Objective]',
     current_objective_id: str,
     on_confirm: typing.Callable[[str], None],
     on_cancel: typing.Callable[[], None],
@@ -584,7 +596,8 @@ def show_objective_selection_popup(
     Args:
         title: Short noun phrase.
         message: What happened + what confirming commits to.
-        objectives: Selectable objective ids, in display order.
+        objectives: The selectable objectives, in display order; a header
+            naming the maker is shown above each maker's first.
         current_objective_id: Pre-selected value (the proposed default).
         on_confirm: Called with the chosen objective id: applies the answer.
         on_cancel: This request's continuation when the person cancels:
@@ -625,6 +638,16 @@ def show_objective_selection_popup(
     content.add_widget(message_label)
     content.add_widget(Widget())
 
+    # Each maker's name heads its objectives; the order is the catalogue's.
+    rows = []
+    for maker, theirs in itertools.groupby(objectives, key=lambda o: o.manufacturer):
+        rows.append(maker)
+        rows.extend(o.id for o in theirs)
+    makers = {o.manufacturer for o in objectives}
+
+    def _row(text):
+        return _MakerHeader(text=text) if text in makers else _CompactSpinnerOption(text=text)
+
     # A Spinner built in Python gets Kivy's stock dropdown: full-height
     # option rows and an uncapped list, which for a dozen objectives
     # fills the whole screen. Sync the rows to the spinner's own height
@@ -639,14 +662,14 @@ def show_objective_selection_popup(
     # BoxLayout otherwise pins to the left edge.
     spinner = Spinner(
         text=current_objective_id,
-        values=objectives,
+        values=rows,
         size_hint=(None, None),
         width='220dp',
         height='30dp',
         pos_hint={'center_x': 0.5},
         font_size='12sp',
         sync_height=True,
-        option_cls=_CompactSpinnerOption,
+        option_cls=_row,
         dropdown_cls=_CappedDropDown,
     )
     content.add_widget(spinner)

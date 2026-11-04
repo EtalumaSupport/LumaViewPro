@@ -22,6 +22,7 @@ import ui.vertical_control as vc
 from modules.exceptions import ConfigurationDefectError
 from modules.scope_session import ObjectiveQuestion
 from tests.ast_seams import parse_module
+from tests.objective_records import SHIPPED_OBJECTIVES
 from ui.vertical_control import VerticalControl
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ class _ScriptedSession:
         self.provisional = provisional
         self.confirmed = []
         self.cleared = []
+        self.scope = SimpleNamespace(objectives=SHIPPED_OBJECTIVES)
 
     def objective_question(self):
         if isinstance(self.question, Exception):
@@ -143,7 +145,7 @@ class TestTheQuestionIsRendered:
         h.prompt()
         assert len(h.popups) == 1
         popup = h.popups[0]
-        assert popup['objectives'] == list(CHOICES)
+        assert [o.id for o in popup['objectives']] == list(CHOICES)
         assert popup['current_objective_id'] == '10x Oly'
         assert 'turret position 2' in popup['message']
 

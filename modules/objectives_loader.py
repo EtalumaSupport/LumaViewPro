@@ -25,6 +25,7 @@ DEFAULT_PROPOSED_OBJECTIVE_ID = '20x w/collar'
 @api_fields(
     'id',
     'description',
+    'manufacturer',
     'short_name',
     'magnification',
     'focal_length_mm',
@@ -53,11 +54,14 @@ class Objective:
     across ``autofocus_half_range_um`` either side of where it starts. A
     jog moves the ``jog_*`` distance on its axis. ``focus_peak_fwhm_dense_um``
     is the objective's measured focus-peak width (full width at half
-    maximum), None until it has been measured.
+    maximum), None until it has been measured. ``manufacturer`` names
+    who makes the glass; the catalogue lists each maker's objectives
+    together (``ObjectiveLoader.objectives``).
     """
 
     id: str
     description: str
+    manufacturer: str
     short_name: str
     magnification: float
     focal_length_mm: float
@@ -80,6 +84,7 @@ class Objective:
 # always had, written by the engineering plugin's merge as well as by hand.
 _FILE_KEYS = {
     'description': 'description',
+    'manufacturer': 'manufacturer',
     'magnification': 'magnification',
     'focal_length_mm': 'focal_length',
     'numerical_aperture': 'aperture',
@@ -134,7 +139,7 @@ def _read_objective(objective_id: object, entry: object, filepath: pathlib.Path)
                 continue
             raise InstallationFileError(filepath, f'gives objective {objective_id!r} no {key!r}')
         value = entry[key]
-        if field == 'description':
+        if field in ('description', 'manufacturer'):
             if not isinstance(value, str):
                 raise InstallationFileError(
                     filepath, f'gives objective {objective_id!r} a {key!r} that is not text'
@@ -213,11 +218,22 @@ class ObjectiveLoader:
                     f'names {other!r} and {objective.id!r} with one short name '
                     f'{objective.short_name!r}',
                 )
-        self._objectives = types.MappingProxyType(objectives)
+        # The order ``objectives`` states; sorted() is stable, so two of one
+        # magnification keep their file order.
+        makers = list(dict.fromkeys(o.manufacturer for o in objectives.values()))
+        listed = sorted(
+            objectives.values(), key=lambda o: (makers.index(o.manufacturer), o.magnification)
+        )
+        self._objectives = types.MappingProxyType({o.id: o for o in listed})
 
     @property
     def objectives(self) -> Mapping[str, Objective]:
-        """The catalogue, by id; read-only, as each record is."""
+        """The catalogue, by id, in the order it is offered; read-only, as each record is.
+
+        Each maker's objectives are listed together, the makers in the order
+        each first appears in the file; within a maker they rise by
+        magnification, and two of one magnification keep their file order.
+        """
         return self._objectives
 
     def get_objective_info(self, objective_id: str | None) -> Objective:
