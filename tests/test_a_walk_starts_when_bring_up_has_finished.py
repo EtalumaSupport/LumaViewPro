@@ -8,6 +8,7 @@ display thread delivers one. A walk started on the timer pressed a control
 mid-layout ("the touch did not reach it") and shot an all-black window (docs
 track, 2026-10-05). The app hands the walk what bring-up still owes; the walk
 starts on nothing owed and stops, saying what was owed, when that never comes.
+A scope with no camera connected owes no frame: it has none to show.
 """
 
 from __future__ import annotations
@@ -18,12 +19,20 @@ from tests.ast_seams import find_def
 
 
 def _app_owing(
-    *, ready: bool, protocol_loaded: bool, frames_shown: int, popups: list | None = None
+    *,
+    ready: bool,
+    protocol_loaded: bool,
+    frames_shown: int,
+    popups: list | None = None,
+    camera_present: bool = True,
 ) -> list[str]:
     from unittest import mock
 
     import modules.app_context as _app_ctx
     import ui.sim_walk as sim_walk
+    from tests.scope_fakes import build_scope
+
+    scope = build_scope(simulate=True, register_atexit=False, sim_camera_present=camera_present)
 
     class _App:
         _persisted_protocol_loaded = protocol_loaded
@@ -37,7 +46,11 @@ def _app_owing(
         _app_ctx.ctx = type(
             'C',
             (),
-            {'ready': ready, 'scope_display': type('D', (), {'frames_shown': frames_shown})()},
+            {
+                'ready': ready,
+                'scope': scope,
+                'scope_display': type('D', (), {'frames_shown': frames_shown})(),
+            },
         )()
         import lumaviewpro
 
@@ -61,6 +74,11 @@ class TestWhatBringUpOwes:
 
     def test_the_frame_is_owed_until_one_is_shown(self):
         assert _app_owing(ready=True, protocol_loaded=True, frames_shown=0) == ['a displayed frame']
+
+    def test_no_frame_is_owed_by_a_scope_with_no_camera(self):
+        assert (
+            _app_owing(ready=True, protocol_loaded=True, frames_shown=0, camera_present=False) == []
+        )
 
     def test_the_protocol_load_is_not_owed_while_a_question_is_showing(self):
         """The load is hung on the objective question; a walk of that question

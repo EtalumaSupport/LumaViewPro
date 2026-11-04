@@ -11,6 +11,7 @@ reaches the camera through the session and the scope's construction.
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -51,6 +52,34 @@ class TestAStallIsRefusedWhereItCannotHappen:
             'needs_simulated_camera',
             'sim_camera_stall',
         )
+
+    def test_a_scope_simulated_without_its_camera_refuses_a_stall_and_a_focal_spread(self):
+        # Both are the simulated camera's; refused before anything starts.
+        before = set(threading.enumerate())
+        refused = {}
+        for argument, value in (
+            ('sim_camera_stall', SimulatedStall(0.0, 1.0)),
+            ('sim_focal_spread_um', 25.0),
+        ):
+            with pytest.raises(ArgumentRefusedError) as raised:
+                build_scope(simulate=True, sim_camera_present=False, **{argument: value})
+            refused[argument] = (raised.value.reason, raised.value.argument)
+        assert refused == {
+            'sim_camera_stall': ('needs_simulated_camera', 'sim_camera_stall'),
+            'sim_focal_spread_um': ('needs_simulated_camera', 'sim_focal_spread_um'),
+        }
+        assert [t for t in threading.enumerate() if t not in before] == []
+
+    def test_a_camera_left_off_the_bus_is_refused_where_there_is_no_simulated_camera(self):
+        refused = {}
+        for simulate, model in ((False, None), (True, 'LS620')):
+            with pytest.raises(ArgumentRefusedError) as raised:
+                build_scope(simulate=simulate, sim_model=model, sim_camera_present=False)
+            refused[model] = (raised.value.reason, raised.value.argument)
+        assert refused == {
+            None: ('needs_simulated_scope', 'sim_camera_present'),
+            'LS620': ('needs_simulated_camera', 'sim_camera_present'),
+        }
 
 
 class TestTheStreamStopsAndResumes:

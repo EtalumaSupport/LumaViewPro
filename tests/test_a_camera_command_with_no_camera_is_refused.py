@@ -32,7 +32,7 @@ from modules.exceptions import (
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api import _lumascope
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from modules.lumascope_api.camera import CameraAutoMode
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
@@ -97,26 +97,20 @@ DIAGNOSTIC_RUNNERS = {
 }
 
 
-def _without_a_camera(monkeypatch, model: str) -> None:
-    """Bring the next scope up as one whose camera never came up: its factory raises."""
+def _camera_less(make_session, monkeypatch, model: str, **kwargs):
+    """A session on ``model`` whose camera was not on the bus at bring-up."""
     if model in FX2_MODELS:
         import drivers.fx2driver as fx2driver
 
         def _no_fx2_camera(**kwargs):
             raise RuntimeError('no FX2 camera on the bus')
 
+        # a stand-in by design: the simulated FX2 cannot yet be off the bus
+        # at bring-up, so its camera's constructor raises as one not found.
         monkeypatch.setattr(fx2driver, 'FX2Camera', _no_fx2_camera)
+        session = make_session(model, **kwargs)
     else:
-
-        def _no_camera(*args, **kwargs):
-            raise RuntimeError('no camera found')
-
-        monkeypatch.setattr(_lumascope.camera_registry, 'create', _no_camera)
-
-
-def _camera_less(make_session, monkeypatch, model: str, **kwargs):
-    _without_a_camera(monkeypatch, model)
-    session = make_session(model, **kwargs)
+        session = make_session(model, simulated=SimulatedScope(camera_present=False), **kwargs)
     assert not session.scope.camera_connected
     return session
 
@@ -439,6 +433,18 @@ def test_a_removed_camera_reads_as_gone(make_session):
 
     assert (camera.active, camera.gain_db, camera.frame_size) == (False, None, None)
     _assert_names_the_camera(_refused(camera.read_gain_db))
+
+
+def test_a_removed_camera_refuses_the_pixel_format_read_and_the_image_mode(make_session):
+    """Once the camera has left there is no format to read or to apply,
+    and each is refused naming it."""
+    session = make_session('LS850')
+    camera = session.scope.camera
+
+    session.scope.simulation.remove_camera()
+
+    _assert_names_the_camera(_refused(camera.read_pixel_format))
+    _assert_names_the_camera(_refused(lambda: camera.set_image_mode('8bit')))
 
 
 def test_a_recording_on_a_camera_removed_under_it_ends_camera_disconnected(make_session):

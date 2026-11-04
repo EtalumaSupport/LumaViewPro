@@ -610,17 +610,6 @@ class TestRunGrabLifecycleBenchmark:
         assert r['vary_settings'] is False
         assert r['slow_threshold_s'] == 3.0  # default
 
-    def test_inactive_camera_is_refused_naming_it(self):
-        """With no camera the benchmark is refused, naming the camera, so the
-        operator hears why it produced no data."""
-        from modules.exceptions import MissingPart
-
-        scope = build_scope(simulate=True)
-        scope._camera_driver = None
-        with pytest.raises(HardwareCommandRefusedError) as exc:
-            scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
-        assert exc.value.missing == MissingPart.CAMERA
-
     def test_slow_cycle_detection_with_zero_threshold(self):
         """slow_threshold_s=0.0 forces every cycle to count as slow,
         verifying the slow-cycle accounting + 50-entry cap."""

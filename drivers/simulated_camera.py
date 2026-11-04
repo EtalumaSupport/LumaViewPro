@@ -368,7 +368,11 @@ class SimulatedCamera(Camera):
         pixel_size_func: Callable[[], float | None] | None = None,
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
+        on_bus: bool = True,
     ):
+        # Whether the camera is on the bus for connect() to find: False is a
+        # camera unplugged before the scope came up, which no connect finds.
+        self._on_bus = on_bus
         # Each input's values as it changed, oldest first: (host monotonic
         # ns, the value from then on), by input name.
         self._input_history: dict[str, collections.deque] = {}
@@ -457,7 +461,6 @@ class SimulatedCamera(Camera):
         # on its own is in focus at the nominal height. set_focal_z fixes it.
         self._z_position = self._NOMINAL_FOCAL_Z_UM
         self._focal_z = self._NOMINAL_FOCAL_Z_UM + random.uniform(-focal_spread_um, focal_spread_um)
-        logger.info(f'[SimCamera ] The simulated sample is in focus at Z {self._focal_z:.1f} um')
         # The stage's X and Y, told by set_stage_xy so the field follows
         # them; (None, None) holds the field still, as on a scope with no
         # XY stage.
@@ -512,8 +515,12 @@ class SimulatedCamera(Camera):
         """Mark the simulated camera as active and load its profile.
 
         Returns:
-            bool: Always True.
+            bool: True; False for a camera built off the bus, left
+                inactive, as a real driver that finds no camera answers.
         """
+        if not self._on_bus:
+            logger.info('[CAM Sim   ] No camera on the bus')
+            return False
         with self._lock:
             self.active = True
             self.model_name = self.MODEL_NAME
@@ -537,6 +544,9 @@ class SimulatedCamera(Camera):
 
             _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
             logger.info(f'[CAM Sim   ] Connected: {self.model_name} ({self._device_serial})')
+            logger.info(
+                f'[SimCamera ] The simulated sample is in focus at Z {self._focal_z:.1f} um'
+            )
             return True
 
     def _disconnect(self) -> bool:

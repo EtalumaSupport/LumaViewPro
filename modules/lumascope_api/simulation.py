@@ -165,6 +165,7 @@ class SimulatedCameraWriteRefusal:
     'camera_stall',
     'focal_spread_um',
     'file_stall',
+    'camera_present',
 )
 @dataclasses.dataclass(frozen=True)
 class SimulatedScope:
@@ -204,6 +205,11 @@ class SimulatedScope:
             a save drive that stops answering: ``after_s`` seconds after
             bring-up the lane's worker is held for ``for_s`` seconds. None
             stalls nothing.
+        camera_present: Whether the camera is on the bus at bring-up. False
+            is a camera unplugged for the session: bring-up finds none, as
+            it finds none on a real scope, and every camera command is
+            refused ``not_connected``. Not on a model simulated with an
+            FX2. True is the camera there.
     """
 
     model: str | None = None
@@ -213,6 +219,7 @@ class SimulatedScope:
     camera_stall: SimulatedStall | None = None
     focal_spread_um: float = 0.0
     file_stall: SimulatedStall | None = None
+    camera_present: bool = True
 
 
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is

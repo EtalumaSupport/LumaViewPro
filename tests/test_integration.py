@@ -842,19 +842,6 @@ class TestRestAPIPrep:
         assert len(formats) > 0
         assert 'Mono8' in formats
 
-    def test_pixel_format_inactive_camera(self):
-        """With no camera the format read and a format write are refused."""
-        from modules.exceptions import HardwareCommandRefusedError, MissingPart
-
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope._camera_driver = None
-        with pytest.raises(HardwareCommandRefusedError) as read:
-            session.scope.camera.read_pixel_format()
-        assert read.value.missing == MissingPart.CAMERA
-        with pytest.raises(HardwareCommandRefusedError) as exc:
-            session.scope.camera.set_image_mode('8bit')
-        assert exc.value.missing == MissingPart.CAMERA
-
     def test_encode_image_png(self):
         """encode_image() should encode numpy array to PNG bytes."""
         from modules.image_utils import encode_image

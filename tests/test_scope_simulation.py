@@ -28,7 +28,6 @@ from modules.exceptions import (
     MoveNotCompletedError,
 )
 from modules.caller import Caller, calling
-from modules.lumascope_api import _lumascope
 from modules.lumascope_api.simulation import InjectedFault
 from modules.scope_session import ScopeSession
 from rest.app import build_app
@@ -256,18 +255,10 @@ def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, rea
     assert (refused.reason, refused.argument) == (reason, argument)
 
 
-def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards_it_has(
-    monkeypatch,
-):
+def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards_it_has():
     # The camera is a board the scope lacks, refused as a missing motor
     # board is: the boards it has are offered.
-    def _no_camera(*args, **kwargs):
-        raise RuntimeError('no camera found')
-
-    # a stand-in by design: the simulator has no member that fails the
-    # camera at bring-up, so its factory raises as a camera not found does.
-    monkeypatch.setattr(_lumascope.camera_registry, 'create', _no_camera)
-    scope = build_scope(simulate=True, register_atexit=False)
+    scope = build_scope(simulate=True, register_atexit=False, sim_camera_present=False)
 
     refused = _refused(scope.simulation.stall_stream, 0.0, 1.0)
 

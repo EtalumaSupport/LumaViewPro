@@ -115,6 +115,14 @@ if __name__ == '__main__':
             )
     except ValueError as _refused_error:
         sys.exit(f'--sim-refused-camera-write=NODE,ANSWER[,COUNT]: {_refused_error}')
+    # --sim-camera=absent brings the simulated scope up with its camera
+    # unplugged, so a launch with no camera is shown without hardware.
+    try:
+        _camera = take_sim_launch_value(sys.argv, 'sim-camera', simulate=simulate_mode)
+        if _camera not in (None, 'absent'):
+            raise ValueError(f'{_camera!r} is not absent')
+    except ValueError as _camera_error:
+        sys.exit(f'--sim-camera=absent: {_camera_error}')
     # The flags above are the simulated scope the session is built as; a
     # real scope is given none.
     simulated_scope = None
@@ -126,6 +134,7 @@ if __name__ == '__main__':
             camera_stall=sim_camera_stall,
             focal_spread_um=sim_focal_spread_um,
             file_stall=sim_file_stall,
+            camera_present=_camera is None,
         )
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
@@ -817,12 +826,14 @@ class LumaViewProApp(TooltipMixin, App):
         has finished: the saved protocol loads once the objective question
         resolves, and the display shows a frame once the display thread
         delivers one. A walk started on the timer pressed a control
-        mid-layout and shot the black placeholder.
+        mid-layout and shot the black placeholder. A scope with no camera
+        connected has no frame to show, so none is owed.
 
         While the objective question is showing, the load is owed by the
         walk's answer, not by bring-up: a walk of that question is the
         one that answers it, so a popup up is bring-up waiting on the walk.
         """
+        from modules.lumascope_api.bring_up import Part
         from ui.sim_walk import open_popups
 
         owed = []
@@ -830,7 +841,7 @@ class LumaViewProApp(TooltipMixin, App):
             owed.append('initialization')
         if not self._persisted_protocol_loaded and not open_popups():
             owed.append('the saved protocol load')
-        if ctx.scope_display.frames_shown == 0:
+        if Part.CAMERA not in ctx.scope.unconnected_parts() and ctx.scope_display.frames_shown == 0:
             owed.append('a displayed frame')
         return owed
 

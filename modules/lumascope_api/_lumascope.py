@@ -685,6 +685,7 @@ class Lumascope:
         source_path: 'str | os.PathLike | None' = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
+        sim_camera_present: bool = True,
     ):
         """Initialize Microscope.
 
@@ -766,12 +767,20 @@ class Lumascope:
                 spread, every session needs a real autofocus. 0 puts the
                 sample in focus there, so a test's frames are the same every
                 run. Refused like ``sim_camera_stall``.
+            sim_camera_present: Whether the simulated camera is on the bus at
+                bring-up. False builds it off the bus, so the camera search
+                finds none, as it finds none on a real scope whose camera is
+                unplugged. Only the simulated camera has one, so False is
+                refused on real hardware and on a model simulated with an
+                FX2.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'`` or
-                ``'needs_simulated_camera'``, ``sim_camera_stall`` or a
-                ``sim_focal_spread_um`` given for a scope whose camera is not
-                the simulated camera.
+                ``'needs_simulated_camera'``, ``sim_camera_stall``, a
+                ``sim_focal_spread_um`` or ``sim_camera_present`` False given
+                for a scope whose camera is not the simulated camera;
+                ``sim_camera_stall`` or a ``sim_focal_spread_um`` given with
+                ``sim_camera_present`` False, a camera that is not there.
             ScopeInUseError: ``'scope_in_use'``, a real scope asked for while
                 another LumaViewPro, REST server or script drives the
                 microscope, or while another real scope in this process is
@@ -780,6 +789,7 @@ class Lumascope:
         for argument, value, given in (
             ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
             ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
+            ('sim_camera_present', sim_camera_present, not sim_camera_present),
         ):
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
@@ -805,10 +815,15 @@ class Lumascope:
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
-            if sim_led_board == LedBoardFamily.FX2:
+            if sim_led_board == LedBoardFamily.FX2 or not sim_camera_present:
                 for argument, value, given in (
                     ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
                     ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
+                    (
+                        'sim_camera_present',
+                        sim_camera_present,
+                        sim_led_board == LedBoardFamily.FX2 and not sim_camera_present,
+                    ),
                 ):
                     if given:
                         raise ArgumentRefusedError(
@@ -829,7 +844,7 @@ class Lumascope:
         self._init_minimal(simulated=simulate)
         # What each part did while connecting, written as the drivers are
         # built below and read back as the bring-up record. A simulated part
-        # always comes up: the simulator is what it stands in for.
+        # comes up unless the simulated scope was built without it.
         parts: dict[str, PartStatus] = {}
 
         # LED state slots (_led_listeners, _led_state, _lit_by,
@@ -1035,6 +1050,7 @@ class Lumascope:
 
             camera_kwargs['depth_of_field_func'] = _depth_of_field
             camera_kwargs['focal_spread_um'] = sim_focal_spread_um
+            camera_kwargs['on_bus'] = sim_camera_present
         # The exception a camera raised while connecting, kept until bring-up
         # reports it so the report carries the backend's own traceback.
         self._camera_failure: BaseException | None = None

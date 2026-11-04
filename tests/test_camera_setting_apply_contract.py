@@ -306,13 +306,14 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
     recorder on the _lumascope logger, and an accel-limit spy marking that
     bring-up reached its final step.
 
+    ``no_camera`` builds the scope with its camera off the bus.
+
     Returns (applied_binnings, applied_frames, logged_errors, reached_end).
     """
 
-    scope = build_scope(simulate=True)
+    scope = build_scope(simulate=True, sim_camera_present=not no_camera)
     # The objective bring-up checks is the settings' one.
     bind_settings_like_a_session(scope, objective_id='4x Oly')
-    saved_driver = scope._camera_driver
     try:
         # initialize is bring-up and binds the impl seams (it runs before
         # executor registration by design), so the spies sit there.
@@ -350,12 +351,9 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
         )
         if prepare is not None:
             prepare(scope)
-        if no_camera:
-            scope._camera_driver = None
         scope.initialize(config)
         return applied_binnings, applied_frames, errors, bool(reached_end)
     finally:
-        scope._camera_driver = saved_driver
         scope.disconnect()
 
 

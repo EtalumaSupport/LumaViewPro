@@ -30,6 +30,7 @@ from modules.exceptions import (
     ProtocolRunRefusedError,
 )
 from modules.lumascope_api._constants import AxisState
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
@@ -45,7 +46,13 @@ _RUN_WAIT_S = 120.0
 
 
 def _session(
-    tmp_path, model: str, *, homed: bool = True, acquiring: tuple = (), **extra
+    tmp_path,
+    model: str,
+    *,
+    homed: bool = True,
+    acquiring: tuple = (),
+    simulated: SimulatedScope | None = None,
+    **extra,
 ) -> ScopeSession:
     settings = _settings(tmp_path, microscope=model, **extra)
     if model.startswith('LS850T'):
@@ -53,7 +60,7 @@ def _session(
     settings = complete_settings(**settings)
     for layer in acquiring:
         settings[layer]['acquire'] = 'image'
-    session = ScopeSession.create(settings, simulate=True)
+    session = ScopeSession.create(settings, simulate=True, simulated=simulated)
     if homed and session.scope.motor_connected:
         home_sim_scope(session.scope)
     return session
