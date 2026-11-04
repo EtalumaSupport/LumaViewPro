@@ -8,3 +8,6 @@
 .git_archival.txt export-subst
 # The commit judge reads each hunk with its whole enclosing def (git diff -W).
 *.py diff=python
+# The user manual is source for its PDF, not for running LVP: its images
+# stay out of every source archive (GitHub "Download ZIP", git archive).
+docs/manual export-ignore

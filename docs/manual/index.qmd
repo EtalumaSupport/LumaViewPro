@@ -1,0 +1,20 @@
+# Your Lumascope {#sec-your-lumascope}
+
+This manual covers every Lumascope that LumaViewPro runs. Each feature is
+described once. A section that needs particular hardware opens with a line
+naming it, for example "Requires: a motorised XY stage". @tbl-models shows
+what each model has.
+
+| Model | Focus motor | XY stage | Turret | Channels |
+|:---|:---:|:---:|:---:|:---|
+| LS820 | yes | no | no | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
+| LS850 | yes | yes | no | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
+| LS850T | yes | yes | yes | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
+| Lumi | yes | no | no | Brightfield, Phase Contrast, Darkfield, Lumi |
+| LS850-0 | yes | yes | no | Brightfield |
+| LS850T-0 | yes | yes | yes | Brightfield, Phase Contrast |
+| LS560 | no | no | no | BF-Phase, 488 nm |
+| LS620 | no | no | no | BF-Phase, 405 nm, 488 nm, 589 nm |
+| LS720 | yes | yes | no | BF-Phase, 405 nm, 488 nm, 589 nm |
+
+: The Lumascope models and what each has {#tbl-models tbl-colwidths="[11,13,10,9,57]"}

@@ -1,0 +1,20 @@
+project:
+  type: book
+quarto-required: "1.11.9"
+book:
+  title: "Lumascope Microscopes"
+  subtitle: "Operator's Manual"
+  chapters:
+    - index.qmd
+    - integrators.qmd
+manual-version: "4.x"
+filters:
+  - style/guilabel.lua
+format:
+  typst:
+    toc: true
+    toc-depth: 2
+    papersize: us-letter
+    font-paths: [fonts]
+    template-partials:
+      - style/typst-show.typ
