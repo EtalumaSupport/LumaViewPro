@@ -406,6 +406,7 @@ class AdvancedSettings(Popup):
 
 kv = Builder.load_string(
     """
+#:import build_file lib.build_files.build_file
 #:import LIVE_VIEW_FPS_LIMIT modules.settings_paths.LIVE_VIEW_FPS_LIMIT
 #:import VIDEO_MAX_FPS_LIMIT modules.settings_paths.VIDEO_MAX_FPS_LIMIT
 
@@ -499,7 +500,7 @@ kv = Builder.load_string(
                         value: 100
                         step: 1
                         cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.acceleration_pct_slider()
@@ -543,8 +544,8 @@ kv = Builder.load_string(
                         height: '30dp' if root.stim_supported else 0
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_stimulation_settings()
                         state: 'normal'
 
@@ -632,7 +633,7 @@ kv = Builder.load_string(
                         value: VIDEO_MAX_FPS_LIMIT + 1
                         step: 1
                         cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.recording_max_fps_slider()
@@ -689,7 +690,7 @@ kv = Builder.load_string(
                         value: LIVE_VIEW_FPS_LIMIT + 1
                         step: 1
                         cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.display_max_fps_slider()
@@ -750,8 +751,8 @@ kv = Builder.load_string(
                         size: '45dp', '30dp'
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_protocol_led_on()
 
                 BoxLayout:
@@ -773,8 +774,8 @@ kv = Builder.load_string(
                         size: '45dp', '30dp'
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_keep_led_between_steps()
 
                 BoxLayout:
@@ -852,8 +853,8 @@ kv = Builder.load_string(
                         size: '45dp', '30dp'
                         border: 0, 0, 0, 0
                         valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
+                        background_normal: build_file('data/icons/ToggleL.png')
+                        background_down: build_file('data/icons/ToggleRW.png')
                         on_release: root.update_separate_folders_per_channel()
                         state: 'normal'
 

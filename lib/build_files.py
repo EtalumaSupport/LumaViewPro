@@ -20,3 +20,12 @@ import pathlib
 def build_root() -> pathlib.Path:
     """The folder holding the build's own files, links followed."""
     return pathlib.Path(__file__).resolve().parent.parent
+
+
+def build_file(relative: str) -> str:
+    """The absolute path of one of the build's files, from its path under the build root.
+
+    A ``str``, for the GUI: a Kivy ``StringProperty`` refuses a ``Path``, and
+    a relative path handed to Kivy is looked up in the working folder first.
+    """
+    return str(build_root() / relative)

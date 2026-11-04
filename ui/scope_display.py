@@ -41,6 +41,7 @@ from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
+from lib.build_files import build_file
 from modules import capture_overlays
 from modules.contrast_stretcher import ContrastStretcher
 from modules import gui_logger
@@ -668,7 +669,7 @@ class ScopeDisplay(Image):
         # per frame, because the display thread posts it only on that change.
         logger.info('Camera display: showing no-camera indicator to user (camera_connected=False)')
         gui_logger.display('LIVE_VIEW', 'no camera')
-        self.source = './data/icons/camera_to_USB.png'
+        self.source = build_file('data/icons/camera_to_USB.png')
 
     def source_clear(self, restored):
         """Show the live view. ``restored`` is whether the camera came back

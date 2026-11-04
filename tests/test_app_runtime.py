@@ -13,6 +13,7 @@ GUI and the logger read the scratch folder's.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -152,3 +153,31 @@ def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(farm):
         'timing_record': str(REPO / 'data' / 'camera_timing'),
         'fx2_hex': str(REPO / 'firmware' / 'LumascopeClassic.hex'),
     }
+
+
+_RESOLVE_IN_CHILD = """
+import sys
+from kivy.resources import resource_find
+print(resource_find(sys.argv[1]))
+"""
+
+
+def test_the_gui_runs_the_checkouts_kv_file_whatever_folder_it_starts_in(farm):
+    # The kv file as the app names it, resolved as Kivy resolves it, from a
+    # working folder holding a decoy at the same relative path. The entry is
+    # read here, where the conftest's Kivy stand-ins let it import: a child
+    # importing it would open a window.
+    _folder, decoy = farm
+    from lumaviewpro import LumaViewProApp
+
+    child = subprocess.run(
+        [sys.executable, '-c', _RESOLVE_IN_CHILD, LumaViewProApp.kv_file],
+        cwd=str(decoy),
+        env={**os.environ, 'KIVY_NO_ARGS': '1', 'KIVY_NO_CONSOLELOG': '1'},
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+
+    assert child.stdout.splitlines()[-1] == str(REPO / 'ui' / 'lumaviewpro.kv')

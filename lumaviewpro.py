@@ -460,6 +460,7 @@ else:
 # Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
+from lib.build_files import build_file
 from modules import gui_logger, live_work
 from modules.kivy_utils import schedule_ui, schedule_ui_latest
 from modules.app_config import (
@@ -527,7 +528,7 @@ from ui.zstack import ZStack
 class LumaViewProApp(TooltipMixin, App):
     """Main application class -- build, start, stop, tooltips."""
 
-    kv_file = 'ui/lumaviewpro.kv'
+    kv_file = build_file('ui/lumaviewpro.kv')
 
     # The saved protocol is loaded once, after the startup objective
     # question settles. A plain attribute rather than a kv property: no
@@ -960,7 +961,7 @@ class LumaViewProApp(TooltipMixin, App):
         live_histo_setting = False
         last_save_folder = None
 
-        self.icon = './data/icons/icon.png'
+        self.icon = build_file('data/icons/icon.png')
 
         # Window title: version + build timestamp
         _title_version = version

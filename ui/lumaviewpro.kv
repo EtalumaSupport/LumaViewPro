@@ -1,5 +1,6 @@
 #:kivy 2.1.0
 #:import live_work modules.live_work
+#:import build_file lib.build_files.build_file
 # The share of its row that a button or box alone in that row takes, centred.
 #:set NARROW_WIDTH 0.6
 # The label column of a layer slider row (illumination, stimulation, camera, video).
@@ -99,14 +100,14 @@
 # nothing on the panels, so a locked checkbox or radio vanished; it keeps
 # these images instead, dimmed as a locked icon button is.
 <CheckBox>:
-    background_checkbox_normal: 'data/icons/checkbox_off.png'
-    background_checkbox_down: 'data/icons/checkbox_on.png'
-    background_radio_normal: 'data/icons/radio_off.png'
-    background_radio_down: 'data/icons/radio_on.png'
-    background_checkbox_disabled_normal: 'data/icons/checkbox_off.png'
-    background_checkbox_disabled_down: 'data/icons/checkbox_on.png'
-    background_radio_disabled_normal: 'data/icons/radio_off.png'
-    background_radio_disabled_down: 'data/icons/radio_on.png'
+    background_checkbox_normal: build_file('data/icons/checkbox_off.png')
+    background_checkbox_down: build_file('data/icons/checkbox_on.png')
+    background_radio_normal: build_file('data/icons/radio_off.png')
+    background_radio_down: build_file('data/icons/radio_on.png')
+    background_checkbox_disabled_normal: build_file('data/icons/checkbox_off.png')
+    background_checkbox_disabled_down: build_file('data/icons/checkbox_on.png')
+    background_radio_disabled_normal: build_file('data/icons/radio_off.png')
+    background_radio_disabled_down: build_file('data/icons/radio_on.png')
     color: (1, 1, 1, 0.3) if self.disabled else (1, 1, 1, 1)
 
 # Rounded style for file/folder chooser buttons (extend Button in Python)
@@ -294,8 +295,8 @@
 			# so the operator can reach saved files mid-run.
 			tooltip_text: 'Open Last Save Folder'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/photos.png'
-            background_down: './data/icons/photos_down.png'
+            background_normal: build_file('data/icons/photos.png')
+            background_down: build_file('data/icons/photos_down.png')
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.open_save_folder_button()
@@ -316,7 +317,7 @@
                 Color:
                     rgba: (1, 1, 1, 0.3) if self.disabled else (1, 1, 1, 1)
                 Rectangle:
-                    source: './data/icons/folder.png'
+                    source: build_file('data/icons/folder.png')
                     pos: self.pos
                     size: self.size
 
@@ -325,8 +326,8 @@
 			# A freeze is the display's alone, so it stays live during a run.
 			tooltip_text: 'Freeze live image'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/pause.png' # Press to Pause Live Stream
-            background_down: './data/icons/play.png' # Press to Play Live Stream
+            background_normal: build_file('data/icons/pause.png') # Press to Pause Live Stream
+            background_down: build_file('data/icons/play.png') # Press to Play Live Stream
             size_hint: None, None
             size: '40dp', '40dp'
             state: 'normal'
@@ -337,8 +338,8 @@
             disabled: app.lock.controls_locked
 			tooltip_text: 'Snap live image'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/capture.png' # Press to Capture Image
-            background_down: './data/icons/capture_down.png'
+            background_normal: build_file('data/icons/capture.png') # Press to Capture Image
+            background_down: build_file('data/icons/capture_down.png')
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.live_capture()
@@ -348,8 +349,8 @@
             disabled: root.composite_held or root.composite_pending
 			tooltip_text: 'Acquire composite fluorescence image for channels set to acquire\nincluding either bright field or phase contrast'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/composite.png' # Press to Capture Composite Image
-            background_down: './data/icons/composite_down.png'
+            background_normal: build_file('data/icons/composite.png') # Press to Capture Composite Image
+            background_down: build_file('data/icons/composite_down.png')
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.composite_capture()
@@ -359,8 +360,8 @@
             disabled: app.lock.run_lockout
 			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(time limit set in Advanced Settings)'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/record.png' # Press to Record Live Stream
-            background_down: './data/icons/stop.png' # Press to Stop Recording
+            background_normal: build_file('data/icons/record.png') # Press to Record Live Stream
+            background_down: build_file('data/icons/stop.png') # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
             on_press: root.record_button()
@@ -369,8 +370,8 @@
             id: fit_btn
 			tooltip_text: 'Fit live image to window'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/fit.png' # Press to Fit Image to Window
-            background_down: './data/icons/fit_down.png'
+            background_normal: build_file('data/icons/fit.png') # Press to Fit Image to Window
+            background_down: build_file('data/icons/fit_down.png')
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.fit_image()
@@ -379,8 +380,8 @@
             id: one2one_btn
 			tooltip_text: 'Show live image as\n1 camera pixel to 1 screen pixel'
             border: 0, 0, 0, 0
-            background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
-            background_down: './data/icons/one2one_down.png'
+            background_normal: build_file('data/icons/one2one.png') # Press to Scale Image Pixels 1:1 with Screen
+            background_down: build_file('data/icons/one2one_down.png')
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.one2one_image()
@@ -558,7 +559,7 @@
             background_color: 0, 0, 0, 0
             on_press: root.toggle_settings()
             Image:
-                source: './data/icons/right_arrow_right_arc.png' if toggle_motionsettings.state == 'normal' else './data/icons/left_arrow_right_arc.png'
+                source: build_file('data/icons/right_arrow_right_arc.png') if toggle_motionsettings.state == 'normal' else build_file('data/icons/left_arrow_right_arc.png')
                 size_hint: None, None
                 size: dp(30), dp(60)
                 center_y: toggle_motionsettings.center_y
@@ -620,8 +621,8 @@
 						border: 0, 0, 0, 0
 				        size_hint: None, None
 				        size: '30dp', '40dp'
-						background_normal: './data/icons/UU_normal.png'
-						background_down: './data/icons/UU_down.png'
+						background_normal: build_file('data/icons/UU_normal.png')
+						background_down: build_file('data/icons/UU_down.png')
 						on_release: root.coarse_up()
 				    IconButton:
 				        id: slow_up
@@ -629,8 +630,8 @@
 						border: 0, 0, 0, 0
 				        size_hint: None, None
 				        size: '30dp', '30dp'
-						background_normal: './data/icons/U_normal.png'
-						background_down: './data/icons/U_down.png'
+						background_normal: build_file('data/icons/U_normal.png')
+						background_down: build_file('data/icons/U_down.png')
 						on_release: root.fine_up()
 				    IconButton:
 				        id: slow_down
@@ -638,8 +639,8 @@
 						border: 0, 0, 0, 0
 				        size_hint: None, None
 				        size: '30dp', '30dp'
-						background_normal: './data/icons/D_normal.png'
-						background_down: './data/icons/D_down.png'
+						background_normal: build_file('data/icons/D_normal.png')
+						background_down: build_file('data/icons/D_down.png')
 						on_release: root.fine_down()
 				    IconButton:
 				        id: fast_down
@@ -647,8 +648,8 @@
 						border: 0, 0, 0, 0
 				        size_hint: None, None
 				        size: '30dp', '40dp'
-						background_normal: './data/icons/DD_normal.png'
-						background_down: './data/icons/DD_down.png'
+						background_normal: build_file('data/icons/DD_normal.png')
+						background_down: build_file('data/icons/DD_down.png')
 						on_release: root.coarse_down()
 				    Label:
 
@@ -667,8 +668,8 @@
 				        value: 0.
 						step: 0.1
 				        cursor_size: '30dp','40dp'
-				        cursor_image: './data/icons/objective.png'
-				        cursor_disabled_image: './data/icons/objective.png'
+				        cursor_image: build_file('data/icons/objective.png')
+				        cursor_disabled_image: build_file('data/icons/objective.png')
 				        value_track: True
 				        value_track_color: 51/255, 181/255, 229/255, 1
 				        value_track_width: '5dp'
@@ -1063,8 +1064,8 @@
 							size_hint: None, None
 							tooltip_text: 'Coarse Left'
 							size: '30dp', '30dp'
-							background_normal: './data/icons/LL_normal.png'
-							background_down: './data/icons/LL_down.png'
+							background_normal: build_file('data/icons/LL_normal.png')
+							background_down: build_file('data/icons/LL_down.png')
 							on_release: root.coarse_left()
 
 						IconButton: # FINE LEFT
@@ -1073,8 +1074,8 @@
 							border: 0, 0, 0, 0
 							size_hint: None, None
 							size: '25dp', '30dp'
-							background_normal: './data/icons/L_normal.png'
-							background_down: './data/icons/L_down.png'
+							background_normal: build_file('data/icons/L_normal.png')
+							background_down: build_file('data/icons/L_down.png')
 							on_release: root.fine_left()
 
 						IconButton: # FINE RIGHT
@@ -1083,8 +1084,8 @@
 							border: 0, 0, 0, 0
 							size_hint: None, None
 							size: '25dp', '30dp'
-							background_normal: './data/icons/R_normal.png'
-							background_down: './data/icons/R_down.png'
+							background_normal: build_file('data/icons/R_normal.png')
+							background_down: build_file('data/icons/R_down.png')
 							on_release: root.fine_right()
 			
 						IconButton: # COARSE RIGHT
@@ -1093,8 +1094,8 @@
 							border: 0, 0, 0, 0
 							size_hint: None, None
 							size: '30dp', '30dp'
-							background_normal: './data/icons/RR_normal.png'
-							background_down: './data/icons/RR_down.png'
+							background_normal: build_file('data/icons/RR_normal.png')
+							background_down: build_file('data/icons/RR_down.png')
 							on_release: root.coarse_right()
 
 				# Y Direction Controls
@@ -1151,32 +1152,32 @@
 							border: 0, 0, 0, 0
 							size_hint: None, None
 							size: '30dp', ' 30dp'
-							background_normal: './data/icons/DD_normal.png'
-							background_down: './data/icons/DD_down.png'
+							background_normal: build_file('data/icons/DD_normal.png')
+							background_down: build_file('data/icons/DD_down.png')
 							on_release: root.coarse_back()
 						IconButton: # FINE FORWARD
 							border: 0, 0, 0, 0
 							tooltip_text: 'Fine upward'
 							size_hint: None, None
 							size: '25dp', '30dp'
-							background_normal: './data/icons/D_normal.png'
-							background_down: './data/icons/D_down.png'
+							background_normal: build_file('data/icons/D_normal.png')
+							background_down: build_file('data/icons/D_down.png')
 							on_release: root.fine_back()
 						IconButton: # FINE BACK
 							border: 0, 0, 0, 0
 							tooltip_text: 'Fine downward'
 							size_hint: None, None
 							size: '25dp', '30dp'
-							background_normal: './data/icons/U_normal.png'
-							background_down: './data/icons/U_down.png'
+							background_normal: build_file('data/icons/U_normal.png')
+							background_down: build_file('data/icons/U_down.png')
 							on_release: root.fine_fwd()
 						IconButton: # COARSE BACK
 							border: 0, 0, 0, 0
 							tooltip_text: 'Coarse downward'
 							size_hint: None, None
 							size: '30dp', '30dp'
-							background_normal: './data/icons/UU_normal.png'
-							background_down: './data/icons/UU_down.png'
+							background_normal: build_file('data/icons/UU_normal.png')
+							background_down: build_file('data/icons/UU_down.png')
 							on_release: root.coarse_fwd()
 
 			# Stage Display
@@ -1485,8 +1486,8 @@
 					size_hint: None, None
 					size: '30dp', '30dp'
 					pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-					background_normal: './data/icons/L_normal.png'
-					background_down: './data/icons/L_down.png'
+					background_normal: build_file('data/icons/L_normal.png')
+					background_down: build_file('data/icons/L_down.png')
 					on_release: root.prev_step()
 				CommitInput:
 					id: step_number_input
@@ -1528,8 +1529,8 @@
 					size_hint: None, None
 					size: '30dp', '30dp'
 					pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-					background_normal: './data/icons/R_normal.png'
-					background_down: './data/icons/R_down.png'
+					background_normal: build_file('data/icons/R_normal.png')
+					background_down: build_file('data/icons/R_down.png')
 					on_release: root.next_step()
 			
 			BoxLayout:
@@ -1932,8 +1933,8 @@
 			border: 0, 0, 0, 0
 			valign: 'middle'
 			halign: 'right'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
+			background_normal: build_file('data/icons/ToggleL.png')
+			background_down: build_file('data/icons/ToggleRW.png')
 			state: 'down'
 
 	# Empty widget to consume space at bottom of controls panel
@@ -2176,7 +2177,7 @@
 			log_item: 'VIDEO'
 			title: 'Create Video'
 			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+			background_normal: build_file('data/icons/post_processing_background.png')
 			collapse: False
 
 			PostProcessingPanelScroll:
@@ -2189,7 +2190,7 @@
 			log_item: 'STITCH'
 			title: 'Stitch'
 			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+			background_normal: build_file('data/icons/post_processing_background.png')
 
 			PostProcessingPanelScroll:
 				StitchControls:
@@ -2201,7 +2202,7 @@
 			log_item: 'COMPOSITE'
 			title: 'Composite Generation'
 			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+			background_normal: build_file('data/icons/post_processing_background.png')
 
 			PostProcessingPanelScroll:
 				CompositeGenControls:
@@ -2213,7 +2214,7 @@
 			log_item: 'Z_PROJECTION'
 			title: 'Z-Projection'
 			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+			background_normal: build_file('data/icons/post_processing_background.png')
 
 			PostProcessingPanelScroll:
 				ZProjectionControls:
@@ -2225,7 +2226,7 @@
 			log_item: 'QUICK_ENHANCE'
 			title: 'Quick Enhance'
 			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+			background_normal: build_file('data/icons/post_processing_background.png')
 
 			PostProcessingPanelScroll:
 				QuickEnhanceControls:
@@ -2260,7 +2261,7 @@
 			log_item: 'OBJECT_ANALYSIS'
 			title: 'Object Analysis'
 			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+			background_normal: build_file('data/icons/post_processing_background.png')
 
 			PostProcessingPanelScroll:
 				BoxLayout:
@@ -2349,7 +2350,7 @@
             background_color: 0, 0, 0, 0
             on_press: root.toggle_settings()
             Image:
-                source: './data/icons/left_arrow_left_arc.png' if toggle_imagesettings.state == 'normal' else './data/icons/right_arrow_left_arc.png'
+                source: build_file('data/icons/left_arrow_left_arc.png') if toggle_imagesettings.state == 'normal' else build_file('data/icons/right_arrow_left_arc.png')
                 size_hint: None, None
                 size: dp(30), dp(60)
                 center_y: toggle_imagesettings.center_y
@@ -2560,7 +2561,7 @@
 					value: 90
 					size_hint_x: 0.4
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_width: dp(5)
 					on_value: root.update_jpg_quality(self.value)
@@ -2702,8 +2703,8 @@
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
+					background_normal: build_file('data/icons/ToggleL.png')
+					background_down: build_file('data/icons/ToggleRW.png')
 					on_release: root.update_scale_bar_state()
 					state: 'normal'
 					
@@ -2726,8 +2727,8 @@
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
+					background_normal: build_file('data/icons/ToggleL.png')
+					background_down: build_file('data/icons/ToggleRW.png')
 					on_release: root.update_crosshairs_state()
 					state: 'normal'
 
@@ -2750,8 +2751,8 @@
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
+					background_normal: build_file('data/icons/ToggleL.png')
+					background_down: build_file('data/icons/ToggleRW.png')
 					on_release: root.update_live_image_histogram_equalization()
 					state: 'normal'
 
@@ -2774,8 +2775,8 @@
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
+					background_normal: build_file('data/icons/ToggleL.png')
+					background_down: build_file('data/icons/ToggleRW.png')
 					on_release: root.update_show_tooltips()
 					state: 'normal'
 			
@@ -2803,8 +2804,8 @@
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
+					background_normal: build_file('data/icons/ToggleL.png')
+					background_down: build_file('data/icons/ToggleRW.png')
 					on_release: root.update_bullseye_state()
 
 			# Panel action buttons, stacked vertically, each alone in its row
@@ -2906,9 +2907,9 @@
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
+					background_normal: build_file('data/icons/ToggleL.png')
 					# One white image, lit in the layer's colour while on.
-					background_down: './data/icons/ToggleRW.png'
+					background_down: build_file('data/icons/ToggleRW.png')
 					icon_tint: root.bg_color if self.state == 'down' else (1, 1, 1, 1)
 					on_release: root.led_toggle()
 
@@ -2939,7 +2940,7 @@
 					value: 100.
 					step: 1.
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3048,7 +3049,7 @@
 					value: 100
 					step: 1
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3094,7 +3095,7 @@
 					value: 1.
 					step: 0.25
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3140,7 +3141,7 @@
 					value: 10.
 					step: 1.
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3187,7 +3188,7 @@
 					value: 1
 					step: 1
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3282,7 +3283,7 @@
 					value: 0.
 					step: 0.1
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3332,7 +3333,7 @@
 					# value: 2. # 10^2 -> 100 ms exposure
 					# step: 0.01
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3377,7 +3378,7 @@
 					value: 1
 					step: 1
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3558,7 +3559,7 @@
 					value: 5
 					step: 1
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -3687,7 +3688,7 @@
 					value: 0.
 					step: 1
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: dp(5)
@@ -4172,7 +4173,7 @@
 					step: 1
 					orientation: 'horizontal'
 					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
+					cursor_image: build_file('data/icons/slider_cursor.png')
 					value_track: True
 					value_track_width: dp(5)
 					on_release: root.slider_adjustment_threshold()

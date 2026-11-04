@@ -8,6 +8,7 @@ from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
+from lib.build_files import build_file
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.labware_loader import CENTER_PLATE
@@ -40,7 +41,7 @@ from ui.ui_helpers import (
 logger = logging.getLogger('LVP.ui.protocol_settings')
 
 
-_ABORT_BACKGROUND = './data/icons/abort_protocol_background.png'
+_ABORT_BACKGROUND = build_file('data/icons/abort_protocol_background.png')
 
 
 class _PanelRunButton(typing.NamedTuple):
@@ -671,9 +672,7 @@ class ProtocolSettings(FloatLayout):
         self.update_step_ui()
 
     # Load Protocol from File
-    def load_protocol(
-        self, filepath: str = './data/new_default_protocol.tsv', *, navigate: bool
-    ) -> bool:
+    def load_protocol(self, filepath: str, *, navigate: bool) -> bool:
         """Load a protocol from disk through the Session and fill the panel.
 
         ``navigate`` says whether a person asked for this load, and so
