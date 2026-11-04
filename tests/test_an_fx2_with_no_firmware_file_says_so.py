@@ -23,10 +23,9 @@ from modules.lumascope_api._lumascope import _camera_failure_cause
 
 @pytest.fixture
 def no_firmware_file(monkeypatch, tmp_path):
-    """The driver installed in a tree that holds no firmware folder."""
-    (tmp_path / 'drivers').mkdir()
-    monkeypatch.setattr(fx2driver, '__file__', str(tmp_path / 'drivers' / 'fx2driver.py'))
-    monkeypatch.delattr('sys.frozen', raising=False)
+    """A build whose files hold no firmware folder."""
+    monkeypatch.setattr(fx2driver, 'build_root', lambda: tmp_path)
+    return tmp_path
 
 
 @pytest.fixture
@@ -48,6 +47,17 @@ class _AbsentCamera:
 def test_the_connect_raises_the_firmware_fault_naming_the_file(no_firmware_file):
     with pytest.raises(CameraFirmwareMissingError, match=r'LumascopeClassic\.hex'):
         fx2driver._FX2Connection(SimulatedFX2Transport(SimulatedFX2Device()))
+
+
+def test_the_fault_names_the_build_roots_two_firmware_files_and_nowhere_else(no_firmware_file):
+    with pytest.raises(CameraFirmwareMissingError) as caught:
+        fx2driver._FX2Connection.find_firmware_path()
+
+    firmware = no_firmware_file / 'firmware'
+    assert caught.value.searched == (
+        str(firmware / 'LumascopeClassic.hex'),
+        str(firmware / 'Lumascope600.hex'),
+    )
 
 
 def test_bring_up_s_camera_cause_is_the_missing_firmware(no_firmware_file, simulated_bus):

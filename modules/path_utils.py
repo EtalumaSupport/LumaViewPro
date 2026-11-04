@@ -10,6 +10,7 @@ import sys
 from enum import StrEnum
 from typing import ClassVar
 
+from lib.build_files import build_root
 from modules.exceptions import (
     InstallationFileError,
     LiveFolderPathRefusedError,
@@ -345,11 +346,6 @@ def capture_location_problem(parent_dir: pathlib.Path) -> str | None:
     return None
 
 
-def get_script_root() -> pathlib.Path:
-    """Return the application install/source root."""
-    return pathlib.Path(__file__).resolve().parent.parent
-
-
 # The installer drops this file beside the exe; nothing else writes it.
 INSTALLED_MARKER = 'marker.lvpinstalled'
 
@@ -380,7 +376,7 @@ def launch_root() -> pathlib.Path:
     marker; the checkout as the interpreter found it otherwise. Links are
     not followed: a simulator run from a scratch folder of links into a
     clone keeps its logs and settings in that folder, not the clone's.
-    ``get_script_root`` follows them, for the build's own files and git.
+    ``lib.build_files.build_root`` follows them, for the build's own files and git.
     """
     if getattr(sys, 'frozen', False):
         return pathlib.Path(os.path.abspath(sys.executable)).parent
@@ -413,7 +409,7 @@ def read_version() -> tuple[str, str]:
     a non-ASCII character raises "TIFF strings must be 7-bit ASCII" and no
     image can be saved at all.
     """
-    version_file = get_script_root() / 'version.txt'
+    version_file = build_root() / 'version.txt'
     try:
         lines = version_file.read_text(encoding='utf-8-sig').splitlines()
         version = lines[0].strip() if len(lines) > 0 else ''
@@ -464,7 +460,7 @@ def get_source_root(
 
     version, _build_timestamp = read_version()
     if not version:
-        raise InstallationFileError(get_script_root() / 'version.txt', 'names no version')
+        raise InstallationFileError(build_root() / 'version.txt', 'names no version')
 
     import platformdirs
 
@@ -527,8 +523,3 @@ def read_installation_file(path: str | pathlib.Path) -> dict:
     if not isinstance(contents, dict):
         raise InstallationFileError(path, f'holds a {type(contents).__name__}, not a JSON object')
     return contents
-
-
-def resolve_script_file(*parts: str) -> pathlib.Path:
-    """Resolve a file under the install/source root."""
-    return get_script_root().joinpath(*parts)

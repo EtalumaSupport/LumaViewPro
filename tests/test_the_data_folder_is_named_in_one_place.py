@@ -23,7 +23,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 def _write_version(tmp_path, monkeypatch, raw: bytes) -> None:
     """The build's version.txt holds ``raw``."""
     (tmp_path / 'version.txt').write_bytes(raw)
-    monkeypatch.setattr(path_utils, 'get_script_root', lambda: tmp_path)
+    monkeypatch.setattr(path_utils, 'build_root', lambda: tmp_path)
 
 
 def test_a_byte_order_mark_does_not_reach_the_version(tmp_path, monkeypatch):

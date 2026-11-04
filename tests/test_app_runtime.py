@@ -73,7 +73,7 @@ def test_an_installed_build_whose_version_txt_names_no_version_is_refused(exe_fo
     with pytest.raises(InstallationFileError) as refused:
         path_utils.get_source_root()
 
-    assert refused.value.file_path == path_utils.get_script_root() / 'version.txt'
+    assert refused.value.file_path == path_utils.build_root() / 'version.txt'
 
 
 def test_the_marker_does_not_make_a_source_run_installed(tmp_path, monkeypatch):
@@ -90,6 +90,8 @@ sys.path.insert(0, sys.argv[1])
 from modules import path_utils
 import lvp_logger
 from modules.app_environment import init_environment
+from drivers import camera_profiles
+from drivers.fx2driver import _FX2Connection
 env = init_environment()
 print(json.dumps({
     'data_roots': {
@@ -103,23 +105,40 @@ print(json.dumps({
         'read_version': path_utils.read_version()[0],
         'lvp_logger': lvp_logger.version,
     },
+    'build_files': {
+        'timing_record': str(
+            camera_profiles.timing_record_path(camera_profiles.simulated_profile()).parent
+        ),
+        'fx2_hex': _FX2Connection.find_firmware_path(),
+    },
 }))
 """
 
 
-def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(tmp_path):
-    # The farm's own copy of version.txt names another version: the version is
-    # the build's, read from the checkout the links lead to, for every reader.
+@pytest.fixture
+def farm(tmp_path):
+    """A folder of links into this checkout, with its own copy of version.txt
+    naming another version, and a working folder elsewhere holding decoys of
+    the build's files."""
     folder = tmp_path / 'launch'
     folder.mkdir()
     for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'data'):
         (folder / item).symlink_to(REPO / item)
     (folder / 'version.txt').write_text('9.9.9-farm\n2026-11-04 00:00\n', encoding='utf-8')
+    decoy = tmp_path / 'decoy'
+    for item in ('ui/lumaviewpro.kv', 'data/new_default_protocol.tsv', 'version.txt'):
+        (decoy / item).parent.mkdir(parents=True, exist_ok=True)
+        (decoy / item).write_text('decoy\n', encoding='utf-8')
+    return folder, decoy
+
+
+def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(farm):
+    folder, decoy = farm
     checkout_version = (REPO / 'version.txt').read_text(encoding='utf-8-sig').splitlines()[0]
 
     child = subprocess.run(
         [sys.executable, '-c', _CHILD, str(folder)],
-        cwd=str(folder),
+        cwd=str(decoy),
         capture_output=True,
         text=True,
         check=True,
@@ -129,3 +148,7 @@ def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(tmp_path)
 
     assert answers['data_roots'] == dict.fromkeys(answers['data_roots'], str(folder))
     assert answers['versions'] == dict.fromkeys(answers['versions'], checkout_version)
+    assert answers['build_files'] == {
+        'timing_record': str(REPO / 'data' / 'camera_timing'),
+        'fx2_hex': str(REPO / 'firmware' / 'LumascopeClassic.hex'),
+    }

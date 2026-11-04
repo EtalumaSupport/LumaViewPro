@@ -3,7 +3,8 @@
 Three kinds of file, each where the frozen app or the installer looks for it:
 
 - the firmware hex the driver uploads at every connect, under ``firmware/``
-  (``_FX2Connection.find_firmware_path`` reads ``<_MEIPASS>/firmware/``);
+  (``_FX2Connection.find_firmware_path`` reads ``<build root>/firmware/``, the
+  bundle's folder in the frozen build);
 - libusb-package's own library inside the ``libusb_package`` folder, since
   ``libusb_package.get_library_path()`` looks only inside its package, and
   the driver runs on that file and no other;

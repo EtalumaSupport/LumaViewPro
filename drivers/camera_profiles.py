@@ -86,6 +86,7 @@ import json
 import pathlib
 from dataclasses import dataclass, field, replace
 
+from lib.build_files import build_root
 from lib.log_helpers import logger
 
 
@@ -350,12 +351,7 @@ def simulated_profile() -> CameraProfile:
 
 def timing_record_path(profile: CameraProfile) -> pathlib.Path:
     """Where ``profile``'s measured timing record ships."""
-    return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / 'data'
-        / 'camera_timing'
-        / f'{profile.timing_model}.json'
-    )
+    return build_root() / 'data' / 'camera_timing' / f'{profile.timing_model}.json'
 
 
 def timing_record(profile: CameraProfile) -> dict | None:

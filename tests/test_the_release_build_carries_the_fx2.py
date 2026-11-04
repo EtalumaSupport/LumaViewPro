@@ -26,7 +26,6 @@ import configparser
 import datetime
 import importlib.util
 import pathlib
-import sys
 
 import pytest
 
@@ -151,8 +150,8 @@ def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monke
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
     datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
     dist = _dist(tmp_path, datas, binaries)
-    monkeypatch.setattr(sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(sys, '_MEIPASS', str(dist), raising=False)
+    # Frozen, the build root is the bundle's folder the spec collects into.
+    monkeypatch.setattr(fx2driver, 'build_root', lambda: dist)
 
     found = fx2driver._FX2Connection.find_firmware_path()
 

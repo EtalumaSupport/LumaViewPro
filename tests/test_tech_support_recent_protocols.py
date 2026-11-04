@@ -46,7 +46,6 @@ def _make_two_same_named_runs(tmp_path: pathlib.Path):
 def _run_step_protocols(session, tmp_path, monkeypatch):
     capture_dir = _make_two_same_named_runs(tmp_path)
     monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture_dir)
-    monkeypatch.setattr(tech_support_report, '_get_protocol_dir', lambda: None)
     monkeypatch.setattr(tech_support_report, '_get_lvp_data_dir', lambda: None)
 
     report = TechSupportReport(session)

@@ -67,7 +67,6 @@ from modules.path_utils import (
     desktop_folder,
     folder_to_make,
     get_log_dir,
-    get_script_root,
     get_source_root,
 )
 from modules.protocol import Protocol
@@ -139,11 +138,6 @@ TMC5072_DIAG_REGISTERS = {
 # ---------------------------------------------------------------------------
 
 
-def _get_app_root():
-    """Return the LumaViewPro application root directory."""
-    return get_script_root()
-
-
 def _get_user_documents():
     """Return the user's Documents directory.
 
@@ -173,8 +167,7 @@ def _without_api_keys(data: bytes) -> bytes:
 
 def _get_lvp_data_dir():
     """Return the LVP data/ directory (settings.json, scopes.json, etc.)."""
-    data_dir = get_source_root() / 'data'
-    return data_dir if data_dir.is_dir() else _get_app_root()
+    return get_source_root() / 'data'
 
 
 def _get_lvp_logs_dir():
@@ -210,19 +203,6 @@ def _get_capture_dir():
     return docs
 
 
-def _get_protocol_dir():
-    """Return the protocol files directory, or None."""
-    for candidate in [
-        _get_app_root() / 'protocols',
-        _get_app_root() / 'Protocols',
-        _get_app_root() / 'data' / 'protocols',
-        _get_capture_dir() / 'protocols',
-    ]:
-        if candidate.is_dir():
-            return candidate
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Recent Protocols -- reusable from GUI "Recent Protocols" menu
 # ---------------------------------------------------------------------------
@@ -239,7 +219,7 @@ def get_recent_protocols(n: int = RECENT_PROTOCOL_COUNT) -> list[dict]:
     directly for a "Recent Protocols" menu.
     """
     search_dirs = set()
-    for d in [_get_protocol_dir(), _get_lvp_data_dir(), _get_capture_dir()]:
+    for d in [_get_lvp_data_dir(), _get_capture_dir()]:
         if d and d.is_dir():
             search_dirs.add(d)
 

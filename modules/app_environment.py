@@ -33,13 +33,8 @@ def init_environment() -> AppEnvironment:
     """
     windows_machine = os.name == 'nt'
 
-    from modules.path_utils import (
-        AppRuntime,
-        app_runtime,
-        get_script_root,
-        get_source_root,
-        read_version,
-    )
+    from lib.build_files import build_root
+    from modules.path_utils import AppRuntime, app_runtime, get_source_root, read_version
 
     version, build_timestamp = read_version()
 
@@ -50,7 +45,7 @@ def init_environment() -> AppEnvironment:
     if app_runtime() == AppRuntime.INSTALLED:
         os.makedirs(source_path, exist_ok=True)
         if not os.path.exists(os.path.join(source_path, 'data')):
-            shutil.copytree(get_script_root() / 'data', os.path.join(source_path, 'data'))
+            shutil.copytree(build_root() / 'data', os.path.join(source_path, 'data'))
 
     num_cores = os.cpu_count()
 

@@ -17,9 +17,7 @@ from tests.ast_seams import iter_package_modules, parse_module, production_modul
 
 _OWNER = 'modules/path_utils.py'
 _MARKER = 'marker.lvpinstalled'
-# The driver asks where the bundle's data files are, not how the process was
-# launched, and a driver does not import modules/.
-_ALLOWED = {('drivers/fx2driver.py', 'frozen')}
+_ALLOWED: set[tuple[str, str]] = set()
 
 
 def _all_production_modules():

@@ -35,10 +35,10 @@ _paused_threads = threading.local()
 # a second reader with a different policy is how the two drifted apart
 # before. path_utils imports nothing that imports the logger, so this
 # import cannot reach back into it.
+from lib.build_files import build_root
 from modules.path_utils import (
     app_runtime,
     get_log_dir,
-    get_script_root,
     get_source_root,
     launch_root,
     read_version,
@@ -226,8 +226,6 @@ def _rotating_handler(path: str, *, layout: str, delay: bool):
     return handler
 
 
-# obtains name of the module (file) importing lvp_logger
-filename = f'{__file__}'
 file_handler = _rotating_handler(LOG_FILE, layout=MAIN_LAYOUT, delay=False)
 file_handler.addFilter(ThreadPauseFilter())
 
@@ -514,12 +512,12 @@ def git_revision() -> str | None:
 
     The banner's ``Git:`` line and any record that names the build read it
     here, so the two can never disagree. It looks where the code really
-    lives (``get_script_root``, links resolved), never in the folder
+    lives (``build_root``, links resolved), never in the folder
     LumaViewPro was launched from: a launch from a folder of links into a
     clone has no ``.git`` of its own. A frozen build asks git nothing: its
     bundle is no checkout, and a folder around it may be another one.
     """
-    root = str(get_script_root())
+    root = str(build_root())
     # SHA lookup precedence:
     #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
     #      $Format:%H$ placeholder with the real SHA at archive time.

@@ -301,8 +301,8 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
     )
     host = subprocess.Popen(
         [sys.executable, '-c', script],
-        cwd=sim_backend._REPO,
-        env=dict(os.environ, PYTHONPATH=str(sim_backend._REPO)),
+        cwd=REPO_ROOT,
+        env=dict(os.environ, PYTHONPATH=str(REPO_ROOT)),
         stdout=subprocess.PIPE,
         text=True,
     )

@@ -26,7 +26,7 @@ def session(tmp_path):
 
 def test_the_version_is_version_txts_first_line(session):
     first_line = (
-        (path_utils.get_script_root() / 'version.txt')
+        (path_utils.build_root() / 'version.txt')
         .read_text(encoding='utf-8-sig')
         .splitlines()[0]
         .strip()

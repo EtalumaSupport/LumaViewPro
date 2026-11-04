@@ -34,7 +34,7 @@ def test_the_archival_file_names_the_commit(tmp_path):
     (tmp_path / '.git_archival.txt').write_text('node: 0123456789abcdef0123456789abcdef01234567\n')
     code = (
         'import pathlib, lvp_logger; '
-        f'lvp_logger.get_script_root = lambda: pathlib.Path({str(tmp_path)!r}); '
+        f'lvp_logger.build_root = lambda: pathlib.Path({str(tmp_path)!r}); '
         'print(lvp_logger.git_revision())'
     )
 

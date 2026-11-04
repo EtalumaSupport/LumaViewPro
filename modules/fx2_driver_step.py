@@ -411,7 +411,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 1 or argv[0] not in ('install', 'uninstall'):
         print('usage: lvp_fx2_driver_step install|uninstall', file=sys.stderr)
         return 2
-    install_dir = pathlib.Path(sys.executable).resolve().parent
+    install_dir = launch_root()
     version, _ = read_version()
     logs = install_dir / 'logs'
     logs.mkdir(exist_ok=True)

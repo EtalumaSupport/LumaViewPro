@@ -26,9 +26,9 @@ from serial.tools.list_ports_common import ListPortInfo
 
 from drivers.sim_wire.mp.tmc5072 import AXES, FAULTS
 from drivers.sim_wire.port import BoardImage, EmulatedBoard, EmulatedPort
+from lib.build_files import build_root
 
 _PACKAGE = pathlib.Path(__file__).resolve().parent
-_REPO = _PACKAGE.parent.parent
 
 MOTOR_VID, MOTOR_PID = 0x2E8A, 0x0005
 MOTOR_DEVICE = 'simwire:motor'
@@ -189,7 +189,7 @@ class MotorBoardSpec:
         # The register tables each dialect's boards carry: a 3.0 board has the
         # ones LumaViewPro ships; a field board has its own, because the field
         # parser reads the comments in the current ones as registers and fails.
-        ini_dir = _REPO / 'data' / 'firmware'
+        ini_dir = build_root() / 'data' / 'firmware'
         if self.dialect == 'field':
             ini_dir = _PACKAGE / 'firmware' / 'field-ini'
         files = {name: (ini_dir / name).read_bytes() for name in config['IniFiles'].values()}

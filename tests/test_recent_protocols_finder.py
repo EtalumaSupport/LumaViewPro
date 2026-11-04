@@ -19,8 +19,8 @@ from modules.protocol import Protocol
 
 @pytest.fixture
 def protocol_dir(tmp_path, monkeypatch):
-    """Point all three finder search roots at one temp directory."""
-    for name in ('_get_protocol_dir', '_get_lvp_data_dir', '_get_capture_dir'):
+    """Point both finder search roots at one temp directory."""
+    for name in ('_get_lvp_data_dir', '_get_capture_dir'):
         monkeypatch.setattr(tech_support_report, name, lambda: tmp_path)
     return tmp_path
 

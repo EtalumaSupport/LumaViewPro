@@ -262,13 +262,19 @@ def test_install_and_uninstall_never_touch_the_trust_store(tmp_path):
     assert [args[0] for args in machine.commands] == ['pnputil'] * len(machine.commands)
 
 
+def _run_frozen_from(install_dir, monkeypatch) -> None:
+    """The step as the installer runs it: frozen, from the install folder,
+    which holds the build's files."""
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
+    monkeypatch.setattr(path_utils, 'build_root', lambda: install_dir)
+
+
 def _run_main(tmp_path, monkeypatch, machine) -> tuple[int, str]:
     package_dir = _package_dir(tmp_path)
     install_dir = package_dir.parent.parent
     (install_dir / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
-    monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
-    # Frozen, the build's files are the install folder.
-    monkeypatch.setattr(path_utils, 'get_script_root', lambda: install_dir)
+    _run_frozen_from(install_dir, monkeypatch)
     monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
 
     code = fx2_driver_step.main(['install'])
@@ -303,7 +309,7 @@ def test_the_step_logs_to_its_install_folder_and_exits_1_when_incomplete(tmp_pat
 def test_an_unexpected_error_is_logged_with_its_traceback_and_exits_1(tmp_path, monkeypatch):
     package_dir = _package_dir(tmp_path)
     install_dir = package_dir.parent.parent
-    monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
+    _run_frozen_from(install_dir, monkeypatch)
 
     class _Unreadable(_Machine):
         def store_packages(self, hardware_id):

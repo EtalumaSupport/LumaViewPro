@@ -36,6 +36,7 @@ import weakref
 from datetime import datetime
 from pathlib import Path
 
+from lib.build_files import build_root
 from lib.log_helpers import logger
 
 
@@ -113,7 +114,7 @@ def _write_run_info(commit):
             'python': platform.python_version(),
             'defender': _defender_state(),
         }
-        info.update(_build_identity(Path(__file__).resolve().parent.parent, commit))
+        info.update(_build_identity(build_root(), commit))
         (_output_dir / 'run_info.json').write_text(json.dumps(info, indent=2, default=str))
     except Exception as e:
         logger.warning(f'[PROFILE   ] run info write failed: {e}')

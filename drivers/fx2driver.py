@@ -88,6 +88,7 @@ from collections.abc import Callable, Iterable, Iterator
 
 import numpy as np
 
+from lib.build_files import build_root
 from lib.lumascope_error import Fault, RefusalCause
 from lib.log_helpers import camera_logger as _cam_log
 from lib.log_helpers import logger
@@ -1848,7 +1849,7 @@ class _FX2Connection:
 
     @staticmethod
     def find_firmware_path() -> str:
-        """Locate the FX2 firmware hex file in a PyInstaller bundle or source tree.
+        """Locate the FX2 firmware hex file among the build's files.
 
         Two hex files ship with the driver:
 
@@ -1872,24 +1873,15 @@ class _FX2Connection:
         re-copied from anywhere, verify its SHA256 matches.
 
         Search order (first hit wins):
-          1. ``<base>/firmware/LumascopeClassic.hex``   (patched -- preferred)
-          2. ``<base>/firmware/Lumascope600.hex``       (original -- fallback)
-          3. ``<base>/../firmware/<...>``               (dev tree: drivers/ is one level below repo root)
+          1. ``<build root>/firmware/LumascopeClassic.hex``   (patched -- preferred)
+          2. ``<build root>/firmware/Lumascope600.hex``       (original -- fallback)
 
-        Under PyInstaller, ``<base>`` is ``sys._MEIPASS``; otherwise it's
-        the directory containing this module file.
+        The build root is ``lib.build_files.build_root``: the checkout in a
+        source run, the bundle's folder in a PyInstaller build, where the
+        release spec puts ``firmware/``.
         """
-        if getattr(sys, 'frozen', False):
-            base = sys._MEIPASS  # type: ignore[attr-defined]
-        else:
-            base = os.path.dirname(os.path.abspath(__file__))
-
-        names = ['LumascopeClassic.hex', 'Lumascope600.hex']
-
-        candidates: list[str] = []
-        for name in names:
-            candidates.append(os.path.join(base, 'firmware', name))
-            candidates.append(os.path.join(base, '..', 'firmware', name))
+        firmware = build_root() / 'firmware'
+        candidates = [str(firmware / name) for name in ('LumascopeClassic.hex', 'Lumascope600.hex')]
         for path in candidates:
             if os.path.isfile(path):
                 return path
