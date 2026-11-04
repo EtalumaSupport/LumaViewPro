@@ -58,4 +58,4 @@ def test_bring_up_s_camera_cause_is_the_missing_firmware(no_firmware_file, simul
     with pytest.raises(CameraFirmwareMissingError) as caught:
         registry.create('auto')
 
-    assert _camera_failure_cause(caught.value) == 'camera_firmware_missing'
+    assert _camera_failure_cause(caught.value, False) == 'camera_firmware_missing'

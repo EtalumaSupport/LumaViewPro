@@ -92,7 +92,9 @@ class NoLiveDriverError(Fault, RuntimeError):
     title = 'Hardware Not Found'
 
     def __init__(self, kind: str, fallback: DriverFallback):
-        declined = f'; not loaded: {"; ".join(fallback.declined)}' if fallback.declined else ''
+        declined = (
+            f'; not loaded: {"; ".join(map(str, fallback.declined))}' if fallback.declined else ''
+        )
         tried = ', '.join(fallback.tried) or 'none registered'
         super().__init__(f'no live {kind} driver ({fallback.cause}); tried: {tried}{declined}')
         self.fallback = fallback
@@ -119,6 +121,22 @@ class _RegistryEntry:
 
 
 @dataclass(frozen=True)
+class DeclinedDriver:
+    """A driver this installation could not load, so the registry never tried it.
+
+    Attributes:
+        name: Its registry name, the one it would have registered under.
+        reason: Why it did not load.
+    """
+
+    name: str
+    reason: str
+
+    def __str__(self) -> str:
+        return f'{self.name}: {self.reason}'
+
+
+@dataclass(frozen=True)
 class DriverFallback:
     """Why 'auto' handed back the null driver instead of a real one.
 
@@ -138,13 +156,13 @@ class DriverFallback:
         detail: The last error's type and message when a driver raised;
             empty otherwise.
         declined: Each driver that did not load on this installation and
-            so was never tried, as ``'<name>: <reason>'``.
+            so was never tried.
     """
 
     cause: str
     tried: tuple[str, ...]
     detail: str = ''
-    declined: tuple[str, ...] = ()
+    declined: tuple[DeclinedDriver, ...] = ()
 
 
 class DriverRegistry:
@@ -424,7 +442,7 @@ class DriverRegistry:
         # why the FX2 was not in the picture.
         tried = tuple(e.cls.__name__ for e in real_candidates)
         detail = '' if last_error is None else f'{type(last_error).__name__}: {last_error}'
-        declined = tuple(f'{name}: {reason}' for name, reason in self._declined.items())
+        declined = tuple(DeclinedDriver(name, reason) for name, reason in self._declined.items())
         if not_responsive_names:
             cause = 'not_responding'
         elif not_connected_names:
@@ -438,7 +456,7 @@ class DriverRegistry:
         fallback = DriverFallback(cause, tried, detail, declined)
         for entry in null_candidates:
             last_error_note = f' Last error: {detail}' if detail else ''
-            declined_note = f' Not loaded: {"; ".join(declined)}.' if declined else ''
+            declined_note = f' Not loaded: {"; ".join(map(str, declined))}.' if declined else ''
             if cause == 'not_responding':
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers connected but '

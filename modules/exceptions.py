@@ -445,18 +445,36 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 
     One notice for the whole scope, in place of one per part: the person
     with no instrument attached needs to be told once, not three times.
+
+    Attributes:
+        reason: ``'no_hardware'`` -- nothing was found on USB.
+            ``'no_hardware_driver_unavailable'`` -- nothing was found, and a
+            driver this scope could be using did not load on this
+            installation.
     """
 
     title = 'No hardware detected'
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'no_hardware': None}
 
-    def __init__(self):
+    _CONNECT: ClassVar[dict[str, str]] = {
+        'no_hardware': (
+            'To connect hardware, power on the scope and reconnect the USB cable, then '
+            'restart LumaViewPro.'
+        ),
+        'no_hardware_driver_unavailable': (
+            'A driver did not load on this installation (the log names it and why). '
+            'Reinstall LumaViewPro if this scope needs that driver; otherwise power on '
+            'the scope and reconnect the USB cable, then restart LumaViewPro.'
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_CONNECT)
+
+    def __init__(self, reason: str):
         super().__init__(
             'No microscope hardware was detected. You can continue in software-only '
-            'mode (live view + protocol design will work; capture will not). To '
-            'connect hardware, power on the scope and reconnect the USB cable, then '
-            'restart LumaViewPro.'
+            'mode (live view + protocol design will work; capture will not). '
+            f'{self._CONNECT[reason]}'
         )
+        self.reason = reason
 
 
 class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
@@ -965,7 +983,8 @@ class CameraNotAvailableError(Fault, BringUpError):
             ``'not_detected'`` -- no driver found the part on USB. These two
             are the hardware registry's own causes, the LED board's too.
             ``'camera_driver_unavailable'`` -- no camera was found, and a
-            camera driver did not load on this installation.
+            camera driver this scope could be using did not load on this
+            installation.
             ``'camera_firmware_missing'`` -- the firmware file a Classic's
             driver uploads to the camera is not installed.
             ``'camera_driver_unusable'`` -- Windows has a Classic on no
@@ -1324,7 +1343,10 @@ class LedBoardUnavailableError(Fault, BringUpError):
             or: ``'not_responding'`` -- the board's port opened and the board
             answered nothing. ``'connect_failed'`` -- the board's driver
             raised while connecting. ``'no_driver'`` -- no real LED board
-            driver is registered on this installation.
+            driver is registered on this installation. Or, not the
+            registry's: ``'led_driver_unavailable'`` -- no LED board was
+            found, and an LED driver this scope could be using did not load
+            on this installation.
     """
 
     title = 'LED Board Unavailable'
@@ -1354,6 +1376,12 @@ class LedBoardUnavailableError(Fault, BringUpError):
             'No LED control board driver is installed, so illumination is not available '
             'this session. Reinstall LumaViewPro.'
         ),
+        'led_driver_unavailable': (
+            'The LED control board was not found, and an LED driver did not load on this '
+            'installation (the log names it and why), so illumination is not available '
+            'this session. Reinstall LumaViewPro if this scope needs that driver; '
+            'otherwise check the USB cable and 24V power, then restart LumaViewPro.'
+        ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
     same_fact_as = (CameraNotAvailableError,)
@@ -1369,7 +1397,8 @@ class MotorBoardUnavailableError(Fault, BringUpError):
     first symptom is a stage that does not move and a home refused.
 
     Attributes:
-        reason: The hardware registry's cause, as ``LedBoardUnavailableError``
+        reason: The hardware registry's cause, one of the five
+            ``DriverFallback.cause`` names, as ``LedBoardUnavailableError``
             explains them.
     """
 
@@ -1399,8 +1428,8 @@ class MotorBoardUnavailableError(Fault, BringUpError):
         ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
-    # The registry's causes are one fact for every board; the LED board's
-    # notice carries all five.
+    # The registry's five causes are one fact for every board; the LED board's
+    # notice carries all five, beside its own driver-unavailable cause.
     same_fact_as = (LedBoardUnavailableError,)
 
     def __init__(self, reason: str):

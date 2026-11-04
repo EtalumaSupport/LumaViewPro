@@ -412,6 +412,11 @@ def fx2_readiness_line() -> str:
     return line
 
 
+# The FX2's name in the camera and LED registries: one board carrying both, so
+# a decline under this name is the same board's in each.
+REGISTRY_NAME = 'fx2'
+
+
 def _register_if_fx2_available(registry, name, **kwargs):
     """Register the decorated class only if FX2 prerequisites are met.
 
@@ -2258,7 +2263,7 @@ class _UnplugWatch:
 # ---------------------------------------------------------------------------
 
 
-@_register_if_fx2_available(camera_registry, 'fx2', priority=80)
+@_register_if_fx2_available(camera_registry, REGISTRY_NAME, priority=80)
 class FX2Camera(Camera):
     """Camera driver for Lumascope Classic (MT9P031 via FX2 USB).
 
@@ -3101,7 +3106,7 @@ class FX2Camera(Camera):
 # ---------------------------------------------------------------------------
 
 
-@_register_if_fx2_available(led_registry, 'fx2', priority=80)
+@_register_if_fx2_available(led_registry, REGISTRY_NAME, priority=80)
 class FX2LEDController:
     """LED controller for Lumascope Classic via FX2 I2C at address 0x2A.
 

@@ -77,7 +77,7 @@ def test_bring_up_names_the_driver_not_an_absent_camera(monkeypatch):
     finally:
         fx2driver._FX2Connection._reset_for_test()
 
-    cause = _camera_failure_cause(caught.value)
+    cause = _camera_failure_cause(caught.value, False)
     notice = CameraNotAvailableError(cause)
     assert cause == 'camera_driver_unusable'
     assert notice.title == 'Camera driver not usable'

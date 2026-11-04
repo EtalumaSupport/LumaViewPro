@@ -129,7 +129,7 @@ def test_a_host_with_no_basler_has_no_camera(monkeypatch):
 def test_the_bring_up_tells_an_open_failure_as_could_not_connect():
     fault = CameraUsbOpenFailedError('IDS camera found, its data stream failed: IndexError')
 
-    assert _camera_failure_cause(fault) == 'camera_not_initialized'
+    assert _camera_failure_cause(fault, False) == 'camera_not_initialized'
     assert 'Could not connect to the camera' in str(
         CameraNotAvailableError('camera_not_initialized')
     )
@@ -140,7 +140,7 @@ def test_the_bring_up_tells_its_own_failure_as_lumaviewpros_not_the_cables():
     defect: its cause and words name LumaViewPro, never the USB cable."""
     fault = TypeError('scripted defect')
 
-    assert _camera_failure_cause(fault) == 'camera_bring_up_failed'
+    assert _camera_failure_cause(fault, False) == 'camera_bring_up_failed'
     words = str(CameraNotAvailableError('camera_bring_up_failed'))
     assert 'LumaViewPro failed' in words
     assert 'USB' not in words

@@ -14601,7 +14601,7 @@ The camera did not come up; the heading and the advice follow the cause.
 
 **Attributes**
 
-- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on one LumaViewPro cannot use. `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
+- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on one LumaViewPro cannot use. `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15766,11 +15766,12 @@ controls that appear to do nothing. The advice follows the cause.
 
 **Attributes**
 
-- `reason`: The hardware registry's cause, `'not_detected'` and `'port_in_use'` as `CameraNotAvailableError` explains them, or: `'not_responding'` -- the board's port opened and the board answered nothing. `'connect_failed'` -- the board's driver raised while connecting. `'no_driver'` -- no real LED board driver is registered on this installation.
+- `reason`: The hardware registry's cause, `'not_detected'` and `'port_in_use'` as `CameraNotAvailableError` explains them, or: `'not_responding'` -- the board's port opened and the board answered nothing. `'connect_failed'` -- the board's driver raised while connecting. `'no_driver'` -- no real LED board driver is registered on this installation. Or, not the registry's: `'led_driver_unavailable'` -- no LED board was found, and an LED driver this scope could be using did not load on this installation.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `connect_failed` | -- | 500 |
+| `led_driver_unavailable` | -- | 500 |
 | `no_driver` | -- | 500 |
 | `not_detected` | -- | 500 |
 | `not_responding` | -- | 500 |
@@ -15907,7 +15908,7 @@ first symptom is a stage that does not move and a home refused.
 
 **Attributes**
 
-- `reason`: The hardware registry's cause, as `LedBoardUnavailableError` explains them.
+- `reason`: The hardware registry's cause, one of the five `DriverFallback.cause` names, as `LedBoardUnavailableError` explains them.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16030,9 +16031,14 @@ Nothing came up at bring-up: no LED board, no motor board, no camera.
 One notice for the whole scope, in place of one per part: the person
 with no instrument attached needs to be told once, not three times.
 
+**Attributes**
+
+- `reason`: `'no_hardware'` -- nothing was found on USB. `'no_hardware_driver_unavailable'` -- nothing was found, and a driver this scope could be using did not load on this installation.
+
 | Reason | Cause | REST status |
 |---|---|---|
 | `no_hardware` | -- | 409 |
+| `no_hardware_driver_unavailable` | -- | 409 |
 
 <a id="NoLiveDriverError"></a>
 ### `NoLiveDriverError`

@@ -55,6 +55,7 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import (
+    DriverFallback,
     DriverNotLiveError,
     NoLiveDriverError,
     camera_registry,
@@ -241,22 +242,23 @@ def _torn_down_if_it_raises(construct: Callable) -> Callable:
     return guarded
 
 
-def _camera_failure_cause(exc: BaseException) -> str:
+def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> str:
     """The record's cause for a camera that raised while connecting.
 
     The camera registry raises the fault a driver raised for a camera it
     found and could not bring up (``CameraUsbOpenFailedError``, which also
     covers a camera another application holds, or the driver's own typed
     fault). When no driver raised, the registry raises the cause it found:
-    no camera, or a port held, with any driver that did not load on this
-    installation beside it. Anything outside the hardware's family is
-    LumaViewPro's own failure, never the cable's.
+    no camera, or a port held. A camera not found is told beside the FX2
+    driver that did not load only when this scope may be an FX2 scope
+    (``_a_declined_fx2_could_be_this_scope``). Anything outside the
+    hardware's family is LumaViewPro's own failure, never the cable's.
     """
     if isinstance(exc, NoLiveDriverError):
         fallback = exc.fallback
         if fallback.cause == 'port_in_use':
             return 'port_in_use'
-        if fallback.cause in ('not_detected', 'no_driver') and fallback.declined:
+        if fallback.cause in ('not_detected', 'no_driver') and fx2_could_be_this_scope:
             return 'camera_driver_unavailable'
         if fallback.cause == 'not_detected':
             return 'not_detected'
@@ -276,6 +278,29 @@ def _camera_failure_cause(exc: BaseException) -> str:
 # on first last: a camera that has gone outranks a stream that did not
 # start, which outranks a setting it did not take.
 _CAMERA_CAUSE_ORDER = ('settings_not_applied', 'stream_not_started', 'camera_left')
+
+
+def _a_declined_fx2_could_be_this_scope(
+    camera_up: bool, led_fallback: DriverFallback | None
+) -> bool:
+    """Whether the FX2 driver that did not load here may be this scope's board.
+
+    The FX2 is the one board that carries a camera and LEDs, and one gate
+    declines both its halves together. With them declined, the only LED
+    board that can come up, or be found at all, is the EL-0940's; and the
+    only cameras that can come up are ones no FX2 scope has. So a camera
+    that came up, or an LED board found on USB (up, held, silent or failing
+    to connect), says this is not an FX2 scope. Only an LED board not found
+    with the FX2 declined, and no camera, leaves it possible.
+    """
+    from drivers.fx2driver import REGISTRY_NAME  # local-import: loaded where it is read
+
+    return (
+        not camera_up
+        and led_fallback is not None
+        and led_fallback.cause == 'not_detected'
+        and any(declined.name == REGISTRY_NAME for declined in led_fallback.declined)
+    )
 
 
 def _host_fx2_bindings(identity: str) -> list | None:
@@ -863,6 +888,9 @@ class Lumascope:
         # its device model is the one simulation. Built by name, since the
         # registry lists no FX2 on a host without libusb.
         sim_fx2 = None
+        # Why the registry handed back a null LED board; None when one came up
+        # or the board is simulated.
+        led_fallback: DriverFallback | None = None
 
         def _sim_light_of(address: int) -> float:
             """The light per mA-second the layer ``address`` lights renders in
@@ -974,10 +1002,10 @@ class Lumascope:
             # A simulated scope never reads the host's bus.
             self._read_fx2_bindings = _no_fx2_bindings
         else:
-            self._led_driver, fallback = led_registry.create_with_fallback(
+            self._led_driver, led_fallback = led_registry.create_with_fallback(
                 'auto', debug_wire=fx2_debug_wire
             )
-            parts[Part.LED] = _board_status(Part.LED, self._led_driver, fallback)
+            parts[Part.LED] = _board_status(Part.LED, self._led_driver, led_fallback)
 
         # ----- Camera -----
         # Driver selection via camera_registry. `camera_type` accepts:
@@ -1028,12 +1056,19 @@ class Lumascope:
             parts[Part.CAMERA] = PartStatus(Part.CAMERA, up=True)
         except Exception as _cam_exc:
             self._camera_failure = _cam_exc
+        camera_up = self._camera_failure is None
+        # Decided once, from the camera and the LED board; the camera's cause,
+        # the LED board's and the no-hardware notice each read it.
+        self._fx2_could_be_this_scope = _a_declined_fx2_could_be_this_scope(camera_up, led_fallback)
+        if not camera_up:
             parts[Part.CAMERA] = PartStatus(
                 Part.CAMERA,
                 up=False,
-                cause=_camera_failure_cause(_cam_exc),
-                detail=f'{type(_cam_exc).__name__}: {_cam_exc}',
+                cause=_camera_failure_cause(self._camera_failure, self._fx2_could_be_this_scope),
+                detail=f'{type(self._camera_failure).__name__}: {self._camera_failure}',
             )
+        if self._fx2_could_be_this_scope:
+            parts[Part.LED] = dataclasses.replace(parts[Part.LED], cause='led_driver_unavailable')
         self._bring_up_parts = parts
         self._bring_up_substitutions: list[Substitution] = []
 
@@ -1585,8 +1620,11 @@ class Lumascope:
         if self._no_hardware:
             # The one notice says the camera too.
             self._camera_failure = None
+            reason = (
+                'no_hardware_driver_unavailable' if self._fx2_could_be_this_scope else 'no_hardware'
+            )
             notifications.report_outcome(
-                NoHardwareDetectedNotice(), solicited=False, category='Hardware'
+                NoHardwareDetectedNotice(reason), solicited=False, category='Hardware'
             )
             return
         self._report_camera()

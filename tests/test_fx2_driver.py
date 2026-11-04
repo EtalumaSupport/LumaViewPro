@@ -40,7 +40,13 @@ import pytest
 
 from drivers import fx2driver
 from drivers.exceptions import CameraWriteFailedError
-from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
+from drivers.registry import (
+    DeclinedDriver,
+    DriverRegistry,
+    NoLiveDriverError,
+    camera_registry,
+    led_registry,
+)
 from drivers.protocols import LEDBoardProtocol
 from drivers.camera_profiles import lookup_profile
 from tests.log_capture import records_of
@@ -147,7 +153,7 @@ class TestRegistryGatedOnPrereqs:
         assert registry.registered_names() == []
         with pytest.raises(NoLiveDriverError) as caught:
             registry.create('auto')
-        assert caught.value.fallback.declined == ('fx2: pyusb is not installed',)
+        assert caught.value.fallback.declined == (DeclinedDriver('fx2', 'pyusb is not installed'),)
 
 
 # ---------------------------------------------------------------------------

@@ -31,12 +31,12 @@ import pytest
 from lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
 from modules.exceptions import (
     CameraSettingOutOfRangeError,
+    CellCountScaleDroppedNotice,
     CompositeFailedError,
     FrameHandlerRemovedError,
     HardwareCommandRefusedError,
     HomingFaultError,
     MoveStoppedError,
-    NoHardwareDetectedNotice,
     Notice,
     ProtocolRunRefusedError,
     Quiet,
@@ -274,8 +274,8 @@ def test_a_reason_the_class_does_not_declare_is_refused_where_it_is_built():
 
 
 def test_a_class_with_one_reason_answers_it_from_the_class_itself():
-    assert NoHardwareDetectedNotice.reason == 'no_hardware'
-    assert NoHardwareDetectedNotice.cause is None
+    assert CellCountScaleDroppedNotice.reason == 'cell_count_scale_dropped'
+    assert CellCountScaleDroppedNotice.cause is None
     assert SessionClosingError.cause == RefusalCause.RESTART
     # Which of several reasons is the instance's.
     with pytest.raises(AttributeError):

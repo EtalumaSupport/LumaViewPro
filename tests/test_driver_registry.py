@@ -21,6 +21,7 @@ import threading
 import pytest
 
 from drivers.registry import (
+    DeclinedDriver,
     DriverFallback,
     DriverNotLiveError,
     DriverRegistry,
@@ -712,7 +713,9 @@ class TestAKindWithNoNullDriverThatFindsNothing:
             reg.create('auto')
 
         assert caught.value.fallback.cause == 'not_detected'
-        assert caught.value.fallback.declined == ('gamma: pyusb is not installed',)
+        assert caught.value.fallback.declined == (
+            DeclinedDriver('gamma', 'pyusb is not installed'),
+        )
         assert 'gamma' not in reg.registered_names()
 
 
