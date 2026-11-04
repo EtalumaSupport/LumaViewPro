@@ -109,6 +109,11 @@ class RuntimeState:
         return objective_id, objective, unknown
 
     def _record_optics_on_change(self, objective_id: str, objective: Objective) -> None:
+        # The record explains the scale of the images this scope takes; with
+        # no camera it takes none, and the camera's absence is reported at
+        # bring-up, so there is no scale to explain.
+        if not self._scope.camera.active:
+            return
         with self._optics_lock:
             if objective_id == self._logged_objective_id:
                 return
