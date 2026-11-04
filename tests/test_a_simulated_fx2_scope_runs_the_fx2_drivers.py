@@ -161,7 +161,9 @@ def test_blue_reaches_the_peripheral_as_c(session):
 def _running_device() -> SimulatedFX2Device:
     from drivers.simulated_fx2 import SimulatedFX2
 
-    return SimulatedFX2().device
+    sim = SimulatedFX2()
+    sim.connect()
+    return sim.device
 
 
 def test_a_0xff_brightness_is_a_new_preamble_and_the_command_is_lost():

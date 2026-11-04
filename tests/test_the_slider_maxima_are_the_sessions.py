@@ -39,7 +39,7 @@ def test_each_maximum_is_the_parts_cap_narrowed_to_the_layers_ceiling(make_sessi
 
 
 def test_with_no_camera_the_exposure_maximum_is_none(make_session, monkeypatch):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
 
     assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(None, 50)
 

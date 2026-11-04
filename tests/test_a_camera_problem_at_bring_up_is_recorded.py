@@ -31,6 +31,7 @@ from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
 from modules.lumascope_api import camera as camera_api
 from modules.lumascope_api.simulation import SimulatedCameraWriteRefusal as Refusal
 from modules.lumascope_api.simulation import SimulatedScope
+from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -211,5 +212,41 @@ def test_a_camera_not_on_the_bus_is_recorded_not_detected_and_told_once(microsco
             'not_connected',
             MissingPart.CAMERA,
         )
+    finally:
+        session.shutdown()
+
+
+@pytest.mark.parametrize(
+    ('microscope', 'motor_up', 'told'),
+    [
+        ('LS620', False, [('Hardware', 'No hardware detected')]),
+        (
+            'LS720',
+            True,
+            [('Camera', 'Camera not detected'), ('Illumination', 'LED Board Unavailable')],
+        ),
+    ],
+    ids=['manual', 'motorized'],
+)
+def test_an_fx2_not_on_the_bus_takes_its_camera_and_led_board_and_is_told_as_a_real_one(
+    microscope, motor_up, told
+):
+    # parametrize-justified: a Classic with nothing else on the bus, and one
+    # whose motor board still comes up, are told differently
+    heard = []
+    session = _create(heard, microscope=microscope, camera_present=False)
+    try:
+        parts = {p.part: p for p in session.bring_up_record().parts}
+        assert {part: (parts[part].up, parts[part].cause) for part in ('camera', 'led')} == {
+            'camera': (False, 'not_detected'),
+            'led': (False, 'not_detected'),
+        }
+        assert parts['motor'].up is motor_up
+        assert [
+            (n.category, n.title) for n in heard if n.severity.level >= Severity.NOTICE.level
+        ] == told
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.scope.illumination.led_on('BF', 10.0)
+        assert refused.value.reason == 'not_connected'
     finally:
         session.shutdown()

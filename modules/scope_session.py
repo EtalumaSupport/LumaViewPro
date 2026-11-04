@@ -1635,14 +1635,15 @@ class ScopeSession:
                 real drive, and only a simulated scope's boards and camera
                 take a fault. ``'needs_simulated_camera'``, the record's
                 ``camera_stall`` or ``focal_spread_um`` for a model
-                simulated with an FX2 or with ``camera_present`` False,
-                or its ``camera_present`` False for a model simulated with
-                an FX2 (``argument`` names the scope's
-                ``sim_camera_stall``, ``sim_focal_spread_um`` or
-                ``sim_camera_present``).
+                simulated with an FX2 or with ``camera_present`` False
+                (``argument`` names the scope's ``sim_camera_stall`` or
+                ``sim_focal_spread_um``).
                 ``'not_injectable_on_board'``, its ``model_answer``,
                 ``refused_stream_starts`` or ``refused_camera_writes`` for a
                 scope whose board or camera cannot show it;
+                ``'fault_unknown'``, its ``refused_stream_starts`` or
+                ``refused_camera_writes`` with ``camera_present`` False, a
+                camera the scope does not have;
                 ``'fault_bound'``, a negative ``refused_stream_starts`` or a
                 refusal's count below 1; ``'not_offered'``, a node or an
                 answer the camera's write does not give. ``'wrong_kind'``, a block of

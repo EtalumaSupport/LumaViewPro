@@ -381,7 +381,7 @@ def bare_fx2_camera():
     from drivers.simulated_fx2 import SimulatedFX2
     from tests.scope_fakes import disconnect_when_the_test_ends
 
-    cam = fx2driver.FX2Camera(connection=SimulatedFX2().connection)
+    cam = fx2driver.FX2Camera(connection=SimulatedFX2().connect())
     disconnect_when_the_test_ends(cam)
     return cam
 

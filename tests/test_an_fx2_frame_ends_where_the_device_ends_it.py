@@ -390,6 +390,7 @@ def test_a_simulated_unplugs_failed_transfers_reach_the_stream():
     from drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
+    sim.connect()
     sim.connection.start_stream(ImageHandlerBase().hand_over)
     sim.connection.stream.take_counts()
     sim.connection._transport.unplug(resubmit_failures=2)

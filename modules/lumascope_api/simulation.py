@@ -208,8 +208,9 @@ class SimulatedScope:
         camera_present: Whether the camera is on the bus at bring-up. False
             is a camera unplugged for the session: bring-up finds none, as
             it finds none on a real scope, and every camera command is
-            refused ``not_connected``. Not on a model simulated with an
-            FX2. True is the camera there.
+            refused ``not_connected``. On a model simulated with an FX2
+            the camera is the FX2, so its LED board is missing with it.
+            True is the camera there.
     """
 
     model: str | None = None

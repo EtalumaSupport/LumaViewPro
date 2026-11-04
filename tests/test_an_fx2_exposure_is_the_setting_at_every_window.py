@@ -36,7 +36,9 @@ def _integration_ms(shutter_width: int, w: int) -> float:
 def sim():
     from drivers.simulated_fx2 import SimulatedFX2
 
-    return SimulatedFX2()
+    sim = SimulatedFX2()
+    sim.connect()
+    return sim
 
 
 @pytest.fixture

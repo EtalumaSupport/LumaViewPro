@@ -47,7 +47,7 @@ def session(tmp_path):
 @pytest.fixture
 def fx2_led():
     """An FX2 LED controller on a simulated FX2."""
-    return fx2driver.FX2LEDController(connection=SimulatedFX2().connection)
+    return fx2driver.FX2LEDController(connection=SimulatedFX2().connect())
 
 
 def test_the_channels_stand_ins_are_not_replies():

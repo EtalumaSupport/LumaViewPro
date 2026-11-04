@@ -770,16 +770,15 @@ class Lumascope:
             sim_camera_present: Whether the simulated camera is on the bus at
                 bring-up. False builds it off the bus, so the camera search
                 finds none, as it finds none on a real scope whose camera is
-                unplugged. Only the simulated camera has one, so False is
-                refused on real hardware and on a model simulated with an
-                FX2.
+                unplugged. On a model simulated with an FX2 the camera is the
+                FX2, so its LED board is off the bus with it. Refused on real
+                hardware.
 
         Raises:
-            ArgumentRefusedError: ``'needs_simulated_scope'`` or
-                ``'needs_simulated_camera'``, ``sim_camera_stall``, a
-                ``sim_focal_spread_um`` or ``sim_camera_present`` False given
-                for a scope whose camera is not the simulated camera;
-                ``sim_camera_stall`` or a ``sim_focal_spread_um`` given with
+            ArgumentRefusedError: ``'needs_simulated_scope'``, a simulator
+                argument given for a real scope; ``'needs_simulated_camera'``,
+                ``sim_camera_stall`` or a ``sim_focal_spread_um`` given for a
+                scope whose camera is not the simulated camera, or with
                 ``sim_camera_present`` False, a camera that is not there.
             ScopeInUseError: ``'scope_in_use'``, a real scope asked for while
                 another LumaViewPro, REST server or script drives the
@@ -819,11 +818,6 @@ class Lumascope:
                 for argument, value, given in (
                     ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
                     ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
-                    (
-                        'sim_camera_present',
-                        sim_camera_present,
-                        sim_led_board == LedBoardFamily.FX2 and not sim_camera_present,
-                    ),
                 ):
                     if given:
                         raise ArgumentRefusedError(
@@ -903,8 +897,10 @@ class Lumascope:
         # its device model is the one simulation. Built by name, since the
         # registry lists no FX2 on a host without libusb.
         sim_fx2 = None
-        # Why the registry handed back a null LED board; None when one came up
-        # or the board is simulated.
+        # The simulated FX2's open connection; None while it is off the bus.
+        fx2_connection = None
+        # Why a null LED board stands in, from the registry or for a simulated
+        # FX2 off the bus; None when a board came up.
         led_fallback: DriverFallback | None = None
 
         def _sim_light_of(address: int) -> float:
@@ -998,19 +994,35 @@ class Lumascope:
             )
 
         if simulate and sim_led_board == LedBoardFamily.FX2:
-            from drivers.fx2driver import FX2LEDController
+            from drivers.fx2driver import FX2LEDController, _FX2AbsentError
             from drivers.simulated_fx2 import SimulatedFX2
 
             sim_fx2 = SimulatedFX2(
-                light_of=_sim_light_of, stage_xy=_sim_stage_xy, pixel_size=_sim_pixel_size
+                light_of=_sim_light_of,
+                stage_xy=_sim_stage_xy,
+                pixel_size=_sim_pixel_size,
+                on_bus=sim_camera_present,
             )
-            self._led_driver: LEDBoardProtocol = FX2LEDController(
-                connection=sim_fx2.connection, debug_wire=fx2_debug_wire
-            )
-            logger.info(f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})')
-            parts[Part.LED] = PartStatus(Part.LED, up=True)
-            simulated_led = simulated_camera = sim_fx2
             self._read_fx2_bindings = sim_fx2.transport.bindings
+            try:
+                fx2_connection = sim_fx2.connect()
+            except _FX2AbsentError as absent:
+                # What the registries make of an FX2 not on the bus: the LED
+                # board's null stand-in, and a camera search that found none
+                # (raised below). The FX2 drivers are the ones tried.
+                logger.info(f'[SCOPE API ] {absent}')
+                self._led_driver: LEDBoardProtocol = NullLEDBoard()
+                led_fallback = DriverFallback('not_detected', ('FX2LEDController',))
+                parts[Part.LED] = _board_status(Part.LED, self._led_driver, led_fallback)
+            else:
+                self._led_driver = FX2LEDController(
+                    connection=fx2_connection, debug_wire=fx2_debug_wire
+                )
+                logger.info(
+                    f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})'
+                )
+                parts[Part.LED] = PartStatus(Part.LED, up=True)
+                simulated_led = simulated_camera = sim_fx2
         elif simulate:
             self._led_driver, simulated_led = self._build_simulated_led_board(model, sim_tier)
             parts[Part.LED] = PartStatus(Part.LED, up=True)
@@ -1058,7 +1070,11 @@ class Lumascope:
             if sim_fx2 is not None:
                 from drivers.fx2driver import FX2Camera
 
-                self._camera_driver: Camera = FX2Camera(connection=sim_fx2.connection)
+                if fx2_connection is None:
+                    raise NoLiveDriverError(
+                        'camera', DriverFallback('not_detected', ('FX2Camera',))
+                    )
+                self._camera_driver: Camera = FX2Camera(connection=fx2_connection)
                 logger.info(
                     f'[SCOPE API ] Using the FX2 camera driver on a SIMULATED FX2 (model={model})'
                 )
@@ -1146,9 +1162,9 @@ class Lumascope:
         # model's expectations, which say whether a missing motor board on an
         # LS620 is the manual scope it is or an LS820 whose board failed.
 
-        # Whether any real hardware was found: read from the record, the one
+        # Whether any hardware was found: read from the record, the one
         # account of what came up, so this and the report cannot disagree.
-        self._no_hardware = not simulate and not any(status.up for status in parts.values())
+        self._no_hardware = not any(status.up for status in parts.values())
 
         # Most per-instance state lives on the sub-APIs: camera owns the
         # camera's state + locks, imaging the capture's and the stream's,
@@ -1627,8 +1643,8 @@ class Lumascope:
         the model (``_report_camera``). Each missing board is told once, by
         its own notice with the advice its cause needs; a client wanting the
         whole list reads the record's ``missing``. When nothing came up the
-        person is told once, not once per part. A simulated board is never
-        reported: the simulator is what it stands in for.
+        person is told once, not once per part. A simulated scope is told
+        as the scope it stands in for.
         """
         parts = self._bring_up_parts
         parts[Part.MOTOR] = dataclasses.replace(parts[Part.MOTOR], expected=config.expects_motion)
@@ -1644,8 +1660,6 @@ class Lumascope:
             )
             return
         self._report_camera()
-        if self._simulated:
-            return
         led = parts[Part.LED]
         if led.missing:
             notifications.report_outcome(
@@ -2137,10 +2151,10 @@ class Lumascope:
     @api
     @property
     def no_hardware(self) -> bool:
-        """True if no real hardware was detected (LED, motor, and camera all missing).
+        """True if no part came up at bring-up (LED, motor, and camera all missing).
 
         Returns:
-            bool: True when all three subsystems are absent or stubbed.
+            bool: True when none of the three came up.
 
         Raises:
             Nothing.

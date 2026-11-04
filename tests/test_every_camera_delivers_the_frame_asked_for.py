@@ -52,7 +52,7 @@ def test_the_fx2_delivers_a_size_off_its_grid():
     from drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
-    cam = FX2Camera(connection=sim.connection)
+    cam = FX2Camera(connection=sim.connect())
     try:
         assert cam.set_frame_size(1897, 1898) == {'width': 1897, 'height': 1898}
         assert cam.get_frame_size() == {'width': 1897, 'height': 1898}

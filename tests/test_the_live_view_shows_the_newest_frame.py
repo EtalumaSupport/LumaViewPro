@@ -219,7 +219,7 @@ def _ordinal(part: bytes) -> int:
 
 
 def test_a_camera_that_is_not_connected_is_refused_before_any_frame(make_session, monkeypatch):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
     with _serving(session) as (app, _server, client):
         watched = client.get('/api/v1/live')
         shot = client.get('/api/v1/live.jpg')

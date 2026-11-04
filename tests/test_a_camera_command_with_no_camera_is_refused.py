@@ -97,20 +97,10 @@ DIAGNOSTIC_RUNNERS = {
 }
 
 
-def _camera_less(make_session, monkeypatch, model: str, **kwargs):
-    """A session on ``model`` whose camera was not on the bus at bring-up."""
-    if model in FX2_MODELS:
-        import drivers.fx2driver as fx2driver
-
-        def _no_fx2_camera(**kwargs):
-            raise RuntimeError('no FX2 camera on the bus')
-
-        # a stand-in by design: the simulated FX2 cannot yet be off the bus
-        # at bring-up, so its camera's constructor raises as one not found.
-        monkeypatch.setattr(fx2driver, 'FX2Camera', _no_fx2_camera)
-        session = make_session(model, **kwargs)
-    else:
-        session = make_session(model, simulated=SimulatedScope(camera_present=False), **kwargs)
+def _camera_less(make_session, model: str, **kwargs):
+    """A session on ``model`` whose camera was not on the bus at bring-up:
+    on an FX2 model the FX2, and so its LED board with it."""
+    session = make_session(model, simulated=SimulatedScope(camera_present=False), **kwargs)
     assert not session.scope.camera_connected
     return session
 
@@ -160,9 +150,11 @@ def test_with_its_camera_every_command_and_read_answers_as_before(make_session, 
 def test_a_scope_with_no_camera_comes_up_and_says_so_once(
     make_session, monkeypatch, centre_posts, model
 ):
-    _camera_less(make_session, monkeypatch, model)
+    _camera_less(make_session, model)
 
-    reports = _camera_posts(centre_posts)
+    # Told by the camera's own notice, or, on a Classic whose FX2 is gone
+    # and so nothing came up, inside the one no-hardware notice.
+    reports = _camera_posts(centre_posts) + [n for n in centre_posts if n.reason == 'no_hardware']
     assert len(reports) == 1, [(n.title, n.message) for n in reports]
 
 
@@ -186,7 +178,7 @@ def _not_named_as_the_camera(commands: dict, target) -> dict:
 def test_with_no_camera_every_command_is_refused_naming_it(
     make_session, monkeypatch, centre_posts, model
 ):
-    session = _camera_less(make_session, monkeypatch, model)
+    session = _camera_less(make_session, model)
     before = _camera_store(session)
     centre_posts.clear()
 
@@ -196,7 +188,7 @@ def test_with_no_camera_every_command_is_refused_naming_it(
 
 
 def test_with_no_camera_every_diagnostic_runner_is_refused_naming_it(make_session, monkeypatch):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
 
     assert _not_named_as_the_camera(DIAGNOSTIC_RUNNERS, session.scope.diagnostics) == {}
 
@@ -205,7 +197,7 @@ def test_with_no_camera_a_binning_preview_is_refused_naming_it(make_session, mon
     # The preview asks for the camera before the offered sizes, as the apply
     # does: a scope with no camera offers none, so "does not support" would
     # name the wrong cause, and the frame it answered before was a guess.
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
 
     assert (
         _not_named_as_the_camera(
@@ -221,7 +213,7 @@ def test_with_no_camera_every_off_is_satisfied_with_its_own_answer(
 ):
     scope = make_session(model).scope
     with_camera = {name: off(scope) for name, off in SATISFIED.items()}
-    session = _camera_less(make_session, monkeypatch, model)
+    session = _camera_less(make_session, model)
     centre_posts.clear()
 
     assert {name: off(session.scope) for name, off in SATISFIED.items()} == with_camera
@@ -231,7 +223,7 @@ def test_with_no_camera_every_off_is_satisfied_with_its_own_answer(
 def test_with_no_camera_a_restore_of_a_cameraless_snapshot_is_satisfied_and_any_other_refused(
     make_session, monkeypatch
 ):
-    camera = _camera_less(make_session, monkeypatch, 'LS850').scope.camera
+    camera = _camera_less(make_session, 'LS850').scope.camera
 
     assert camera.restore_camera_state(camera.save_camera_state('cameraless')) is None
     _assert_names_the_camera(
@@ -250,7 +242,7 @@ def test_with_no_camera_a_restore_of_a_cameraless_snapshot_is_satisfied_and_any_
 
 
 def test_with_no_camera_a_frame_listener_is_refused(make_session, monkeypatch):
-    im = _camera_less(make_session, monkeypatch, 'LS850').scope.imaging
+    im = _camera_less(make_session, 'LS850').scope.imaging
 
     def listener(frame):
         pass
@@ -263,7 +255,7 @@ def test_with_no_camera_a_frame_listener_is_refused(make_session, monkeypatch):
 def test_with_no_camera_a_fresh_read_is_refused_and_a_held_one_answers_none(
     make_session, monkeypatch, model
 ):
-    scope = _camera_less(make_session, monkeypatch, model).scope
+    scope = _camera_less(make_session, model).scope
     camera = scope.camera
 
     for read in (camera.read_gain_db, camera.read_exposure_ms, camera.read_frame_size):
@@ -277,7 +269,7 @@ def test_with_no_camera_a_fresh_read_is_refused_and_a_held_one_answers_none(
 def test_with_no_camera_go_to_step_is_refused_before_anything_moves(
     make_session, monkeypatch, model
 ):
-    session = _camera_less(make_session, monkeypatch, model)
+    session = _camera_less(make_session, model)
     scope = session.scope
     position = {axis: scope.motion.get_current_position(axis) for axis in scope.capabilities.axes}
     before = _camera_store(session)
@@ -291,7 +283,7 @@ def test_with_no_camera_go_to_step_is_refused_before_anything_moves(
 
 
 def test_with_no_camera_the_session_binning_is_refused_naming_it(make_session, monkeypatch):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
     before = _camera_store(session)
 
     _assert_names_the_camera(_refused(lambda: session.scope.camera.set_binning(1)))
@@ -303,7 +295,7 @@ def test_with_no_camera_the_session_binning_is_refused_naming_it(make_session, m
 def test_with_no_camera_a_session_camera_toggle_is_refused_naming_it(
     make_session, monkeypatch, member
 ):
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
 
     _assert_names_the_camera(_refused(lambda: getattr(session.scope.camera, member)(False)))
 
@@ -311,7 +303,7 @@ def test_with_no_camera_a_session_camera_toggle_is_refused_naming_it(
 def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, monkeypatch):
     """The GUI's drawer and settings apply ask show_channel, which shows the
     LEDs and then refuses the camera's half, naming the camera."""
-    session = _camera_less(make_session, monkeypatch, 'LS850')
+    session = _camera_less(make_session, 'LS850')
     before = _camera_store(session)
 
     _assert_names_the_camera(_refused(lambda: session.show_channel(LED1)))
@@ -323,7 +315,7 @@ def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, mon
 def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_start(
     make_session, monkeypatch, tmp_path, model
 ):
-    session = _camera_less(make_session, monkeypatch, model)
+    session = _camera_less(make_session, model)
     runner = session.protocol_runner()
 
     with pytest.raises(ProtocolRunRefusedError) as run:

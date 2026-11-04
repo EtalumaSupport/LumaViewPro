@@ -70,16 +70,13 @@ class TestAStallIsRefusedWhereItCannotHappen:
         }
         assert [t for t in threading.enumerate() if t not in before] == []
 
-    def test_a_camera_left_off_the_bus_is_refused_where_there_is_no_simulated_camera(self):
-        refused = {}
-        for simulate, model in ((False, None), (True, 'LS620')):
-            with pytest.raises(ArgumentRefusedError) as raised:
-                build_scope(simulate=simulate, sim_model=model, sim_camera_present=False)
-            refused[model] = (raised.value.reason, raised.value.argument)
-        assert refused == {
-            None: ('needs_simulated_scope', 'sim_camera_present'),
-            'LS620': ('needs_simulated_camera', 'sim_camera_present'),
-        }
+    def test_a_real_scope_refuses_a_camera_left_off_the_bus(self):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            build_scope(simulate=False, sim_camera_present=False)
+        assert (refused.value.reason, refused.value.argument) == (
+            'needs_simulated_scope',
+            'sim_camera_present',
+        )
 
 
 class TestTheStreamStopsAndResumes:

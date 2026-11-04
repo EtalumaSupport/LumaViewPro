@@ -906,7 +906,7 @@ def simulated_fx2_camera():
     from drivers.simulated_fx2 import SimulatedFX2
 
     sim = SimulatedFX2()
-    cam = fx2driver.FX2Camera(connection=sim.connection)
+    cam = fx2driver.FX2Camera(connection=sim.connect())
     yield sim, cam
     cam.disconnect()
 

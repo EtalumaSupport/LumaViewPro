@@ -634,8 +634,9 @@ class SimulatedFX2Transport:
 class SimulatedFX2:
     """A simulated FX2 and the connection its two drivers share.
 
-    Building it runs the driver's own bring-up against the device: the
-    upload into the bootloader, the wait for re-enumeration, the open.
+    Building it puts the device on the bus, or leaves it off as an FX2
+    unplugged before the scope came up; ``connect`` runs the driver's own
+    bring-up against it.
     """
 
     def __init__(
@@ -645,11 +646,32 @@ class SimulatedFX2:
         light_of: Callable[[int], float] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
+        on_bus: bool = True,
     ):
         self.device = SimulatedFX2Device(
             timing=timing, light_of=light_of, stage_xy=stage_xy, pixel_size=pixel_size
         )
+        if not on_bus:
+            # No PID answers, as after the transport's unplug.
+            self.device.pid = None
         # Kept for its faults: the transport is where the cable is pulled.
         self.transport = SimulatedFX2Transport(self.device)
+        self._timing = timing
+        # The open connection, once ``connect`` has opened it.
+        self.connection: _FX2Connection | None = None
+
+    def connect(self) -> _FX2Connection:
+        """Open the connection both drivers share, through the driver's own
+        bring-up: the upload into the bootloader, the wait for
+        re-enumeration, the open.
+
+        Returns:
+            The open connection, also kept as ``connection``.
+
+        Raises:
+            _FX2AbsentError: the device is off the bus; the driver has
+                torn down what it opened.
+        """
         self.connection = _FX2Connection(self.transport)
-        logger.info(f'[SimFX2    ] simulated FX2 up (timing={timing})')
+        logger.info(f'[SimFX2    ] simulated FX2 up (timing={self._timing})')
+        return self.connection
