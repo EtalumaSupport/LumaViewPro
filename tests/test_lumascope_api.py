@@ -17,8 +17,8 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
   Structural fix (this commit): rename `xyhome` -> `home` everywhere
   (driver, API, callers, tests) and push the partial-home recognition
   into the driver layer where the firmware response is already known.
-  - drivers/motorboard.py::home() recognizes 'ERROR: X not present' /
-    'Y not present' as a partial-home success and returns True.
+  - drivers/motorboard.py::home() homes the axes the board has (a board
+    with no XY is sent ZHOME, and THOME if it has a turret) and returns.
   - Lumascope.motion.home() trusts the driver's verdict -- no host-side
     presence check, no False interpretation.
   - The misnamed method was the conceptual trap that allowed both #616
@@ -157,9 +157,8 @@ class TestLumascopeHome:
         assert ran == ['Z', 'T', 'ALL']
 
     def test_home_on_z_only_board_marks_z_idle(self):
-        """LS820 (Z-only): the driver recognizes the 'X not present'
-        firmware response as a partial-home success. The API trusts
-        a driver home that returns and marks present axes IDLE."""
+        """LS820 (Z-only): the API trusts a driver home that returns and
+        marks the present axes IDLE."""
         received = self._capture_errors()
         scope = build_scope(simulate=True)
 

@@ -860,20 +860,26 @@ class MotorBoard(SerialBoard):
         return ustep
 
     def home(self) -> None:
-        """Send HOME to firmware and home every axis the board has.
+        """Home every axis the board has; returns once they are homed.
 
-        The firmware's xyzhome routine homes Z, then T, then attempts X/Y.
-        On a full XYZ(T) board, the response is 'XYZ home complete'. On a
-        Z-only board (LS820 bench), Z (and T if present) get homed first
-        and the firmware then returns 'ERROR: X not present' -- the home
-        DID succeed for the axes the board has, so it returns as a full
-        home does. Real failures (no response, hardware error, or partial
-        home aborted by Z/T error) raise HardwareError.
+        A board with an XY stage is sent HOME, whose routine homes Z, then
+        T, then X and Y, and answers 'XYZ home complete'. A board with no
+        XY stage (LS820) is sent ZHOME, then THOME if it has a turret: its
+        HOME would home Z and T and then answer that X is not present, an
+        error reply for a home that succeeded.
 
         Raises:
             HardwareError: No response from the motor board (timeout or
                 disconnect), or firmware reported a homing failure.
         """
+        present = self.detect_present_axes()
+        if 'X' not in present and 'Y' not in present:
+            self.zhome()
+            if 'T' in present:
+                self.thome()
+            with self._state_lock:
+                self.initial_homing_complete = True
+            return
         resp = self.exchange_command('HOME', timeout=_HOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
         if 'XYZ home complete' in resp:
@@ -882,26 +888,15 @@ class MotorBoard(SerialBoard):
             with self._state_lock:
                 self.initial_homing_complete = True
             return
-        # Partial home: firmware homed Z (and T if present) before
-        # reporting that X or Y is not physically wired on this board.
-        # The reference position for the present axes is valid.
-        if ('not present' in resp) and ('X' in resp or 'Y' in resp):
-            logger.info(f'[XYZ Class ] partial home (X/Y not present on this board): {resp}')
-            # The firmware stops before XY on this answer, so only the Z
-            # and T it homed first are confirmed.
-            self._confirm_homed('home()', axes=('Z', 'T'))
-            with self._state_lock:
-                self.initial_homing_complete = True
-            return
         raise BoardReportedError(f'home(): firmware error: {resp}')
 
     def _confirm_homed(self, what: str, axes) -> None:
         """Believe a home's success only if the board's own flags agree.
 
-        The field firmware answers HOME with 'XYZ home complete' (or 'X not
-        present' on a board with no XY) without reading whether its Z and T
-        homes succeeded, and answers THOME with 'T home successful' after a
-        failed Z re-home. Its per-axis homed flags, read fresh from FULLINFO,
+        The field firmware answers HOME with 'XYZ home complete' without
+        reading whether its Z and T homes succeeded, and answers THOME with
+        'T home successful' after a failed Z re-home. Its per-axis homed
+        flags, read fresh from FULLINFO,
         are set only by a home that succeeded. The field firmware never
         clears them, so a re-home that fails after an earlier success still
         reads homed: this catches the first home since the board booted.

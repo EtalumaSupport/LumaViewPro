@@ -1118,11 +1118,10 @@ class MotionAPI:
         """Home every axis the motor board has.
 
         This is the unified "home everything" entry point used by
-        startup and the GUI Home button. The firmware's home routine
-        homes Z, then T, then X/Y -- on a Z-only board (LS820) it homes
-        Z and reports the missing X/Y; on a full XYZ scope it homes
-        all three. The driver returns True for both cases (full and
-        partial), raises HardwareError on real failure.
+        startup and the GUI Home button. The driver homes the axes the
+        board has: Z, then T, then X/Y on a board with an XY stage, and
+        Z (then T) on a Z-only board (LS820). It returns once they are
+        homed and raises HardwareError on a failure.
 
         Returns only when every homed axis has a known position.
 

@@ -2,11 +2,12 @@
 """A home is believed only when every axis it homes is homed.
 
 The field firmware answers HOME with 'XYZ home complete' without reading
-whether its Z and T homes succeeded, answers THOME with 'T home successful'
-after a failed Z re-home, and answers HOME on a board with no XY with
-'X not present' whatever Z did. Its own per-axis homed flags, in FULLINFO,
-are set only by a home that succeeded. Each test is the first home since
-the board booted, with a Z switch that never trips, on the field firmware.
+whether its Z and T homes succeeded, and answers THOME with 'T home
+successful' after a failed Z re-home. Its own per-axis homed flags, in
+FULLINFO, are set only by a home that succeeded. A board with no XY is
+homed by ZHOME, which answers its own timeout. Each test is the first home
+since the board booted, with a Z switch that never trips, on the field
+firmware.
 """
 
 import pytest
@@ -28,17 +29,17 @@ def _board(model, axes):
 
 
 @pytest.mark.parametrize(
-    ('model', 'axes', 'home'),
+    ('model', 'axes', 'home', 'says'),
     [
-        ('LS850T', 'XYZT', 'home'),
-        ('LS850T', 'XYZT', 'thome'),
-        ('LS820', 'Z', 'home'),
+        ('LS850T', 'XYZT', 'home', 'Z did not home'),
+        ('LS850T', 'XYZT', 'thome', 'Z did not home'),
+        ('LS820', 'Z', 'home', 'Z home timeout'),
     ],
 )
-def test_a_home_whose_z_did_not_home_raises_naming_z(model, axes, home):
+def test_a_home_whose_z_did_not_home_raises_naming_z(model, axes, home, says):
     board = _board(model, axes)
     try:
-        with pytest.raises(HardwareError, match='Z did not home'):
+        with pytest.raises(HardwareError, match=says):
             getattr(board, home)()
         assert not board.has_thomed()
     finally:

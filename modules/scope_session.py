@@ -6362,9 +6362,8 @@ class ScopeSession:
 
         The motion, in order:
 
-        1. home ALL axes via ``move_home``. Firmware homes Z, T, X, Y in
-           one routine; on Z-only boards it homes what it has and
-           reports the missing axes.
+        1. home ALL axes via ``move_home``: Z, T, X, Y, each the board
+           has; a Z-only board homes Z alone.
 
         2. (when ``self.scope.capabilities.has_turret`` is True) move T
            to position 1; the active objective is then slot 1's

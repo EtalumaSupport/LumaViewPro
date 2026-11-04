@@ -148,6 +148,17 @@ class TestSimulatedMotorBoard:
         with pytest.raises(HardwareError, match='firmware error'):
             getattr(board, method)()
 
+    def test_a_home_of_axes_the_board_lacks_is_answered_as_the_firmware_does(self):
+        """An LS820 has no XY stage and no turret: HOME answers that X is
+        not present, and THOME answers that T is not present, as
+        the 3.0 firmware does (``tests/test_sim_wire_homing.py``)."""
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS820', timing='instant'
+        )
+        assert board.exchange_command('HOME') == 'ERROR: X not present'
+        assert board.exchange_command('THOME') == 'T not present'
+        assert board.has_thomed() is False
+
     def test_initial_state(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.found is True
@@ -175,7 +186,7 @@ class TestSimulatedMotorBoard:
         assert board.current_pos('Z') == 0
 
     def test_thome(self):
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
         board.thome()
         assert board.has_thomed() is True
 

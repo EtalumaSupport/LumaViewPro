@@ -563,6 +563,14 @@ class SimulatedMotorBoard:
             return f'Model: {model} Serial: {sn} Firmware: SIMULATED'
 
         if cmd == 'HOME':
+            # The firmware's HOME homes Z and T, then answers that an absent
+            # X or Y is not present before it touches XY.
+            absent = [axis for axis in ('X', 'Y') if axis not in self._axes]
+            if absent:
+                self._do_home('Z')
+                if self._has_turret:
+                    self._do_home('T')
+                return f'ERROR: {absent[0]} not present'
             self._do_home('X', 'Y', 'Z')
             if self._has_turret:
                 self._do_home('T')
@@ -574,6 +582,8 @@ class SimulatedMotorBoard:
             return 'Z home successful'
 
         if cmd == 'THOME':
+            if not self._has_turret:
+                return 'T not present'
             self._do_home('T')
             self.initial_t_homing_complete = True
             return 'T home successful'
@@ -969,13 +979,16 @@ class SimulatedMotorBoard:
         Raises:
             HardwareError: Simulated no-response or firmware-error path.
         """
+        present = self.detect_present_axes()
+        if 'X' not in present and 'Y' not in present:
+            self.zhome()
+            if 'T' in present:
+                self.thome()
+            self.initial_homing_complete = True
+            return
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')
         if 'XYZ home complete' in resp:
-            self.initial_homing_complete = True
-            return
-        # Match real MotorBoard partial-home semantics so tests cover both.
-        if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             self.initial_homing_complete = True
             return
         raise BoardReportedError(f'home(): firmware error: {resp}')
