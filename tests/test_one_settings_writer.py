@@ -49,11 +49,11 @@ def test_a_nested_setting_is_written(session):
     assert session.settings['BF']['sum'] == 3
 
 
-def test_a_leaf_with_no_shipped_value_takes_a_number(session):
-    # The template ships the metrics cadence as null ("unset"): a number of
-    # seconds is its value.
-    session.update_settings('profiling.metrics_interval_s', 5.0)
-    assert session.settings['profiling']['metrics_interval_s'] == 5.0
+def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
+    # The template ships a channel's colour override as null ("none"): a
+    # colour is its value.
+    session.update_settings(f'{LED0}.display_color', '#ff00ff')
+    assert session.settings[LED0]['display_color'] == '#ff00ff'
 
 
 @pytest.mark.parametrize(
@@ -65,15 +65,13 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_fps', '30', 'wrong_kind'),
         ('show_tooltips', 1, 'wrong_kind'),
         ('video.max_fps', True, 'wrong_kind'),
-        ('profiling.metrics_interval_s', [1], 'wrong_kind'),
-        ('profiling.metrics_interval_s', '5', 'wrong_kind'),
-        ('profiling.metrics_interval_s', 0, 'out_of_range'),
-        ('profiling.metrics_interval_s', -5, 'out_of_range'),
+        ('zstack.range', [1], 'wrong_kind'),
+        ('zstack.range', '5', 'wrong_kind'),
+        ('zstack.step_size', -1, 'out_of_range'),
         # NaN and an infinity are not numbers to the writer, ranged or not:
         # every range compares, and a comparison with NaN passes.
         ('zstack.range', math.nan, 'wrong_kind'),
         ('zstack.range', math.inf, 'wrong_kind'),
-        ('profiling.metrics_interval_s', math.nan, 'wrong_kind'),
         ('video.max_fps', 201, 'out_of_range'),
         ('live_view_fps', 61, 'out_of_range'),
         ('video.max_duration_s', 0, 'out_of_range'),
@@ -207,6 +205,9 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, memb
         ('tracemalloc_enabled', True),
         ('memory_profile_enabled', True),
         ('memory_profile_interval_s', 1),
+        ('profiling.handle_trace_enabled', True),
+        ('profiling.open_files_enabled', True),
+        ('profiling.metrics_interval_s', 5.0),
         ('fx2_debug_wire_enabled', True),
     ],
 )
