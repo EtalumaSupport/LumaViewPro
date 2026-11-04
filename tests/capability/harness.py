@@ -376,8 +376,13 @@ def headless_session(live_folder, acquiring=('BF', LED0), **extra):
 
 
 @contextlib.contextmanager
-def hardware_session():
+def hardware_session(objective=None):
     """The scope connected to this machine, brought up the way any script does.
+
+    `objective`, a catalogue key, is selected after bring-up and before the
+    objective is asked about: on a turret scope that turns the turret to the
+    one slot a person assigned it (`select_objective`), so a probe on another
+    slot's glass is not stopped by slot 1's. It assigns nothing.
 
     Only under `--hardware`. The settings are the installation's own
     `current.json`, read from the root the app reads: a root without one is
@@ -427,6 +432,8 @@ def hardware_session():
             },
         )
         print(f'SCOPE: {IDENTITY}', flush=True)
+        if objective is not None:
+            session.select_objective(objective)
         question = session.objective_question()
         if question is not None:
             print(
