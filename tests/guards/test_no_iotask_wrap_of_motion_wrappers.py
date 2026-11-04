@@ -22,7 +22,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 
 
 SELF_DISPATCHING_WRAPPERS = MemberNames(
@@ -38,16 +38,7 @@ SCAN_DIRS = Packages({'ui', 'modules'})
 
 
 def _iter_production_python_files() -> list[pathlib.Path]:
-    paths: list[pathlib.Path] = []
-    for sub in SCAN_DIRS:
-        root = REPO_ROOT / sub
-        if not root.exists():
-            continue
-        for p in root.rglob('*.py'):
-            if '__pycache__' in p.parts:
-                continue
-            paths.append(p)
-    return paths
+    return [REPO_ROOT / rel for rel in tracked_files(SCAN_DIRS)]
 
 
 def _iotask_action_argument(call: ast.Call) -> ast.expr | None:

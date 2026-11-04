@@ -13,7 +13,7 @@ import numpy as np
 
 import modules.image_utils as image_utils
 from modules.image_utils import convert_12bit_to_8bit
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.stock_channels import LED0
 
 
@@ -188,7 +188,7 @@ class TestTiffSuffixSingleSource:
     def _production_files():
         files = [REPO_ROOT / 'lumaviewpro.py']
         for sub in ('modules', 'ui', 'drivers'):
-            files.extend(sorted((REPO_ROOT / sub).rglob('*.py')))
+            files.extend([REPO_ROOT / rel for rel in tracked_files((sub,))])
         return REPO_ROOT, files
 
     @classmethod

@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT as ROOT
+from tests.ast_seams import REPO_ROOT as ROOT, tracked_files
 
 # Constructions whose absence would mean the walk lost its way.
 AT_LEAST = 4
 
 
 def _constructions():
-    for path in sorted([*(ROOT / 'ui').rglob('*.py'), ROOT / 'lumaviewpro.py']):
+    for path in sorted([*[ROOT / rel for rel in tracked_files(('ui',))], ROOT / 'lumaviewpro.py']):
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == 'RunEvents':

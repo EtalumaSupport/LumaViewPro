@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Words
+from tests.ast_seams import REPO_ROOT, MemberNames, Words, tracked_files
 
 _RECORD = '_auto_gain_locks'
 _WRITERS = MemberNames('modules/scope_session.py', {'set_channel_auto_gain', '__init__'})
@@ -52,9 +52,8 @@ def _record_writes(tree: ast.AST):
 
 
 def test_only_the_turning_off_writes_the_lock_record():
-    roots = [REPO_ROOT / name for name in ('modules', 'ui', 'rest')]
     files = [REPO_ROOT / 'lumaviewpro.py']
-    files += [path for root in roots for path in sorted(root.rglob('*.py'))]
+    files += [REPO_ROOT / rel for rel in tracked_files(('modules', 'ui', 'rest'))]
     writes = [
         (path.relative_to(REPO_ROOT).as_posix(), line, function)
         for path in files

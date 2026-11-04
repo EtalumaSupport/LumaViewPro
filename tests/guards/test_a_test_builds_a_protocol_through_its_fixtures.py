@@ -10,7 +10,7 @@ change touched 73 test files, the unit 18. ``protocol_of`` and
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, tracked_python_files
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 _THE_FIXTURES = 'tests/protocol_fixtures.py'
 
@@ -32,8 +32,8 @@ def _builds_a_protocol(node) -> bool:
 def test_no_test_calls_the_protocol_constructor_or_reader_itself():
     offenders = [
         f'{rel}:{node.lineno}'
-        for rel in tracked_python_files()
-        if rel.startswith('tests/') and rel != _THE_FIXTURES
+        for rel in tracked_files(('tests',))
+        if rel != _THE_FIXTURES
         for node in ast.walk(ast.parse((REPO_ROOT / rel).read_text(encoding='utf-8')))
         if _builds_a_protocol(node)
     ]

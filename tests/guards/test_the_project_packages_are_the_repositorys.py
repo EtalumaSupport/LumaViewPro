@@ -12,7 +12,7 @@ left out would let a class the API hands out from it pass every rule unseen.
 from __future__ import annotations
 
 from modules.wire_encoding import PROJECT_PACKAGES
-from tests.ast_seams import tracked_python_files
+from tests.ast_seams import tracked_files
 
 # Top-level directories holding Python the application never imports, each
 # with its reason.
@@ -25,7 +25,7 @@ NOT_IMPORTED = {
 
 def _top_level_python() -> set[str]:
     """The top-level name each tracked ``.py`` is imported under: its first folder, or its own stem."""
-    return {path.split('/', 1)[0].removesuffix('.py') for path in tracked_python_files()}
+    return {path.split('/', 1)[0].removesuffix('.py') for path in tracked_files()}
 
 
 def test_the_project_packages_are_every_imported_top_level_name() -> None:

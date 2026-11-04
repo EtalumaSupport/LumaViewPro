@@ -95,7 +95,7 @@ class TestOnlyTheSessionBuildsAScope:
         # A second constructor drifts from the first: the support report's
         # hand-wired copy had no camera, no model and no settings.
         built_in = {}
-        for rel in ast_seams.tracked_python_files():
+        for rel in ast_seams.tracked_files():
             if rel.startswith('tests/'):
                 continue
             found = _lumascope_constructions(ast_seams.parse_module(rel))

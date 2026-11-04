@@ -27,7 +27,7 @@ import ast
 import pytest
 
 from modules.notification_center import NotificationCenter, Severity
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 
 @pytest.fixture
@@ -167,7 +167,7 @@ def _functions_raising_the_typed_refusal():
     the refusal and hands it to the reporter before raising it is found.
     """
     found = []
-    for path in sorted((REPO_ROOT / 'modules').rglob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('modules',))]:
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

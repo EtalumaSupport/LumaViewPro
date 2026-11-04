@@ -24,7 +24,7 @@ from pathlib import Path
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
 from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
-from tests.ast_seams import REPO_ROOT as _ROOT
+from tests.ast_seams import REPO_ROOT as _ROOT, tracked_files
 from tests.ast_seams import MemberNames
 
 _RESTART_PRIMITIVES = MemberNames('drivers/camera.py', {'update_camera_config', 'stop_grabbing'})
@@ -79,7 +79,7 @@ def _restarting_driver_methods() -> frozenset[str]:
     hooks (``_set_hardware_window``) that each driver implements.
     """
     classes = {}
-    for path in sorted((_ROOT / 'drivers').glob('*.py')):
+    for path in [_ROOT / rel for rel in tracked_files(('drivers',), '*.py')]:
         for cls in (
             n for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.ClassDef)
         ):
@@ -179,7 +179,7 @@ def _census():
     restarting = _restarting_driver_methods()
     owners = {'CameraAPI': CameraAPI, 'ImagingAPI': ImagingAPI, 'DiagnosticsAPI': DiagnosticsAPI}
     rows = []
-    for path in sorted((_ROOT / 'modules' / 'lumascope_api').glob('*.py')):
+    for path in [_ROOT / rel for rel in tracked_files(('modules/lumascope_api',), '*.py')]:
         classes = _methods(ast.parse(path.read_text()))
         for cls_name, fn, impl, timeout in _dispatches(path):
             for name in _impl_names(classes[cls_name], fn, impl):

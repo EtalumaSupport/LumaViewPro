@@ -20,6 +20,7 @@ import pytest
 from modules.exceptions import SupportReportNotSavedError
 from modules.notification_center import notifications
 from modules.tech_support_report import SupportReportKind, SupportReportSaved, TechSupportReport
+from tests.ast_seams import tracked_files
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -114,7 +115,7 @@ def test_the_gui_neither_builds_nor_words_a_report(words):
     # neither constructs the report nor writes its own failure.
     hits = [
         str(path.relative_to(REPO))
-        for path in (REPO / 'ui').rglob('*.py')
+        for path in [REPO / rel for rel in tracked_files(('ui',))]
         if words in path.read_text(encoding='utf-8')
     ]
     assert hits == []

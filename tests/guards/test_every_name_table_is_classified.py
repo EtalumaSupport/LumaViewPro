@@ -30,9 +30,9 @@ from tests.ast_seams import (
     RetiredNames,
     Words,
     defined_names,
+    tracked_files,
 )
 
-_GUARDS = REPO_ROOT / 'tests' / 'guards'
 _KINDS = {kind.__name__: kind for kind in (MemberNames, Packages, RetiredNames, Words)}
 _COLLECTIONS = Words({'frozenset', 'set', 'tuple', 'list'})
 
@@ -55,7 +55,7 @@ def _literal_names(node: ast.AST) -> bool:
 def _tables():
     """``{(guard module, table name): kind name or None}`` for every written-out table."""
     found = {}
-    for path in sorted(_GUARDS.glob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('tests/guards',), '*.py')]:
         for node in ast.parse(path.read_text(encoding='utf-8')).body:
             if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
                 continue

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import MemberNames, parse_module, tracked_python_files, walk_defs
+from tests.ast_seams import MemberNames, parse_module, tracked_files, walk_defs
 
 _OWNER_MODULE = 'modules/lumascope_api/frame_record.py'
 _OWNER_DEFS = MemberNames(_OWNER_MODULE, {'grab_record', 'delivered_frame_record'})
@@ -46,7 +46,7 @@ def _is_construction(node: ast.AST) -> bool:
 
 def test_a_frame_record_is_built_only_by_its_two_entries():
     found = []
-    for rel_path in tracked_python_files():
+    for rel_path in tracked_files():
         if rel_path == _TEST_DESCRIPTION:
             continue
         for qualname, lineno in _constructions(parse_module(rel_path)):

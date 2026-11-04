@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames
+from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 
 _WRITE_BODIES = MemberNames(
     'modules/lumascope_api/camera.py',
@@ -96,9 +96,8 @@ def test_every_camera_write_keeps_the_held_layer_true():
 
 
 def test_no_module_outside_the_camera_reaches_a_camera_write_body():
-    roots = [REPO_ROOT / name for name in ('modules', 'ui', 'rest')]
     files = [REPO_ROOT / 'lumaviewpro.py']
-    files += [path for root in roots for path in sorted(root.rglob('*.py'))]
+    files += [REPO_ROOT / rel for rel in tracked_files(('modules', 'ui', 'rest'))]
     offenders = [
         f'{path.relative_to(REPO_ROOT)}:{line} {body}'
         for path in files

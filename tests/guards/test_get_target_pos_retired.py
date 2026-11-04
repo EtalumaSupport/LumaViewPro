@@ -23,7 +23,7 @@ returned -1 on any failure).
 
 from __future__ import annotations
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 
 class TestGetTargetPosRetired:
@@ -69,7 +69,7 @@ class TestGetTargetPosRetired:
         an API call to scope.get_target_pos() or motion.get_target_pos()
         should be caught."""
         for sub in ('modules', 'ui', 'drivers'):
-            for path in (REPO_ROOT / sub).rglob('*.py'):
+            for path in [REPO_ROOT / rel for rel in tracked_files((sub,))]:
                 text = path.read_text()
                 # Skip the driver-level target_pos (legitimate); only
                 # the API-shape get_target_pos is retired.

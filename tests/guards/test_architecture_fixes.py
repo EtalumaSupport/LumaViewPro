@@ -10,20 +10,22 @@ tests/guards/test_the_lower_layers_import_nothing_above_them.py's):
   5. Tiny file consolidation -- enums/classes merged into parent modules
 """
 
-import glob
 import os
 from typing import ClassVar
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_python_files
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 
 
 def _list_py_files(subdir):
     """Return sorted list of *.py files in <repo>/<subdir>/, excluding dunder
     files like __init__.py.
     """
-    pattern = os.path.join(REPO_ROOT, subdir, '*.py')
-    return sorted(p for p in glob.glob(pattern) if not os.path.basename(p).startswith('__'))
+    return [
+        os.path.join(REPO_ROOT, rel)
+        for rel in tracked_files((subdir,), '*.py')
+        if not os.path.basename(rel).startswith('__')
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +46,7 @@ class TestConfigGettersRename:
         """Scan every tracked .py file for 'modules.config_getters' imports (should be zero)."""
         old_module = 'modules.config_' + 'getters'  # avoid matching this test file
         violations = []
-        for rel_path in tracked_python_files():
+        for rel_path in tracked_files():
             if 'test_architecture' in rel_path:
                 continue
             with open(REPO_ROOT / rel_path, encoding='utf-8') as f:
@@ -145,7 +147,7 @@ class TestTinyFileConsolidation:
         # Deleted module that must not be confused with protocol_step_runner
         old_protocol_step = 'modules.protocol_' + 'step'
         violations = []
-        for rel_path in tracked_python_files():
+        for rel_path in tracked_files():
             if 'test_architecture' in rel_path:
                 continue
             with open(REPO_ROOT / rel_path, encoding='utf-8') as f:
@@ -169,7 +171,7 @@ class TestTinyFileConsolidation:
         import py_compile
 
         errors = []
-        for rel_path in tracked_python_files():
+        for rel_path in tracked_files():
             try:
                 py_compile.compile(str(REPO_ROOT / rel_path), doraise=True)
             except py_compile.PyCompileError as e:

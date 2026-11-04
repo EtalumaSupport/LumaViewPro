@@ -37,7 +37,7 @@ from modules.exceptions import (
     Refusal,
     _Umbrella,
 )
-from tests.ast_seams import REPO_ROOT, MemberNames, module_name
+from tests.ast_seams import REPO_ROOT, MemberNames, module_name, tracked_files
 
 KINDS = (Refusal, Notice, Quiet, Fault)
 _BUILTIN_EXCEPTIONS = {
@@ -51,7 +51,7 @@ def _exception_classes():
     """(module name, class name) for every exception class the API's layers define."""
     found = []
     for layer in ('modules', 'drivers', 'rest'):
-        for path in sorted((REPO_ROOT / layer).rglob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files((layer,))]:
             tree = ast.parse(path.read_text(encoding='utf-8'))
             classes = {
                 node.name: [ast.unparse(base).split('.')[-1] for base in node.bases]
@@ -164,7 +164,7 @@ def _constructions(names):
     """``path:line`` of every call in production code to a class in ``names``, by its name."""
     paths = [REPO_ROOT / 'lumaviewpro.py']
     for layer in ('modules', 'drivers', 'rest', 'ui', 'lib', 'tools'):
-        paths.extend(sorted((REPO_ROOT / layer).rglob('*.py')))
+        paths.extend([REPO_ROOT / rel for rel in tracked_files((layer,))])
     found = []
     for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
@@ -355,7 +355,7 @@ def test_no_production_call_passes_a_title_to_an_outcome():
     names = {cls.__name__ for cls in (*RAISABLE, *UMBRELLAS)}
     passing = []
     for layer in ('modules', 'drivers', 'rest', 'ui'):
-        for path in sorted((REPO_ROOT / layer).rglob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files((layer,))]:
             for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
                 if (
                     isinstance(node, ast.Call)

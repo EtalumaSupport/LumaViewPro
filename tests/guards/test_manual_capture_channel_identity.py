@@ -21,7 +21,7 @@ from types import SimpleNamespace
 import pytest
 import tifffile as tf
 
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import parse_module, tracked_files
 from tests.scope_fakes import bind_settings_like_a_session
 from modules.layer_record import release_catalogue, release_colors
 from tests.stock_channels import LED0, LED1, LED2
@@ -224,12 +224,7 @@ def test_capture_task_reads_no_widget():
 
 
 def _production_modules():
-    files = (
-        sorted(REPO_ROOT.glob('modules/*.py'))
-        + sorted(REPO_ROOT.glob('ui/*.py'))
-        + [REPO_ROOT / 'lumaviewpro.py']
-    )
-    return [str(f.relative_to(REPO_ROOT)) for f in files]
+    return [*tracked_files(('modules', 'ui'), '*.py'), 'lumaviewpro.py']
 
 
 def test_specific_layers_is_always_handed_a_list():

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, Words
+from tests.ast_seams import REPO_ROOT, Words, tracked_files
 
 # Calls whose first argument is a dotted target string, and calls whose
 # first argument is the object an attribute is set on.
@@ -72,7 +72,7 @@ def offences(tree: ast.AST) -> list[int]:
 
 def test_no_test_patches_a_member_of_the_time_module():
     offenders = []
-    for path in sorted((REPO_ROOT / 'tests').rglob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('tests',))]:
         tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
         for lineno in offences(tree):
             offenders.append(f'{path.relative_to(REPO_ROOT)}:{lineno}')

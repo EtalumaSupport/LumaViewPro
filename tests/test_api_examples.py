@@ -39,16 +39,19 @@ import subprocess
 import sys
 
 import pytest
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.case_walk import failing_cases
 from tests.guards.test_api_doc_guard import ShellRun, curl_failures
 from tests.settings_fixtures import complete_settings
 
-EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'api_examples'
+EXAMPLES_DIR = REPO_ROOT / 'docs' / 'api_examples'
 # Derived from the directory, never hand-listed: a roster has to be
 # remembered, and the example someone forgets to add is exactly the one
 # nobody checked. A new file under api_examples/ is covered the day it
 # lands.
-EXAMPLES = sorted(path.stem for path in EXAMPLES_DIR.glob('*.py'))
+EXAMPLES = sorted(
+    pathlib.PurePath(rel).stem for rel in tracked_files(('docs/api_examples',), '*.py')
+)
 
 _SENTINEL = object()
 

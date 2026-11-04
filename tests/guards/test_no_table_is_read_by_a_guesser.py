@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, Words
+from tests.ast_seams import REPO_ROOT, Words, tracked_files
 
 _PANDAS_READERS = Words({'read_csv', 'read_table', 'read_fwf', 'read_excel'})
 
 
 def _production_sources():
-    for directory in ('modules', 'drivers', 'ui', 'tools', 'scripts', 'lib'):
-        yield from (REPO_ROOT / directory).rglob('*.py')
-    yield from REPO_ROOT.glob('*.py')
+    folders = ('modules', 'drivers', 'ui', 'tools', 'scripts', 'lib')
+    for rel in tracked_files(folders) + tracked_files(pattern='*.py'):
+        yield REPO_ROOT / rel
 
 
 def _pandas_reads(source: str) -> list[int]:

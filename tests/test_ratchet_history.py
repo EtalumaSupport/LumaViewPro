@@ -133,9 +133,28 @@ def test_the_test_ratchets_measure_the_sampled_tree(tmp_path):
         '    scope = MagicMock()\n'
         '    assert scope\n'
     )
+    _track(tmp_path)
     row = rh.measure_tree(tmp_path)
     assert row['fragile src pins'] == 1, row.get('fragile src pins (why)')
     assert row['scope stand-ins'] == 1, row.get('scope stand-ins (why)')
+
+
+def test_a_sampled_tree_without_a_folder_a_detector_reads_records_none_naming_it(tmp_path):
+    """A tree with no ``ui/`` has no GUI count: not 0, which reads as none found."""
+    (tmp_path / 'tests').mkdir()
+    (tmp_path / 'tests' / '__init__.py').write_text('')
+    _track(tmp_path)
+    row = rh.measure_tree(tmp_path)
+    assert row['except handlers'] is None
+    assert "'ui'" in row['except handlers (why)'], row['except handlers (why)']
+
+
+def _track(tree):
+    """Make ``tree`` the git tree ``ratchet_history`` samples, every file tracked."""
+    import subprocess
+
+    subprocess.run(['git', 'init', '-q'], cwd=tree, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=tree, check=True)
 
 
 def _commit(repo, message, date, *parents_to_merge):

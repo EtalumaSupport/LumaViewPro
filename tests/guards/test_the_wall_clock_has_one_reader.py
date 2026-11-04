@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, Words, tracked_python_files
+from tests.ast_seams import REPO_ROOT, Packages, Words, tracked_files
 
 # The production trees, and the root's own modules.
-_PRODUCTION = ('modules/', 'drivers/', 'rest/', 'ui/')
+_PRODUCTION = Packages({'modules', 'drivers', 'rest', 'ui'})
 _THE_ONE_READER = 'modules/wall_time.py'
 
 # The datetime and date members that read the wall clock.
@@ -49,8 +49,8 @@ def offences(tree: ast.AST) -> list[int]:
 def _production_files() -> list[str]:
     return [
         path
-        for path in tracked_python_files()
-        if path != _THE_ONE_READER and (path.startswith(_PRODUCTION) or '/' not in path)
+        for path in tracked_files(_PRODUCTION) + tracked_files(pattern='*.py')
+        if path != _THE_ONE_READER
     ]
 
 

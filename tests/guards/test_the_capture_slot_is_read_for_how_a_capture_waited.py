@@ -73,7 +73,7 @@ def _offenders(tree: ast.Module) -> list[tuple[int, str]]:
 def test_every_key_read_from_the_capture_slot_is_one_it_holds():
     offenders = sorted(
         f'{path}:{line} reads {key}'
-        for path in ast_seams.tracked_python_files()
+        for path in ast_seams.tracked_files()
         if path != 'tests/guards/test_the_capture_slot_is_read_for_how_a_capture_waited.py'
         for line, key in set(_offenders(ast_seams.parse_module(path)))
     )

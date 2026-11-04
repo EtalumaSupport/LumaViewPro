@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, RetiredNames, tracked_python_files
+from tests.ast_seams import REPO_ROOT, RetiredNames, tracked_files
 
 _HANDS_OUT = RetiredNames({'get_objects', 'get_referrers', 'get_referents'})
 
@@ -41,7 +41,7 @@ def _calls_that_hand_out(tree: ast.Module) -> list[tuple[int, str]]:
 
 def test_no_shipped_module_asks_the_collector_for_its_objects():
     offenders = []
-    for rel_path in tracked_python_files():
+    for rel_path in tracked_files():
         if rel_path.startswith('tests/'):
             continue
         source = (REPO_ROOT / rel_path).read_text(encoding='utf-8')

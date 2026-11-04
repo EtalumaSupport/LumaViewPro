@@ -28,7 +28,7 @@ from modules.coord_transformations import (
     StageOffset,
 )
 from modules.exceptions import PositionOutOfRangeError
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 # The shipped 96-well geometry and a stock LS850T's travel. The reachable
 # plate band these produce -- X 2.26-122.26, Y 1.48-81.48 -- is the
@@ -208,11 +208,10 @@ class TestTheConversionLeftTheCallers:
         call = re.compile(r'\.plate_to_stage\s*\(')
 
         offenders = []
-        for path in sorted([*REPO_ROOT.glob('ui/**/*.py'), *REPO_ROOT.glob('modules/**/*.py')]):
-            relative = path.relative_to(REPO_ROOT).as_posix()
+        for relative in tracked_files(('ui', 'modules')):
             if relative in self.SANCTIONED:
                 continue
-            for number, line in enumerate(path.read_text().splitlines(), 1):
+            for number, line in enumerate((REPO_ROOT / relative).read_text().splitlines(), 1):
                 if call.search(line):
                     offenders.append(f'{relative}:{number}')
 

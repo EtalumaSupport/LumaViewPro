@@ -14,7 +14,7 @@ environment, so the kv source is the contract.
 
 import re
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 _FILLED = re.compile(r"ids(?:\['(\w+)'\]|\.(\w+))\.values\s*=")
 _ID = re.compile(r'^(\s*)id:\s*(\w+)\s*$')
@@ -23,7 +23,7 @@ _AUTOUPDATE = re.compile(r'^(\s*)text_autoupdate:\s*True\b')
 
 def _filled_from_code() -> set[str]:
     filled = set()
-    for path in (REPO_ROOT / 'ui').rglob('*.py'):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('ui',))]:
         for match in _FILLED.finditer(path.read_text(encoding='utf-8')):
             filled.add(match.group(1) or match.group(2))
     return filled
@@ -32,7 +32,7 @@ def _filled_from_code() -> set[str]:
 def _autoupdating() -> dict[str, str]:
     """Each kv widget id that sets ``text_autoupdate: True``, to where it does."""
     found = {}
-    for path in (REPO_ROOT / 'ui').rglob('*.kv'):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('ui',), '**/*.kv')]:
         widget_id, id_indent = None, None
         for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
             named = _ID.match(line)

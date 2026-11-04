@@ -12,18 +12,16 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT as _REPO
+from tests.ast_seams import REPO_ROOT as _REPO, tracked_files
 
 _THE_BUILDER = 'rest/server.py'
-_SKIPPED = {'tests', 'build', '.git', '.venv', 'venv', '__pycache__', 'node_modules'}
 _SERVING = ('uvicorn.Config(', 'uvicorn.run(')
 
 
 def _production_files():
-    for path in sorted(_REPO.rglob('*.py')):
-        rel = path.relative_to(_REPO)
-        if not _SKIPPED.intersection(rel.parts):
-            yield rel.as_posix(), path
+    for rel in tracked_files():
+        if 'tests' not in rel.split('/'):
+            yield rel, _REPO / rel
 
 
 def _serves_uvicorn(tree: ast.AST) -> list[int]:
@@ -54,7 +52,7 @@ def test_no_production_module_but_the_builder_configures_a_uvicorn_server():
 
 
 def test_no_published_document_serves_without_the_builder():
-    docs = [*sorted((_REPO / 'docs').rglob('*.md')), _REPO / 'README.md']
+    docs = [*[_REPO / rel for rel in tracked_files(('docs',), '**/*.md')], _REPO / 'README.md']
     found = {
         doc.relative_to(_REPO).as_posix(): [s for s in _SERVING if s in doc.read_text('utf-8')]
         for doc in docs

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, tracked_python_files
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 _OWNER = 'modules/log_stamp.py'
 
@@ -43,7 +43,7 @@ def offenders_in(rel_path: str, source: str) -> list[str]:
 
 def test_no_log_stamp_is_spelled_outside_log_stamp():
     offenders = []
-    for rel_path in tracked_python_files():
+    for rel_path in tracked_files():
         if rel_path.startswith('tests/') or rel_path == _OWNER:
             continue
         offenders += offenders_in(rel_path, (REPO_ROOT / rel_path).read_text(encoding='utf-8'))

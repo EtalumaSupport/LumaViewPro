@@ -17,7 +17,7 @@ from types import ModuleType
 from unittest import mock
 from unittest.mock import MagicMock
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 # ui.vertical_control / ui.protocol_settings are Kivy widget modules;
 # conftest mocks `kivy` but not the uix submodules, and the widget
@@ -196,7 +196,10 @@ class TestTheGuiReadsTheLockRecord:
     def test_no_gui_file_reads_a_retired_read(self):
         offenders = [
             f'{path.relative_to(REPO_ROOT)}:{number}: {line.strip()}'
-            for path in [*sorted((REPO_ROOT / 'ui').glob('*.py')), REPO_ROOT / 'lumaviewpro.py']
+            for path in [
+                *[REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')],
+                REPO_ROOT / 'lumaviewpro.py',
+            ]
             for number, line in enumerate(path.read_text().splitlines(), 1)
             if _RETIRED_READS.search(line)
         ]
@@ -207,7 +210,10 @@ class TestTheGuiReadsTheLockRecord:
         # a republish from the GUI is an edge only the GUI can see.
         offenders = [
             str(path.relative_to(REPO_ROOT))
-            for path in [*sorted((REPO_ROOT / 'ui').glob('*.py')), REPO_ROOT / 'lumaviewpro.py']
+            for path in [
+                *[REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')],
+                REPO_ROOT / 'lumaviewpro.py',
+            ]
             if 'notify_run_state' in path.read_text()
         ]
         assert not offenders, offenders
@@ -230,7 +236,10 @@ class TestNoCallerSideRunStateCommit:
     )
 
     def test_no_ui_file_writes_run_state(self):
-        for path in [*sorted((REPO_ROOT / 'ui').glob('*.py')), REPO_ROOT / 'lumaviewpro.py']:
+        for path in [
+            *[REPO_ROOT / rel for rel in tracked_files(('ui',), '*.py')],
+            REPO_ROOT / 'lumaviewpro.py',
+        ]:
             text = path.read_text()
             for marker in self.FORBIDDEN:
                 assert marker not in text, (

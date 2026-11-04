@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, tracked_python_files
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 _BUILDER = ('lvp_logger.py', '_rotating_handler')
 
@@ -27,7 +27,7 @@ def _builds_a_rotating_handler(node: ast.AST) -> bool:
 
 def test_no_rotating_handler_is_built_outside_the_cap_table_builder():
     offenders = []
-    for rel_path in tracked_python_files():
+    for rel_path in tracked_files():
         if rel_path.startswith('tests/'):
             continue
         tree = ast.parse((REPO_ROOT / rel_path).read_text(encoding='utf-8'), filename=rel_path)

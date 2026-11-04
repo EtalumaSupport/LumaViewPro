@@ -77,7 +77,7 @@ import warnings
 import pytest
 
 from lib.lumascope_error import LumascopeError
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 DOC = REPO_ROOT / 'docs' / 'lumascope-skills.md'
@@ -1266,7 +1266,7 @@ def published_docs():
     """Every document LumaViewPro publishes: the repo's README and its ``docs/``."""
     return [
         REPO_ROOT / 'README.md',
-        *sorted((REPO_ROOT / 'docs').glob('*.md')),
+        *[REPO_ROOT / rel for rel in tracked_files(('docs',), '*.md')],
         REPO_ROOT / 'docs' / 'api_examples' / 'README.md',
     ]
 

@@ -45,7 +45,7 @@ from collections import Counter
 import pytest
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import REPO_ROOT, Packages
+from tests.ast_seams import REPO_ROOT, Packages, tracked_files
 
 from modules import app_context
 from modules.api_surface import HOST_WIRING_ATTRIBUTE, fields_of, host_wiring_of, mark_of
@@ -553,7 +553,7 @@ def _client_paths() -> list[pathlib.Path]:
     for client in sorted(_CLIENTS):
         root = REPO_ROOT / client
         if root.is_dir():
-            paths += sorted(p for p in root.rglob('*.py') if '__pycache__' not in p.parts)
+            paths += [REPO_ROOT / rel for rel in tracked_files((client,))]
         else:
             paths.append(root.with_suffix('.py'))
     return paths
@@ -569,7 +569,7 @@ def every_reach() -> tuple[Reach, ...]:
         reaches += walk.reaches
         if label == 'lumaviewpro.py':
             app = walk
-    for kv in sorted((REPO_ROOT / 'ui').rglob('*.kv')):
+    for kv in [REPO_ROOT / rel for rel in tracked_files(('ui',), '**/*.kv')]:
         reaches += walk_kv(kv.relative_to(REPO_ROOT).as_posix(), kv.read_text(), app)
     return tuple(reaches)
 

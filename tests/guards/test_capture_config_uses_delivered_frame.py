@@ -18,7 +18,7 @@ handler itself, which legitimately wants the typed request.
 import ast
 from unittest.mock import MagicMock
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 
 
 def _frame_fields(typed: str):
@@ -101,7 +101,7 @@ def test_no_modules_file_reads_the_frame_fields():
     """
     offenders = {
         path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / 'modules').glob('*.py')
+        for path in [REPO_ROOT / rel for rel in tracked_files(('modules',), '*.py')]
         if 'frame_width_id' in path.read_text() or 'frame_height_id' in path.read_text()
     }
 

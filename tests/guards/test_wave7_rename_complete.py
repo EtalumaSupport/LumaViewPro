@@ -39,7 +39,7 @@ during the transition.
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages, RetiredNames
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, RetiredNames, tracked_files
 
 BANNED_ATTRS = RetiredNames({'led'})
 
@@ -48,13 +48,7 @@ PROD_ROOTS = Packages({'modules', 'ui'})
 
 
 def _iter_prod_files() -> list[pathlib.Path]:
-    files: list[pathlib.Path] = []
-    for root_name in PROD_ROOTS:
-        root = REPO_ROOT / root_name
-        if not root.is_dir():
-            continue
-        files.extend(sorted(p for p in root.rglob('*.py')))
-    return files
+    return [REPO_ROOT / rel for rel in tracked_files(PROD_ROOTS)]
 
 
 def _chain_ends_in_scope(node: ast.AST) -> bool:

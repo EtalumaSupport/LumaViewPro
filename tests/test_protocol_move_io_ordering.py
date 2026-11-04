@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from modules.protocol_step_runner import ProtocolStepRunner
+from tests.ast_seams import tracked_files
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -62,7 +63,7 @@ def test_the_gui_queues_nothing_on_the_run_lane():
     the run, and a GUI that queued its own moves there would be a second
     implementation of the run's motion, ordered by nothing the run owns."""
     offenders = []
-    for path in sorted((REPO_ROOT / 'ui').rglob('*.py')):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('ui',))]:
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if (

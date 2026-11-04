@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.ast_seams import REPO_ROOT
 from tests.af_drives import park_z
 from tests.scope_fakes import (
     home_sim_scope,
@@ -1698,26 +1699,16 @@ class TestRule1_UiNoDriverReachThrough:
     )
 
     def test_ui_does_not_reach_through_motion_driver(self):
-        import pathlib
-
         for path in self.UI_FILES:
-            p = pathlib.Path(path)
-            if not p.exists():
-                continue
-            source = p.read_text(encoding='utf-8')
+            source = (REPO_ROOT / path).read_text(encoding='utf-8')
             assert 'scope._motion_driver.driver' not in source, (
                 f'{path} must not read scope._motion_driver.driver directly '
                 '(Rule 1 / LV-14). Use scope.motor_connected instead.'
             )
 
     def test_ui_does_not_reach_through_led_driver(self):
-        import pathlib
-
         for path in self.UI_FILES:
-            p = pathlib.Path(path)
-            if not p.exists():
-                continue
-            source = p.read_text(encoding='utf-8')
+            source = (REPO_ROOT / path).read_text(encoding='utf-8')
             assert 'scope._led_driver.driver' not in source, (
                 f'{path} must not read scope._led_driver.driver directly '
                 '(Rule 1). Use scope.led_connected instead.'

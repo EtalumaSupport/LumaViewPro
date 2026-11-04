@@ -302,8 +302,6 @@ class TestIntelHexParser:
 
     def test_parses_real_firmware(self):
         hex_path = REPO_ROOT / 'firmware' / 'LumascopeClassic.hex'
-        if not hex_path.exists():
-            pytest.skip(f'firmware hex not present at {hex_path}')
         data, end_addr = fx2driver.parse_intel_hex(str(hex_path))
         assert len(data) == 0x4000  # 16 KB 8051 program space
         assert end_addr > 0  # something was parsed
@@ -312,8 +310,6 @@ class TestIntelHexParser:
 
     def test_parses_fallback_firmware(self):
         hex_path = REPO_ROOT / 'firmware' / 'Lumascope600.hex'
-        if not hex_path.exists():
-            pytest.skip(f'fallback firmware hex not present at {hex_path}')
         _, end_addr = fx2driver.parse_intel_hex(str(hex_path))
         assert end_addr > 0
 

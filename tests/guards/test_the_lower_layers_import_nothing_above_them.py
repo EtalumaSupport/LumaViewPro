@@ -26,9 +26,8 @@ into modules/ stood under a green suite.
 from __future__ import annotations
 
 import ast
-import subprocess
 
-from tests.ast_seams import REPO_ROOT, imported_names, tracked_python_files
+from tests.ast_seams import REPO_ROOT, imported_names, tracked_files
 
 # Each lower layer, and the first-party names it may import.
 _MAY_IMPORT = {
@@ -39,12 +38,9 @@ _MAY_IMPORT = {
 
 def _first_party_names() -> frozenset[str]:
     """Every name the repository's tracked tree can be imported by at its root."""
-    listed = subprocess.run(
-        ['git', 'ls-files', '-z'], cwd=REPO_ROOT, capture_output=True, check=True
-    )
     names = set()
-    for path in listed.stdout.decode().split('\0'):
-        if not path or path.startswith('.'):
+    for path in tracked_files(pattern='**/*'):
+        if path.startswith('.'):
             continue
         head, sep, _ = path.partition('/')
         if sep:
@@ -55,7 +51,7 @@ def _first_party_names() -> frozenset[str]:
 
 
 def _layer_files(layer: str) -> list[str]:
-    return [path for path in tracked_python_files() if path.startswith(f'{layer}/')]
+    return tracked_files((layer,))
 
 
 def _upward_imports() -> list[str]:

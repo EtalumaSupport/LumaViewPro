@@ -29,7 +29,7 @@ import pytest
 import modules.config_helpers as config_helpers
 from modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from tests.ast_seams import REPO_ROOT, MemberNames
+from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 from tests.settings_fixtures import complete_settings
 
 _OWNED_PARAMS = MemberNames(
@@ -68,7 +68,7 @@ def _acquisition_run_call_blocks():
     `.prepare(` whose arg block carries a run_mode= kwarg (the capture
     runner's required selector)."""
     for sub in ('modules', 'ui'):
-        for path in sorted((REPO_ROOT / sub).glob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files((sub,), '*.py')]:
             src = path.read_text()
             for m in _RUN_CALL.finditer(src):
                 block = _balanced_block(src, m.end() - 1)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages, Words
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, Words, tracked_files
 
 _RUN_MODE_MEMBERS = MemberNames(
     'modules/sequential_io_executor.py',
@@ -53,7 +53,7 @@ def _run_mode_calls():
     paths = [REPO_ROOT / 'lumaviewpro.py']
     for d in _SOURCES:
         if (REPO_ROOT / d).is_dir():
-            paths.extend((REPO_ROOT / d).rglob('*.py'))
+            paths.extend([REPO_ROOT / rel for rel in tracked_files((d,))])
     for path in paths:
         rel = path.relative_to(REPO_ROOT).as_posix()
         tree = ast.parse(path.read_text(encoding='utf-8'), filename=rel)

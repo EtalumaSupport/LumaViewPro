@@ -15,6 +15,7 @@ import pathlib
 import time
 from unittest.mock import MagicMock
 
+from tests.ast_seams import tracked_files
 from tests.camera_fakes import bare_ids_camera
 from tests.log_capture import records_of
 
@@ -30,7 +31,7 @@ def _wait_until(condition, timeout_s=2.0):
 
 def test_only_the_base_camera_defines_the_removal_teardown():
     definers = []
-    for path in sorted((REPO / 'drivers').rglob('*.py')):
+    for path in [REPO / rel for rel in tracked_files(('drivers',))]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == '_schedule_async_teardown':

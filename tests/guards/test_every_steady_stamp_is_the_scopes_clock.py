@@ -24,7 +24,7 @@ from __future__ import annotations
 import ast
 import re
 
-from tests.ast_seams import REPO_ROOT, Words, tracked_python_files
+from tests.ast_seams import REPO_ROOT, Words, tracked_files
 
 _THE_CLOCK = 'drivers/host_clock.py'
 # This guard names the clocks it refuses.
@@ -53,7 +53,7 @@ def _offences(tree: ast.AST) -> list[tuple[int, str]]:
 
 
 def _source_files() -> list[str]:
-    return tracked_python_files()
+    return tracked_files()
 
 
 def test_no_steady_stamp_is_read_beside_the_scopes_clock():

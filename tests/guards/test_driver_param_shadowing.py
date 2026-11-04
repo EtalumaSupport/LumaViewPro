@@ -8,7 +8,7 @@ tests/test_audit_fixes.py.
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, parse_module, tracked_files
 
 
 class TestDriverParametersNotShadowingMethods:
@@ -31,7 +31,7 @@ class TestDriverParametersNotShadowingMethods:
         """No function in any drivers/*.py module may take a parameter
         named identically to the function itself."""
         offenders = []
-        for path in sorted((REPO_ROOT / 'drivers').glob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files(('drivers',), '*.py')]:
             rel = path.relative_to(REPO_ROOT).as_posix()
             tree = parse_module(rel)
             for node in ast.walk(tree):

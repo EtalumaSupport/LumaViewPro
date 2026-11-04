@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 from modules.run_events import RunEvents
 from modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.protocol_drives import run_identity
 
 MODULES = REPO_ROOT / 'modules'
@@ -162,7 +162,7 @@ def test_no_cleanup_call_states_an_ending_without_one():
     never what the cleanup ends.
     """
     offenders = []
-    for path in MODULES.glob('*.py'):
+    for path in [REPO_ROOT / rel for rel in tracked_files(('modules',), '*.py')]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if (

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
 
 SCAN_DIRS = Packages({'modules', 'drivers', 'ui'})
 
@@ -74,7 +74,7 @@ def _scan_production():
     """Every depth+color co-occurring def across the scanned source dirs."""
     hops = []
     for d in SCAN_DIRS:
-        for path in sorted((REPO_ROOT / d).rglob('*.py')):
+        for path in [REPO_ROOT / rel for rel in tracked_files((d,))]:
             tree = ast.parse(path.read_text())
             rel = path.relative_to(REPO_ROOT).as_posix()
             hops.extend(_find_depth_color_hops(tree, rel))
