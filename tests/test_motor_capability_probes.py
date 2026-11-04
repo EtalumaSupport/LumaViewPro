@@ -21,6 +21,7 @@ import logging
 import pytest
 
 from drivers.exceptions import BoardNoReplyError
+from lib.log_helpers import VERBOSE
 from tests.wire_boards import motor_on_the_wire
 
 pytestmark = pytest.mark.firmware_tier
@@ -50,7 +51,7 @@ class TestSupportsPredicates:
         is the read-only FANSPEED, never a FAN:<duty> that would change the
         fan."""
         board, _sim = motor_on_the_wire(dialect='field')
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             assert board.supports_fan() is False
             assert board.supports_fan() is False
             assert board.supports_diagnostics() is False
@@ -62,7 +63,7 @@ class TestSupportsPredicates:
 
     def test_firmware_with_the_family_is_answered_supported_once(self, caplog):
         board, _sim = motor_on_the_wire(dialect='3.0')
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             assert board.supports_diagnostics() is True
             assert board.supports_diagnostics() is True
         assert len(_exchanges(caplog, 'VOLTAGE')) == 1
@@ -75,7 +76,7 @@ class TestSupportsPredicates:
         board, sim = motor_on_the_wire(dialect='3.0')
         sim.drop_next_reply()
         with (
-            caplog.at_level(logging.INFO, logger='LVP.serial'),
+            caplog.at_level(VERBOSE, logger='LVP.serial'),
             pytest.raises(BoardNoReplyError, match=r'^VOLTAGE: '),
         ):
             board.supports_diagnostics()

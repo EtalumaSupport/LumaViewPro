@@ -29,6 +29,7 @@ import serial
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import drivers.serialboard as serialboard
+from lib.log_helpers import VERBOSE
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
 from drivers.ledboard import LEDBoard
 from drivers.serialboard import SerialBoard
@@ -680,7 +681,7 @@ class TestTheDurationsSerialLogStates:
         monkeypatch.setattr(serialboard, 'time', _coarse_time())
         link = ScriptedLink({**_ANSWERING, 'LEDS_OFF': ['LEDs off'], 'FULLINFO': ['a', 'b']})
         link.write_takes_s = self._WRITE_S
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             board = _connected(link, LEDBoard)
             board.exchange_command('PING')
             board.exchange_multiline('FULLINFO', timeout=1)

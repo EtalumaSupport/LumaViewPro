@@ -25,6 +25,7 @@ from drivers.camera import Frame
 from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
+from lib.log_helpers import VERBOSE
 from modules.activity_claim import a_guarded_write
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -1219,7 +1220,7 @@ class ImagingAPI:
                     removed = True
                     raise _camera_not_connected(member) from unread
             if failed is None:
-                _api_log.info(_capture_line(grabbed, record))
+                _api_log.log(VERBOSE, _capture_line(grabbed, record))
             _record_capture_info()
         finally:
             if lock is not None and not removed:

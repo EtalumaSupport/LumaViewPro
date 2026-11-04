@@ -32,6 +32,7 @@ import logging
 import pytest
 
 from drivers.exceptions import HardwareError
+from lib.log_helpers import VERBOSE
 from tests.wire_boards import motor_on_the_wire
 
 pytestmark = pytest.mark.firmware_tier
@@ -64,7 +65,7 @@ def _exchanged(caplog, command):
 
 class TestDiagnosticQueryCapabilityProbe:
     def test_an_unsupported_drvstat_is_no_reading_and_no_warning(self, field_board, caplog):
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             result = field_board.read_drv_status('Z')
         assert result is None, (
             'ERROR response must be swallowed and returned as None '
@@ -74,7 +75,7 @@ class TestDiagnosticQueryCapabilityProbe:
         assert _firmware_errors(caplog, 'DRVSTAT_Z') == []
 
     def test_an_unsupported_fanspeed_is_no_reading_and_no_warning(self, field_board, caplog):
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             result = field_board.read_fanspeed()
         assert result is None
         assert _exchanged(caplog, 'FANSPEED'), 'the probe never reached the board'
@@ -83,7 +84,7 @@ class TestDiagnosticQueryCapabilityProbe:
     def test_a_refused_fan_write_raises_and_keeps_its_warning(self, field_board, caplog):
         # Support is supports_fan's answer, asked first: the write itself is
         # not a probe, so an ERROR to it is a fault and keeps its warning.
-        with caplog.at_level(logging.INFO, logger='LVP.serial'), pytest.raises(HardwareError):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'), pytest.raises(HardwareError):
             field_board.set_fan_duty(0)
         assert len(_firmware_errors(caplog, 'FAN:0')) == 1
 

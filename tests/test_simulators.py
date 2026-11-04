@@ -27,6 +27,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_specimen import DRIFT_STEPS, Specimen
+from lib.log_helpers import VERBOSE
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 # Imported for its side effect too: drivers/motorboard.py installs the
@@ -107,7 +108,7 @@ def test_a_simulated_exchange_logs_its_true_duration_on_a_coarse_clock(monkeypat
             'time',
             SimpleNamespace(monotonic=lambda: time.perf_counter() // 1.0, sleep=time.sleep),
         )
-    with caplog.at_level(logging.INFO, logger='LVP.serial'):
+    with caplog.at_level(VERBOSE, logger='LVP.serial'):
         SimulatedLEDBoard().exchange_command('STATUS')
         SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS).exchange_command('INFO')
     stated = {

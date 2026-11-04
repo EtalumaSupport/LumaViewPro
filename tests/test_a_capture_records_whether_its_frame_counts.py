@@ -12,12 +12,12 @@ change and keeps the answers in its record, its saved file and one line of
 ``api.log``, naming who counted each frame toward the wait.
 """
 
-import logging
 import threading
 
 import numpy as np
 import pytest
 
+from lib.log_helpers import VERBOSE
 from drivers import host_clock
 from modules import image_save, image_utils
 from modules.exceptions import ArgumentTypeRefusedError
@@ -237,7 +237,7 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     imaging.remove_frame_listener(on_frame)
     imaging.get_image_from_buffer()
 
-    with caplog.at_level(logging.INFO, logger='LVP.api'):
+    with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record
 
     gain = _judgment(record, 'gain')
@@ -255,7 +255,7 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
     imaging = sim_scope.imaging
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
 
-    with caplog.at_level(logging.INFO, logger='LVP.api'):
+    with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record
 
     gain = _judgment(record, 'gain')
@@ -279,7 +279,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
             break
         imaging.get_image(force_new_capture=True)
 
-    with caplog.at_level(logging.INFO, logger='LVP.api'):
+    with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record
 
     gain = _judgment(record, 'gain')

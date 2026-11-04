@@ -22,6 +22,7 @@ import time
 from typing import ClassVar
 from collections.abc import Callable, Iterable, Mapping
 from lib.log_helpers import logger
+from lib.log_helpers import VERBOSE
 from drivers.exceptions import (
     BoardNoReplyError,
     BoardPortFailedError,
@@ -526,7 +527,7 @@ class SimulatedMotorBoard:
             resp_repr = repr(response)
             if len(resp_repr) > 200:
                 resp_repr = resp_repr[:200] + '...'
-            _serial_log.info(f'[XYZ Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
+            _serial_log.log(VERBOSE, f'[XYZ Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
             if response_numlines == 1:
                 return response
             return [response]

@@ -12,6 +12,16 @@ ids.log when those land).
 """
 
 import logging
+import threading
+
+# Between INFO and DEBUG: the routine hardware traffic, a line per command (a
+# serial exchange, a camera setter, an LED lit, a move made). INFO keeps the
+# events and anomalies a field log needs; DEBUG keeps developer internals with
+# no hardware fact in them. Registered here, the lowest module every writer and
+# the settings' level check import, so "VERBOSE" is a level before anything
+# names it. Written as ``log.log(VERBOSE, message)``.
+VERBOSE = 15
+logging.addLevelName(VERBOSE, 'VERBOSE')
 
 # The names are literal, never ``__name__``: lvp_logger's main-log floor passes
 # a record below INFO only from a logger named 'lvp_logger' or under 'LVP', and
@@ -64,9 +74,43 @@ def log_to(*loggers, level: str, message: str) -> None:
             mirrors.append(lg)
     if primary is None:
         return
+
     getattr(primary, level)(message)
     for mirror in mirrors:
         try:
             getattr(mirror, level)(message)
         except Exception:
             primary.debug(f'log_to: mirror.{level}() raised')
+
+
+# Each trace logger and the file it writes, whose levels apply_session_level sets.
+_trace_files: dict[logging.Logger, logging.Handler] = {}
+
+_session_level = logging.INFO
+_levels_lock = threading.Lock()
+
+
+def write_trace_log(trace_logger: logging.Logger, file_handler: logging.Handler) -> None:
+    """Give a trace logger its file, written at the session's level."""
+    trace_logger.addHandler(file_handler)
+    with _levels_lock:
+        _trace_files[trace_logger] = file_handler
+    apply_session_level(_session_level)
+
+
+def apply_session_level(level: int | str) -> None:
+    """Put the session's log level on every log that follows it.
+
+    The 'LVP' parent (every LVP.* logger without a level of its own: the
+    GUI interaction and protocol logs among them) and lvp_logger's own
+    logger take it, as do the trace loggers.
+    """
+    global _session_level
+    level = logging.getLevelName(level.upper()) if isinstance(level, str) else level
+    with _levels_lock:
+        _session_level = level
+        logging.getLogger('LVP').setLevel(level)
+        logger.setLevel(level)
+        for trace_logger, file_handler in _trace_files.items():
+            trace_logger.setLevel(level)
+            file_handler.setLevel(level)

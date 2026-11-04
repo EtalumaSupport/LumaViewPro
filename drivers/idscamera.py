@@ -18,6 +18,7 @@ from ids_peak import ids_peak_ipl_extension
 
 from lib.log_helpers import camera_logger as _cam_log
 from lib.log_helpers import logger
+from lib.log_helpers import VERBOSE
 
 from drivers.camera import (
     Camera,
@@ -1226,7 +1227,7 @@ class IDSCamera(Camera):
         except Exception as e:
             if _exc_is(e, 'TimeoutException', 'timeout'):
                 raise
-            _cam_log.debug(f'[CAM Class ] Could not resolve GainSelector: {e}')
+            _cam_log.info(f'[CAM Class ] Could not resolve GainSelector: {e}')
             return None
 
     def _query_dynamic_capabilities(self):
@@ -2325,7 +2326,7 @@ class IDSCamera(Camera):
         if not self.active:
             # Expected during disconnect/teardown; log so a dropped resize is
             # visible in a bundle rather than a silent no-op.
-            _cam_log.debug('[CAM Class ] set_frame_size skipped: camera inactive')
+            _cam_log.info('[CAM Class ] set_frame_size skipped: camera inactive')
             return None
         try:
             nodemap = self.remote_nodemap
@@ -2753,8 +2754,9 @@ class IDSCamera(Camera):
                 rate = self._set_free_run_frame_rate()
                 if rate is not None:
                     rate_note = f' AcquisitionFrameRate->{rate:.1f}fps'
-            _cam_log.info(
-                f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
+            _cam_log.log(
+                VERBOSE,
+                f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}',
             )
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return us_value
@@ -2943,7 +2945,7 @@ class IDSCamera(Camera):
             node.SetValue(value)
             return True
         except Exception as e:
-            _cam_log.debug(
+            _cam_log.info(
                 f'[CAM Class ] {method_label}: optional node {node_name} not '
                 f'applied ({type(e).__name__}: {e})'
             )
@@ -3205,7 +3207,9 @@ class IDSCamera(Camera):
             # overshoots Gain.Maximum() by a float epsilon at the cap, so the
             # camera rejects its own reported maximum gain without this clamp.
             factor = min(max(factor, gain_node.Minimum()), gain_node.Maximum())
-            _cam_log.info(f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)')
+            _cam_log.log(
+                VERBOSE, f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)'
+            )
             access = 'write'
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')

@@ -25,6 +25,7 @@ import modules.wall_time as wall_time
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from lib.log_helpers import VERBOSE
 from modules.acquire_mode import AcquireMode
 from modules.lumascope_api.frame_record import CapturedStill, SettingSource
 from modules.activity_claim import BorrowedClaim
@@ -1616,9 +1617,10 @@ class ProtocolImageWriter:
                     self._note_captured(
                         step=step, curr_step=curr_step, scan_count=scan_count, record=frame_record
                     )
-                    logger.info(
+                    logger.log(
+                        VERBOSE,
                         f'Protocol Image Captured: {name} '
-                        f'{_capture_evidence(still, self._scope.imaging.last_capture_info or {})}'
+                        f'{_capture_evidence(still, self._scope.imaging.last_capture_info or {})}',
                     )
 
                     # The capture's image is read-only (capture_still), and

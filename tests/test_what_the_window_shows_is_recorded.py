@@ -20,7 +20,7 @@ from modules import gui_logger
 @pytest.fixture
 def record(caplog):
     gui_logger._shown.clear()
-    caplog.set_level(logging.INFO, logger='LVP.gui_interactions')
+    caplog.set_level(logging.DEBUG, logger='LVP.gui_interactions')
 
     def lines():
         return [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']

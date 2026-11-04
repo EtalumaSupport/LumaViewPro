@@ -32,6 +32,7 @@ from drivers.exceptions import (
 from drivers.registry import camera_registry
 from lib.log_helpers import camera_logger as _cam_log
 from lib.log_helpers import log_to, logger
+from lib.log_helpers import VERBOSE
 
 from lib import profile_trace
 
@@ -1055,7 +1056,7 @@ class PylonCamera(Camera):
                 _cam_log.info('start_grabbing: already grabbing, skipping')
                 return
         except Exception as e:
-            _cam_log.debug(f'start_grabbing IsGrabbing() check raised: {e}')
+            _cam_log.info(f'start_grabbing IsGrabbing() check raised: {e}')
         try:
             # B20 / B23: snapshot StreamGrabber.Status into the trace
             # log before StartGrabbing so post-mortem analysis can
@@ -1330,7 +1331,7 @@ class PylonCamera(Camera):
                             f'/ DeviceClass: {dev_info.GetDeviceClass()}',
                         )
                     except Exception as e:
-                        _log_cam('debug', f'[CAM Class ] TLType/DeviceClass unavailable: {e}')
+                        _log_cam('info', f'[CAM Class ] TLType/DeviceClass unavailable: {e}')
 
                     device_serial = nm.GetNode('DeviceSerialNumber').ToString()
                     _log_cam('info', f'[CAM Class ] Camera Serial Number: {device_serial}')
@@ -1367,7 +1368,7 @@ class PylonCamera(Camera):
                             f'Resolution: {w}x{h}, Binning: {bh}x{bv}',
                         )
                     except Exception as e:
-                        _log_cam('debug', f'[CAM Class ] Pixel/resolution/binning unavailable: {e}')
+                        _log_cam('info', f'[CAM Class ] Pixel/resolution/binning unavailable: {e}')
 
                     temps = self.get_all_temperatures()
                     for name, temp in temps.items():
@@ -1558,14 +1559,14 @@ class PylonCamera(Camera):
                     except Exception:
                         continue
         except Exception as e:
-            _cam_log.debug(f'[CAM Class ] pylon SDK version unavailable: {e}')
+            _cam_log.info(f'[CAM Class ] pylon SDK version unavailable: {e}')
         pypylon_version = None
         try:
             import pypylon as _pyp
 
             pypylon_version = getattr(_pyp, '__version__', None)
         except Exception as e:
-            _cam_log.debug(f'[CAM Class ] pypylon module version unavailable: {e}')
+            _cam_log.info(f'[CAM Class ] pypylon module version unavailable: {e}')
         return {'name': 'Basler pylon', 'version': version, 'pypylon_version': pypylon_version}
 
     def init_camera_config(self) -> None:
@@ -3305,10 +3306,10 @@ class PylonCamera(Camera):
             # OffsetX/OffsetY directly elsewhere, so the ROI stays centered.
             try:
                 if camera.Width.GetValue() == width and camera.Height.GetValue() == height:
-                    _cam_log.info(
-                        f'pylon Width.SetValue({width}) Height.SetValue({height}) short-circuited'
+                    _cam_log.log(
+                        VERBOSE,
+                        f'pylon Width.SetValue({width}) Height.SetValue({height}) short-circuited',
                     )
-                    _log_cam('info', f'[CAM Class ] Frame size already at {width}x{height}')
                     return True
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
@@ -3536,15 +3537,16 @@ class PylonCamera(Camera):
             try:
                 current = float(self.active.Gain.GetValue())
                 if abs(current - float(value)) < 1e-3:
-                    _cam_log.info(f'pylon Gain.SetValue({float(value):.3f}) short-circuited')
-                    _log_cam('info', f'[CAM Class ] Gain already at {value}')
+                    _cam_log.log(
+                        VERBOSE, f'pylon Gain.SetValue({float(value):.3f}) short-circuited'
+                    )
                     return current
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Gain short-circuit read failed; '
                     f'falling through to SetValue path: {e}'
                 )
-            _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
+            _cam_log.log(VERBOSE, f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
             # Read back rather than echo the request: bodies with a Gain
             # increment snap an off-increment value, and the caller records
@@ -3802,15 +3804,18 @@ class PylonCamera(Camera):
             # below ExposureTime increment on ace 2 / dart.
             try:
                 if abs(float(self.active.ExposureTime.GetValue()) - us_value) < 1.0:
-                    _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited')
-                    _log_cam('info', f'[CAM Class ] Exposure already at {exposure_ms}ms')
+                    _cam_log.log(
+                        VERBOSE, f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
+                    )
                     return us_value
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] ExposureTime short-circuit read failed; '
                     f'falling through to SetValue path: {e}'
                 )
-            _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
+            _cam_log.log(
+                VERBOSE, f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)'
+            )
             self.active.ExposureTime.SetValue(us_value)
             _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return us_value

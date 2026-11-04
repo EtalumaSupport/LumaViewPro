@@ -27,6 +27,7 @@ protocol's `save_camera_state -> restore_camera_state` window.
 """
 
 from __future__ import annotations
+from lib.log_helpers import VERBOSE
 from tests.protocol_drives import no_post_run_builds
 
 import datetime
@@ -184,7 +185,7 @@ class _ApiLogCapture(logging.Handler):
     """Captures records from the 'LVP.api' logger."""
 
     def __init__(self):
-        super().__init__(level=logging.INFO)
+        super().__init__(level=VERBOSE)
         self.records: list[tuple[float, str]] = []
         self._lock = threading.Lock()
 
@@ -239,7 +240,7 @@ class TestProtocolAutoGainFires:
         capture = _ApiLogCapture()
         api_logger = logging.getLogger('LVP.api')
         prev_level = api_logger.level
-        api_logger.setLevel(logging.INFO)
+        api_logger.setLevel(VERBOSE)
         api_logger.addHandler(capture)
         try:
             completed, _ = _run_protocol(executor, protocol, tmp_path)
@@ -300,7 +301,7 @@ class TestProtocolAutoGainFires:
         capture = _ApiLogCapture()
         api_logger = logging.getLogger('LVP.api')
         prev_level = api_logger.level
-        api_logger.setLevel(logging.INFO)
+        api_logger.setLevel(VERBOSE)
         api_logger.addHandler(capture)
         try:
             completed, _ = _run_protocol(executor, protocol, tmp_path)
@@ -350,7 +351,7 @@ class TestProtocolAutoGainFires:
         capture = _ApiLogCapture()
         api_logger = logging.getLogger('LVP.api')
         prev_level = api_logger.level
-        api_logger.setLevel(logging.INFO)
+        api_logger.setLevel(VERBOSE)
         api_logger.addHandler(capture)
         try:
             completed, _ = _run_protocol(executor, protocol, tmp_path)

@@ -36,6 +36,7 @@ from drivers.simulated_specimen import DRIFT_STEPS, Slide, the_slide
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
 # sim-mode runs produce a populated logs/camera.log for verification.
 from lib.log_helpers import camera_logger as _cam_log
+from lib.log_helpers import VERBOSE
 
 
 @dataclass(frozen=True)
@@ -1110,8 +1111,9 @@ class SimulatedCamera(Camera):
             return False
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0
-            _cam_log.info(
-                f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
+            _cam_log.log(
+                VERBOSE,
+                f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)',
             )
             logger.debug(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
             return self._exposure_us
@@ -1688,7 +1690,7 @@ class SimulatedCamera(Camera):
         with self._lock:
             if not self._auto_gain_enabled:
                 self._gain = float(value)
-            _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
+            _cam_log.log(VERBOSE, f'sim Gain.SetValue({float(value):.3f})')
             logger.debug(f'[CAM Sim   ] Gain set to {value}')
         return float(value)
 

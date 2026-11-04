@@ -155,6 +155,7 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 
 # The main and camera loggers are named in lib/log_helpers, where the drivers
 # and lib/ take them without importing this module; this module configures them.
+from lib import log_helpers
 from lib.log_helpers import camera_logger, logger
 
 _lvp_parent = logging.getLogger('LVP')
@@ -276,16 +277,14 @@ rest_api_handler.addFilter(RestAPIFilter())
 # Uses its own logger (LVP.serial) with propagate=False so serial traffic
 # does NOT appear in the main log.  Errors still go to the errors log.
 serial_logger = logging.getLogger('LVP.serial')
-serial_logger.setLevel(logging.INFO)
 serial_logger.propagate = False  # Keep serial traffic out of the main log
 
-# Firehose trace logs (serial, camera, protocol, api) stay fully verbose
-# through the beta, their footprint held by LOG_CAPS so a long-soak support
-# bundle stays small. Revisit the verbosity itself (demote routine
-# per-command traffic to DEBUG) at the 4.0.0 GA release.
+
+# The trace logs (serial, camera, api) are written at the session's level,
+# DEBUG under debug_mode, else logging.default.level (log_helpers.apply_session_level).
 serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 serial_file_handler.addFilter(ThreadPauseFilter())
-serial_logger.addHandler(serial_file_handler)
+log_helpers.write_trace_log(serial_logger, serial_file_handler)
 # Also send serial errors/warnings to the errors log
 serial_logger.addHandler(error_file_handler)
 
@@ -297,17 +296,16 @@ serial_logger.addHandler(error_file_handler)
 # pylon_callback_trace.csv when profile_trace_enabled is set in
 # settings.json. Always-on (not engineering-gated) to match serial.log
 # behavior.
-# DEBUG level (was INFO): camera.log is the firehose for camera debugging.
-# Every per-frame check, every SDK-call return value, every state
-# transition lands here. Main log stays uncluttered via propagate=False;
+# Under debug_mode it is the firehose for camera debugging: every
+# per-frame check, every SDK-call return value, every state transition.
+# Main log stays uncluttered via propagate=False;
 # the dual-write helper `_log_cam` in pyloncamera.py mirrors load-bearing
 # events (identity, connect, GetArray failures) to both files.
-camera_logger.setLevel(logging.DEBUG)
 camera_logger.propagate = False  # Keep camera traffic out of the main log
 
 camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 camera_file_handler.addFilter(ThreadPauseFilter())
-camera_logger.addHandler(camera_file_handler)
+log_helpers.write_trace_log(camera_logger, camera_file_handler)
 # Also send camera errors/warnings to the errors log
 camera_logger.addHandler(error_file_handler)
 
@@ -342,7 +340,6 @@ metrics_logger.addHandler(error_file_handler)
 # run's causal story. propagate=False keeps the firehose out of the main
 # log; warnings/errors still mirror to the errors log.
 protocol_logger = logging.getLogger('LVP.protocol')
-protocol_logger.setLevel(logging.INFO)
 protocol_logger.propagate = False  # Keep protocol detail out of the main log
 
 # Don't create the file until the first write -- absence means no stills protocol ran.
@@ -369,7 +366,6 @@ af_logger.addHandler(_af_file_handler)
 # Always-on, attached at import like camera.log: every host -- the GUI, the
 # REST server, a script -- writes it from the first call of bring-up.
 api_logger = logging.getLogger('LVP.api')
-api_logger.setLevel(logging.INFO)
 api_logger.propagate = False  # Keep API traffic out of the main log
 # Always send API errors to the errors log
 api_logger.addHandler(error_file_handler)
@@ -377,17 +373,16 @@ api_logger.addHandler(error_file_handler)
 # Don't create the file until the first write.
 _api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
 _api_file_handler.addFilter(ThreadPauseFilter())
-api_logger.addHandler(_api_file_handler)
-
+log_helpers.write_trace_log(api_logger, _api_file_handler)
 
 # Only the REST sink is logger-specific; the bundle file handlers live on root
 # (the single owner) and are reached by propagation.
 logger.addHandler(rest_api_handler)
 
-# GUI interaction log -- every user action for crash forensics
-# WORKAROUND: INFO level during beta. Move to DEBUG once stable.
+# GUI interaction log -- every user action for crash forensics, at INFO.
+# What the window shows as it changes (gui_logger.display) is DEBUG; the
+# logger takes the session's level, so debug_mode brings those lines in.
 gui_handler = _rotating_handler(GUI_LOG_FILE, layout=MAIN_LAYOUT, delay=False)
-gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
 gui_logger.addHandler(gui_handler)
 gui_logger.propagate = False
@@ -451,21 +446,13 @@ except Exception:
     custom_except_hook(*sys.exc_info())
     raise
 
-# The verbosity floor until a session is created: DEBUG when debug_mode is on
-# (the installation's switch for a detailed log, so startup is in it too),
-# INFO otherwise. After that the session applies the same rule -- DEBUG under
-# debug_mode, else logging.default.level -- to both logger trees that write to
-# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
-# [PERF] line) and lvp_logger's own logger, on every host
-# (scope_session._apply_logging). Loggers that want a fixed floor
-# set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
-# firehose).
+# The level until a session is created: DEBUG when debug_mode is on (the
+# installation's switch for a detailed log, so startup is in it too), INFO
+# otherwise. After that the session applies its own (scope_session._apply_logging).
 # Note: do NOT reintroduce a global logging.disable() here -- it overrides every
 # logger's own level (it was silently starving camera.log of DEBUG) and split
 # the toggle into two gates. The per-logger level is the canonical mechanism.
-_log_level = logging.DEBUG if debug else logging.INFO
-_lvp_parent.setLevel(_log_level)
-logger.setLevel(_log_level)
+log_helpers.apply_session_level(logging.DEBUG if debug else logging.INFO)
 
 if debug and sys.__stderr__ is not None:
     _root_console = logging.StreamHandler(sys.__stderr__)

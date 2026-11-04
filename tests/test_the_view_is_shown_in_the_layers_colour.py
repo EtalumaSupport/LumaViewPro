@@ -34,7 +34,7 @@ def _view():
 
 def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
     shown = []
-    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+    with caplog.at_level(logging.DEBUG, logger='LVP.gui_interactions'):
         for color in (
             layer_record.parse_display_color('#0000ff'),
             layer_record.GREY,

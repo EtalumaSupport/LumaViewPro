@@ -18,7 +18,6 @@ same bench session:
    user-dump bundle.
 """
 
-import logging
 import threading
 import time
 from pathlib import Path
@@ -27,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lib.log_helpers import VERBOSE
 from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
 from tests.wire_boards import led_on_the_wire
 
@@ -78,7 +78,7 @@ class TestLedOnBlockAckShape:
         """Firmware shape B, the field firmware's: the response includes
         'LED' + channel + mA ('LED 3 set to 2 mA.')."""
         led, _sim = led_on_the_wire()
-        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'):
             led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         [asked] = _asked(caplog, 'LED3_2')
         assert 'LED 3 set to 2 mA.' in asked.getMessage()
@@ -93,7 +93,7 @@ class TestLedOnBlockAckShape:
         led, sim = led_on_the_wire()
         sim.delay_next_reply(3.0)
         t0 = time.monotonic()
-        with caplog.at_level(logging.INFO, logger='LVP.serial'), pytest.raises(BoardNoReplyError):
+        with caplog.at_level(VERBOSE, logger='LVP.serial'), pytest.raises(BoardNoReplyError):
             led.led_on(channel=3, mA=2, block=True, timeout_s=1.0)
         assert time.monotonic() - t0 >= 1.0
         assert len(_asked(caplog, 'LED3_2')) >= 2, 'the loop gave up after one ask'

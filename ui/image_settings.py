@@ -450,6 +450,6 @@ def set_histogram_layer(active_layer):
 
         if layer == active_layer:
             Clock.schedule_interval(layer_ref.ids['histo_id'].histogram, 0.5)
-            logger.info(
+            logger.debug(
                 f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)'
             )

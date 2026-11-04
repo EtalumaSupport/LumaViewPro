@@ -74,6 +74,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         'modules.protocol_image_writer.logger',
         SimpleNamespace(
             isEnabledFor=lambda level: debug_enabled,
+            log=quiet,
             debug=quiet,
             info=quiet,
             warning=quiet,

@@ -186,13 +186,17 @@ def display(name: str, value: object, *, stage: str | None = None) -> None:
     progress -- a recording's elapsed seconds, a drain's files left -- names
     the stage that progress belongs to in ``stage``, which is compared in
     place of ``value``, so the record names each stage once.
+
+    Logged at DEBUG, so under debug_mode alone: a protocol run changes the
+    window on every step, and at INFO those lines pushed the user's own
+    actions out of the file within an hour.
     """
     shown = one_line(value)
     compared = shown if stage is None else stage
     if _shown.get(name) == compared:
         return
     _shown[name] = compared
-    _log.info(f'DISPLAY {name} {shown}')
+    _log.debug(f'DISPLAY {name} {shown}')
 
 
 def window_event(event_name: str, detail: str = '') -> None:

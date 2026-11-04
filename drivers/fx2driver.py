@@ -91,6 +91,7 @@ import numpy as np
 from lib.lumascope_error import Fault, RefusalCause
 from lib.log_helpers import camera_logger as _cam_log
 from lib.log_helpers import logger
+from lib.log_helpers import VERBOSE
 
 from drivers.camera import (
     Camera,
@@ -1973,10 +1974,11 @@ class _FX2Connection:
         # Skip log emission for I2C ops -- the i2c_write wrapper logs
         # with richer detail (addr + data bytes).
         if request not in _I2C_VR_REQUESTS:
-            _serial_log.info(
+            _serial_log.log(
+                VERBOSE,
                 f'[FX2] {_vr_name(request)} OUT value=0x{value:04X} '
                 f'index=0x{index:04X} len={len(data)} -> result={result} '
-                f'({elapsed_ms:.1f}ms)'
+                f'({elapsed_ms:.1f}ms)',
             )
         return result
 
@@ -2013,9 +2015,10 @@ class _FX2Connection:
             )
             raise
         elapsed_ms = (time.monotonic() - t_start) * 1000
-        _serial_log.info(
+        _serial_log.log(
+            VERBOSE,
             f'[FX2 I2C] WRITE addr=0x{addr:02X} data={bytes(data)!r} '
-            f'-> result={result} ({elapsed_ms:.1f}ms)'
+            f'-> result={result} ({elapsed_ms:.1f}ms)',
         )
         return result
 
@@ -2946,8 +2949,9 @@ class FX2Camera(Camera):
             return False
         target_ms = float(exposure_ms)
         rows = shutter_width_for(target_ms / 1000.0, column_size_for(self._width))
-        _cam_log.info(
-            f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
+        _cam_log.log(
+            VERBOSE,
+            f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)',
         )
         try:
             self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
@@ -3012,8 +3016,9 @@ class FX2Camera(Camera):
         if not self.is_connected():
             return False
         reg = _gain_db_to_register(g)
-        _cam_log.info(
-            f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
+        _cam_log.log(
+            VERBOSE,
+            f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)',
         )
         try:
             self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)

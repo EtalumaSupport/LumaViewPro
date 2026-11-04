@@ -399,7 +399,7 @@ def test_each_button_records_what_it_shows_and_whether_it_is_held(app_ctx, engin
     from modules import gui_logger
 
     gui_logger._shown.clear()
-    caplog.set_level(logging.INFO, logger='LVP.gui_interactions')
+    caplog.set_level(logging.DEBUG, logger='LVP.gui_interactions')
     panel = _Panel()
     finished = _run(engine)
     panel._runs_started_here['protocol'] = finished.operation

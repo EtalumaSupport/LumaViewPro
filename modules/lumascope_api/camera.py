@@ -34,6 +34,7 @@ from drivers.camera import Frame
 from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
 from lib.lumascope_error import Fault
 from lvp_logger import logger
+from lib.log_helpers import VERBOSE
 from modules.exceptions import (
     ArgumentRefusedError,
     AutoGainNotSettledError,
@@ -1086,7 +1087,7 @@ class CameraAPI:
         applied = _value_in_effect(ok, float(gain_db))
         self._commit_camera_writes({'gain_db': applied})
         if prior is None or abs(applied - prior) >= 0.001:
-            _api_log.info(f'set_gain_db {applied}dB')
+            _api_log.log(VERBOSE, f'set_gain_db {applied}dB')
             self._fire_gain_listeners(applied)
         return applied
 
@@ -1159,7 +1160,7 @@ class CameraAPI:
         applied = _value_in_effect(ok, float(exposure_ms), scale=0.001)
         self._commit_camera_writes({'exposure_ms': applied})
         if prior is None or abs(applied - prior) >= 0.001:
-            _api_log.info(f'set_exposure {applied}ms')
+            _api_log.log(VERBOSE, f'set_exposure {applied}ms')
             self._fire_exposure_listeners(applied)
         return applied
 
@@ -3522,12 +3523,13 @@ class CameraAPI:
         with self._state_lock:
             snapshot['auto_gain_arm'] = self._auto_gain_arm
             snapshot['held_layer'] = self._held_layer
-        _api_log.info(
+        _api_log.log(
+            VERBOSE,
             f'save_camera_state tag={tag}: '
             f'gain={gain_db if gain_db is not None else "unknown"} '
             f'exp={exposure_ms if exposure_ms is not None else "unknown"} '
             f'arm={snapshot["auto_gain_arm"] is not None} '
-            f'{_describe_geometry(snapshot)}'
+            f'{_describe_geometry(snapshot)}',
         )
         return snapshot
 
@@ -3676,12 +3678,13 @@ class CameraAPI:
             arm_action = 'disarmed'
         else:
             arm_action = 'unchanged'
-        _api_log.info(
+        _api_log.log(
+            VERBOSE,
             f'restore_camera_state tag={tag}: '
             f'gain={gain_db if gain_known else "skipped"} '
             f'exp={exposure_ms if exposure_known else "skipped"} '
             f'arm={arm_action} '
-            f'{_describe_geometry(snapshot)}'
+            f'{_describe_geometry(snapshot)}',
         )
         # The camera holds the snapshot's layer only once every one of its
         # settings is back; until then, and after a trimmed or refused restore,
@@ -4109,9 +4112,10 @@ class CameraAPI:
         if auto is not None and auto.capped:
             capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
         mode = 'unchanged' if auto is None else auto.applied
-        _api_log.info(
+        _api_log.log(
+            VERBOSE,
             f'camera.apply layer={layer} gain={gain.applied_db}dB '
-            f'exp={exposure.applied_ms}ms auto_gain={mode}{capped_note}'
+            f'exp={exposure.applied_ms}ms auto_gain={mode}{capped_note}',
         )
         if len(refused) == 1:
             raise refused[0]

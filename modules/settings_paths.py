@@ -18,6 +18,8 @@ import enum
 import logging
 import typing
 
+# Imported for its registration of the VERBOSE level, which _log_level allows.
+import lib.log_helpers  # noqa: F401
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules.exceptions import (

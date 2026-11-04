@@ -18,6 +18,7 @@ import threading
 import time
 from typing import ClassVar
 from lib.log_helpers import logger
+from lib.log_helpers import VERBOSE
 from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
@@ -218,7 +219,7 @@ class SimulatedLEDBoard:
             resp_repr = repr(response)
             if len(resp_repr) > 200:
                 resp_repr = resp_repr[:200] + '...'
-            _serial_log.info(f'[LED Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
+            _serial_log.log(VERBOSE, f'[LED Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
             return response
 
     def exchange_multiline(
@@ -251,7 +252,7 @@ class SimulatedLEDBoard:
             elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
             logger.debug(f'[LED Sim   ] _write_command_fast({command})')
             # SIM-SERIAL-LOG: write-only path -> mark as TX with no response
-            _serial_log.info(f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')
+            _serial_log.log(VERBOSE, f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')
 
     def _close_driver(self):
         self.driver = None

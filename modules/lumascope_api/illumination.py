@@ -23,6 +23,7 @@ from drivers import host_clock
 from drivers.exceptions import BoardNoReplyError
 from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
+from lib.log_helpers import VERBOSE
 from lib.lumascope_error import Fault
 from modules.finite_number import refuse_unless_finite_number
 from modules.exceptions import (
@@ -767,9 +768,10 @@ class IlluminationAPI:
         requested = (
             f' (requested {illumination_ma})' if abs(commanded_ma - illumination_ma) >= 0.01 else ''
         )
-        _api_log.info(
+        _api_log.log(
+            VERBOSE,
             f'led_on ch={address} illumination_ma={commanded_ma:g}{requested}'
-            f'{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
+            f'{f" lease={_lease.purpose!r}" if _lease is not None else ""}',
         )
 
         # Update the API-level state store and which lease lit the address.
@@ -848,8 +850,9 @@ class IlluminationAPI:
         self._refuse_unless_lease_holds(_lease, member)
 
         began_ns = self._write((address,), lambda: self._driver.led_off(address), _lease)
-        _api_log.info(
-            f'led_off ch={address}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
+        _api_log.log(
+            VERBOSE,
+            f'led_off ch={address}{f" lease={_lease.purpose!r}" if _lease is not None else ""}',
         )
 
         # Clear from the API-level state store, then record the change (see
@@ -1374,7 +1377,7 @@ class IlluminationAPI:
                 self._lit_by.pop(ch, None)
                 self._led_state.pop(ch, None)
             self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
-            _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
+            _api_log.log(VERBOSE, f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:
                 reading = self._reading(ch)
             self._fire_led_listeners(reading)
@@ -1501,8 +1504,8 @@ class IlluminationAPI:
                 return None
             lease = LedLease(self, purpose, claim=claim, parent=parent)
             self._led_lease_stack.append(lease)
-            _api_log.info(
-                'LED lease acquired by %r (depth=%d)', purpose, len(self._led_lease_stack)
+            _api_log.log(
+                VERBOSE, 'LED lease acquired by %r (depth=%d)', purpose, len(self._led_lease_stack)
             )
             return lease
 
@@ -1531,8 +1534,8 @@ class IlluminationAPI:
             # On the io lane like every LED write; the releasing activity's
             # taking carries it through its own door while the lane is fenced.
             self._dispatch_led(self._leds_off_lit_by, 'LedLease.release', args=(lease,))
-        _api_log.info(
-            'LED lease released by %r%s', lease.purpose, ' (leave_on)' if leave_on else ''
+        _api_log.log(
+            VERBOSE, 'LED lease released by %r%s', lease.purpose, ' (leave_on)' if leave_on else ''
         )
 
     def _reclaim_lease(self, lease: LedLease) -> None:

@@ -41,6 +41,7 @@ from drivers.exceptions import HardwareError, MotionInterlockError, MotionNotCom
 from drivers.null_motorboard import NullMotionBoard
 from lib import profile_trace
 from lvp_logger import logger
+from lib.log_helpers import VERBOSE
 from modules.finite_number import refuse_unless_finite_number, refuse_unless_wait_s
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -2587,7 +2588,7 @@ class MotionAPI:
         # cycle. The target is the move's own (_Move.target), where
         # _target_position reads it.
         self._fire_position_listeners(axis)
-        _api_log.info(said)
+        _api_log.log(VERBOSE, said)
         return move.operation
 
     def _wait_for_axis_to_stop(self, axis: str, timeout_s: float) -> bool:

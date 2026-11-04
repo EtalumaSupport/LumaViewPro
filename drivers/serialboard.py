@@ -15,6 +15,7 @@ import serial
 from enum import Enum
 from typing import ClassVar
 from lib.log_helpers import logger
+from lib.log_helpers import VERBOSE
 from lib.profile_trace import TimedLock
 import threading
 
@@ -504,13 +505,13 @@ class SerialBoard:
         state) when diagnostic visibility matters most; returning -1
         as a sentinel keeps the log lines well-formed and the byte-
         count obviously-not-real for a reader. The swallowed
-        exception class is captured at debug level so a developer
+        exception class is logged at INFO, beside the lines it formats, so a reader
         investigating a connect failure can see WHAT failed.
         """
         try:
             return self.driver.in_waiting
         except Exception as e:
-            _serial_log.debug(f'{self._label} in_waiting read failed: {type(e).__name__}: {e}')
+            _serial_log.info(f'{self._label} in_waiting read failed: {type(e).__name__}: {e}')
             return -1
 
     # ------------------------------------------------------------------
@@ -945,7 +946,9 @@ class SerialBoard:
                 if response is None:
                     _serial_log.info(f'{self._label} {command} -> NO REPLY ({elapsed_ms:.1f}ms)')
                     raise BoardNoReplyError(f'{command}: no reply from the board')
-                _serial_log.info(f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
+                _serial_log.log(
+                    VERBOSE, f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)'
+                )
 
                 resp_str = str(response)
                 if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:  # noqa: SIM102

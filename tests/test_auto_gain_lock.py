@@ -27,6 +27,7 @@ from unittest.mock import patch
 
 import pytest
 import modules.config_helpers as config_helpers
+from lib.log_helpers import VERBOSE
 from drivers.exceptions import CameraReadFailedError
 from modules.exceptions import CaptureFailedError, ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
@@ -606,7 +607,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     # and drops these INFO records before any handler runs. The app's own
     # logging setup lowers it; the suite's does not.
     previous_level = api_log.level
-    api_log.setLevel(logging.INFO)
+    api_log.setLevel(VERBOSE)
     api_log.addHandler(collector)
     try:
         for layer in (LED2, 'Lumi'):
