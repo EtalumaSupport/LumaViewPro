@@ -1729,6 +1729,7 @@ class ScopeSession:
                 sim_camera_stall=simulated.camera_stall,
                 sim_focal_spread_um=simulated.focal_spread_um,
                 sim_camera_present=simulated.camera_present,
+                sim_slide=simulated.slide,
             )
             # Armed before the bring-up below, which is what they are for.
             if simulated.model_answer is not None:

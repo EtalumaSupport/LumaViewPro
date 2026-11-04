@@ -12558,6 +12558,7 @@ is the declared scope with no fault. A fault is refused where the
 - <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
 - <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...]` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
 - <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused; the simulated FX2's alone. 0 refuses none.
+- <a id="SimulatedScope.slide"></a>`slide`: `Slide` -- The slide on the stage, which the scope's camera images for the session: the cell specimen, or a Ronchi ruling, the target the bench measures a camera's move count on. Either simulated camera takes it. The cell specimen is the default.
 
 <a id="SimulatedStall"></a>
 ## `SimulatedStall`
@@ -13830,6 +13831,16 @@ strings cannot be written.
 - `WARNING` (`WARNING`)
 - `ERROR` (`ERROR`)
 - `CRITICAL` (`CRITICAL`)
+
+<a id="Slide"></a>
+### `Slide`
+
+Held in: [`SimulatedScope.slide`](#SimulatedScope.slide).
+
+The slide a simulated scope is brought up with.
+
+- `cells`
+- `ronchi`
 
 <a id="StageAxis"></a>
 ### `StageAxis`

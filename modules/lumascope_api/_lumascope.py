@@ -51,6 +51,7 @@ from drivers.pyloncamera import PylonCamera  # noqa: F401
 from drivers.simulated_camera import SimulatedCamera  # noqa: F401
 from drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
 from drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
+from drivers.simulated_specimen import Slide, the_slide
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -686,6 +687,7 @@ class Lumascope:
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
         sim_camera_present: bool = True,
+        sim_slide: Slide = Slide.CELLS,
     ):
         """Initialize Microscope.
 
@@ -773,6 +775,12 @@ class Lumascope:
                 unplugged. On a model simulated with an FX2 the camera is the
                 FX2, so its LED board is off the bus with it. Refused on real
                 hardware.
+            sim_slide: The slide on the simulated stage, which every simulated
+                camera images for the scope's life: the cell specimen, or a
+                Ronchi ruling. Both simulated cameras take it; it lies on the
+                stage whether or not a camera is there, so with
+                ``sim_camera_present`` False it is accepted and nothing images
+                it. Refused on real hardware.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``, a simulator
@@ -789,6 +797,7 @@ class Lumascope:
             ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
             ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
             ('sim_camera_present', sim_camera_present, not sim_camera_present),
+            ('sim_slide', sim_slide, sim_slide != Slide.CELLS),
         ):
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
@@ -905,8 +914,9 @@ class Lumascope:
 
         def _sim_light_of(address: int) -> float:
             """The light per mA-second the layer ``address`` lights renders in
-            the simulators through the current objective: the catalogue's,
-            falling with the objective's magnification by the layer's power;
+            the simulators through the slide and the current objective: the
+            catalogue's, times the slide's transmittance, falling with the
+            objective's magnification by the layer's power;
             the catalogue's own when no objective is known, as
             ``_sim_pixel_size`` draws at no scale then. 0 for an address no
             layer names or a layer with no LED. Read while a frame is made,
@@ -919,11 +929,12 @@ class Lumascope:
             layer = release_layer(name)
             if layer.sim_light_per_ma_s is None:
                 return 0.0
+            through_slide = layer.sim_light_per_ma_s * the_slide(sim_slide).transmittance
             objective = self.runtime_state.get_current_objective()
             if objective is None:
-                return layer.sim_light_per_ma_s
+                return through_slide
             return (
-                layer.sim_light_per_ma_s
+                through_slide
                 * (SIM_LIGHT_MAGNIFICATION / objective.magnification)
                 ** layer.sim_light_magnification_power
             )
@@ -1002,6 +1013,7 @@ class Lumascope:
                 stage_xy=_sim_stage_xy,
                 pixel_size=_sim_pixel_size,
                 on_bus=sim_camera_present,
+                slide=sim_slide,
             )
             self._read_fx2_bindings = sim_fx2.transport.bindings
             try:
@@ -1063,6 +1075,7 @@ class Lumascope:
             camera_kwargs['depth_of_field_func'] = _depth_of_field
             camera_kwargs['focal_spread_um'] = sim_focal_spread_um
             camera_kwargs['on_bus'] = sim_camera_present
+            camera_kwargs['slide'] = sim_slide
         # The exception a camera raised while connecting, kept until bring-up
         # reports it so the report carries the backend's own traceback.
         self._camera_failure: BaseException | None = None

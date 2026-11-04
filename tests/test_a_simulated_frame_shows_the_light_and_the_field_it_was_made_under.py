@@ -19,6 +19,11 @@ exposure, gain and LED sliders changed nothing. Each layer now renders the
 light the catalogue gives it, its shipped settings show the field at its
 own grey levels, and each pixel saturates on its own, on both simulated
 cameras.
+
+Then the bench measured a camera's move count on a Ronchi ruling, and the
+simulator had none: its cells saturated where the bench's Ronchi read in
+band, so the measurement could not be run as on the bench. A simulated
+scope can now be brought up with a Ronchi ruling at the bench's light.
 """
 
 from __future__ import annotations
@@ -30,11 +35,14 @@ import numpy as np
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_specimen import NOMINAL_UM_PER_PX
+from drivers.simulated_specimen import NOMINAL_UM_PER_PX, Slide
+from modules.exceptions import ArgumentRefusedError
 from modules import common_utils
 from modules.layer_record import SIM_LIGHT_MAGNIFICATION
+from modules.lumascope_api.simulation import SimulatedScope
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import grab_a_frame_made_after_now
+from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED1
 
@@ -169,10 +177,13 @@ def _least_difference(a: np.ndarray, b: np.ndarray, reach: int) -> float:
 
 
 @contextlib.contextmanager
-def _session(model: str, homed: bool = False):
-    """A simulated ``model``'s session, homed when a test moves the stage, its camera focused where Z stands."""
+def _session(model: str, homed: bool = False, slide: Slide = Slide.CELLS):
+    """A simulated ``model``'s session with ``slide`` on its stage, homed when a test moves the stage, its camera focused where Z stands."""
     session = ScopeSession.create(
-        complete_settings(microscope=model), simulate=True, warn_pre_release=False
+        complete_settings(microscope=model),
+        simulate=True,
+        simulated=SimulatedScope(slide=slide),
+        warn_pre_release=False,
     )
     try:
         if homed:
@@ -368,3 +379,44 @@ def test_more_light_saturates_the_brightest_pixels_first():
         frame = _shown(scope, 'BF', ma, ms * 1.5, db)
     saturated = float((frame == 255).mean())
     assert 0 < saturated < 0.5, f'{saturated:.1%} of the field is at full scale'
+
+
+def test_the_ronchi_reads_at_the_move_count_s_start_as_the_bench_s_did():
+    """At the transition stage's start (brightfield 25 mA, 25 ms, 0 dB) the Ronchi is in its 20 to 100 DN start band on the 20x and the 40x, and above it on the 10x.
+
+    As the LS850T's Ronchi read on the bench: 72.7 on the 20x, 31.5 on the
+    40x, 116.5 on the 10x, which the stage refuses.
+    """
+    means = {}
+    with _session('LS850', slide=Slide.RONCHI) as session:
+        for objective in ('10x Oly', '20x Oly', '40x w/collar'):
+            session.select_objective(objective)
+            means[objective] = float(_shown(session.scope, 'BF', 25.0, 25.0, 0.0).mean())
+
+    assert 20 < means['20x Oly'] < 100, means
+    assert 20 < means['40x w/collar'] < 100, means
+    assert means['10x Oly'] > 100, means
+
+
+# Each simulated camera images the stage's slide its own way: the stand-in
+# camera and the FX2's sensor.
+@pytest.mark.parametrize('model', ['LS850', 'LS620'])
+def test_the_ronchi_shows_its_25_um_bars_along_the_rows(model):
+    with _session(model, slide=Slide.RONCHI) as session:
+        session.select_objective('20x Oly')
+        frame = _shown(session.scope, 'BF', 25.0, 25.0, 0.0).astype(np.float64)
+        um_per_px = _pixel_size(session.scope)
+
+    across_each_row = float(np.ptp(frame, axis=1).max())
+    assert across_each_row <= 1, f'a row varies {across_each_row} DN across its columns'
+    rows = frame.mean(axis=1)
+    spectrum = np.abs(np.fft.rfft(rows - rows.mean()))
+    period_um = len(rows) / (int(np.argmax(spectrum[1:])) + 1) * um_per_px
+    # The spectrum's bins are a few per cent apart at a 20x frame's height.
+    assert 0.95 < period_um / 25.0 < 1.05, f'the bars repeat every {period_um:.1f} um'
+
+
+def test_a_real_scope_refuses_a_slide():
+    with pytest.raises(ArgumentRefusedError) as refused:
+        build_scope(simulate=False, sim_slide=Slide.RONCHI)
+    assert (refused.value.reason, refused.value.argument) == ('needs_simulated_scope', 'sim_slide')

@@ -61,7 +61,7 @@ from drivers.fx2driver import (
     frame_time_s,
     parse_intel_hex,
 )
-from drivers.simulated_specimen import DRIFT_STEPS, the_specimen
+from drivers.simulated_specimen import DRIFT_STEPS, Slide, the_slide
 from drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
@@ -234,6 +234,7 @@ class SimulatedFX2Device:
         light_of: Callable[[int], float] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
+        slide: Slide = Slide.CELLS,
     ):
         if timing not in TIMINGS:
             raise ValueError(f'timing mode {timing!r} is not one of {TIMINGS}')
@@ -259,7 +260,8 @@ class SimulatedFX2Device:
         self._streaming = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._specimen = the_specimen()
+        # The slide on the stage, imaged for the device's life.
+        self._specimen = the_slide(slide)
         self._frame_index = 0
         self._pending: deque[bytes] = deque()
         self.extra_rows = 0
@@ -647,9 +649,14 @@ class SimulatedFX2:
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
         on_bus: bool = True,
+        slide: Slide = Slide.CELLS,
     ):
         self.device = SimulatedFX2Device(
-            timing=timing, light_of=light_of, stage_xy=stage_xy, pixel_size=pixel_size
+            timing=timing,
+            light_of=light_of,
+            stage_xy=stage_xy,
+            pixel_size=pixel_size,
+            slide=slide,
         )
         if not on_bus:
             # No PID answers, as after the transport's unplug.

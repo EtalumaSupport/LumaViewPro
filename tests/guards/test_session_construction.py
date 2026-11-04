@@ -209,6 +209,7 @@ class TestCreateTakesTheHostInjections:
         # One keyword carries every part a simulated scope is built with, so
         # a real scope refuses the record whatever it holds -- an empty one
         # included, since only a simulated session is built from it.
+        from drivers.simulated_specimen import Slide
         from modules.lumascope_api.simulation import (
             SimulatedCameraWriteRefusal,
             SimulatedModelAnswer,
@@ -226,6 +227,7 @@ class TestCreateTakesTheHostInjections:
                     refused_stream_starts=1,
                     refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'false'),),
                     camera_present=False,
+                    slide=Slide.RONCHI,
                 ),
             ),
         ):

@@ -35,6 +35,7 @@ from drivers.simulated_camera import SensorExposure, SimulatedCamera, SimulatedS
 from drivers.simulated_fx2 import SimulatedFX2
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
+from drivers.simulated_specimen import Slide
 from drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from modules.activity_claim import guarded_write
 from modules.api_surface import Admission, api, api_fields
@@ -166,6 +167,7 @@ class SimulatedCameraWriteRefusal:
     'focal_spread_um',
     'file_stall',
     'camera_present',
+    'slide',
 )
 @dataclasses.dataclass(frozen=True)
 class SimulatedScope:
@@ -211,6 +213,10 @@ class SimulatedScope:
             refused ``not_connected``. On a model simulated with an FX2
             the camera is the FX2, so its LED board is missing with it.
             True is the camera there.
+        slide: The slide on the stage, which the scope's camera images for
+            the session: the cell specimen, or a Ronchi ruling, the target
+            the bench measures a camera's move count on. Either simulated
+            camera takes it. The cell specimen is the default.
     """
 
     model: str | None = None
@@ -221,6 +227,7 @@ class SimulatedScope:
     focal_spread_um: float = 0.0
     file_stall: SimulatedStall | None = None
     camera_present: bool = True
+    slide: Slide = Slide.CELLS
 
 
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is

@@ -1,11 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The simulated scene: one specimen lying on the stage, which every simulated sensor images.
+"""The simulated scene: the slide lying on the stage, which every simulated sensor images.
+
+A simulated scope is brought up with one of two slides (``Slide``) and its
+cameras image that slide for their life: the cell specimen, which every
+session shows unless it asks otherwise, or a Ronchi ruling, the target the
+bench measures a camera's move count on.
 
 Both simulated cameras -- the stand-in ``SimulatedCamera`` and the simulated
-FX2's MT9P031 -- draw their frames from this one sample, so a simulated
+FX2's MT9P031 -- draw their frames from one sample, so a simulated
 LS720 and a simulated LS850 at one stage position and objective look at the
 same cells, and a change to the scene is made once. The process holds the
-sample once (``the_specimen()``): a region drawn for one camera is not drawn
+sample once (``the_slide()``): a region drawn for one camera is not drawn
 again for the next, and the drawn tiles are capped for the process however
 many cameras come and go. A camera with its own sample drew every region
 again from cold, between a frame's hand-over and its store.
@@ -26,11 +31,20 @@ up, and a sweep found its peak there.
 from __future__ import annotations
 
 import collections
+import enum
 import math
 import threading
 
 import cv2
 import numpy as np
+
+
+class Slide(enum.StrEnum):
+    """The slide a simulated scope is brought up with."""
+
+    CELLS = 'cells'
+    RONCHI = 'ronchi'
+
 
 # The scale a frame is drawn at when no objective's is known: a camera with
 # no scope around it, no objective set, or a model whose optics are not
@@ -97,6 +111,10 @@ class Specimen:
     camera. Two threads drawing the same missing tile at once both draw
     it, and the second store keeps an identical one: the scene is seeded.
     """
+
+    # The fraction of the light the sample passes, as the light on it is
+    # rendered: its grey levels are what it shows at brightness 1.
+    transmittance = 1.0
 
     def __init__(self, seed: int = _SEED):
         self._seed = seed
@@ -296,9 +314,76 @@ class Specimen:
         return (h >> np.uint64(11)).astype(np.float64) / float(1 << 53)
 
 
-_THE_SPECIMEN = Specimen()
+# The Ronchi ruling: bars and gaps of equal width, gap to bar a Michelson
+# contrast of 0.9, the gap full scale.
+_RONCHI_PERIOD_UM = 25.0
+_RONCHI_GAP = 255
+_RONCHI_BAR = round(_RONCHI_GAP * (1 - 0.9) / (1 + 0.9))
+# The ruling's mean grey at brightness 1. It puts the transition stage's
+# starting frame inside its 20 to 100 DN start band on the 20x (89.5) and
+# the 40x (22.4) and above it on the 10x, as the LS850T's Ronchi read on the
+# bench (116.5 on the 10x, 72.7 on the 20x, 31.5 on the 40x): any mean from
+# 1.437 to 1.796 keeps both in the band, and this is their geometric middle.
+_RONCHI_MEAN_GREY = 1.607
 
 
-def the_specimen() -> Specimen:
-    """The one sample on the stage, which every simulated camera in the process images."""
-    return _THE_SPECIMEN
+class Ronchi:
+    """A Ronchi ruling on the stage, drawn as a camera sees it.
+
+    Laid out in stage micrometres as the cell specimen is, its bars along
+    the image's rows, so a Z move changes how sharp the bars are and
+    nothing else: the score a focus metric reads from row differences
+    follows it. Its grey levels are full-range, and its transmittance
+    brings it to the bench's light. It renders as lit under a fluorescence
+    layer as under brightfield, which no ruling on the bench does; no stage
+    or test reads it under fluorescence.
+    """
+
+    transmittance = _RONCHI_MEAN_GREY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
+
+    def view(
+        self,
+        x_um: float | None,
+        y_um: float | None,
+        h: int,
+        w: int,
+        um_per_px: float | None,
+        shift: tuple[int, int] = (0, 0),
+    ) -> np.ndarray:
+        """The in-focus ``h`` x ``w`` window centred on the stage at (``x_um``, ``y_um``).
+
+        Args and the window's placement are ``Specimen.view``'s. Each pixel
+        row is the share of it the gaps cover, between bar and gap grey,
+        blurred by the objective's resolution as the cells are.
+
+        Returns:
+            A grayscale uint8 array of shape ``(h, w)``, each row one grey.
+        """
+        scale = NOMINAL_UM_PER_PX if um_per_px is None else float(um_per_px)
+        top = round((y_um or 0.0) / scale) - h // 2 + shift[0]
+        rows = np.arange(top - _TILE_MARGIN_PX, top + h + _TILE_MARGIN_PX, dtype=np.float64)
+        gap_share = (_gap_length(rows + 1, scale) - _gap_length(rows, scale)) / scale
+        profile = (_RONCHI_BAR + (_RONCHI_GAP - _RONCHI_BAR) * gap_share).astype(np.float32)
+        # A column blurred down its length: the ruling's rows are each one grey.
+        profile = cv2.GaussianBlur(profile.reshape(-1, 1), (0, 0), 0.8)[:, 0]
+        profile = np.rint(profile[_TILE_MARGIN_PX:-_TILE_MARGIN_PX]).astype(np.uint8)
+        return np.repeat(profile[:, None], w, axis=1)
+
+
+def _gap_length(rows: np.ndarray, scale: float) -> np.ndarray:
+    """The length of gap, in um, from stage 0 to the start of each plane row.
+
+    Each period opens with its gap, half the period long.
+    """
+    y = rows * scale
+    periods = np.floor(y / _RONCHI_PERIOD_UM)
+    into = y - periods * _RONCHI_PERIOD_UM
+    return periods * _RONCHI_PERIOD_UM / 2 + np.minimum(into, _RONCHI_PERIOD_UM / 2)
+
+
+_THE_SLIDES: dict[Slide, Specimen | Ronchi] = {Slide.CELLS: Specimen(), Slide.RONCHI: Ronchi()}
+
+
+def the_slide(slide: Slide) -> Specimen | Ronchi:
+    """The process's one ``slide``, which every simulated camera brought up with it images."""
+    return _THE_SLIDES[slide]

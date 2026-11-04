@@ -30,7 +30,7 @@ from drivers.exceptions import (
     PartAbsentError,
 )
 from drivers.registry import camera_registry
-from drivers.simulated_specimen import DRIFT_STEPS, the_specimen
+from drivers.simulated_specimen import DRIFT_STEPS, Slide, the_slide
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -369,6 +369,7 @@ class SimulatedCamera(Camera):
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
         on_bus: bool = True,
+        slide: Slide = Slide.CELLS,
     ):
         # Whether the camera is on the bus for connect() to find: False is a
         # camera unplugged before the scope came up, which no connect finds.
@@ -444,12 +445,13 @@ class SimulatedCamera(Camera):
         # renders it too, with a warning.
         self._test_pattern = 'specimen'
 
-        # The sample on the stage; each drift step's last in-focus frame cut
-        # from it, reused while the stage, the scale and the frame are
-        # unchanged; and each source's last defocused frame, reused while Z,
-        # the objective, the frame and where it was cut are unchanged. Each
-        # cache entry is a (key, value) pair, rebuilt when its key changes.
-        self._specimen = the_specimen()
+        # The slide on the stage, imaged for the camera's life; each drift
+        # step's last in-focus frame cut from it, reused while the stage, the
+        # scale and the frame are unchanged; and each source's last defocused
+        # frame, reused while Z, the objective, the frame and where it was cut
+        # are unchanged. Each cache entry is a (key, value) pair, rebuilt when
+        # its key changes.
+        self._specimen = the_slide(slide)
         self._specimen_cut: dict[int, tuple] = {}
         self._drift_index = 0
         self._defocused: dict[str, tuple] = {}
