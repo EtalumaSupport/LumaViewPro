@@ -3,9 +3,9 @@
 A tiled set's stitch is a choice of two things: which seam matches to
 believe (a match rule) and where each tile then goes (a placement). This
 module scores both against labels: for every seam, the offset its content
-really asks for, proposed by two methods of different principle and kept
-only where they agree, fit together and agree across specimens, then
-confirmed by a person looking at the seam.
+really asks for, proposed by two methods of different principle (phase
+alone where NCC disagrees), kept only where it fits its set and agrees
+across specimens, then confirmed by a person looking at the seam.
 
 It runs the shipped estimators and the shipped flood as production runs
 them, at production's own window, and changes nothing about a stitch. The
@@ -60,6 +60,16 @@ PROPOSERS_AGREE_PX = 1.0
 FIT_RESIDUAL_PX = 1.0
 # A seam's proposal against the same move on the other specimens.
 ACROSS_SPECIMENS_PX = 2.0
+# A phase-alone label against the other specimens: the label tolerance,
+# since this check is all it stands on.
+PHASE_ALONE_ACROSS_PX = 1.0
+# The least two-axis structure a phase-alone seam's overlap needs: the
+# smaller over the larger eigenvalue of its gradient structure tensor.
+# Content with one axis only (a ruling, one edge) leaves phase free along
+# the other. Measured 2026-11-03: a synthetic ruling 0.009-0.013 on every
+# seam; every seam of the 8 real sets 0.174 or more, a synthetic edge or
+# saturated band 0.134 or more.
+TWO_AXIS_STRUCTURE_MIN = 0.1
 # A rule's answer is right when every axis is within this of the label.
 RIGHT_WITHIN_PX = 1.0
 
@@ -176,12 +186,17 @@ class Label:
     ``kind`` is ``offset`` (``dx``/``dy`` sub-pixel, from stage), ``no_content``
     (a person marked nothing to match; the right answer is to decline) or
     ``unknown`` (``why`` says what failed; the seam is named, never scored).
+
+    ``phase_alone`` marks an offset the NCC proposer disagreed with, taken
+    from phase correlation: it stands only where it also agrees across
+    specimens, so a set with too few other specimens leaves it ``unknown``.
     """
 
     kind: str
     dx: float = 0.0
     dy: float = 0.0
     why: str = ''
+    phase_alone: bool = False
 
 
 def _band(tile: np.ndarray, seam: Seam, side: str, margin: int) -> tuple[slice, slice]:
@@ -227,14 +242,37 @@ def propose_ncc(tiles: list[dict], seam: Seam) -> tuple[float, float] | None:
     return None if score <= -1.0 else (float(dx), float(dy))
 
 
-def propose_phase(tiles: list[dict], seam: Seam) -> tuple[float, float] | None:
-    """Proposer two: phase correlation of the high-passed overlap, sub-pixel and unbounded."""
-    views = _overlap_views(
+def _highpassed_overlap(tiles: list[dict], seam: Seam) -> tuple[np.ndarray, np.ndarray] | None:
+    return _overlap_views(
         _highpassed(tiles[seam.reference]['tile'], seam, 'reference'),
         _highpassed(tiles[seam.moving]['tile'], seam, 'moving'),
         dx=seam.nominal_dx,
         dy=seam.nominal_dy,
     )
+
+
+def two_axis_structure(tiles: list[dict], seam: Seam) -> float:
+    """How much of the reference overlap's structure runs along its weaker axis, 0 to 1.
+
+    The smaller over the larger eigenvalue of the high-passed overlap's
+    gradient structure tensor: near 0 for a ruling or a single edge, near 1
+    for texture.
+    """
+    views = _highpassed_overlap(tiles, seam)
+    if views is None:
+        return 0.0
+    gx = cv2.Sobel(views[0], cv2.CV_64F, 1, 0)
+    gy = cv2.Sobel(views[0], cv2.CV_64F, 0, 1)
+    sxy = float(np.sum(gx * gy))
+    weaker, stronger = np.linalg.eigvalsh(
+        np.array([[float(np.sum(gx * gx)), sxy], [sxy, float(np.sum(gy * gy))]])
+    )
+    return float(weaker / stronger) if stronger > 0 else 0.0
+
+
+def propose_phase(tiles: list[dict], seam: Seam) -> tuple[float, float] | None:
+    """Proposer two: phase correlation of the high-passed overlap, sub-pixel and unbounded."""
+    views = _highpassed_overlap(tiles, seam)
     if views is None:
         return None
     ref_view, mov_view = views
@@ -329,26 +367,43 @@ def fit_check(
 def propose_labels(tiles: list[dict]) -> dict[Seam, Label]:
     """Each seam's proposed label within one set: checks (a) and (b) of the plan.
 
-    (a) the two proposers agree; (b) the agreed seams fit together, every
-    residual under ``FIT_RESIDUAL_PX`` (``fit_check``). Check (c), across specimens, is ``across_specimens``.
+    (a) the two proposers agree; where NCC disagrees, the seam is proposed
+    from phase alone (NCC runs long on smooth content such as defocused
+    glass, where phase holds) when its overlap has structure along both
+    axes (``TWO_AXIS_STRUCTURE_MIN``). (b) The proposed seams fit
+    together, every residual under ``FIT_RESIDUAL_PX`` (``fit_check``).
+    Check (c), across specimens, is ``across_specimens``, and a phase-alone
+    label stands only once it has passed it.
     """
     labels: dict[Seam, Label] = {}
     agreed: dict[Seam, tuple[float, float]] = {}
+    ncc_disagreed: dict[Seam, tuple[float, float]] = {}
     for seam in seams(tiles):
         a, b = propose_ncc(tiles, seam), propose_phase(tiles, seam)
         if a is None or b is None:
             labels[seam] = Label('unknown', why='a proposer found nothing to correlate')
-        elif max(abs(a[0] - b[0]), abs(a[1] - b[1])) > PROPOSERS_AGREE_PX:
-            labels[seam] = Label(
-                'unknown', why=f'proposers disagree: NCC {a}, phase ({b[0]:.2f}, {b[1]:.2f})'
-            )
-        else:
-            agreed[seam] = b
+            continue
+        if max(abs(a[0] - b[0]), abs(a[1] - b[1])) > PROPOSERS_AGREE_PX:
+            structure = two_axis_structure(tiles, seam)
+            if structure < TWO_AXIS_STRUCTURE_MIN:
+                labels[seam] = Label(
+                    'unknown',
+                    why=f'proposers disagree: NCC {a}, phase ({b[0]:.2f}, {b[1]:.2f}), '
+                    f'and the overlap has structure along one axis only ({structure:.3f})',
+                )
+                continue
+            ncc_disagreed[seam] = a
+        agreed[seam] = b
     fitted, set_aside = fit_check(len(tiles), anchor_of(tiles), place_stage(tiles), agreed)
     for seam, residual in set_aside.items():
         labels[seam] = Label('unknown', why=f'fit residual {residual:.2f} px')
     for seam, (dx, dy) in fitted.items():
-        labels[seam] = Label('offset', dx, dy)
+        if seam in ncc_disagreed:
+            labels[seam] = Label(
+                'offset', dx, dy, why=f'phase alone, NCC {ncc_disagreed[seam]}', phase_alone=True
+            )
+        else:
+            labels[seam] = Label('offset', dx, dy)
     return labels
 
 
@@ -357,7 +412,12 @@ def across_specimens(sets: dict[str, dict[str, Label]]) -> dict[str, dict[str, L
 
     ``sets`` maps a set's name to its labels by seam key, for sets of one
     grid at one overlap. A seam more than ``ACROSS_SPECIMENS_PX`` from the
-    median of the others is unknown. Fewer than two others: unchecked.
+    median of the others is unknown, a phase-alone label more than
+    ``PHASE_ALONE_ACROSS_PX``. The others are labels both proposers
+    agreed on: a phase-alone label is never a witness, since phase's false
+    peaks on periodic or edge content agree with each other. Fewer than two
+    others: unchecked, which leaves a phase-alone label unknown, since (c)
+    is all it stands on.
     """
     out = {name: dict(labels) for name, labels in sets.items()}
     for name, labels in sets.items():
@@ -367,13 +427,22 @@ def across_specimens(sets: dict[str, dict[str, Label]]) -> dict[str, dict[str, L
             others = [
                 other[key]
                 for other_name, other in sets.items()
-                if other_name != name and key in other and other[key].kind == 'offset'
+                if other_name != name
+                and key in other
+                and other[key].kind == 'offset'
+                and not other[key].phase_alone
             ]
             if len(others) < 2:
+                if label.phase_alone:
+                    out[name][key] = Label(
+                        'unknown',
+                        why=f'{label.why}; fewer than two other specimens to check it against',
+                    )
                 continue
             mx = float(np.median([o.dx for o in others]))
             my = float(np.median([o.dy for o in others]))
-            if max(abs(label.dx - mx), abs(label.dy - my)) > ACROSS_SPECIMENS_PX:
+            bound = PHASE_ALONE_ACROSS_PX if label.phase_alone else ACROSS_SPECIMENS_PX
+            if max(abs(label.dx - mx), abs(label.dy - my)) > bound:
                 out[name][key] = Label(
                     'unknown',
                     why=f"({label.dx:.2f}, {label.dy:.2f}) against the other specimens' ({mx:.2f}, {my:.2f})",

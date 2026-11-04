@@ -8,8 +8,9 @@ a stitch uses.
 
 Two passes, a person between them:
 
-* ``--propose`` labels every seam of every set (two proposers that must
-  agree, a fit over the set, agreement across specimens of one overlap),
+* ``--propose`` labels every seam of every set (two proposers, phase alone
+  where NCC disagrees, a fit over the set, agreement across specimens of
+  one overlap),
   writes ``stitch_labels.json`` beside each set as ``proposed`` and a crop
   sheet per set into the output folder. A person reads each sheet and
   marks the set's labels ``confirmed`` (changing any seam to ``no_content``
@@ -124,6 +125,7 @@ def _label_to_json(label):
         'dx': round(label.dx, 3),
         'dy': round(label.dy, 3),
         'why': label.why,
+        'phase_alone': label.phase_alone,
     }
 
 
@@ -248,7 +250,7 @@ def _score(session, folders, out):
         tiles, floods, _facts = _load_set(session, folder)
         by_key = {s.key: s for s in si.seams(tiles)}
         labels = {
-            by_key[k]: si.Label(v['kind'], v['dx'], v['dy'], v['why'])
+            by_key[k]: si.Label(v['kind'], v['dx'], v['dy'], v['why'], v['phase_alone'])
             for k, v in stored['seams'].items()
         }
         _score_one(name, tiles, labels, floods, lines)

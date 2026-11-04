@@ -46,13 +46,21 @@ def test_the_proposers_never_label_an_offset_the_content_does_not_ask_for():
     The periodic ruling, the straight edge and the row pattern are where a
     wide search finds a confident wrong peak; a proposer there must decline
     (``unknown``), never propose. A featureless scene is never proposed. The
-    textured control is proposed on every seam.
+    textured control is proposed on every seam. The scenes at one overlap
+    are cut at one stage pattern, so they are each other's other specimens
+    for check (c), which a label from phase alone must pass.
     """
     wrong = []
-    for scene in si.SCENES:
-        for overlap in (0.1, 0.2):
-            tiles, truth = si.synthetic_set(scene, overlap)
-            proposed = si.propose_labels(tiles)
+    for overlap in (0.1, 0.2):
+        built = {scene: si.synthetic_set(scene, overlap) for scene in si.SCENES}
+        checked = si.across_specimens(
+            {
+                scene: {seam.key: label for seam, label in si.propose_labels(tiles).items()}
+                for scene, (tiles, _truth) in built.items()
+            }
+        )
+        for scene, (_tiles, truth) in built.items():
+            proposed = {seam: checked[scene][seam.key] for seam in truth}
             for seam, label in proposed.items():
                 if label.kind != 'offset':
                     continue
@@ -96,3 +104,54 @@ def test_the_fit_keeps_only_seams_that_fit_however_many_it_must_set_aside():
     assert max(residuals.values()) <= si.FIT_RESIDUAL_PX, residuals
     assert len(set_aside) == 3, sorted(s.key for s in set_aside)
     assert set(kept) | set(set_aside) == set(relations)
+
+
+def test_a_label_from_phase_alone_stands_only_where_the_other_specimens_agree():
+    """Check (c) is all a phase-alone label stands on: unchecked, or off the others, it is unknown.
+
+    A label both proposers agreed on is left as it is when there are too
+    few other specimens to check it against; one from phase alone is not.
+    """
+    move = '0->1'
+
+    def phase_alone(dx):
+        return si.Label('offset', dx, -4.0, why='phase alone, NCC (14.0, -4.0)', phase_alone=True)
+
+    def agreed(dx):
+        return si.Label('offset', dx, -4.0)
+
+    one_other = si.across_specimens(
+        {'defocused': {move: phase_alone(9.0)}, 'plate': {move: agreed(9.2)}}
+    )
+    assert one_other['defocused'][move].kind == 'unknown'
+    assert 'fewer than two other specimens' in one_other['defocused'][move].why
+    assert one_other['plate'][move] == agreed(9.2), 'an agreed label with too few others stands'
+
+    no_witness = si.across_specimens(
+        {
+            'defocused': {move: phase_alone(9.0)},
+            'plate': {move: agreed(9.2)},
+            'ruling': {move: phase_alone(9.1)},
+        }
+    )
+    assert no_witness['defocused'][move].kind == 'unknown', 'a phase-alone label is no witness'
+
+    others = {'plate': {move: agreed(9.2)}, 'usaf': {move: agreed(8.9)}}
+    assert si.across_specimens({'defocused': {move: phase_alone(9.4)}, **others})['defocused'][
+        move
+    ] == phase_alone(9.4)
+    off = si.across_specimens({'defocused': {move: phase_alone(13.5)}, **others})['defocused'][move]
+    assert off.kind == 'unknown'
+    assert "against the other specimens'" in off.why
+
+    # 1.5 px from the others' median (9.05): inside the 2 px an agreed label
+    # is held to, outside the 1 px a phase-alone label is.
+    assert si.across_specimens({'defocused': {move: agreed(10.55)}, **others})['defocused'][
+        move
+    ] == agreed(10.55)
+    assert (
+        si.across_specimens({'defocused': {move: phase_alone(10.55)}, **others})['defocused'][
+            move
+        ].kind
+        == 'unknown'
+    )
