@@ -689,11 +689,10 @@ class LumaViewProApp(TooltipMixin, App):
             # On startup stay where homing left the stage -- do NOT drive to
             # protocol step 1. A loaded protocol's steps stay available (the
             # steps table is rendered by load_protocol) and the user navigates
-            # to them explicitly. Show the Session's shown channel (BF in a
-            # fresh session) at its saved settings, identical to the
-            # no-protocol path, so there is no stage motion either way.
-            shown = ctx.session.shown_channel.channel
-            ctx.image_settings.layer_lookup(layer=shown).apply_settings()
+            # to them explicitly. Nothing is shown here either: bring-up has
+            # already shown BF and put its settings on the camera, skipping a
+            # missing camera it has already reported, so showing it again here
+            # writes nothing and repeats that report.
 
         if sim_walk is not None:
             from ui.sim_walk import SimWalk
@@ -733,7 +732,7 @@ class LumaViewProApp(TooltipMixin, App):
             self._prompt_objective_if_needed()
 
             # Objective and LEDs are set by scope.initialize() during load_settings();
-            # The shown channel's settings are applied by complete_initialization().
+            # the shown channel's settings are applied by the Session's bring-up.
 
             # The session owns the metrics lifecycle (it owns the session
             # scheduler, and logs the environment fingerprint ahead of the

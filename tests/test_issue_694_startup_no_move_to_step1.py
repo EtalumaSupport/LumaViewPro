@@ -9,12 +9,10 @@ protocol step 1 -- surprising and unwanted motion.
 
 Fix
 ---
-complete_initialization now stays where homing left the stage and shows the
-Session's shown channel (BF in a fresh session) at its saved settings, through
-that layer's apply_settings -- identical to the no-protocol path, with no
-stage motion either way. A loaded protocol's steps
-remain available (the table is rendered by load_protocol); the user navigates
-to them explicitly.
+complete_initialization now stays where homing left the stage, with or without
+a loaded protocol. A loaded protocol's steps remain available (the table is
+rendered by load_protocol); the user navigates to them explicitly. The shown
+channel at startup is bring-up's (tests/test_the_camera_holds_a_layer_from_the_session.py).
 
 Test approach
 -------------
@@ -47,13 +45,4 @@ def test_startup_does_not_move_to_step():
     assert 'go_to_step' not in src, (
         'complete_initialization must not call go_to_step at startup -- the '
         'stage stays where homing left it, it does not move to protocol step 1'
-    )
-
-
-def test_startup_shows_the_shown_channel():
-    """Startup applies the shown channel's settings (no move)."""
-    src = ast.unparse(_complete_initialization())
-    assert 'shown_channel' in src and 'apply_settings()' in src, (
-        "startup must show the Session's shown channel through its layer's "
-        'apply_settings so the camera shows a sensible default'
     )
