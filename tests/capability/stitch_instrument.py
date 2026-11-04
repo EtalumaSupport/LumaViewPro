@@ -303,12 +303,34 @@ def fit_positions(
     return positions, residuals
 
 
+def fit_check(
+    n_tiles: int,
+    anchor: int,
+    stage: list[tuple[float, float]],
+    relations: dict[Seam, tuple[float, float]],
+) -> tuple[dict[Seam, tuple[float, float]], dict[Seam, float]]:
+    """Check (b): the relations that fit together, and each one set aside with its residual.
+
+    The worst relation over ``FIT_RESIDUAL_PX`` is set aside and the rest
+    refit, until every one kept is under it.
+    """
+    kept = dict(relations)
+    set_aside: dict[Seam, float] = {}
+    while True:
+        _, residuals = fit_positions(n_tiles, anchor, stage, kept)
+        worst = [s for s, r in residuals.items() if r > FIT_RESIDUAL_PX]
+        if not worst:
+            return kept, set_aside
+        bad = max(worst, key=residuals.get)
+        set_aside[bad] = residuals[bad]
+        del kept[bad]
+
+
 def propose_labels(tiles: list[dict]) -> dict[Seam, Label]:
     """Each seam's proposed label within one set: checks (a) and (b) of the plan.
 
     (a) the two proposers agree; (b) the agreed seams fit together, every
-    residual under ``FIT_RESIDUAL_PX`` (a seam over it is set aside and the
-    rest refit, once). Check (c), across specimens, is ``across_specimens``.
+    residual under ``FIT_RESIDUAL_PX`` (``fit_check``). Check (c), across specimens, is ``across_specimens``.
     """
     labels: dict[Seam, Label] = {}
     agreed: dict[Seam, tuple[float, float]] = {}
@@ -322,17 +344,10 @@ def propose_labels(tiles: list[dict]) -> dict[Seam, Label]:
             )
         else:
             agreed[seam] = b
-    stage = [(float(t['x_px']), float(t['y_px'])) for t in tiles]
-    anchor = anchor_of(tiles)
-    for _ in range(2):
-        _, residuals = fit_positions(len(tiles), anchor, stage, agreed)
-        worst = [s for s, r in residuals.items() if r > FIT_RESIDUAL_PX]
-        if not worst:
-            break
-        bad = max(worst, key=residuals.get)
-        labels[bad] = Label('unknown', why=f'fit residual {residuals[bad]:.2f} px')
-        del agreed[bad]
-    for seam, (dx, dy) in agreed.items():
+    fitted, set_aside = fit_check(len(tiles), anchor_of(tiles), place_stage(tiles), agreed)
+    for seam, residual in set_aside.items():
+        labels[seam] = Label('unknown', why=f'fit residual {residual:.2f} px')
+    for seam, (dx, dy) in fitted.items():
         labels[seam] = Label('offset', dx, dy)
     return labels
 

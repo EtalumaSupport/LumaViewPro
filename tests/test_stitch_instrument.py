@@ -69,3 +69,30 @@ def test_the_proposers_never_label_an_offset_the_content_does_not_ask_for():
                     f'texture {overlap}: {[(s.key, lab.why) for s, lab in proposed.items() if lab.kind != "offset"]}'
                 )
     assert not wrong, '\n'.join(wrong)
+
+
+def test_the_fit_keeps_only_seams_that_fit_however_many_it_must_set_aside():
+    """Check (b): every relation the fit keeps is within its bound, three set aside if it takes three.
+
+    Three bad seams on a 3x3, on both axes and of different sizes. Which
+    seams are set aside is the fit's greedy choice and is not pinned: a set
+    of bad seams can have another explanation as small, which least squares
+    cannot tell apart.
+    """
+    stage = [(gx * 900.0, gy * 900.0) for gy in range(3) for gx in range(3)]
+    tiles = [{'x_px': x, 'y_px': y} for x, y in stage]
+    errors = {'0->1': (6.0, 0.0), '4->5': (0.0, 9.0), '3->6': (-7.0, 0.0)}
+    relations = {
+        seam: (
+            5.0 + errors.get(seam.key, (0.0, 0.0))[0],
+            -4.0 + errors.get(seam.key, (0.0, 0.0))[1],
+        )
+        for seam in si.seams(tiles)
+    }
+
+    kept, set_aside = si.fit_check(len(stage), 0, stage, relations)
+
+    _, residuals = si.fit_positions(len(stage), 0, stage, kept)
+    assert max(residuals.values()) <= si.FIT_RESIDUAL_PX, residuals
+    assert len(set_aside) == 3, sorted(s.key for s in set_aside)
+    assert set(kept) | set(set_aside) == set(relations)
