@@ -6,6 +6,7 @@ book:
   subtitle: "Operator's Manual"
   chapters:
     - index.qmd
+    - setting-up.qmd
     - integrators.qmd
 manual-version: "4.x"
 filters:
