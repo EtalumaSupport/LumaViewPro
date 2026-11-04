@@ -56,6 +56,11 @@ class _Delivered:
             self._awaited = (len(self.by_id) + n, event)
         assert event.wait(timeout), f'the camera delivered fewer than {n} frames'
 
+    def frames(self):
+        """The frames delivered so far."""
+        with self._lock:
+            return list(self.by_id.values())
+
     def close(self):
         self._imaging.remove_frame_listener(self._on_frame)
 
@@ -143,7 +148,7 @@ def _first_manual_frame_is_judged(session, live_folder, change):
         change()
         operation = session.manual_recording.start()
         started_ns = host_clock.steady_ns()
-        delivered.await_more(5)
+        _await_frames_started_after(scope, delivered, started_ns, 5)
         stop_ns = host_clock.steady_ns()
         operation.stop()
         finished = operation.result(timeout=30)
@@ -152,6 +157,36 @@ def _first_manual_frame_is_judged(session, live_folder, change):
     first = sorted(pathlib.Path(live_folder).rglob('*_0000_*.tif*'))
     assert first, _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns)
     return _judged(scope, delivered.by_id[read_file_record(first[0])['frame_id']])
+
+
+def _frame_start_ticks(scope, frame, mapping):
+    """When a delivered frame started, on the camera's clock; None where no judgment states it."""
+    starts = {j.frame_start_ticks for j in scope.imaging.judge_frame(frame, mapping)} - {None}
+    return starts.pop() if starts else None
+
+
+def _await_frames_started_after(scope, delivered, started_ns, n, timeout=10.0):
+    """Wait until ``n`` delivered frames started after ``started_ns``.
+
+    A count of delivered frames is no stand-in: frames already exposing when
+    the recording started are delivered after it, a burst of them when the
+    host paused (a 784 ms collection in CI run 41879806320 delivered six,
+    every one started before ``start`` returned), and the recording rightly
+    keeps none of them.
+    """
+    mapping = scope.imaging.map_camera_clock()
+    assert mapping is not None, 'the camera states no clock, so no frame start can be placed'
+    start_ticks = mapping.camera_ticks_at(started_ns)
+    deadline_ns = host_clock.steady_ns() + int(timeout * 1e9)
+
+    def started_after():
+        ticks = (_frame_start_ticks(scope, frame, mapping) for frame in delivered.frames())
+        return sum(1 for t in ticks if t is not None and t > start_ticks)
+
+    while started_after() < n:
+        left_s = (deadline_ns - host_clock.steady_ns()) / 1e9
+        assert left_s > 0, f'fewer than {n} frames started after the recording did, in {timeout} s'
+        delivered.await_more(1, timeout=left_s)
 
 
 def _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns):
@@ -181,8 +216,8 @@ def _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns)
         f'stop asked {after_start_ms(mapping.camera_ticks_at(stop_ns)):+.3f} ms after start returned'
     )
     for frame_id, frame in sorted(delivered.by_id.items())[-15:]:
-        starts = {j.frame_start_ticks for j in scope.imaging.judge_frame(frame, mapping)} - {None}
-        when = f'{after_start_ms(starts.pop()):+.3f} ms' if starts else 'at no stated tick'
+        ticks = _frame_start_ticks(scope, frame, mapping)
+        when = f'{after_start_ms(ticks):+.3f} ms' if ticks is not None else 'at no stated tick'
         stated.append(f'frame {frame_id} started {when} after start returned')
     return '\n'.join(stated)
 
