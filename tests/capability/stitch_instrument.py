@@ -54,8 +54,10 @@ PROPOSER_WINDOW_PX = 60
 HIGHPASS_BOX_PX = 15
 # Two proposers agree when every axis is within this many pixels.
 PROPOSERS_AGREE_PX = 1.0
-# A labelled seam's residual in the fit over all its set's seams.
-FIT_RESIDUAL_PX = 0.5
+# A labelled seam's residual in the fit over all its set's seams. A label
+# is held to 1 px, the scoring's own bound: production places tiles in
+# whole pixels, so a finer bound refuses labels no placement could use.
+FIT_RESIDUAL_PX = 1.0
 # A seam's proposal against the same move on the other specimens.
 ACROSS_SPECIMENS_PX = 2.0
 # A rule's answer is right when every axis is within this of the label.

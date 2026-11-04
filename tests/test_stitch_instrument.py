@@ -41,7 +41,7 @@ def test_the_scorer_counts_every_outcome_and_names_every_seam_it_cannot_score():
 
 
 def test_the_proposers_never_label_an_offset_the_content_does_not_ask_for():
-    """On every synthetic scene, each tile with its own noise: a proposed label is the construction's.
+    """On every synthetic scene, each tile with its own noise: a proposed label is the construction's, within 1 px.
 
     The periodic ruling, the straight edge and the row pattern are where a
     wide search finds a confident wrong peak; a proposer there must decline
