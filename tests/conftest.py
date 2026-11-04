@@ -226,10 +226,12 @@ def _install_kivy_uix_stubs():
     for name in (
         'kivy.animation',
         'kivy.core',
+        'kivy.core.image',
         'kivy.core.text',
         'kivy.core.window',
         'kivy.factory',
         'kivy.graphics',
+        'kivy.graphics.opengl',
         'kivy.graphics.texture',
         'kivy.input',
         'kivy.lang',

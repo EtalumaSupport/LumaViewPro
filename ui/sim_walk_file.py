@@ -12,6 +12,7 @@ carried into the record).
 
 import inspect
 import json
+import os
 import pathlib
 
 from modules.finite_number import is_finite_number
@@ -26,7 +27,7 @@ _ACTIONS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     'answer': (frozenset({'button'}), frozenset({'optional', 'timeout_s'})),
     'choose': (frozenset({'path'}), frozenset({'file', 'cancel'})),
     'read': (frozenset({'path', 'props'}), frozenset()),
-    'shot': (frozenset({'name'}), frozenset()),
+    'shot': (frozenset({'name'}), frozenset({'path'})),
     'wait': (frozenset(), frozenset({'timeout_s'})),
     'hold': (frozenset({'seconds'}), frozenset()),
     'inject': (frozenset({'fault'}), frozenset({'args'})),
@@ -80,8 +81,9 @@ def parse_walk(text: str, *, source: str) -> list[dict]:
 
     Raises:
         json.JSONDecodeError: the text is not JSON.
-        WalkFileError: not a list of steps, or a step whose action is unknown,
-            lacks a key it needs, or carries one it does not take.
+        WalkFileError: not a list of steps, a step whose action is unknown,
+            lacks a key it needs, or carries one it does not take, or two
+            shots that would write the same file.
     """
     steps = json.loads(text)
     if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
@@ -90,6 +92,19 @@ def parse_walk(text: str, *, source: str) -> list[dict]:
         _check_step(step, f'{source}: step {number}')
         if step['do'] == 'quit' and number != len(steps):
             raise WalkFileError(f'{source}: step {number}: quit ends a walk; it is the last step')
+    # A shot writes exactly its name, replacing what is there, so a second
+    # shot of the same name would silently take the first one's place.
+    written: dict[str, int] = {}
+    for number, step in enumerate(steps, start=1):
+        if step['do'] != 'shot':
+            continue
+        file = os.path.normpath(step['name'])
+        if file in written:
+            raise WalkFileError(
+                f'{source}: step {number}: shot {step["name"]!r} writes the file '
+                f'step {written[file]} writes'
+            )
+        written[file] = number
     return steps
 
 

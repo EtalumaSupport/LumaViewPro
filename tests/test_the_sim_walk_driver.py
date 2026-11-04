@@ -20,6 +20,7 @@ import pathlib
 import subprocess
 import sys
 
+import cv2
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -214,6 +215,13 @@ Builder.load_string('''
         size: 100, 40
         pos: 740, 300
     Button:
+        id: edgebtn
+        text: 'edge'
+        size_hint: None, None
+        size: 100, 40
+        # Half past the window's right edge, whatever its pixel scale.
+        pos: root.width - 50, 100
+    Button:
         id: longbtn
         text: 'long'
         size_hint: None, None
@@ -381,6 +389,7 @@ ticks = []
 Clock.schedule_interval(lambda dt: ticks.append(time.time()), 0)
 
 def run(steps, shot_dir, bring_up):
+    (pathlib.Path(shot_dir) / 'logs').mkdir(exist_ok=True)
     hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); walk_times.clear(); closes.clear(); stops.clear(); ticks.clear()
     # The app's bring-up, standing in: owes the named facts for the first
     # ``clears_after`` polls, then nothing. None is a bring-up already done.
@@ -399,7 +408,7 @@ def run(steps, shot_dir, bring_up):
         drawers.ids[bring_up['opens_drawer']].collapse = False
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
                    bring_up_owes=bring_up_owes, in_flight=in_flight, simulation=_Simulation(),
-                   shot_dir=pathlib.Path(shot_dir))
+                   shot_dir=pathlib.Path(shot_dir), stop_dir=pathlib.Path(shot_dir) / 'logs')
     walk.start()
     for _ in range(4000):
         EventLoop.idle()
@@ -416,7 +425,7 @@ def run(steps, shot_dir, bring_up):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
             'records': list(records), 'walk_lines': list(walk_lines), 'walk_times': dict(walk_times),
-            'reads': walk.reads, 'shots': walk.shots,
+            'reads': walk.reads, 'shots': walk.shots, 'window_size': list(Window.size),
             'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'stops': len(stops),
             'polls': len(polls),
             'longest_tick_gap': max((b - a for a, b in zip(ticks, ticks[1:])), default=0.0)}
@@ -488,7 +497,8 @@ def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
     assert result['reads'] == [
         {'step': 13, 'path': 'Panel/field', 'text': '12.5', 'disabled': False}
     ]
-    assert len(result['shots']) == 1 and pathlib.Path(result['shots'][0]).is_file()
+    assert result['shots'] == [str(tmp_path / 'after.png')], result
+    assert (tmp_path / 'after.png').is_file()
 
 
 def test_a_press_inside_a_view_it_is_already_in_scrolls_nothing(tmp_path):
@@ -716,6 +726,13 @@ def test_the_walk_file_parser_names_each_defect():
             "unknown argument 'extra' for 'remove_camera'",
         ),
         ('[{"do": "inject", "fault": "unplug"}]', "'unplug' needs board"),
+        # A shot replaces what is at its name, so a second of the same file
+        # would silently take the first one's place.
+        (
+            '[{"do": "shot", "name": "a"}, {"do": "shot", "name": "figs/../a"}]',
+            "step 2: shot 'figs/../a' writes the file step 1 writes",
+        ),
+        ('[{"do": "shot", "name": "a", "path": 3}]', 'path is text'),
     ]:
         with pytest.raises(WalkFileError, match=__import__('re').escape(says)):
             parse_walk(text, source='w.json')
@@ -759,9 +776,10 @@ def test_a_walk_ending_in_quit_stops_the_app_when_it_stops_early(tmp_path):
     result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/nosuch'}, {'do': 'quit'}])
     assert result['outcome'].startswith('stopped at step 1'), result
     assert (result['stops'], result['closes']) == (1, 0), result
-    assert len(result['shots']) == 1, result
-    shot = pathlib.Path(result['shots'][0])
-    assert shot.name.startswith('stopped_at_step_1_') and shot.is_file(), result
+    # Beside the log that names it, not beside the walk, whose folder may be
+    # the repo's manual.
+    assert result['shots'] == [str(tmp_path / 'logs' / 'stopped_at_step_1.png')], result
+    assert (tmp_path / 'logs' / 'stopped_at_step_1.png').is_file()
 
 
 def test_a_walk_not_ending_in_quit_leaves_the_app_open_when_it_stops(tmp_path):
@@ -887,6 +905,70 @@ def test_a_wait_after_a_press_that_closed_a_popup_runs_on(tmp_path):
     assert result['hits'] == ['ok'], result
     waited = next(t for line, t in result['walk_times'].items() if ' step 3 ' in line)
     assert waited >= result['frames']['notice_gone'], 'the wait ended while the popup faded'
+
+
+def test_a_shot_writes_exactly_its_name_replacing_what_is_there(tmp_path):
+    """A re-run re-takes a manual's figure in place: the name is the file, never a counted copy."""
+    figures = tmp_path / 'figs'
+    figures.mkdir()
+    (figures / 'after.png').write_bytes(b'the figure from an earlier run')
+    result = _run(tmp_path, [{'do': 'shot', 'name': 'figs/after'}])
+
+    assert result['outcome'] == 'done', result
+    assert result['shots'] == [str(figures / 'after.png')], result
+    assert [f.name for f in figures.iterdir()] == ['after.png']
+    width, height = result['window_size']
+    assert cv2.imread(str(figures / 'after.png')).shape == (height, width, 3)
+
+
+def test_a_shot_into_a_folder_that_is_not_there_stops_naming_it(tmp_path):
+    result = _run(tmp_path, [{'do': 'shot', 'name': 'nosuch/after'}])
+
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert f'no folder {tmp_path / "nosuch"}' in result['outcome'], result
+    assert result['shots'] == [], result
+
+
+def test_a_shot_of_a_control_is_the_screen_inside_its_bounds(tmp_path):
+    """The crop is what the window showed there, not a redraw of the control alone."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'read', 'path': 'Panel/btn', 'props': ['x', 'y', 'width', 'height']},
+            {'do': 'shot', 'name': 'window'},
+            {'do': 'shot', 'name': 'btn', 'path': 'Panel/btn'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    bounds = result['reads'][0]
+    # The fragment's Panel fills the window, so the button's coordinates are the window's.
+    left, bottom = round(bounds['x']), round(bounds['y'])
+    right, top = left + round(bounds['width']), bottom + round(bounds['height'])
+    height = result['window_size'][1]
+    window = cv2.imread(str(tmp_path / 'window.png'))
+    crop = cv2.imread(str(tmp_path / 'btn.png'))
+    assert crop.shape == (top - bottom, right - left, 3)
+    assert (crop == window[height - top : height - bottom, left:right]).all()
+
+
+@pytest.mark.parametrize(
+    ('path', 'says'),
+    [
+        ('Drawers/hidden', "inside the collapsed drawer 'two'"),
+        ('Panel/edgebtn', 'not wholly inside the window'),
+        ('Panel/deep', 'not wholly in view in its scroll view'),
+    ],
+)
+def test_a_shot_of_a_control_the_screen_does_not_wholly_show_stops_and_writes_nothing(
+    tmp_path, path, says
+):
+    # parametrize-justified: three refusals, each its own check in the step.
+    result = _run(tmp_path, [{'do': 'shot', 'name': 'part', 'path': path}])
+
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert says in result['outcome'], result
+    assert not (tmp_path / 'part.png').exists()
 
 
 def test_a_picture_waits_for_a_closing_popup_to_leave(tmp_path):

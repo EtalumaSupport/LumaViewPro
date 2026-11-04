@@ -36,6 +36,7 @@ from modules.app_environment import preload_camera_sdks
 preload_camera_sdks()
 
 import concurrent.futures
+import pathlib
 import threading
 
 import matplotlib
@@ -708,7 +709,8 @@ class LumaViewProApp(TooltipMixin, App):
 
             _walk_path, _walk_steps = sim_walk
             # Held on the app: the Clock keeps only weak references to the
-            # walk's bound methods. Pictures land beside the walk file.
+            # walk's bound methods. A shot lands where it names, under the walk file's
+            # folder; the picture of a stop goes beside the log.
             self._sim_walk = SimWalk(
                 _walk_steps,
                 source=str(_walk_path),
@@ -716,6 +718,7 @@ class LumaViewProApp(TooltipMixin, App):
                 in_flight=ctx.session.in_flight_named,
                 simulation=ctx.scope.simulation,
                 shot_dir=_walk_path.parent,
+                stop_dir=pathlib.Path(log_dir),
             )
             self._sim_walk.start()
 
