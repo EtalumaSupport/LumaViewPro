@@ -19,7 +19,6 @@ _logger = logging.getLogger('LVP.app_environment')
 class AppEnvironment:
     """Immutable snapshot of application environment determined at startup."""
 
-    script_path: str
     source_path: str
     version: str
     build_timestamp: str
@@ -27,24 +26,22 @@ class AppEnvironment:
     num_cores: int
 
 
-def init_environment(main_file: str) -> AppEnvironment:
+def init_environment() -> AppEnvironment:
     """Determine paths, version, and platform. Called once at startup.
-
-    Args:
-        main_file: The ``__file__`` of the main script (lumaviewpro.py).
 
     Returns an AppEnvironment with all resolved values.
     """
-    # Determine script location from the main entry point
-    abspath = os.path.abspath(main_file)
-    basename = os.path.basename(main_file)
-    script_path = abspath[: -len(basename)]
-
     windows_machine = os.name == 'nt'
 
-    from modules.path_utils import AppRuntime, app_runtime, get_source_root, read_version
+    from modules.path_utils import (
+        AppRuntime,
+        app_runtime,
+        get_script_root,
+        get_source_root,
+        read_version,
+    )
 
-    version, build_timestamp = read_version(pathlib.Path(script_path))
+    version, build_timestamp = read_version()
 
     # The data root is path_utils'. An installed build's is in Documents and
     # starts empty, so the shipped data is copied into it on first launch;
@@ -53,12 +50,11 @@ def init_environment(main_file: str) -> AppEnvironment:
     if app_runtime() == AppRuntime.INSTALLED:
         os.makedirs(source_path, exist_ok=True)
         if not os.path.exists(os.path.join(source_path, 'data')):
-            shutil.copytree(os.path.join(script_path, 'data'), os.path.join(source_path, 'data'))
+            shutil.copytree(get_script_root() / 'data', os.path.join(source_path, 'data'))
 
     num_cores = os.cpu_count()
 
     return AppEnvironment(
-        script_path=script_path,
         source_path=source_path,
         version=version,
         build_timestamp=build_timestamp,

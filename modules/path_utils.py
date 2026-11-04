@@ -400,8 +400,8 @@ def app_runtime() -> AppRuntime:
     return AppRuntime.BUNDLE
 
 
-def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
-    """Read version and build timestamp from version.txt -- the one reader of it.
+def read_version() -> tuple[str, str]:
+    """Read version and build timestamp from the build's version.txt -- the one reader of it.
 
     Returns (version, build_timestamp). Either may be empty string on error.
     Line 1 = version string (path-safe, e.g., "4.0.0-beta2")
@@ -413,9 +413,7 @@ def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
     a non-ASCII character raises "TIFF strings must be 7-bit ASCII" and no
     image can be saved at all.
     """
-    if script_root is None:
-        script_root = get_script_root()
-    version_file = pathlib.Path(script_root) / 'version.txt'
+    version_file = get_script_root() / 'version.txt'
     try:
         lines = version_file.read_text(encoding='utf-8-sig').splitlines()
         version = lines[0].strip() if len(lines) > 0 else ''

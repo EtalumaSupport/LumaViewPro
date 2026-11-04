@@ -412,7 +412,7 @@ def main(argv: list[str]) -> int:
         print('usage: lvp_fx2_driver_step install|uninstall', file=sys.stderr)
         return 2
     install_dir = pathlib.Path(sys.executable).resolve().parent
-    version, _ = read_version(install_dir)
+    version, _ = read_version()
     logs = install_dir / 'logs'
     logs.mkdir(exist_ok=True)
     stamp = wall_time.now().strftime('%Y%m%d_%H%M%S')

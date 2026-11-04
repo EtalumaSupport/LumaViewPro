@@ -14,7 +14,7 @@ from tests.ast_seams import REPO_ROOT
 
 
 def test_the_shipped_level_is_the_versions():
-    version, _ = read_version(REPO_ROOT)
+    version, _ = read_version()
     shipped = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text(encoding='utf-8'))
     level = shipped['logging']['default']['level']
     expected = 'VERBOSE' if 'beta' in version else 'INFO'

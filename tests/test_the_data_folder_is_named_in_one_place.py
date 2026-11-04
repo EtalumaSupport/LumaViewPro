@@ -13,36 +13,38 @@ the mark, and `path_utils.data_folder_name` is the one derivation.
 import ast
 import pathlib
 
+from modules import path_utils
 from modules.path_utils import data_folder_name, read_version
 from tests.ast_seams import parse_module
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
-def _write_version(tmp_path, raw: bytes) -> pathlib.Path:
+def _write_version(tmp_path, monkeypatch, raw: bytes) -> None:
+    """The build's version.txt holds ``raw``."""
     (tmp_path / 'version.txt').write_bytes(raw)
-    return tmp_path
+    monkeypatch.setattr(path_utils, 'get_script_root', lambda: tmp_path)
 
 
-def test_a_byte_order_mark_does_not_reach_the_version(tmp_path):
-    root = _write_version(tmp_path, b'\xef\xbb\xbf4.0.0-beta40\n2026-09-30 12:00\n')
+def test_a_byte_order_mark_does_not_reach_the_version(tmp_path, monkeypatch):
+    _write_version(tmp_path, monkeypatch, b'\xef\xbb\xbf4.0.0-beta40\n2026-09-30 12:00\n')
 
-    assert read_version(root) == ('4.0.0-beta40', '2026-09-30 12:00')
+    assert read_version() == ('4.0.0-beta40', '2026-09-30 12:00')
 
 
-def test_the_folder_name_carries_the_version_alone(tmp_path):
-    root = _write_version(tmp_path, b'\xef\xbb\xbf4.0.0-beta40\n')
+def test_the_folder_name_carries_the_version_alone(tmp_path, monkeypatch):
+    _write_version(tmp_path, monkeypatch, b'\xef\xbb\xbf4.0.0-beta40\n')
 
-    version, _ = read_version(root)
+    version, _ = read_version()
 
     assert data_folder_name(version) == 'LumaViewPro 4.0.0-beta40'
     assert data_folder_name(version).isascii()
 
 
-def test_an_undecodable_file_reads_as_no_version(tmp_path):
-    root = _write_version(tmp_path, b'\xff\xfe4.0\n')
+def test_an_undecodable_file_reads_as_no_version(tmp_path, monkeypatch):
+    _write_version(tmp_path, monkeypatch, b'\xff\xfe4.0\n')
 
-    assert read_version(root) == ('', '')
+    assert read_version() == ('', '')
 
 
 def _names_the_folder_itself(rel_path: str) -> list[int]:

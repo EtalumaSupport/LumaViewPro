@@ -68,7 +68,7 @@ def test_an_installed_build_whose_version_txt_names_no_version_is_refused(exe_fo
     # Its data folder is named for its version; with none, there is no folder
     # to answer, and the install folder it once fell back to cannot be written.
     (exe_folder / INSTALLED_MARKER).write_text('')
-    monkeypatch.setattr(path_utils, 'read_version', lambda script_root=None: ('', ''))
+    monkeypatch.setattr(path_utils, 'read_version', lambda: ('', ''))
 
     with pytest.raises(InstallationFileError) as refused:
         path_utils.get_source_root()
@@ -90,31 +90,42 @@ sys.path.insert(0, sys.argv[1])
 from modules import path_utils
 import lvp_logger
 from modules.app_environment import init_environment
-env = init_environment(sys.argv[1] + '/lumaviewpro.py')
+env = init_environment()
 print(json.dumps({
-    'launch_root': str(path_utils.launch_root()),
-    'get_source_root': str(path_utils.get_source_root()),
-    'lvp_appdata': lvp_logger.lvp_appdata,
-    'init_environment': env.source_path,
+    'data_roots': {
+        'launch_root': str(path_utils.launch_root()),
+        'get_source_root': str(path_utils.get_source_root()),
+        'lvp_appdata': lvp_logger.lvp_appdata,
+        'init_environment': env.source_path,
+    },
+    'versions': {
+        'init_environment': env.version,
+        'read_version': path_utils.read_version()[0],
+        'lvp_logger': lvp_logger.version,
+    },
 }))
 """
 
 
-def test_a_folder_of_links_keeps_every_readers_data_in_that_folder(tmp_path):
+def test_a_folder_of_links_keeps_its_data_and_runs_the_checkouts_build(tmp_path):
+    # The farm's own copy of version.txt names another version: the version is
+    # the build's, read from the checkout the links lead to, for every reader.
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'version.txt', 'data'):
+    for item in ('lvp_logger.py', 'modules', 'drivers', 'lib', 'data'):
         (folder / item).symlink_to(REPO / item)
+    (folder / 'version.txt').write_text('9.9.9-farm\n2026-11-04 00:00\n', encoding='utf-8')
+    checkout_version = (REPO / 'version.txt').read_text(encoding='utf-8-sig').splitlines()[0]
 
-    roots = json.loads(
-        subprocess.run(
-            [sys.executable, '-c', _CHILD, str(folder)],
-            cwd=str(folder),
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        ).stdout.splitlines()[-1]
+    child = subprocess.run(
+        [sys.executable, '-c', _CHILD, str(folder)],
+        cwd=str(folder),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
     )
+    answers = json.loads(child.stdout.splitlines()[-1])
 
-    assert roots == dict.fromkeys(roots, str(folder))
+    assert answers['data_roots'] == dict.fromkeys(answers['data_roots'], str(folder))
+    assert answers['versions'] == dict.fromkeys(answers['versions'], checkout_version)

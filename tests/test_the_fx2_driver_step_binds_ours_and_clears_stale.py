@@ -27,7 +27,7 @@ from drivers.usb_driver_binding import (
     DeviceBinding,
     store_packages,
 )
-from modules import fx2_driver_step
+from modules import fx2_driver_step, path_utils
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHIPPED_INF = (
@@ -267,6 +267,8 @@ def _run_main(tmp_path, monkeypatch, machine) -> tuple[int, str]:
     install_dir = package_dir.parent.parent
     (install_dir / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
     monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
+    # Frozen, the build's files are the install folder.
+    monkeypatch.setattr(path_utils, 'get_script_root', lambda: install_dir)
     monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
 
     code = fx2_driver_step.main(['install'])

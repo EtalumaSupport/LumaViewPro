@@ -156,8 +156,7 @@ if __name__ == '__main__':
     # Environment setup -- paths, version, platform detection
     from modules.app_environment import init_environment
 
-    _env = init_environment(main_file=__file__)
-    script_path = _env.script_path
+    _env = init_environment()
     source_path = _env.source_path
     version = _env.version
     windows_machine = _env.windows_machine
