@@ -7,6 +7,7 @@ import os
 import queue
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from pypylon import genicam, pylon
@@ -4772,35 +4773,51 @@ def _error_code_words(code: int | str | None) -> str:
 
 
 class _DropBurst:
-    """The grabs Stage A dropped since the worker queue last took one.
+    """The grabs Stage A dropped in one stall of the worker queue.
 
     A field bundle held 568 per-drop warnings in four bursts, and the failed
     grabs among them named no error code, so neither the bursts' bounds nor
     whether the failures were buffer underruns could be read. A burst is said
     at its start and summarized at its end instead. Written only on Stage A's
     thread; ``stop`` reads it after StopGrabbing has returned.
+
+    A stall drops grabs and takes some between them, so the burst stays open
+    until the queue has gone ``QUIET_S`` without a drop: closed at the first
+    grab taken after a drop, a field box's one 1 s stall logged as 5 - 24
+    bursts of 0.0 - 0.2 s each, each understating the stall it was part of.
     """
 
-    def __init__(self) -> None:
-        self.started = time.monotonic()
+    QUIET_S = 1.0
+
+    def __init__(self, now: float) -> None:
+        self.started = now
+        self.last_drop = now
         self.frames = 0
         self.failures: dict[str, int] = {}
 
-    def add(self, kind: str, error_code: int | str | None) -> None:
+    def add(self, kind: str, error_code: int | str | None, now: float) -> None:
         """Count one dropped grab: a frame, or a failed grab under its error code."""
+        self.last_drop = now
         if kind == 'frame':
             self.frames += 1
         else:
             words = _error_code_words(error_code)
             self.failures[words] = self.failures.get(words, 0) + 1
 
+    def is_over(self, now: float) -> bool:
+        """Whether the queue has gone ``QUIET_S`` since the burst's last drop."""
+        return now - self.last_drop >= self.QUIET_S
+
     def summary(self, ended: str) -> str:
-        """The burst's one closing line, ``ended`` saying how it ended."""
+        """The burst's one closing line, ``ended`` saying how it ended.
+
+        Its length runs from the first drop to the last, the stall itself.
+        """
         failed = sum(self.failures.values())
         codes = ', '.join(f'{words} x{n}' for words, n in sorted(self.failures.items()))
         return (
-            f'Stage A: {ended} after {time.monotonic() - self.started:.1f} s; '
-            f'the burst dropped {self.frames} frame(s) and {failed} failed grab(s)'
+            f'Stage A: {ended}; the burst lasted {self.last_drop - self.started:.1f} s and '
+            f'dropped {self.frames} frame(s) and {failed} failed grab(s)'
             + (f' (error codes: {codes})' if codes else '')
         )
 
@@ -4852,6 +4869,7 @@ class _PylonImageGrabWorker:
         frame_queue,
         *,
         queue_depth: int | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._parent = parent  # PylonCamera instance
         self._base = base  # ImageHandlerBase instance
@@ -4860,8 +4878,10 @@ class _PylonImageGrabWorker:
         self._worker_queue: queue.Queue = queue.Queue(maxsize=depth)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
-        # The drops since the queue last took a grab; None while it takes them.
+        # The drops of the stall in progress; None while the queue takes every grab.
         self._drop_burst: _DropBurst | None = None
+        # The burst's time source, a test's own in place of the monotonic clock.
+        self._clock = clock
 
     def start(self) -> None:
         """Spawn the worker thread (daemon=True).
@@ -4896,10 +4916,11 @@ class _PylonImageGrabWorker:
         (stop_event already set); the caller's `grabResult` local will
         release the SDK buffer when Stage A returns.
 
-        The drops are logged as bursts: the first drop since the queue last
-        took a grab is said once, later drops are counted, and the next
-        grab the queue takes closes the burst with one summary (its frames,
-        its failed grabs by error code, its length).
+        The drops are logged as bursts: a burst's first drop is said once,
+        later drops are counted, and the first grab the queue takes once it
+        has gone ``_DropBurst.QUIET_S`` without a drop closes the burst with
+        one summary (its frames, its failed grabs by error code, its length
+        from first drop to last).
 
         Args:
             kind: 'frame' for a successful grab, 'fail' for a failure
@@ -4919,17 +4940,22 @@ class _PylonImageGrabWorker:
         try:
             self._worker_queue.put_nowait((kind, grabResult, handed_over))
         except queue.Full:
+            now = self._clock()
             if self._drop_burst is None:
-                self._drop_burst = _DropBurst()
+                self._drop_burst = _DropBurst(now)
                 _log_safely(
                     f'Stage A: worker queue full -- dropping a '
                     f'{"frame" if kind == "frame" else "failed grab"}; further drops '
-                    'are counted until the queue takes a grab again'
+                    f'are counted until the queue goes {_DropBurst.QUIET_S:.1f} s without one'
                 )
-            self._drop_burst.add(kind, error_code)
+            self._drop_burst.add(kind, error_code, now)
             raise
-        if self._drop_burst is not None:
-            _log_safely(self._drop_burst.summary('the worker queue took a grab again'))
+        if self._drop_burst is not None and self._drop_burst.is_over(self._clock()):
+            _log_safely(
+                self._drop_burst.summary(
+                    f'the worker queue took every grab for {_DropBurst.QUIET_S:.1f} s'
+                )
+            )
             self._drop_burst = None
 
     def stop(self, timeout: float = 1.0) -> None:
@@ -4952,9 +4978,7 @@ class _PylonImageGrabWorker:
         # StopGrabbing has returned (the contract above), so Stage A no
         # longer writes the burst: one still open is summarized here.
         if self._drop_burst is not None:
-            _log_safely(
-                self._drop_burst.summary('the worker stopped before the queue took a grab again')
-            )
+            _log_safely(self._drop_burst.summary('the worker stopped with a burst still open'))
             self._drop_burst = None
         self._stop_event.set()
         try:

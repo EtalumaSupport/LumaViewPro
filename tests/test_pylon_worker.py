@@ -16,7 +16,6 @@ those refs are released after stop().
 
 import logging
 import queue
-import re
 import time
 import unittest
 import weakref
@@ -69,11 +68,11 @@ class _FakeGrabResult:
         return self._err_desc
 
 
-def _make_worker(queue_depth=None):
+def _make_worker(queue_depth=None, clock=time.monotonic):
     """Build a worker with mocked parent + base for unit testing.
 
-    queue_depth is passed straight to _PylonImageGrabWorker.__init__
-    as the queue_depth kwarg; None leaves the default in place.
+    queue_depth and clock are passed straight to _PylonImageGrabWorker.__init__
+    as its kwargs; None leaves the default depth in place.
     """
     parent = MagicMock()
     parent._device_removed = False
@@ -87,6 +86,7 @@ def _make_worker(queue_depth=None):
         base,
         frame_queue,
         queue_depth=queue_depth,
+        clock=clock,
     )
     return worker, parent, base, frame_queue
 
@@ -442,10 +442,20 @@ def _stage_a_lines(caplog):
     return [r.getMessage() for r in caplog.records if 'Stage A:' in r.getMessage()]
 
 
-def _full_worker(caplog):
+class _Clock:
+    """A test's time for the worker's bursts, moved by hand."""
+
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+def _full_worker(caplog, clock):
     """A worker whose queue (depth 1, never started) is full after one grab."""
     caplog.set_level(logging.WARNING, logger='LVP.camera')
-    worker, _, _, _ = _make_worker(queue_depth=1)
+    worker, _, _, _ = _make_worker(queue_depth=1, clock=clock)
     worker.enqueue('frame', _FakeGrabResult(), None)
     return worker
 
@@ -455,34 +465,68 @@ def _drop(worker, kind, error_code=None):
         worker.enqueue(kind, _FakeGrabResult(), None, error_code=error_code)
 
 
-def test_a_drop_burst_is_said_at_its_start_and_summarized_when_the_queue_takes_a_grab(caplog):
-    """One line opens a burst; the next grab taken closes it with the counts and codes.
+def _take(worker):
+    """Stage B takes the one grab queued, and the queue takes the next."""
+    worker._worker_queue.get_nowait()
+    worker.enqueue('frame', _FakeGrabResult(), None)
+
+
+def test_a_drop_burst_is_said_at_its_start_and_summarized_once_the_queue_goes_quiet(caplog):
+    """One line opens a burst; a grab taken a quiet second later closes it with the counts and codes.
 
     A field bundle held one warning per dropped grab (568 in four bursts),
     and its failed grabs named no error code.
     """
-    worker = _full_worker(caplog)
+    clock = _Clock()
+    worker = _full_worker(caplog, clock)
     _drop(worker, 'frame')
     _drop(worker, 'frame')
+    clock.now += 0.3
     _drop(worker, 'fail', error_code=_PYLON_ERR_PAYLOAD_DISCARDED)
     _drop(worker, 'fail', error_code='exception')
-    worker._worker_queue.get_nowait()  # Stage B takes the one grab queued
+    clock.now += 1.0
 
-    worker.enqueue('frame', _FakeGrabResult(), None)
+    _take(worker)
 
     lines = _stage_a_lines(caplog)
     assert len(lines) == 2, lines
     assert lines[0].startswith('[CAM Class ] Stage A: worker queue full -- dropping a frame;')
-    assert re.fullmatch(
-        r'\[CAM Class \] Stage A: the worker queue took a grab again after \d+\.\d s; '
-        r'the burst dropped 2 frame\(s\) and 2 failed grab\(s\) '
-        r'\(error codes: 0xE2000212 x1, exception x1\)',
-        lines[1],
+    assert lines[1] == (
+        '[CAM Class ] Stage A: the worker queue took every grab for 1.0 s; '
+        'the burst lasted 0.3 s and dropped 2 frame(s) and 2 failed grab(s) '
+        '(error codes: 0xE2000212 x1, exception x1)'
+    ), lines[1]
+
+
+def test_drops_between_grabs_taken_inside_a_quiet_second_are_one_burst(caplog):
+    """A stall drops grabs and takes some between them: one burst, first drop to last.
+
+    Closed at the first grab taken, a field box's one 1 s stall logged as
+    5 - 24 bursts of 0.0 - 0.2 s each.
+    """
+    clock = _Clock()
+    worker = _full_worker(caplog, clock)
+    for _ in range(4):
+        _drop(worker, 'frame')
+        clock.now += 0.2
+        _take(worker)
+    _drop(worker, 'fail', error_code=_PYLON_ERR_PAYLOAD_DISCARDED)
+    assert len(_stage_a_lines(caplog)) == 1, _stage_a_lines(caplog)
+
+    clock.now += 1.0
+    _take(worker)
+
+    lines = _stage_a_lines(caplog)
+    assert len(lines) == 2, lines
+    assert lines[1] == (
+        '[CAM Class ] Stage A: the worker queue took every grab for 1.0 s; '
+        'the burst lasted 0.8 s and dropped 4 frame(s) and 1 failed grab(s) '
+        '(error codes: 0xE2000212 x1)'
     ), lines[1]
 
 
 def test_a_burst_still_open_when_the_worker_stops_is_summarized_there(caplog):
-    worker = _full_worker(caplog)
+    worker = _full_worker(caplog, _Clock())
     _drop(worker, 'fail', error_code=None)
 
     worker.stop(timeout=0.1)
@@ -490,11 +534,10 @@ def test_a_burst_still_open_when_the_worker_stops_is_summarized_there(caplog):
     lines = _stage_a_lines(caplog)
     assert len(lines) == 2, lines
     assert lines[0].startswith('[CAM Class ] Stage A: worker queue full -- dropping a failed grab;')
-    assert re.fullmatch(
-        r'\[CAM Class \] Stage A: the worker stopped before the queue took a grab again '
-        r'after \d+\.\d s; the burst dropped 0 frame\(s\) and 1 failed grab\(s\) '
-        r'\(error codes: unknown x1\)',
-        lines[1],
+    assert lines[1] == (
+        '[CAM Class ] Stage A: the worker stopped with a burst still open; '
+        'the burst lasted 0.0 s and dropped 0 frame(s) and 1 failed grab(s) '
+        '(error codes: unknown x1)'
     ), lines[1]
 
 
