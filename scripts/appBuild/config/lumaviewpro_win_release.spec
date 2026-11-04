@@ -74,6 +74,7 @@ import libusb_package
 
 _sys.path.insert(0, _os.path.join(SPECPATH, 'scripts', 'appBuild', 'config'))
 from fx2_bundle import check_fx2_dist, fx2_bundle_entries
+from licence_bundle import bundled_distributions
 
 _libusb_path = libusb_package.get_library_path()
 _fx2_datas, binaries = fx2_bundle_entries(SPECPATH, _libusb_path)
@@ -159,19 +160,15 @@ if _missing_pure:
 # dist-info folder, at the app root where copy_metadata puts it: its
 # licence files (at the folder's root, or under licenses/ for a PEP 639
 # wheel) travel with its binaries, and importlib.metadata finds it at run
-# time. The set is read from the Analysis, never listed by hand: each
-# top-level name it collected, mapped to its distributions. A name with no
-# distribution is LVP's own or the interpreter's. A folder the Analysis
-# already holds (collect_all's) is not added twice.
+# time. The set is read from the Analysis, never listed by hand: each file
+# it collected, matched to the distribution that installed it
+# (licence_bundle). A folder the Analysis already holds (collect_all's) is
+# not added twice.
 import importlib.metadata as _metadata
 
-_top_level_names = {entry[0].split('.')[0] for entry in a.pure}
-for _dest, _src, _typecode in (*a.binaries, *a.datas):
-    _top_level_names.add(_dest.replace('\\', '/').split('/')[0].split('.')[0])
-_dists_by_top_level = _metadata.packages_distributions()
-_bundled_dist_names = sorted({
-    _name for _top in _top_level_names for _name in _dists_by_top_level.get(_top, ())
-})
+_bundled_dist_names = bundled_distributions(
+    _src for _dest, _src, _typecode in (*a.scripts, *a.pure, *a.binaries, *a.datas)
+)
 _collected_tops = {_dest.replace('\\', '/').split('/')[0] for _dest, _src, _typecode in a.datas}
 _bundled_dist_infos = []
 for _name in _bundled_dist_names:
