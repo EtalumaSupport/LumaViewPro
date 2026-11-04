@@ -11,6 +11,7 @@ subsystem-mirroring callers use (camera.log today; motor.log / led.log /
 ids.log when those land).
 """
 
+import collections
 import logging
 import threading
 
@@ -83,6 +84,46 @@ def log_to(*loggers, level: str, message: str) -> None:
             primary.debug(f'log_to: mirror.{level}() raised')
 
 
+class _LinesBeforeAWarning(logging.Handler):
+    """The recent VERBOSE lines a trace log did not write, written before its next warning.
+
+    At INFO a trace log leaves out the routine command traffic, which is
+    what a mid-run fault needs beside it: the commands that led there. This
+    keeps the last ``capacity`` records the file's level kept out, and when
+    a WARNING or above reaches the logger writes them to the file under one
+    INFO header, before the warning itself (it is the logger's first
+    handler), then holds nothing. At VERBOSE or DEBUG the file wrote every
+    line already and nothing is held.
+    """
+
+    def __init__(self, file_handler: logging.Handler, capacity: int) -> None:
+        super().__init__(level=VERBOSE)
+        self._file = file_handler
+        self._held: collections.deque[logging.LogRecord] = collections.deque(maxlen=capacity)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.WARNING:
+            if record.levelno < self._file.level:
+                self._held.append(record)
+            return
+        if not self._held:
+            return
+        held = list(self._held)
+        self._held.clear()
+        header = logging.makeLogRecord(record.__dict__)
+        header.levelno, header.levelname, header.args, header.exc_info, header.exc_text = (
+            logging.INFO,
+            'INFO',
+            None,
+            None,
+            None,
+        )
+        header.msg = f'The {len(held)} VERBOSE lines before the {record.levelname} that follows:'
+        self._file.handle(header)
+        for line in held:
+            self._file.handle(line)
+
+
 # Each trace logger and the file it writes, whose levels apply_session_level sets.
 _trace_files: dict[logging.Logger, logging.Handler] = {}
 
@@ -95,8 +136,11 @@ _session_level = logging.INFO
 _levels_lock = threading.Lock()
 
 
-def write_trace_log(trace_logger: logging.Logger, file_handler: logging.Handler) -> None:
-    """Give a trace logger its file, written at the session's level."""
+def write_trace_log(
+    trace_logger: logging.Logger, file_handler: logging.Handler, *, held_lines: int
+) -> None:
+    """Give a trace logger its file, written at the session's level, with its held lines first."""
+    trace_logger.addHandler(_LinesBeforeAWarning(file_handler, held_lines))
     trace_logger.addHandler(file_handler)
     with _levels_lock:
         _trace_files[trace_logger] = file_handler
@@ -109,7 +153,8 @@ def apply_session_level(level: int | str) -> None:
     The 'LVP' parent (every LVP.* logger without a level of its own: the
     GUI interaction and protocol logs among them) and lvp_logger's own
     logger take it, as do the trace logs' files; while bring-up runs, those
-    files take VERBOSE when the level is above it.
+    files take VERBOSE when the level is above it. The trace loggers pass
+    VERBOSE whatever the level, so a file at INFO still has its held lines.
     """
     global _session_level
     level = logging.getLevelName(level.upper()) if isinstance(level, str) else level
@@ -119,7 +164,7 @@ def apply_session_level(level: int | str) -> None:
         logger.setLevel(level)
         written = min(level, VERBOSE) if _bring_up_running else level
         for trace_logger, file_handler in _trace_files.items():
-            trace_logger.setLevel(written)
+            trace_logger.setLevel(min(level, VERBOSE))
             file_handler.setLevel(written)
 
 

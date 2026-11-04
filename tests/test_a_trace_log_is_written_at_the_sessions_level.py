@@ -6,7 +6,9 @@ Each of these trace logs set a fixed level of its own, so neither
 per-command lines were INFO: an overnight 1536-well run filled serial.log in
 1.5 h. The session's level is now its file's (``log_helpers.apply_session_level``);
 until the startup motion has ended the file takes VERBOSE when that level is
-above it, so a field log holds every bring-up's exchanges.
+above it, so a field log holds every bring-up's exchanges; and the VERBOSE
+lines a file at INFO leaves out are kept, the last few, and written before
+the next warning, so a fault carries the commands that led to it.
 """
 
 import logging
@@ -15,6 +17,7 @@ import pytest
 
 from lib import log_helpers
 from lib.log_helpers import VERBOSE
+from modules.lumascope_api.bring_up import Part
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -39,7 +42,7 @@ def trace_log(request):
     traced = logging.getLogger(f'LVP.trace_test.{request.node.name}')
     traced.propagate = False
     file = _File()
-    log_helpers.write_trace_log(traced, file)
+    log_helpers.write_trace_log(traced, file, held_lines=3)
     yield traced, file
     traced.handlers.clear()
 
@@ -88,3 +91,27 @@ def test_debug_mode_writes_the_trace_logs_at_debug(trace_log):
     finally:
         session.shutdown()
     assert file.lines() == [('DEBUG', 'a developer internal')]
+
+
+def test_the_commands_before_a_missed_reply_are_written_before_its_warning(sim_scope):
+    serial = logging.getLogger('LVP.serial')
+    file = _File()
+    handlers = list(serial.handlers)
+    log_helpers.write_trace_log(serial, file, held_lines=2)
+    log_helpers.end_bring_up()
+    log_helpers.apply_session_level('INFO')
+    try:
+        for command in ('INFO', 'STATUS', 'FULLINFO'):
+            sim_scope.diagnostics.send_diagnostic_command('motor', command)
+        sim_scope.simulation.drop_replies(Part.MOTOR, count=2, command='ACTUAL')
+        for _ in range(2):
+            sim_scope.diagnostics.send_diagnostic_command('motor', 'ACTUAL R X')
+    finally:
+        serial.handlers[:] = handlers
+        log_helpers._trace_files.pop(serial)
+    written = file.lines()
+    assert [level for level, _ in written] == ['INFO', 'VERBOSE', 'VERBOSE', 'WARNING', 'WARNING']
+    assert written[0][1] == 'The 2 VERBOSE lines before the WARNING that follows:'
+    assert written[1][1].startswith('[XYZ Sim] STATUS -> ')
+    assert written[2][1].startswith('[XYZ Sim] FULLINFO -> ')
+    assert 'ACTUAL R X -> INJECTED TIMEOUT' in written[3][1]

@@ -280,11 +280,16 @@ serial_logger = logging.getLogger('LVP.serial')
 serial_logger.propagate = False  # Keep serial traffic out of the main log
 
 
+# How many lines each trace log keeps before a warning.
+_HELD_LINES = 200
+
 # The trace logs (serial, camera, api) are written at the session's level,
-# DEBUG under debug_mode, else logging.default.level (log_helpers.apply_session_level).
+# DEBUG under debug_mode, else logging.default.level; that level is their
+# files' (log_helpers.apply_session_level). The loggers themselves pass VERBOSE
+# always, so the lines a file at INFO leaves out are held for the next warning.
 serial_file_handler = _rotating_handler(SERIAL_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 serial_file_handler.addFilter(ThreadPauseFilter())
-log_helpers.write_trace_log(serial_logger, serial_file_handler)
+log_helpers.write_trace_log(serial_logger, serial_file_handler, held_lines=_HELD_LINES)
 # Also send serial errors/warnings to the errors log
 serial_logger.addHandler(error_file_handler)
 
@@ -305,7 +310,7 @@ camera_logger.propagate = False  # Keep camera traffic out of the main log
 
 camera_file_handler = _rotating_handler(CAMERA_LOG_FILE, layout=TRACE_LAYOUT, delay=False)
 camera_file_handler.addFilter(ThreadPauseFilter())
-log_helpers.write_trace_log(camera_logger, camera_file_handler)
+log_helpers.write_trace_log(camera_logger, camera_file_handler, held_lines=_HELD_LINES)
 # Also send camera errors/warnings to the errors log
 camera_logger.addHandler(error_file_handler)
 
@@ -373,7 +378,7 @@ api_logger.addHandler(error_file_handler)
 # Don't create the file until the first write.
 _api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
 _api_file_handler.addFilter(ThreadPauseFilter())
-log_helpers.write_trace_log(api_logger, _api_file_handler)
+log_helpers.write_trace_log(api_logger, _api_file_handler, held_lines=_HELD_LINES)
 
 # Only the REST sink is logger-specific; the bundle file handlers live on root
 # (the single owner) and are reached by propagation.
