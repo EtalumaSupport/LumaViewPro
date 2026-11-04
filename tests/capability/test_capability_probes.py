@@ -49,7 +49,13 @@ from tests.bench_results import linked_checkout
 HERE = pathlib.Path(__file__).resolve().parent
 
 # The harness and its helpers are not probes.
-_NOT_A_PROBE = {'harness.py', 'runfolder.py', '__init__.py', pathlib.Path(__file__).name}
+_NOT_A_PROBE = {
+    'harness.py',
+    'runfolder.py',
+    'stitch_instrument.py',
+    '__init__.py',
+    pathlib.Path(__file__).name,
+}
 
 # Void names reported by the probes THIS RUN. Populated as probes execute, so
 # the announced number describes what actually ran and nothing more.
