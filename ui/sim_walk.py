@@ -245,23 +245,34 @@ class SimWalk:
         )
         deadline = time.monotonic() + timeout
         while True:
+            # A person can touch only the popup on top; one under it is
+            # answered by a later step, once the top one has closed.
+            top = next(iter(open_popups()), None)
             buttons = [
                 w
-                for view in open_popups()
-                for w in view.walk(restrict=True)
+                for w in (top.walk(restrict=True) if top is not None else ())
                 if isinstance(w, ButtonBehavior) and getattr(w, 'text', None) == step['button']
             ]
             if buttons:
-                button = _one(buttons, repr(step['button']), 'the open popups')
+                button = _one(buttons, repr(step['button']), 'the popup on top')
                 yield from self._touch(button, f'popup button {step["button"]!r}')
                 return
             if time.monotonic() > deadline:
-                if optional:
-                    self._step_outcome = 'no popup asked; optional, nothing pressed'
-                    return
-                raise WalkStepError(
-                    f'no open popup has a {step["button"]!r} button after {timeout:g} s'
+                if top is None:
+                    if optional:
+                        self._step_outcome = 'no popup asked; optional, nothing pressed'
+                        return
+                    raise WalkStepError(
+                        f'no open popup has a {step["button"]!r} button after {timeout:g} s'
+                    )
+                missing = (
+                    f'the popup on top ({getattr(top, "title", "")!r}) has no '
+                    f'{step["button"]!r} button'
                 )
+                if optional:
+                    self._step_outcome = f'{missing}; optional, nothing pressed'
+                    return
+                raise WalkStepError(f'{missing} after {timeout:g} s')
             yield _POLL_S
 
     def _choose(self, step):

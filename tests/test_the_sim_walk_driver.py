@@ -196,6 +196,12 @@ Builder.load_string('''
         size: 100, 40
         pos: 500, 300
     Button:
+        id: twobtn
+        text: 'two'
+        size_hint: None, None
+        size: 100, 40
+        pos: 260, 200
+    Button:
         id: spinpopbtn
         text: 'spinpop'
         size_hint: None, None
@@ -287,6 +293,16 @@ def open_stacked(*_):
     inner.bind(on_release=open_popup)
     Popup(title='Outer', content=inner, size_hint=(0.6, 0.6), auto_dismiss=False).open()
 ids.stackbtn.bind(on_release=open_stacked)
+
+def open_two_notices(*_):
+    # Two notices, each with its OK, opened together, as a launch with the
+    # camera and the LED board missing opens one for each.
+    for title in ('Camera', 'LED'):
+        ok = Button(text='OK')
+        p = Popup(title=title, content=ok, size_hint=(0.3, 0.3), auto_dismiss=False)
+        ok.bind(on_release=lambda *_, p=p, title=title: (hits.append('ok ' + title), p.dismiss()))
+        p.open()
+ids.twobtn.bind(on_release=open_two_notices)
 
 def open_spinner_popup(*_):
     # A spinner inside a popup, as Advanced Settings holds Tiling Overlap: its
@@ -544,6 +560,33 @@ def test_the_popup_on_top_is_the_one_answered(tmp_path):
     )
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['ok'], result
+
+
+def test_two_popups_with_the_same_button_are_answered_top_first(tmp_path):
+    """A person can touch only the popup on top, so an answer is that one's,
+    and the next answer is the one under it."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/twobtn'},
+            {'do': 'answer', 'button': 'OK'},
+            {'do': 'answer', 'button': 'OK'},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok LED', 'ok Camera'], result
+
+
+def test_an_answer_the_popup_on_top_lacks_stops_naming_that_popup(tmp_path):
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/stackbtn'},
+            {'do': 'answer', 'button': 'OK', 'timeout_s': 0.5},
+        ],
+    )
+    assert result['outcome'].startswith('stopped at step 2'), result
+    assert "the popup on top ('Outer') has no 'OK' button" in result['outcome'], result
 
 
 def test_a_popup_closing_as_another_opens_is_not_answered(tmp_path):
