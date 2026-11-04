@@ -10,6 +10,10 @@ book:
     - installing.qmd
     - incubator.qmd
     - integrators.qmd
+  appendices:
+    - sanitising.qmd
+    - windows-timelapse.qmd
+    - extending.qmd
 manual-version: "4.x"
 filters:
   - style/guilabel.lua

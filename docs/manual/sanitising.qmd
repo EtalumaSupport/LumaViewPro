@@ -1,0 +1,38 @@
+# Sanitising the microscope {#sec-sanitising}
+
+A microscope going into an incubator is usually cleaned first. These are the
+methods Etaluma recommends.
+
+## Wiping down with alcohol {#sec-alcohol}
+
+Ethanol and isopropanol are the two alcohols most used for their biocidal
+action. They disrupt cell membranes, dissolve lipids and denature proteins,
+and these processes need water, so the alcohol must be diluted to 60% to 90%
+in water to work (typically 70%, by volume). They act on lipid-containing
+viruses and a broad range of bacteria, but not on spore-forming bacteria.
+They evaporate fast, so a long contact time is hard to reach without
+immersion. Alcohols are generally regarded as non-corrosive.
+
+## Wiping down with bleach {#sec-bleach}
+
+Chlorine compounds are inexpensive, fast-acting disinfectants with a broad
+antimicrobial range. Hypochlorites, the most used, come as liquids (sodium
+hypochlorite, as in household bleach) and solids (calcium hypochlorite,
+sodium dichloroisocyanurate). Household bleach holds 5.25% available
+chlorine, 52,500 ppm. It is a strong oxidiser and loses strength quickly, so
+make it fresh and use it the day it is made.
+
+## Hydrogen peroxide vapour (HPV) {#sec-hpv}
+
+Hydrogen peroxide vapour removes biological agents from equipment surfaces,
+including ones hard to sterilise otherwise. Because a vapour reaches every
+surface, it is used for pass-through chambers and for devices in hospitals
+and manufacturing.
+
+HPV decontaminates a CO~2~ incubator without heat, which spares a research
+lab costly down time. A seven-minute HPV fog circulated by the incubator's
+blower, followed by narrow-band ultraviolet light, disinfects effectively.
+It reaches every wall, shelf, reservoir, air plenum, sensor and other
+interior part, and leaves only a little sterile water behind.
+
+For questions, contact Etaluma Technical Support at support@etaluma.com.

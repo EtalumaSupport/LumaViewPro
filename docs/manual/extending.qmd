@@ -1,0 +1,25 @@
+# Working farther from the microscope {#sec-extending}
+
+The supplied USB cable is 3 metres long, and it cannot be extended or
+replaced (@sec-connecting). When the microscope is in an incubator where the
+computer cannot sit within 3 metres of a convenient place to work, keep the
+computer near the microscope and extend the monitor, keyboard and mouse
+instead: a longer HDMI cable to the monitor, and a Bluetooth keyboard and
+mouse.
+
+With a desktop computer, a longer monitor cable and a Bluetooth keyboard and
+mouse are all it takes. With a laptop, the steps below let it work with its
+lid closed:
+
+1. Connect the microscope to the laptop with the supplied USB cable.
+2. Connect the laptop to an external monitor with an HDMI cable of the
+   length you need.
+3. Pair a Bluetooth keyboard and mouse with the laptop.
+4. Open Settings, System, Display, and choose to duplicate the display on
+   the external monitor.
+5. Open Control Panel, Power Options, and choose what closing the lid does.
+   Set "When I close the lid" to "Do nothing" and save the change
+   (@fig-windows-lid).
+6. Close the laptop and put it somewhere safe.
+
+![Setting the lid to do nothing when closed](images/windows-lid-close.png){#fig-windows-lid width=70%}
