@@ -26,7 +26,7 @@ LumaViewPro controls the **Etaluma Lumascope** family of inverted fluorescence m
 
 - **LED Illumination** -- Up to 6 channels: three fluorescence channels, each named for its excitation (405 / 488 / 589 nm on the stock filterset); Brightfield, Phase Contrast, Darkfield; Luminescence mode
 - **Motion Control** -- Motorized X/Y stage, Z focus, and 4-position objective turret (model-dependent)
-- **Camera** -- Basler (Pylon) camera with 12-bit depth, configurable ROI, binning, gain, and exposure
+- **Camera** -- Basler (pylon) or IDS (IDS peak) camera with 12-bit depth, configurable ROI, binning, gain, and exposure
 
 ## Software Overview
 
@@ -47,7 +47,7 @@ To run from source on any platform (Windows, macOS, or Linux), use the install s
 ## Troubleshooting
 
 **"No camera found" or camera not detected**
-- Make sure the Basler Pylon Runtime is installed (the Windows installer includes it; for source installs, download from [Basler](https://docs.baslerweb.com/pylon-software-suite))
+- Make sure the camera's SDK is installed: Basler pylon for a Basler camera, IDS peak for an IDS camera (the Windows installer includes them; for source installs, download from [Basler](https://docs.baslerweb.com/pylon-software-suite) or [IDS](https://en.ids-imaging.com/ids-peak.html))
 - Verify the camera is connected via USB 3.0 (not USB 2.0)
 - On Linux, check that your user is in the `dialout` group: `groups $USER`
 
@@ -75,10 +75,10 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 ## Requirements (running from source)
 
 - **Python**: 3.12 or 3.13
-- **Camera SDK**: [Basler Pylon](https://docs.baslerweb.com/pylon-software-suite) (included in the Windows installer, must be installed separately when running from source)
+- **Camera SDK**: [Basler pylon](https://docs.baslerweb.com/pylon-software-suite) for a Basler camera, [IDS peak](https://en.ids-imaging.com/ids-peak.html) for an IDS camera (included in the Windows installer, must be installed separately when running from source)
 - **OS**: Windows 10/11, macOS, Linux (see note below)
 
-**macOS note:** pypylon 4.0.0 wheels are limited to macOS 14 (Sonoma) on Apple Silicon (ARM64) — macOS 15 (Sequoia) and later are **not yet supported**. Intel Macs support macOS 11+. Check the [Basler Pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
+**macOS note:** the pypylon 26.4.1 wheels LumaViewPro pins need macOS 14 (Sonoma) or later, on Apple Silicon or Intel. IDS cameras are not supported on macOS: the IDS peak Python packages are pinned for Windows and Linux only. Check the [Basler pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
 
 ## Installation from Source
 
@@ -94,7 +94,7 @@ Install scripts are provided in the `scripts/` folder. They check your Python ve
 
 The macOS and Linux scripts always install into a virtual environment (`venv/`). On Windows, add `--venv` to install in a virtual environment instead of system Python (`scripts\install_windows.bat --venv`).
 
-**Note:** Camera SDK (Basler Pylon) must still be installed separately -- see platform instructions below.
+**Note:** The camera SDK (Basler pylon, or IDS peak for an IDS camera) must still be installed separately -- see platform instructions below.
 
 ### Manual Install: Windows
 
@@ -140,7 +140,6 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
 
 2. **Install camera SDK**
    - [Basler Pylon for macOS](https://docs.baslerweb.com/pylon-software-suite)
-   - [IDS Peak for macOS](https://en.ids-imaging.com/ids-peak.html) (if using an IDS camera)
    - For an LS560, LS620 or LS720, nothing extra: the USB library comes with the Python requirements.
 
 3. **Download LumaViewPro**
@@ -250,4 +249,4 @@ Copyright 2023-2026, Etaluma, Inc. MIT License. See [docs/LICENSE](docs/LICENSE)
 
 - **Permissive (MIT / BSD / Apache-2.0):** Kivy, NumPy, SciPy, pandas, scikit-image, OpenCV, Matplotlib, tifffile, imagecodecs, pyserial, psutil — all compatible with LVP's MIT license.
 - **LGPL-2.1 (FFmpeg via PyAV):** The video I/O path links dynamically against FFmpeg's LGPL-licensed shared libraries, which are bundled alongside the application. FFmpeg source is available at https://ffmpeg.org/download.html and the LGPL-2.1 text is at `docs/licenses/LICENSE.LGPL-2.1.txt`.
-- **Proprietary camera SDKs (Basler Pylon, IDS Peak):** Separately installed by the user or chained via the Windows installer; each surfaces its own EULA during install. The `pypylon` and `ids-peak` Python wrappers are BSD-3.
+- **Proprietary camera SDKs (Basler pylon, IDS peak):** The runtime libraries ship inside the `pypylon` and `ids-peak` wheels: the pylon runtime is Basler's (the `pypylon` wrapper is BSD-3-Clause), and the `ids-peak` packages are under IDS's license terms. The vendors' USB drivers are installed by their own installers, each under its own EULA.
